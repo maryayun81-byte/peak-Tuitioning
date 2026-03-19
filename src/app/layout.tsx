@@ -1,0 +1,88 @@
+import type { Metadata, Viewport } from 'next'
+import { Toaster } from 'react-hot-toast'
+import { QueryProvider } from '@/providers/QueryProvider'
+import { ThemeProvider } from '@/providers/ThemeProvider'
+import { AuthHandler } from '@/components/AuthHandler'
+import './globals.css'
+
+export const metadata: Metadata = {
+  title: 'Peak Performance Tutoring',
+  description: 'Premium tuition management platform for students, teachers, parents and administrators',
+  manifest: '/manifest.json',
+  icons: {
+    icon: '/logo.png',
+    apple: '/logo.png',
+  },
+  openGraph: {
+    title: 'Peak Performance Tutoring',
+    description: 'Premium tuition management platform',
+    type: 'website',
+  },
+}
+
+export const viewport: Viewport = {
+  themeColor: '#0B0F1A',
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+}
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  return (
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=DM+Sans:wght@300;400;500;600;700&display=swap"
+          rel="stylesheet"
+        />
+        {process.env.NODE_ENV === 'development' && (
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `
+                if ('serviceWorker' in navigator) {
+                  navigator.serviceWorker.getRegistrations().then(function(registrations) {
+                    for(let registration of registrations) {
+                      registration.unregister();
+                    }
+                  });
+                }
+              `,
+            }}
+          />
+        )}
+      </head>
+      <body>
+        <QueryProvider>
+          <ThemeProvider>
+            <AuthHandler />
+            {children}
+            <Toaster
+              position="top-right"
+              toastOptions={{
+                style: {
+                  background: 'var(--card)',
+                  color: 'var(--text)',
+                  border: '1px solid var(--card-border)',
+                  borderRadius: '12px',
+                  fontSize: '14px',
+                },
+                success: {
+                  iconTheme: { primary: '#10B981', secondary: 'white' },
+                },
+                error: {
+                  iconTheme: { primary: '#EF4444', secondary: 'white' },
+                },
+              }}
+            />
+          </ThemeProvider>
+        </QueryProvider>
+      </body>
+    </html>
+  )
+}
