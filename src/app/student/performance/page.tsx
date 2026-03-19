@@ -29,6 +29,9 @@ export default function StudentPerformance() {
   const [quizTimeline, setQuizTimeline] = useState<any[]>([])
   const [attendance, setAttendance] = useState<any>({ percentage: 0, total: 0, present: 0 })
   const [rank, setRank] = useState(0)
+  const [totalStudents, setTotalStudents] = useState(0)
+  const [percentile, setPercentile] = useState(0)
+  const [leaderboard, setLeaderboard] = useState<any[]>([])
   const [accuracy, setAccuracy] = useState(0)
   const [recentSuccesses, setRecentSuccesses] = useState<any[]>([])
   const [badges, setBadges] = useState<any[]>([])
@@ -42,16 +45,24 @@ export default function StudentPerformance() {
     // In a real app, these would be complex aggregation queries
     // Here we simulate data based on logical structures
     
-    const [subRes, attRes, rankData, certRes] = await Promise.all([
+    const [subRes, attRes, rankRes, certRes] = await Promise.all([
       supabase.from('submissions').select('*, assignment:assignments(*, subject:subjects(name))').eq('student_id', student?.id),
       supabase.from('attendance').select('*').eq('student_id', student?.id),
-      supabase.from('students').select('id, xp').eq('curriculum_id', student?.curriculum_id).order('xp', { ascending: false }),
+      supabase.from('students').select('id, full_name, xp').eq('curriculum_id', student?.curriculum_id).order('xp', { ascending: false }),
       supabase.from('certificates').select('*').eq('student_id', student?.id)
     ])
 
     const submissions = subRes.data || []
-    const myRank = rankData.data ? rankData.data.findIndex(s => s.id === student?.id) + 1 : 0
+    const rankList = rankRes.data || []
+    const myRank = rankList.findIndex(s => s.id === student?.id) + 1
+    
     setRank(myRank)
+    setTotalStudents(rankList.length)
+    setLeaderboard(rankList.slice(0, 5))
+    
+    if (rankList.length > 0 && myRank > 0) {
+      setPercentile(Math.round(((rankList.length - myRank) / rankList.length) * 100))
+    }
 
     // Calculate aggregated stats
     const totalMarks = submissions.reduce((acc, s) => acc + (s.marks || 0), 0)
@@ -77,14 +88,17 @@ export default function StudentPerformance() {
     // Success log
     const recent = submissions
       .filter(s => s.status === 'returned')
-      .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+      .sort((a, b) => new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime())
       .slice(0, 3)
-      .map(s => ({
-        title: s.assignment?.title || 'Assignment',
-        score: `${Math.round((s.marks / s.max_marks) * 100)}%`,
-        date: formatDate(s.updated_at),
-        delta: s.marks / s.max_marks >= 0.8 ? 'Excellent' : 'Good'
-      }))
+      .map(s => {
+        const pct = s.max_marks > 0 ? (s.marks / s.max_marks) : 0
+        return {
+          title: s.assignment?.title || 'Assignment',
+          score: `${Math.round(pct * 100)}%`,
+          date: s.updated_at ? formatDate(s.updated_at) : 'Recent',
+          delta: pct >= 0.8 ? 'Excellent' : 'Good'
+        }
+      })
     setRecentSuccesses(recent)
 
     // Timeline (simplified from submissions)
@@ -249,6 +263,86 @@ export default function StudentPerformance() {
              </div>
           </div>
       </div>
+
+       {/* Competitive Insights: Leaderboard & Your Rank */}
+       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 pb-12">
+          {/* Top PERFORMERS */}
+          <Card className="p-6 space-y-6 lg:col-span-2">
+             <div className="flex items-center justify-between">
+                <div>
+                   <h3 className="font-bold text-sm uppercase tracking-widest text-muted">Curriculum Leaders</h3>
+                   <p className="text-[10px] text-muted">Top performers across all classes in your curriculum</p>
+                </div>
+                <Badge variant="muted"><Trophy size={12} className="mr-1 text-amber-500" /> Season 1</Badge>
+             </div>
+
+             <div className="space-y-3">
+                {leaderboard.map((s, i) => (
+                  <div key={s.id} className={`flex items-center justify-between p-4 rounded-3xl transition-all ${s.id === student?.id ? 'bg-primary/5 border border-primary/20 scale-[1.02]' : 'bg-[var(--input)]'}`}>
+                     <div className="flex items-center gap-4">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-xs ${i === 0 ? 'bg-amber-100 text-amber-600' : i === 1 ? 'bg-slate-100 text-slate-500' : i === 2 ? 'bg-orange-100 text-orange-600' : 'bg-white/10 text-muted'}`}>
+                           {i + 1}
+                        </div>
+                        <div>
+                           <p className="font-bold text-sm" style={{ color: 'var(--text)' }}>{s.full_name} {s.id === student?.id && "(You)"}</p>
+                           <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{s.xp.toLocaleString()} XP Total</p>
+                        </div>
+                     </div>
+                     <div className="flex items-center gap-2">
+                        {i === 0 && <Star size={16} className="text-amber-500 fill-amber-500" />}
+                        {i === 1 && <Star size={16} className="text-slate-400 fill-slate-400" />}
+                        {i === 2 && <Star size={16} className="text-orange-400 fill-orange-400" />}
+                        <div className="font-black text-xs text-primary">#{i + 1}</div>
+                     </div>
+                  </div>
+                ))}
+             </div>
+          </Card>
+
+          {/* YOUR POSITION */}
+          <Card className="p-6 flex flex-col justify-between space-y-8 bg-gradient-to-br from-primary to-indigo-600 border-none text-white overflow-hidden relative">
+             <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 blur-2xl" />
+             
+             <div className="space-y-2 relative z-10">
+                <h3 className="font-bold text-xs uppercase tracking-widest opacity-80">Your Standings</h3>
+                <div className="flex items-baseline gap-2">
+                   <span className="text-5xl font-black">#{rank}</span>
+                   <span className="text-sm opacity-60">/ {totalStudents}</span>
+                </div>
+                <p className="text-xs font-medium bg-white/20 inline-block px-3 py-1 rounded-full backdrop-blur-md">
+                   Top {100 - percentile}% of the curriculum
+                </p>
+             </div>
+
+             <div className="space-y-4 relative z-10">
+                <div className="flex justify-between items-end">
+                   <div className="space-y-1">
+                      <p className="text-[10px] opacity-70 uppercase font-black">Performance Streak</p>
+                      <p className="font-black text-lg flex items-center gap-2">
+                         <TrendingUp size={20} /> Climbing <Star size={14} className="fill-white" />
+                      </p>
+                   </div>
+                   <div className="text-right">
+                      <p className="text-[10px] opacity-70 uppercase font-black">Current XP</p>
+                      <p className="font-black text-lg">{student?.xp?.toLocaleString()}</p>
+                   </div>
+                </div>
+
+                <div className="space-y-2">
+                   <div className="flex justify-between text-[10px] font-black uppercase opacity-70">
+                      <span>Relative Progress</span>
+                      <span>To First Place</span>
+                   </div>
+                   <div className="h-2 bg-white/20 rounded-full overflow-hidden">
+                      <motion.div 
+                        initial={{ width: 0 }} 
+                        animate={{ width: `${Math.min(100, ((student?.xp || 0) / (leaderboard[0]?.xp || 1)) * 100)}%` }}
+                        className="h-full bg-white shadow-[0_0_10px_rgba(255,255,255,0.5)]" />
+                   </div>
+                </div>
+             </div>
+          </Card>
+       </div>
     </div>
   )
 }

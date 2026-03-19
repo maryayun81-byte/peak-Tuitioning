@@ -11,6 +11,9 @@ const withPWA = require('next-pwa')({
 })
 
 const nextConfig: NextConfig = {
+  turbopack: {
+    root: './',
+  },
   images: {
     remotePatterns: [
       {
