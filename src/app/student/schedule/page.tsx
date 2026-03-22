@@ -5,7 +5,7 @@ import { motion } from 'framer-motion'
 import { 
   Calendar as CalIcon, Clock, MapPin, 
   User, ChevronLeft, ChevronRight, 
-  Filter, Zap, Play, CheckCircle2 
+  Filter, Zap, Play, CheckCircle2, ArrowRight
 } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Card, Badge } from '@/components/ui/Card'
@@ -93,21 +93,15 @@ export default function StudentSchedule() {
                             <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-[8px] font-bold text-slate-500">
                                {item.teacher?.full_name[0]}
                             </div>
-                            <span className="text-[10px] font-bold" style={{ color: 'var(--text-muted)' }}>Prof. {item.teacher?.full_name}</span>
+                            <span className="text-xs font-bold" style={{ color: 'var(--text-muted)' }}>{item.teacher?.full_name}</span>
                          </div>
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-4 text-[9px] font-bold" style={{ color: 'var(--text-muted)' }}>
-                         <span className="flex items-center gap-1"><Clock size={12} className="text-primary" /> {item.start_time} - {item.end_time}</span>
-                         <span className="flex items-center gap-1"><CheckCircle2 size={12} className="text-emerald-500" /> Attendance: 100%</span>
+                      <div className="flex flex-wrap items-center gap-4 text-xs font-bold" style={{ color: 'var(--text-muted)' }}>
+                         <span className="flex items-center gap-1"><Clock size={14} className="text-primary" /> {item.start_time} - {item.end_time}</span>
                       </div>
                    </div>
 
-                   <div className="mt-8 relative z-10">
-                      <Button className="w-full py-4 text-[10px] font-black rounded-xl shadow-lg shadow-primary/10 group-hover:bg-primary group-hover:text-white transition-all">
-                         <Play size={14} className="mr-2 fill-current" /> Enter Live Class
-                      </Button>
-                   </div>
                 </Card>
              </motion.div>
            )) : (
@@ -131,4 +125,3 @@ export default function StudentSchedule() {
   )
 }
 
-import { ArrowRight } from 'lucide-react'

@@ -42,7 +42,7 @@ export default function AdminParents() {
         supabase
           .from('parent_student_links')
           .select(`
-            parent:profiles!parent_id(id, full_name, email, phone),
+            parent:parents(id, full_name, email, phone),
             student:students(id, full_name, admission_number, class:classes(id, name, curriculum_id))
           `),
         supabase.from('curriculums').select('*').order('name'),

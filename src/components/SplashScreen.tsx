@@ -18,19 +18,22 @@ const ROLE_LABELS = {
 }
 
 export function SplashScreen({ storageKey, role = 'landing', done: manualDone }: SplashScreenProps) {
+  const [forceHide, setForceHide] = useState(false)
   const [internalVisible, setInternalVisible] = useState(false)
   
   // If manualDone is provided, we respect that. 
   // If not, we use storageKey/timer logic.
   const isSelfManaged = manualDone !== undefined
-  const isVisible = isSelfManaged ? !manualDone : internalVisible
+  const isVisible = (isSelfManaged ? !manualDone : internalVisible) && !forceHide
 
   useEffect(() => {
     // HARD DISMISS: Senior Engineer safety - never lock out the user
-    // No matter what happens with auth or RLS, hide the splash after 4 seconds
+    // No matter what happens with auth or RLS, hide the splash after 5 seconds
     const hardDismiss = setTimeout(() => {
+      console.log('[SplashScreen] Hard dismiss triggered after 5s safety timeout')
+      setForceHide(true)
       setInternalVisible(false)
-    }, 4000)
+    }, 5000)
 
     if (isSelfManaged) return () => clearTimeout(hardDismiss)
 

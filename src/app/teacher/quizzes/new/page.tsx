@@ -37,6 +37,7 @@ export default function QuizCreator() {
   const router = useRouter()
   const { profile, teacher } = useAuthStore()
 
+  const [allAssignments, setAllAssignments] = useState<any[]>([])
   const [classes, setClasses] = useState<Class[]>([])
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [loading, setLoading] = useState(false)
@@ -52,6 +53,7 @@ export default function QuizCreator() {
     retake_delay_minutes: 0,
     audience: 'class' as 'all_classes' | 'class' | 'class_subject',
     instructions: '',
+    publish_at: '',
   })
 
   const [questions, setQuestions] = useState<Question[]>([
@@ -69,17 +71,57 @@ export default function QuizCreator() {
   ])
 
   useEffect(() => {
-    loadSelectors()
-  }, [])
+    if (profile) loadSelectors()
+  }, [profile, teacher])
 
   const loadSelectors = async () => {
-    const [clRes, sRes] = await Promise.all([
-      supabase.from('classes').select('*').order('name'),
-      supabase.from('subjects').select('*').order('name'),
-    ])
-    setClasses(clRes.data ?? [])
-    setSubjects(sRes.data ?? [])
+    if (!profile?.id) return
+
+    let currentTeacherId = teacher?.id
+    if (!currentTeacherId) {
+      const { data: tData } = await supabase.from('teachers').select('id').eq('user_id', profile.id).single()
+      currentTeacherId = tData?.id
+    }
+
+    if (!currentTeacherId) return
+
+    const { data: mapData, error } = await supabase
+      .from('teacher_teaching_map')
+      .select(`
+        class_id,
+        subject_id,
+        classes (id, name),
+        subjects (id, name, class_id)
+      `)
+      .eq('teacher_id', currentTeacherId)
+
+    if (error) {
+      toast.error('Failed to load assignments')
+      return
+    }
+
+    setAllAssignments(mapData || [])
+
+    const uniqueClasses = Array.from(new Set((mapData || [])
+      .map(m => JSON.stringify(m.classes))
+      .filter(Boolean)
+    )).map(s => JSON.parse(s as string))
+
+    setClasses(uniqueClasses)
   }
+
+  // Update subjects when class changes
+  useEffect(() => {
+    if (form.class_id) {
+      const filteredSubjects = allAssignments
+        .filter(m => m.class_id === form.class_id)
+        .map(m => m.subjects)
+        .filter(Boolean)
+      setSubjects(filteredSubjects)
+    } else {
+      setSubjects([])
+    }
+  }, [form.class_id, allAssignments])
 
   const addQuestion = () => {
     setQuestions([...questions, { 
@@ -125,11 +167,29 @@ export default function QuizCreator() {
     }
 
     setLoading(true)
+    const { passing_score, ...restForm } = form
+
+    // Resolve Teacher ID
+    let currentTeacherId = teacher?.id
+    if (!currentTeacherId && profile) {
+      const { data: tData } = await supabase.from('teachers').select('id').eq('user_id', profile.id).single()
+      currentTeacherId = tData?.id
+    }
+
+    if (!currentTeacherId) {
+      toast.error('Teacher profile not found. Please try again or re-login.')
+      setLoading(false)
+      return
+    }
+    
     const { data: quiz, error } = await supabase.from('quizzes').insert({
-      ...form,
+      ...restForm,
+      pass_mark_percentage: passing_score,
       total_marks: questions.reduce((sum, q) => sum + q.marks, 0),
       questions: questions,
-      teacher_id: teacher?.id, // Ensure we use the teacher UUID
+      teacher_id: currentTeacherId,
+      is_published: true, // Always publish upon save
+      publish_at: form.publish_at || null, 
     }).select().single()
 
     if (error) {
@@ -323,6 +383,11 @@ export default function QuizCreator() {
                 <div className="grid grid-cols-2 gap-4">
                    <Input label="Max Attempts" type="number" value={form.max_attempts} onChange={e => setForm({...form, max_attempts: parseInt(e.target.value)})} />
                    <Input label="Retake Delay (m)" type="number" value={form.retake_delay_minutes} onChange={e => setForm({...form, retake_delay_minutes: parseInt(e.target.value)})} />
+                </div>
+                
+                <div className="space-y-1">
+                   <Input label="Schedule Publish (Optional)" type="datetime-local" value={form.publish_at} onChange={e => setForm({...form, publish_at: e.target.value})} />
+                   <p className="text-[10px] text-[var(--text-muted)]">Leave empty to publish instantly</p>
                 </div>
              </Card>
 

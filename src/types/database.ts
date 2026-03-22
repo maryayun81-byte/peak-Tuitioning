@@ -62,6 +62,7 @@ export interface Parent {
   full_name: string
   email: string
   phone?: string
+  security_pin?: string
   created_at: string
   // joins
   students?: Student[]
@@ -162,6 +163,7 @@ export interface TuitionEvent {
   status: 'upcoming' | 'active' | 'postponed' | 'cancelled' | 'ended'
   postponed_to?: string
   curriculum_id?: string
+  description?: string
   created_at: string
   updated_at: string
 }
@@ -179,14 +181,33 @@ export interface ExamEvent {
   // joins
   tuition_event?: TuitionEvent
   curriculum?: Curriculum
+  total_candidates?: number
 }
 
 export interface GradingSystem {
   id: string
   curriculum_id: string
   subject_id?: string // null = applies to all subjects in curriculum
+  class_id?: string // null = applies to all classes in curriculum (e.g. CBC)
   name: string
-  grades: GradeBand[]
+  is_default: boolean,
+  is_overall?: boolean,
+  created_at: string
+  // joins
+  curriculum?: Curriculum
+  subject?: Subject
+  class?: Class
+  scales?: GradingScale[]
+}
+
+export interface GradingScale {
+  id: string
+  grading_system_id: string
+  grade: string // e.g. A, EE
+  min_score: number
+  max_score: number
+  points?: number
+  remarks?: string
   created_at: string
 }
 
@@ -352,6 +373,7 @@ export type NotificationType =
   | 'payment_recorded'
   | 'attendance_alert'
   | 'certificate_generated'
+  | 'achievement'
   | 'general'
   | 'broadcast'
   | 'alert'
@@ -377,9 +399,11 @@ export interface Transcript {
   title: string
   file_url: string
   subject_results: SubjectResult[]
-  total_marks?: number
-  average_score?: number
-  overall_grade?: string
+  total_marks: number
+  average_score: number
+  overall_grade: string
+  class_rank?: number
+  curriculum_rank?: number
   remarks?: string // director remark
   branding_snapshot?: Record<string, any>
   is_published: boolean
@@ -405,9 +429,10 @@ export interface ExamMark {
   class_id: string
   exam_event_id: string
   teacher_id: string
-  marks: number
-  grade?: string
-  teacher_remark?: string
+  marks: number,
+  grade?: string,
+  grading_system_id?: string,
+  teacher_remark?: string,
   created_at: string
 }
 
@@ -435,6 +460,8 @@ export interface Resource {
   type: 'note' | 'video' | 'link' | 'file'
   url?: string
   file_path?: string
+  chapter?: string
+  is_practice?: boolean
   created_at: string
 }
 
@@ -445,6 +472,24 @@ export interface Certificate {
   attendance_percentage: number
   generated_at: string
   issued: boolean
+}
+
+export interface Timetable {
+  id: string
+  class_id: string
+  subject_id: string
+  teacher_id: string
+  tuition_event_id: string
+  day: string
+  start_time: string
+  end_time: string
+  room_number?: string
+  status: 'draft' | 'published' | 'unpublished'
+  created_at: string
+  // joins
+  class?: Class
+  subject?: Subject
+  teacher?: Teacher
 }
 
 export interface StudentSubject {
@@ -593,3 +638,70 @@ export interface WorksheetSubmission extends Submission {
   time_taken?: number  // seconds
 }
 
+
+// ─── Study Timetable & Focus Mode Types ───────────────────
+
+export type StudySessionStatus = 'planned' | 'in_progress' | 'completed' | 'skipped'
+export type AgeStyle = 'exploration' | 'skill_building' | 'transition' | 'mastery'
+
+export interface StudySession {
+  id: string
+  student_id: string
+  subject_id?: string
+  title?: string
+  date: string // YYYY-MM-DD
+  start_time: string // HH:MM
+  end_time: string // HH:MM
+  duration_minutes: number
+  status: StudySessionStatus
+  year: number
+  created_at: string
+  updated_at: string
+  // joins
+  subject?: Subject
+  goals?: StudyGoal[]
+  reflections?: StudyReflection[]
+  focus_logs?: FocusLog[]
+}
+
+export interface StudyGoal {
+  id: string
+  session_id: string
+  objective: string
+  action: string
+  outcome: string
+  meaning: string
+  age_style: AgeStyle
+  is_completed: boolean
+  created_at: string
+}
+
+export interface FocusLog {
+  id: string
+  session_id: string
+  actual_focus_minutes: number
+  interruption_count: number
+  streak_count: number
+  started_at?: string
+  ended_at?: string
+  focus_score?: number
+  created_at: string
+}
+
+export interface StudyReflection {
+  id: string
+  session_id: string
+  completed_summary?: string
+  learned_summary?: string
+  difficulty_summary?: string
+  created_at: string
+}
+
+export interface StudyBadge {
+  id: string
+  student_id: string
+  badge_type: string
+  achieved_at: string
+  metadata: any
+  created_at: string
+}

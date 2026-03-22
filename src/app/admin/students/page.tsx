@@ -46,7 +46,12 @@ export default function AdminStudents() {
 
   const curriculumId = watch('curriculum_id')
 
-  useEffect(() => { loadData() }, [])
+  useEffect(() => { 
+    loadData()
+    // Safety Break: Never block admin for more than 5s
+    const timer = setTimeout(() => setLoading(false), 5000)
+    return () => clearTimeout(timer)
+  }, [])
 
   const loadData = async () => {
     setLoading(true)

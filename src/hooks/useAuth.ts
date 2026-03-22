@@ -172,11 +172,30 @@ export function useAuth() {
             const { data } = await supabase.from('teachers').select('*').eq('user_id', userId).single()
             if (data) setTeacher(data as Teacher)
           } else if (p.role === 'parent') {
-            const { data } = await supabase.from('parents').select('*').eq('user_id', userId).single()
-            if (data) setParent(data as Parent)
+            console.log('[useAuth] Fetching parent record for', userId)
+            const { data, error: parentError } = await supabase.from('parents').select('*').eq('user_id', userId).maybeSingle()
+            if (parentError) {
+              console.error('[useAuth] Parent fetch error:', parentError)
+              // If it's a 406 error, it's likely a duplicate row issue.
+              if (parentError.code === 'PGRST116' || parentError.message?.includes('406')) {
+                 console.warn('[useAuth] 406/Multiple rows detected for parent, falling back to first match')
+                 const { data: listData } = await supabase.from('parents').select('*').eq('user_id', userId).limit(1)
+                 if (listData?.[0]) {
+                   setParent(listData[0] as Parent)
+                   return
+                 }
+              }
+              toast.error('Parent Data Sync Error: ' + parentError.message)
+            }
+            if (data) {
+              setParent(data as Parent)
+            } else if (!parentError) {
+              console.warn('[useAuth] No parent record found for', userId, '- This user may need to link students or have an entry created.')
+              // We do NOT toast here, because the dashboard will handle the empty state.
+            }
           }
         } catch (roleError) {
-          console.warn('[useAuth] Background role data fetch failed:', roleError)
+          console.error('[useAuth] Background role data fetch failed:', roleError)
         }
       }
 
@@ -184,10 +203,16 @@ export function useAuth() {
       console.log('[useAuth] User data load complete')
     } catch (err) {
       console.error('[useAuth] Data load error (likely timeout):', err)
+      // Safety: always ensure loading is cleared on error if we don't have a profile
+      if (!hasProfile) setLoading(false)
     } finally {
       if (timeout) clearTimeout(timeout)
-      // Only clear loading if we own it (i.e., we set it above)
-      if (!hasProfile) setLoading(false)
+      // FINAL SAFETY: Always clear loading if we reached the end of the data load
+      // the hasProfile check prevents us from accidentally hiding specialized loaders 
+      // if this was a background refresh, but for hard refreshes it guarantees UI release.
+      if (!hasProfile || isSilent === false) {
+        setLoading(false)
+      }
     }
   }, [supabase, setProfile, setStudent, setTeacher, setParent, setLoading, setTheme, reset])
 

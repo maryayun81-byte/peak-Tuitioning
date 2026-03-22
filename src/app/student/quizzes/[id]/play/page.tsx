@@ -99,6 +99,33 @@ export default function QuizPlayer() {
       toast.error('Failed to save results')
     } else {
       setResults(attempt)
+      
+      // Award XP
+      try {
+        const baseXP = 30 // Attempt XP
+        const bonusXP = percentage >= 80 ? 50 : 0 // Bonus XP for mastering
+        const totalXPToAdd = baseXP + bonusXP
+        
+        const currentXP = student?.xp || 0
+        const newXP = currentXP + totalXPToAdd
+        
+        const { error: xpError } = await supabase
+          .from('students')
+          .update({ 
+            xp: newXP,
+            last_active_at: new Date().toISOString().split('T')[0]
+          })
+          .eq('id', student?.id)
+        
+        if (!xpError) {
+          const { setStudent } = useAuthStore.getState()
+          setStudent({ ...student as any, xp: newXP })
+          toast.success(`+${totalXPToAdd} XP! (${baseXP} attempt ${bonusXP > 0 ? '+ 50 bonus' : ''})`)
+        }
+      } catch (err) {
+        console.error('XP Awarding Error', err)
+      }
+
       toast.success('Quiz Submitted!')
     }
   }
@@ -137,11 +164,11 @@ export default function QuizPlayer() {
 
               <div className="grid grid-cols-2 gap-4">
                  <Card className="p-6 border-none shadow-xl">
-                    <div className="text-3xl font-black text-primary">{score}%</div>
-                    <div className="text-[10px] font-bold uppercase tracking-widest text-muted">Final Accuracy</div>
+                    <div className="text-3xl font-black text-primary">{results?.score || 0} / {results?.total_marks || 0}</div>
+                    <div className="text-[10px] font-bold uppercase tracking-widest text-muted">Marks Scored</div>
                  </Card>
                  <Card className="p-6 border-none shadow-xl">
-                    <div className="text-3xl font-black text-amber-500">+{score * 2}</div>
+                    <div className="text-3xl font-black text-amber-500">+{score >= 80 ? 80 : 30}</div>
                     <div className="text-[10px] font-bold uppercase tracking-widest text-muted">XP Earned</div>
                  </Card>
               </div>
@@ -258,25 +285,25 @@ export default function QuizPlayer() {
          </div>
 
          {/* Navigation Btm */}
-         <div className="fixed bottom-10 flex gap-4">
+         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-full max-w-md px-4 flex gap-2 md:gap-4 justify-center z-50">
             {currentIdx > 0 && (
-              <Button variant="secondary" className="px-10 py-6 rounded-3xl" onClick={() => setCurrentIdx(i => i - 1)}>Previous</Button>
+              <Button variant="secondary" className="flex-1 py-4 md:py-6 rounded-full text-xs md:text-sm whitespace-nowrap" onClick={() => setCurrentIdx(i => i - 1)}>Previous</Button>
             )}
             {currentIdx < quiz.questions.length - 1 ? (
               <Button 
-                className="px-10 py-6 rounded-3xl shadow-xl shadow-primary/20" 
+                className="flex-1 py-4 md:py-6 rounded-full shadow-xl shadow-primary/20 text-xs md:text-sm whitespace-nowrap" 
                 disabled={!answers[currentQ.id]} 
                 onClick={() => setCurrentIdx(i => i + 1)}
               >
-                 Next Question <ArrowRight className="ml-2" />
+                 Next <ArrowRight className="ml-1 md:ml-2 w-4 h-4 md:w-5 md:h-5" />
               </Button>
             ) : (
               <Button 
-                className="px-10 py-6 rounded-3xl bg-emerald-500 hover:bg-emerald-600 border-none shadow-xl shadow-emerald-500/20" 
+                className="flex-1 py-4 md:py-6 rounded-full bg-emerald-500 hover:bg-emerald-600 border-none shadow-xl shadow-emerald-500/20 text-xs md:text-sm whitespace-nowrap" 
                 disabled={!answers[currentQ.id]} 
                 onClick={finishQuiz}
               >
-                 Finish Challenge <Zap className="ml-2" />
+                 Finish <Zap className="ml-1 md:ml-2 w-4 h-4 md:w-5 md:h-5" />
               </Button>
             )}
          </div>

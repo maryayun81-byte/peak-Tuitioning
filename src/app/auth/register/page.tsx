@@ -1,13 +1,13 @@
 'use client'
 
-import { useState, Suspense } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import Link from 'next/link'
-import { GraduationCap, Mail, Lock, Eye, EyeOff, User, Shield, UserCheck, Users, Phone, ArrowLeft } from 'lucide-react'
+import { GraduationCap, Mail, Lock, Eye, EyeOff, User, Shield, UserCheck, Users, Phone, ArrowLeft, Key, RefreshCw, CheckCircle2 } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/Button'
@@ -25,6 +25,7 @@ const schema = z.object({
   // Student specific
   admission_number: z.string().optional(),
   parent_code: z.string().optional(),
+  registration_key: z.string().optional(),
 }).refine((d) => d.password === d.confirm_password, {
   message: 'Passwords do not match',
   path: ['confirm_password'],
@@ -45,13 +46,67 @@ function RegisterForm() {
   const selectedRole = (searchParams.get('role') as Role) || 'teacher'
   const config = ROLE_CONFIG[selectedRole] || ROLE_CONFIG.teacher
 
-  const { register, handleSubmit, formState: { errors } } = useForm<FormData>({
+  const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
   })
+
+  const regKey = watch('registration_key')
+  const [keyStatus, setKeyStatus] = useState<'idle' | 'validating' | 'valid' | 'invalid'>('idle')
+  const [keyMsg, setKeyMsg] = useState('')
+
+  useEffect(() => {
+    if (selectedRole !== 'teacher' || !regKey || regKey.length < 8) {
+      setKeyStatus('idle')
+      setKeyMsg('')
+      return
+    }
+
+    const validateKey = async () => {
+      setKeyStatus('validating')
+      try {
+        const { data, error } = await supabase
+          .from('teacher_registration_keys')
+          .select('*')
+          .eq('key', regKey.toUpperCase())
+          .single()
+
+        if (error || !data) {
+          setKeyStatus('invalid')
+          setKeyMsg('Invalid Registration Key')
+          return
+        }
+
+        if (data.used_at) {
+          setKeyStatus('invalid')
+          setKeyMsg('This key has already been used')
+        } else if (new Date(data.expires_at) < new Date()) {
+          setKeyStatus('invalid')
+          setKeyMsg('This key has expired')
+        } else {
+          setKeyStatus('valid')
+          setKeyMsg('Valid Key - Authorized')
+        }
+      } catch (err) {
+        setKeyStatus('invalid')
+        setKeyMsg('Error validating key')
+      }
+    }
+
+    const timer = setTimeout(validateKey, 500)
+    return () => clearTimeout(timer)
+  }, [regKey, selectedRole])
 
   const onSubmit = async (data: FormData) => {
     setLoading(true)
     try {
+      // 0. Validate Teacher Key if applicable
+      if (selectedRole === 'teacher') {
+        if (keyStatus !== 'valid') {
+           toast.error(keyMsg || 'Valid Registration Key is required')
+           return
+        }
+      }
+
       // Sign up
       const { data: authData, error } = await supabase.auth.signUp({
         email: data.email,
@@ -91,20 +146,39 @@ function RegisterForm() {
           toast.error('Account created but profile setup failed: ' + e2.message)
           return 
         }
+
+        // Mark key as used
+        if (data.registration_key) {
+          await supabase
+            .from('teacher_registration_keys')
+            .update({ used_at: new Date().toISOString(), used_by_user_id: userId })
+            .eq('key', data.registration_key.toUpperCase())
+        }
       } else if (selectedRole === 'parent') {
         const parentCode = generateParentCode()
+        const securityPin = Math.floor(1000 + Math.random() * 9000).toString()
         const { error: e2 } = await supabase.from('parents').insert({
           user_id: userId,
           parent_code: parentCode,
           full_name: data.full_name,
           email: data.email,
           phone: data.phone || null,
+          security_pin: securityPin
         })
         if (e2) { 
           console.error('Parent profile creation error:', e2)
           toast.error('Account created but profile setup failed: ' + e2.message)
           return 
         }
+
+        // Send notification with PIN
+        await supabase.from('notifications').insert({
+          user_id: userId,
+          title: 'Secret Parent PIN',
+          body: `Your one-time security PIN is ${securityPin}. Use this to link your students. Remember: this PIN can only be used once!`,
+          type: 'info'
+        })
+
         toast.success(`Your Parent Code: ${parentCode} — share this with your child!`, { duration: 8000 })
       }
 
@@ -190,6 +264,28 @@ function RegisterForm() {
               error={errors.confirm_password?.message}
               {...register('confirm_password')}
             />
+            
+            {selectedRole === 'teacher' && (
+              <div className="space-y-1">
+                <Input 
+                  label="Registration Key" 
+                  placeholder="Enter 8-digit key from Admin" 
+                  leftIcon={<Key size={16} />} 
+                  rightIcon={
+                    keyStatus === 'validating' ? <RefreshCw size={14} className="animate-spin opacity-50" /> :
+                    keyStatus === 'valid' ? <CheckCircle2 size={14} className="text-emerald-500" /> :
+                    keyStatus === 'invalid' ? <Shield size={14} className="text-rose-500" /> : null
+                  }
+                  error={errors.registration_key?.message} 
+                  {...register('registration_key')} 
+                />
+                {keyMsg && (
+                   <p className={`text-[10px] font-bold px-1 ${keyStatus === 'valid' ? 'text-emerald-500' : 'text-rose-500'}`}>
+                      {keyMsg}
+                   </p>
+                )}
+              </div>
+            )}
 
             <Button type="submit" className="w-full" size="lg" isLoading={loading} style={{ background: config.color }}>
               Create Account

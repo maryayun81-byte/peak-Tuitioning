@@ -2,59 +2,60 @@
 
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Settings, Save, Upload, Stamp, Signature, Image as ImageIcon, Plus, Trash2, Award, BookOpen, Palette } from 'lucide-react'
+import { Settings, Save, Upload, Stamp, Signature, Image as ImageIcon, Plus, Palette, ChevronRight, Key, Copy, RefreshCw } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { useThemeStore } from '@/stores/themeStore'
 import { useAuthStore } from '@/stores/authStore'
 import { THEMES } from '@/lib/themes'
-import { Button } from '@/components/ui/Button'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Card, Badge } from '@/components/ui/Card'
 import { Modal } from '@/components/ui/Modal'
+import { Button } from '@/components/ui/Button'
 import { SkeletonDashboard } from '@/components/ui/Skeleton'
 import toast from 'react-hot-toast'
-import type { Curriculum, Subject } from '@/types/database'
+import { SignatureManager } from '@/components/admin/SignatureManager'
 
 export default function AdminSettings() {
   const supabase = getSupabaseBrowserClient()
   const { profile } = useAuthStore()
-  const { theme: currentTheme, syncThemeToProfile } = useThemeStore()
+  const { theme: currentTheme } = useThemeStore()
   const [loading, setLoading] = useState(true)
-  const [curriculums, setCurriculums] = useState<Curriculum[]>([])
-  const [subjects, setSubjects] = useState<Subject[]>([])
-  const [gradingConfig, setGradingConfig] = useState<any[]>([])
   const [branding, setBranding] = useState({
     logo_url: '',
     stamp_url: '',
-    signature_url: '',
+    signature_data: '',
+    signature_type: 'draw',
+    signature_font: '',
     school_name: 'Peak Performance Tutoring',
     transcript_watermark: 'OFFICIAL TRANSCRIPT',
     default_remarks: 'Excellent performance. Keep it up!',
+    apply_transcripts: true,
+    apply_certificates: false,
+    apply_badges: false,
+    director_name: 'Director General'
   })
-
-  const [addGradeOpen, setAddGradeOpen] = useState(false)
-  const [newGrade, setNewGrade] = useState({
-    curriculum_id: '',
-    subject_id: '',
-    min_score: 0,
-    max_score: 100,
-    grade: 'A',
-    points: 12,
-  })
+  const [activeKey, setActiveKey] = useState<any>(null)
+  const [keyLoading, setKeyLoading] = useState(false)
 
   useEffect(() => { load() }, [])
 
   const load = async () => {
     setLoading(true)
     try {
-      const [cRes, sRes, gRes] = await Promise.all([
-        supabase.from('curriculums').select('*').order('name'),
-        supabase.from('subjects').select('*').order('name'),
-        supabase.from('grading_systems').select('*, curriculum:curriculums(name), subject:subjects(name)').order('min_score', { ascending: false }),
-      ])
-      setCurriculums(cRes.data ?? [])
-      setSubjects(sRes.data ?? [])
-      setGradingConfig(gRes.data ?? [])
+      const { data } = await supabase.from('transcript_config').select('*').single()
+      
+      if (data) {
+        setBranding({
+          ...branding,
+          ...data,
+          signature_data: data.signature_data || '',
+          signature_type: data.signature_type || 'draw',
+          signature_font: data.signature_font || '',
+          apply_transcripts: data.apply_transcripts ?? true,
+          apply_certificates: data.apply_certificates ?? false,
+          apply_badges: data.apply_badges ?? false,
+        })
+      }
     } catch (error) {
       console.error('Failed to load settings:', error)
       toast.error('Failed to load settings.')
@@ -64,25 +65,55 @@ export default function AdminSettings() {
   }
 
   const saveBranding = async () => {
-    toast.success('Branding settings saved locally!')
-    // In a real app, this would update a 'settings' table or site_config
+    try {
+      const { error } = await supabase
+        .from('transcript_config')
+        .upsert({
+          id: (branding as any).id,
+          school_name: branding.school_name,
+          director_name: branding.director_name,
+          logo_url: branding.logo_url,
+          stamp_url: branding.stamp_url,
+          signature_data: branding.signature_data,
+          signature_type: branding.signature_type,
+          signature_font: branding.signature_font,
+          apply_transcripts: branding.apply_transcripts,
+          apply_certificates: branding.apply_certificates,
+          apply_badges: branding.apply_badges,
+          updated_at: new Date().toISOString()
+        })
+      
+      if (error) throw error
+      toast.success('System settings and signature saved!')
+    } catch (err: any) {
+      toast.error('Failed to save settings: ' + err.message)
+    }
   }
 
-  const addGrade = async () => {
-    const { error } = await supabase.from('grading_systems').insert({
-      ...newGrade,
-      subject_id: newGrade.subject_id === '' ? null : newGrade.subject_id
-    })
-    if (error) { toast.error(error.message); return }
-    toast.success('Grade rule added!')
-    setAddGradeOpen(false)
-    load()
-  }
 
-  const deleteGrade = async (id: string) => {
-    const { error } = await supabase.from('grading_systems').delete().eq('id', id)
-    if (error) { toast.error('Failed to delete'); return }
-    toast.success('Rule removed'); load()
+  const generateTeacherKey = async () => {
+    setKeyLoading(true)
+    try {
+      const keyStr = Math.random().toString(36).substring(2, 10).toUpperCase()
+      const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString()
+      
+      const { data, error } = await supabase
+        .from('teacher_registration_keys')
+        .insert({
+          key: keyStr,
+          expires_at: expiresAt
+        })
+        .select()
+        .single()
+      
+      if (error) throw error
+      setActiveKey(data)
+      toast.success('Access key generated! Share it with the teacher.')
+    } catch (err: any) {
+      toast.error('Failed to generate key: ' + err.message)
+    } finally {
+      setKeyLoading(false)
+    }
   }
 
   if (loading) return <SkeletonDashboard />
@@ -124,16 +155,56 @@ export default function AdminSettings() {
             <p className="text-[10px] text-center" style={{ color: 'var(--text-muted)' }}>Appears as watermark and footer on transcripts.</p>
           </Card>
 
-          <Card className="p-5 flex flex-col gap-4">
+          <Card className="p-5 flex flex-col gap-4 lg:col-span-2">
             <div className="flex items-center justify-between">
-               <span className="text-sm font-bold" style={{ color: 'var(--text)' }}>Admin Signature</span>
-               <Badge variant="success">SIGNATURE</Badge>
+               <div className="flex flex-col">
+                 <span className="text-sm font-bold" style={{ color: 'var(--text)' }}>Official Admin Signature</span>
+                 <span className="text-[10px] opacity-60">Draw or type your legal signature for document authorization.</span>
+               </div>
+                <div className="flex gap-1">
+                  {branding.apply_transcripts && <Badge variant="success">TRANSCRIPTS</Badge>}
+                  {branding.apply_certificates && <Badge variant="info">CERTIFICATES</Badge>}
+                  {branding.apply_badges && <Badge variant="primary">BADGES</Badge>}
+                </div>
             </div>
-            <div className="h-24 w-full rounded-xl flex items-center justify-center border-2 border-dashed" style={{ borderColor: 'var(--card-border)' }}>
-              <Signature size={32} className="text-muted" />
+            
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <SignatureManager 
+                value={branding.signature_data}
+                type={branding.signature_type as any}
+                font={branding.signature_font}
+                onChange={(sig) => setBranding({
+                  ...branding, 
+                  signature_data: sig.data,
+                  signature_type: sig.type,
+                  signature_font: sig.font || ''
+                })}
+              />
+              
+              <div className="space-y-4">
+                <div className="text-xs font-black uppercase tracking-widest opacity-50 mb-2">Visibility Controls</div>
+                <div className="space-y-3">
+                  {[
+                    { id: 'apply_transcripts', label: 'Apply to Transcripts', description: 'Show signature on official terminal reports.' },
+                    { id: 'apply_certificates', label: 'Apply to Certificates', description: 'Show signature on course completion awards.' },
+                    { id: 'apply_badges', label: 'Apply to Badges', description: 'Show signature on physical badge prints.' },
+                  ].map((toggle) => (
+                    <label key={toggle.id} className="flex items-start gap-3 p-3 rounded-xl border border-[var(--card-border)] bg-[var(--input)] cursor-pointer hover:bg-white transition-colors">
+                      <input 
+                        type="checkbox" 
+                        className="mt-1 w-4 h-4 rounded border-2 border-primary accent-primary"
+                        checked={(branding as any)[toggle.id]}
+                        onChange={(e) => setBranding({ ...branding, [toggle.id]: e.target.checked })}
+                      />
+                      <div>
+                        <div className="text-xs font-bold" style={{ color: 'var(--text)' }}>{toggle.label}</div>
+                        <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{toggle.description}</div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
             </div>
-            <Button size="sm" variant="secondary" className="w-full"><Upload size={14} className="mr-2" /> Upload Signature</Button>
-            <p className="text-[10px] text-center" style={{ color: 'var(--text-muted)' }}>Auto-applied to certificates and official letters.</p>
           </Card>
         </div>
       </section>
@@ -189,75 +260,51 @@ export default function AdminSettings() {
          </Card>
       </section>
 
-      {/* Grading Systems */}
+      {/* Teacher Access Control */}
       <section className="space-y-4">
-         <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold flex items-center gap-2" style={{ color: 'var(--text)' }}>
-               <Award size={20} className="text-primary" /> Grading Systems
-            </h2>
-            <Button size="sm" onClick={() => setAddGradeOpen(true)}><Plus size={14} /> Add Grade Rule</Button>
-         </div>
-         
-         <Card className="overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                 <thead>
-                    <tr style={{ background: 'var(--input)', borderBottom: '1px solid var(--card-border)' }}>
-                       {['Curriculum', 'Subject', 'Score Range', 'Grade', 'Points', 'Actions'].map(h => (
-                         <th key={h} className="text-left px-5 py-3 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>{h}</th>
-                       ))}
-                    </tr>
-                 </thead>
-                 <tbody>
-                    {gradingConfig.map((g, i) => (
-                      <tr key={g.id} style={{ borderBottom: '1px solid var(--card-border)' }}>
-                         <td className="px-5 py-3" style={{ color: 'var(--text)' }}>{g.curriculum?.name}</td>
-                         <td className="px-5 py-3" style={{ color: 'var(--text-muted)' }}>{g.subject?.name ?? <Badge variant="muted">GLOBAL</Badge>}</td>
-                         <td className="px-5 py-3 font-mono" style={{ color: 'var(--text)' }}>{g.min_score} - {g.max_score}</td>
-                         <td className="px-5 py-3"><Badge variant="primary" className="text-base h-8 w-8 flex items-center justify-center font-black">{g.grade}</Badge></td>
-                         <td className="px-5 py-3 font-bold" style={{ color: 'var(--primary)' }}>{g.points} pts</td>
-                         <td className="px-5 py-3">
-                            <button onClick={() => deleteGrade(g.id)} className="p-2 rounded-lg text-danger hover:bg-danger-light"><Trash2 size={16} /></button>
-                         </td>
-                      </tr>
-                    ))}
-                    {gradingConfig.length === 0 && (
-                      <tr><td colSpan={6} className="text-center py-12" style={{ color: 'var(--text-muted)' }}>No grading rules defined. Create one to enable auto-grading.</td></tr>
-                    )}
-                 </tbody>
-              </table>
+         <h2 className="text-lg font-bold flex items-center gap-2" style={{ color: 'var(--text)' }}>
+            <Key size={20} className="text-primary" /> Teacher Access Control
+         </h2>
+         <Card className="p-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+               <div className="space-y-1">
+                  <h3 className="font-bold" style={{ color: 'var(--text)' }}>Registration Security</h3>
+                  <p className="text-xs max-w-md" style={{ color: 'var(--text-muted)' }}>
+                     Enhance security by requiring a one-time key for teacher registration. 
+                     Generated keys last for 5 minutes and expire immediately after one use.
+                  </p>
+               </div>
+               
+               <div className="flex flex-col items-center gap-4">
+                  {activeKey && new Date(activeKey.expires_at) > new Date() && !activeKey.used_at ? (
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="flex items-center gap-3 p-4 bg-primary/5 border-2 border-primary/20 rounded-2xl">
+                        <span className="text-2xl font-black tracking-widest font-mono text-primary">{activeKey.key}</span>
+                        <button 
+                          onClick={() => {
+                            navigator.clipboard.writeText(activeKey.key)
+                            toast.success('Key copied!')
+                          }}
+                          className="p-2 hover:bg-primary/10 rounded-lg transition-colors"
+                        >
+                          <Copy size={16} className="text-primary" />
+                        </button>
+                      </div>
+                      <div className="text-[10px] flex items-center gap-2 font-bold text-amber-600">
+                        <RefreshCw size={10} className="animate-spin" /> 
+                        Expires {new Date(activeKey.expires_at).toLocaleTimeString([], { minute: '2-digit', second: '2-digit' })}
+                      </div>
+                    </div>
+                  ) : (
+                    <Button onClick={generateTeacherKey} isLoading={keyLoading}>
+                      <Plus size={16} className="mr-2" /> Generate Access Key
+                    </Button>
+                  )}
+               </div>
             </div>
          </Card>
       </section>
 
-      {/* Grade Rule Modal */}
-      <Modal isOpen={addGradeOpen} onClose={() => setAddGradeOpen(false)} title="Add Grading Rule" size="md">
-         <div className="space-y-4">
-            <Select label="Curriculum" value={newGrade.curriculum_id} onChange={e => setNewGrade({...newGrade, curriculum_id: e.target.value})}>
-               <option value="">Select Curriculum</option>
-               {curriculums.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </Select>
-            <div className="p-3 rounded-lg text-[10px]" style={{ background: 'rgba(79,140,255,0.05)', color: 'var(--text-muted)' }}>
-               💡 Keep subject empty to apply this rule to ALL subjects in this curriculum.
-            </div>
-            <Select label="Subject (Optional)" value={newGrade.subject_id} onChange={e => setNewGrade({...newGrade, subject_id: e.target.value})}>
-               <option value="">Specific Subject (Optional)</option>
-               {subjects.filter(s => s.curriculum_id === newGrade.curriculum_id).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </Select>
-            <div className="grid grid-cols-2 gap-4">
-               <Input label="Min Score" type="number" value={newGrade.min_score} onChange={e => setNewGrade({...newGrade, min_score: parseInt(e.target.value)})} />
-               <Input label="Max Score" type="number" value={newGrade.max_score} onChange={e => setNewGrade({...newGrade, max_score: parseInt(e.target.value)})} />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-               <Input label="Grade Letter" placeholder="A" value={newGrade.grade} onChange={e => setNewGrade({...newGrade, grade: e.target.value.toUpperCase()})} />
-               <Input label="Grade Points" type="number" value={newGrade.points} onChange={e => setNewGrade({...newGrade, points: parseInt(e.target.value)})} />
-            </div>
-            <div className="flex gap-3 justify-end pt-4">
-               <Button variant="secondary" onClick={() => setAddGradeOpen(false)}>Cancel</Button>
-               <Button onClick={addGrade}>Save Rule</Button>
-            </div>
-         </div>
-      </Modal>
     </div>
   )
 }

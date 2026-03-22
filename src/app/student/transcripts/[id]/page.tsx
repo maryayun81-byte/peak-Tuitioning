@@ -17,6 +17,7 @@ import Link from 'next/link'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
 import toast from 'react-hot-toast'
+import { PremiumTranscript } from '@/components/admin/PremiumTranscript'
 
 export default function StudentTranscriptDetailPage() {
   const params = useParams()
@@ -37,12 +38,33 @@ export default function StudentTranscriptDetailPage() {
     try {
       const { data, error } = await supabase
         .from('transcripts')
-        .select('*, exam_event:exam_events(name, start_date)')
+        .select(`
+          *, 
+          student:students(*, class:classes(*)),
+          exam_event:exam_events(*)
+        `)
         .eq('id', transcriptId)
         .single()
       
       if (error) throw error
-      setTranscript(data)
+
+      // SECURE FALLBACK: If student join fails (due to RLS differences on joins), 
+      // fetch student manually if transcript.student is null but we have student context
+      const transcriptData = data as any
+      if (!transcriptData.student && student) {
+        console.log('[Transcript] Join failed, performing manual student fetch fallback')
+        const { data: sData } = await supabase
+          .from('students')
+          .select('*, class:classes(*)')
+          .eq('id', transcriptData.student_id)
+          .single()
+        
+        if (sData) {
+          transcriptData.student = sData
+        }
+      }
+
+      setTranscript(transcriptData)
     } catch (err) {
       console.error('Error loading transcript detail:', err)
       toast.error('Could not load transcript.')
@@ -56,23 +78,47 @@ export default function StudentTranscriptDetailPage() {
     const element = document.getElementById(elementId)
     if (!element) return
 
-    const toastId = toast.loading('Generating PDF...')
+    const toastId = toast.loading('Brewing luxury PDF...')
     try {
       const canvas = await html2canvas(element, {
-        scale: 2,
+        scale: 3,
         useCORS: true,
-        logging: false
+        logging: false,
+        backgroundColor: '#ffffff',
+        windowWidth: 1200,
+        onclone: (clonedDoc) => {
+          const el = clonedDoc.getElementById(elementId)
+          if (el) {
+            el.style.width = '1200px'
+            el.style.padding = '20px'
+          }
+        }
       })
-      const imgData = canvas.toDataURL('image/png')
-      const pdf = new jsPDF('p', 'mm', 'a4')
+      
+      const imgData = canvas.toDataURL('image/png', 1.0)
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+        compress: true
+      })
+      
       const pdfWidth = pdf.internal.pageSize.getWidth()
       const pdfHeight = (canvas.height * pdfWidth) / canvas.width
       
-      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight)
-      pdf.save(`Transcript_${transcript?.exam_event?.name || 'Academic_Report'}.pdf`)
-      toast.success('Downloaded!', { id: toastId })
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST')
+      
+      // Sanitize filename: replace spaces and weird characters with underscores
+      const safeName = (transcript?.student?.full_name || 'Student').replace(/[^a-z0-9]/gi, '_')
+      const safeTitle = (transcript?.exam_event?.name || 'Report').replace(/[^a-z0-9]/gi, '_')
+      const filename = `Transcript_${safeName}_${safeTitle}.pdf`
+      
+      pdf.save(filename)
+      
+      toast.success('Delivered!', { id: toastId })
     } catch (err) {
-      toast.error('Failed to generate PDF', { id: toastId })
+      console.error('PDF error:', err)
+      toast.error('PDF Failed', { id: toastId })
     }
   }
 
@@ -103,81 +149,9 @@ export default function StudentTranscriptDetailPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Left Column: Visual Transcript */}
         <div className="lg:col-span-2">
-           <Card className="overflow-hidden border-none shadow-2xl p-0">
-             <div className="bg-white text-black p-8 sm:p-12 font-serif min-h-[800px]" id="transcript-render">
-                <div className="text-center mb-12 border-b-2 border-black pb-6">
-                   <h1 className="text-2xl font-bold uppercase tracking-widest">
-                      {(transcript.branding_snapshot as any)?.school_name || 'Peak Performance Tutoring'}
-                   </h1>
-                   <p className="text-xs tracking-[0.2em] mt-2 opacity-60">OFFICIAL ACADEMIC TRANSCRIPT</p>
-                </div>
-
-                <div className="grid grid-cols-2 gap-12 mb-12 text-sm">
-                   <div>
-                      <div className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-2">Student Information</div>
-                      <div className="font-bold text-lg">{student?.full_name}</div>
-                      <div className="opacity-70 mt-1">Admission #: {student?.admission_number}</div>
-                   </div>
-                   <div className="text-right">
-                      <div className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-2">Academic Session</div>
-                      <div className="font-bold text-lg">{transcript.exam_event?.name}</div>
-                      <div className="opacity-70 mt-1">Date: {formatDate(transcript.created_at)}</div>
-                   </div>
-                </div>
-
-                <table className="w-full text-sm border-collapse mb-12">
-                   <thead>
-                      <tr className="border-y-2 border-black bg-slate-50 uppercase text-[10px] font-black tracking-widest">
-                         <th className="p-4 text-left">Subject / Course</th>
-                         <th className="p-4 text-center">Mark (%)</th>
-                         <th className="p-4 text-center">Grade</th>
-                         <th className="p-4 text-left">Feedback</th>
-                      </tr>
-                   </thead>
-                   <tbody className="divide-y border-b-2 border-black">
-                      {transcript.subject_results.map((res: any, i: number) => (
-                        <tr key={i} className="group">
-                           <td className="p-4 font-bold">{res.subject_name}</td>
-                           <td className="p-4 text-center">{res.marks}</td>
-                           <td className="p-4 text-center font-black">
-                              <span className={res.grade === 'F' ? 'text-red-500' : ''}>{res.grade}</span>
-                           </td>
-                           <td className="p-4 italic text-xs leading-relaxed max-w-[200px]">{res.remark}</td>
-                        </tr>
-                      ))}
-                   </tbody>
-                   <tfoot className="bg-slate-50">
-                      <tr className="font-black text-xs uppercase tracking-widest">
-                         <td className="p-6">Performance Indices</td>
-                         <td className="p-6 text-center text-lg">{transcript.total_marks?.toFixed(0)}</td>
-                         <td className="p-6 text-center text-4xl">{transcript.overall_grade}</td>
-                         <td className="p-6">
-                            Average Score: <span className="text-lg">{transcript.average_score?.toFixed(1)}%</span>
-                         </td>
-                      </tr>
-                   </tfoot>
-                </table>
-
-                <div className="space-y-8">
-                   <div className="p-6 bg-slate-50 border-l-4 border-black italic">
-                      <div className="text-[10px] font-black uppercase not-italic opacity-40 mb-2">Director General&apos;s Remarks</div>
-                      <p className="text-sm leading-relaxed">{transcript.remarks || 'Excellent performance overall. Keep striving for greatness.'}</p>
-                   </div>
-                   
-                   <div className="flex justify-between items-end pt-12">
-                      <div className="text-center w-40">
-                         <div className="border-t border-black pt-2 text-[10px] font-black uppercase tracking-widest">Director Signature</div>
-                      </div>
-                      <div className="w-24 h-24 rounded-full border-2 border-slate-200 flex items-center justify-center text-[10px] font-black uppercase opacity-20 rotate-[-15deg]">
-                         School Stamp
-                      </div>
-                      <div className="text-center w-40">
-                         <div className="border-t border-black pt-2 text-[10px] font-black uppercase tracking-widest">Verification Link</div>
-                      </div>
-                   </div>
-                </div>
-             </div>
-           </Card>
+           <div id="transcript-render">
+             <PremiumTranscript transcript={transcript} student={student} />
+           </div>
         </div>
 
         {/* Right Column: Insights & Quick Actions */}

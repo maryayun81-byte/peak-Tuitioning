@@ -9,8 +9,10 @@ import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
 import { useAuthStore } from '@/stores/authStore'
 import { SkeletonList } from '@/components/ui/Skeleton'
+import { Modal } from '@/components/ui/Modal'
 import toast from 'react-hot-toast'
 import { formatDate } from '@/lib/utils'
+import { useGradingSystem } from '@/hooks/useGradingSystem'
 
 interface TuitionEvent {
   id: string
@@ -32,6 +34,7 @@ interface ClassSubjectOption {
   subject_id: string
   class_name: string
   subject_name: string
+  curriculum_id: string
 }
 
 interface Student {
@@ -62,11 +65,28 @@ export default function TeacherExamMarks() {
 
   // Students & marks
   const [students, setStudents] = useState<Student[]>([])
-  const [marksData, setMarksData] = useState<Record<string, { marks: string; remarks: string; id?: string }>>({})
+  const [marksData, setMarksData] = useState<Record<string, { marks: string; remarks: string; grade?: string; grading_system_id?: string; id?: string }>>({})
+
+  // Compute curriculum for the selected class to feed the hook
+  const selectedClassOption = useMemo(() => 
+    classSubjectOptions.find(o => o.class_id === selectedClassId),
+    [classSubjectOptions, selectedClassId]
+  )
+
+  // Hook for real-time grading
+  const { calculateGrade, system: activeGradingSystem, loading: gradingLoading } = useGradingSystem({
+    curriculumId: selectedClassOption?.curriculum_id,
+    classId: selectedClassId,
+    subjectId: selectedSubjectId
+  })
 
   // Pagination & search
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
+
+  // UI State
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const [pendingUpserts, setPendingUpserts] = useState<any[]>([])
 
   // Load base data once teacher is available
   useEffect(() => {
@@ -122,7 +142,7 @@ export default function TeacherExamMarks() {
         .select(`
           class_id,
           subject_id,
-          class:classes(id, name),
+          class:classes(id, name, curriculum_id),
           subject:subjects(id, name)
         `)
         .eq('teacher_id', teacher!.id)
@@ -135,6 +155,7 @@ export default function TeacherExamMarks() {
             subject_id: a.subject_id,
             class_name: a.class?.name ?? 'Unknown',
             subject_name: a.subject?.name ?? 'Unknown',
+            curriculum_id: a.class?.curriculum_id ?? '',
           }))
           // Deduplicate
           .filter((o, i, arr) =>
@@ -204,11 +225,13 @@ export default function TeacherExamMarks() {
 
       setStudents(studentsRes.data ?? [])
 
-      const map: Record<string, { marks: string; remarks: string; id?: string }> = {}
+      const map: Record<string, { marks: string; remarks: string; grade?: string; grading_system_id?: string; id?: string }> = {}
       ;(marksRes.data ?? []).forEach((m: any) => {
         map[m.student_id] = {
           marks: m.marks != null ? String(m.marks) : '',
           remarks: m.teacher_remark ?? '',
+          grade: m.grade ?? '',
+          grading_system_id: m.grading_system_id ?? '',
           id: m.id,
         }
       })
@@ -222,43 +245,71 @@ export default function TeacherExamMarks() {
   }
 
   const handleMarkChange = (studentId: string, field: 'marks' | 'remarks', value: string) => {
-    setMarksData(prev => ({
-      ...prev,
-      [studentId]: { ...prev[studentId], [field]: value },
-    }))
+    setMarksData(prev => {
+      const current = prev[studentId] || { marks: '', remarks: '' }
+      const updated = { ...current, [field]: value }
+      
+      // Real-time grade calculation
+      if (field === 'marks') {
+        const numMarks = parseFloat(value)
+        if (!isNaN(numMarks)) {
+          const result = calculateGrade(numMarks)
+          if (result) {
+            updated.grade = result.grade
+            updated.grading_system_id = result.systemId
+          } else {
+            updated.grade = ''
+          }
+        } else {
+          updated.grade = ''
+        }
+      }
+      
+      return { ...prev, [studentId]: updated }
+    })
   }
 
-  const handleSaveMarks = async () => {
+  const handleReviewMarks = () => {
+    const upserts = students
+      .map(s => {
+        const data = marksData[s.id]
+        if (!data?.marks || data.marks.trim() === '') return null
+        return {
+          ...(data.id ? { id: data.id } : {}),
+          student_id: s.id,
+          student_name: s.full_name, // temporary for preview
+          subject_id: selectedSubjectId,
+          class_id: selectedClassId,
+          exam_event_id: selectedExamEventId,
+          teacher_id: teacher!.id,
+          marks: parseFloat(data.marks),
+          grade: data.grade || null,
+          grading_system_id: data.grading_system_id || null,
+          teacher_remark: data.remarks || null,
+        }
+      })
+      .filter(Boolean)
+
+    if (upserts.length === 0) {
+      toast.error('No marks entered to save.')
+      return
+    }
+    
+    setPendingUpserts(upserts)
+    setPreviewOpen(true)
+  }
+
+  const handleConfirmSave = async () => {
     setSaving(true)
     try {
-      const upserts = students
-        .map(s => {
-          const data = marksData[s.id]
-          if (!data?.marks || data.marks.trim() === '') return null
-          return {
-            ...(data.id ? { id: data.id } : {}),
-            student_id: s.id,
-            subject_id: selectedSubjectId,
-            class_id: selectedClassId,
-            exam_event_id: selectedExamEventId,
-            teacher_id: teacher!.id,
-            marks: parseFloat(data.marks),
-            teacher_remark: data.remarks || null,
-          }
-        })
-        .filter(Boolean)
-
-      if (upserts.length === 0) {
-        toast.error('No valid marks to save.')
-        return
-      }
-
+      const dbUpserts = pendingUpserts.map(({ student_name, ...rest }) => rest)
       const { error } = await supabase
         .from('exam_marks')
-        .upsert(upserts, { onConflict: 'student_id,subject_id,exam_event_id' })
+        .upsert(dbUpserts, { onConflict: 'student_id,subject_id,exam_event_id' })
 
       if (error) throw error
-      toast.success(`✅ Marks saved for ${upserts.length} student(s)!`)
+      toast.success(`✅ Marks saved for ${dbUpserts.length} student(s)!`)
+      setPreviewOpen(false)
       loadStudentsAndMarks()
     } catch (e: any) {
       console.error('Save failed', e)
@@ -369,6 +420,19 @@ export default function TeacherExamMarks() {
               </Select>
             </div>
           )}
+
+          {!activeGradingSystem && !gradingLoading && selectedSubjectId && (
+            <motion.div 
+              initial={{ opacity: 0, height: 0 }} 
+              animate={{ opacity: 1, height: 'auto' }}
+              className="flex items-center gap-3 p-3 rounded-xl border border-amber-200 bg-amber-50 text-amber-800"
+            >
+              <AlertCircle size={16} />
+              <p className="text-xs font-bold">
+                No grading system found for {selectedClassOption?.subject_name}. Marks will be saved without grades. Ask admin to configure one.
+              </p>
+            </motion.div>
+          ) || null}
         </Card>
       )}
 
@@ -390,8 +454,8 @@ export default function TeacherExamMarks() {
               onChange={e => { setSearch(e.target.value); setPage(1) }}
               className="w-full md:w-80"
             />
-            <Button onClick={handleSaveMarks} isLoading={saving}>
-              <Save size={16} className="mr-1.5" /> Save Marks
+            <Button onClick={handleReviewMarks} isLoading={saving}>
+              <Save size={16} className="mr-1.5" /> Review & Save
             </Button>
           </div>
 
@@ -401,9 +465,9 @@ export default function TeacherExamMarks() {
             <Card className="overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead>
+                   <thead>
                     <tr style={{ background: 'var(--input)', borderBottom: '1px solid var(--card-border)' }}>
-                      {['Student', 'Admission No.', 'Marks', 'Remarks (optional)'].map(h => (
+                      {['Student', 'Admission No.', 'Marks', 'Grade', 'Remarks (optional)'].map(h => (
                         <th key={h} className="text-left px-5 py-3 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>{h}</th>
                       ))}
                     </tr>
@@ -432,16 +496,31 @@ export default function TeacherExamMarks() {
                             </div>
                           </td>
                           <td className="px-5 py-3 text-xs" style={{ color: 'var(--text-muted)' }}>{s.admission_number}</td>
-                          <td className="px-5 py-3">
+                          <td className="px-5 py-3 relative">
                             <Input
                               type="number"
                               min="0"
                               step="0.5"
+                              max="100"
                               placeholder="—"
                               className="h-9 w-24 text-center font-bold"
                               value={data.marks}
                               onChange={e => handleMarkChange(s.id, 'marks', e.target.value)}
                             />
+                            {data.id && (
+                              <div className="absolute top-2 right-4 text-[9px] font-black text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded uppercase pointer-events-none whitespace-nowrap hidden sm:block">
+                                Saved
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-5 py-3">
+                             {data.grade ? (
+                               <Badge variant="primary" className="font-black text-sm h-8 min-w-[32px] justify-center">
+                                 {data.grade}
+                               </Badge>
+                             ) : (
+                               <span className="text-xs opacity-20">—</span>
+                             )}
                           </td>
                           <td className="px-5 py-3">
                             <Input
@@ -456,7 +535,7 @@ export default function TeacherExamMarks() {
                       )
                     })}
                     {paginatedStudents.length === 0 && (
-                      <tr><td colSpan={4} className="text-center py-14" style={{ color: 'var(--text-muted)' }}>No students found.</td></tr>
+                      <tr><td colSpan={5} className="text-center py-14" style={{ color: 'var(--text-muted)' }}>No students found.</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -483,13 +562,50 @@ export default function TeacherExamMarks() {
           {/* Sticky save button on mobile */}
           {students.length > 0 && (
             <div className="md:hidden sticky bottom-20 px-4">
-              <Button className="w-full py-4 shadow-2xl" onClick={handleSaveMarks} isLoading={saving}>
-                <Save size={18} /> Save Marks
+              <Button className="w-full py-4 shadow-2xl" onClick={handleReviewMarks} isLoading={saving}>
+                <Save size={18} /> Review & Save
               </Button>
             </div>
           )}
         </>
       )}
+
+      {/* Review Modal */}
+      <Modal isOpen={previewOpen} onClose={() => setPreviewOpen(false)} title="Review Marks Before Saving" size="lg">
+         <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">You are about to submit the following marks. Please perform a final check to ensure accuracy before confirming.</p>
+            <div className="max-h-[60vh] overflow-y-auto border border-[var(--card-border)] rounded-xl">
+               <table className="w-full text-sm text-left">
+                   <thead className="bg-[var(--input)] sticky top-0 z-10 shadow-sm">
+                     <tr>
+                        <th className="px-4 py-3 font-semibold text-xs tracking-wider uppercase text-muted-foreground">Student</th>
+                        <th className="px-4 py-3 font-semibold text-xs tracking-wider uppercase text-muted-foreground">Mark</th>
+                        <th className="px-4 py-3 font-semibold text-xs tracking-wider uppercase text-muted-foreground">Grade</th>
+                        <th className="px-4 py-3 font-semibold text-xs tracking-wider uppercase text-muted-foreground text-center">Status</th>
+                     </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--card-border)]">
+                      {pendingUpserts.map(u => (
+                        <tr key={u.student_id} className={u.id ? "bg-amber-50" : ""}>
+                           <td className="px-4 py-3 font-medium">{u.student_name}</td>
+                           <td className="px-4 py-3 font-black text-primary">{u.marks}</td>
+                           <td className="px-4 py-3">
+                              <Badge variant="primary" className="font-bold">{u.grade || '—'}</Badge>
+                           </td>
+                           <td className="px-4 py-3 text-center">
+                              {u.id ? <Badge variant="warning">Overwriting Saved</Badge> : <Badge variant="success">New Mark</Badge>}
+                           </td>
+                        </tr>
+                      ))}
+                  </tbody>
+               </table>
+            </div>
+            <div className="flex justify-end gap-2 pt-4 border-t border-[var(--card-border)]">
+               <Button variant="ghost" onClick={() => setPreviewOpen(false)}>Cancel</Button>
+               <Button onClick={handleConfirmSave} isLoading={saving} className="shadow-lg shadow-primary/20">Confirm & Submit</Button>
+            </div>
+         </div>
+      </Modal>
     </div>
   )
 }

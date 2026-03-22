@@ -9,7 +9,9 @@ import {
   CheckCircle2, Clock, Target,
   Download, ArrowRight, User,
   FileText, MessageSquare, Star,
-  LineChart as LineChartIcon
+  LineChart as LineChartIcon,
+  ChevronLeft,
+  Eye
 } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Card, Badge, StatCard } from '@/components/ui/Card'
@@ -22,6 +24,11 @@ import {
   Tooltip, ResponsiveContainer, LineChart, Line,
   Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis
 } from 'recharts'
+import { PremiumTranscript } from '@/components/admin/PremiumTranscript'
+import { Modal } from '@/components/ui/Modal'
+import jsPDF from 'jspdf'
+import html2canvas from 'html2canvas'
+import toast from 'react-hot-toast'
 
 export default function ParentAcademicReport() {
   const { id } = useParams()
@@ -32,8 +39,10 @@ export default function ParentAcademicReport() {
   const [loading, setLoading] = useState(true)
   const [student, setStudent] = useState<any>(null)
   const [subjectStats, setSubjectStats] = useState<any[]>([])
-  const [transcripts, setTranscripts] = useState<any[]>([])
   const [remarks, setRemarks] = useState<any[]>([])
+  const [selectedTranscript, setSelectedTranscript] = useState<any>(null)
+  const [transcripts, setTranscripts] = useState<any[]>([])
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false)
 
   useEffect(() => {
     if (profile) loadData()
@@ -43,7 +52,11 @@ export default function ParentAcademicReport() {
     setLoading(true)
     const [sRes, tRes] = await Promise.all([
       supabase.from('students').select('*, class:classes(name)').eq('id', id).single(),
-      supabase.from('transcripts').select('*').eq('student_id', id).order('created_at', { ascending: false })
+      supabase.from('transcripts').select(`
+        *,
+        student:students(*, class:classes(*)),
+        exam_event:exam_events(*)
+      `).eq('student_id', id).eq('is_published', true).order('created_at', { ascending: false })
     ])
     
     setStudent(sRes.data)
@@ -66,6 +79,62 @@ export default function ParentAcademicReport() {
     ])
 
     setLoading(false)
+  }
+
+  const downloadPDF = async (transcript: any) => {
+    if (!transcript) return
+    const toastId = toast.loading('Brewing luxury PDF...')
+    
+    // We need a brief delay to ensure the modal content is rendered
+    setTimeout(async () => {
+      const element = document.getElementById('parent-transcript-preview')
+      if (!element) {
+        toast.error('Preview element not found', { id: toastId })
+        return
+      }
+
+      try {
+        const canvas = await html2canvas(element, {
+          scale: 3,
+          useCORS: true,
+          logging: false,
+          backgroundColor: '#ffffff',
+          windowWidth: 1200,
+          onclone: (clonedDoc) => {
+            const el = clonedDoc.getElementById('parent-transcript-preview')
+            if (el) {
+              el.style.width = '1200px'
+              el.style.padding = '20px'
+            }
+          }
+        })
+        
+        const imgData = canvas.toDataURL('image/png', 1.0)
+        const pdf = new jsPDF({
+          orientation: 'portrait',
+          unit: 'mm',
+          format: 'a4',
+          compress: true
+        })
+        
+        const pdfWidth = pdf.internal.pageSize.getWidth()
+        const pdfHeight = (canvas.height * pdfWidth) / canvas.width
+        
+        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST')
+        
+        // Sanitize filename: replace spaces and weird characters with underscores
+        const safeName = (student?.full_name || 'Student').replace(/[^a-z0-9]/gi, '_')
+        const safeTitle = (transcript.title || 'Report').replace(/[^a-z0-9]/gi, '_')
+        const filename = `Transcript_${safeName}_${safeTitle}.pdf`
+        
+        pdf.save(filename)
+        
+        toast.success('Delivered!', { id: toastId })
+      } catch (err) {
+        console.error('PDF error:', err)
+        toast.error('PDF Failed', { id: toastId })
+      }
+    }, 100)
   }
 
   if (loading) return <SkeletonDashboard />
@@ -120,10 +189,10 @@ export default function ParentAcademicReport() {
                   <FileText size={20} className="text-primary" /> Reports & Certification
                </h3>
                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {transcripts.length > 0 ? transcripts.map((t, i) => (
+                   {transcripts.length > 0 ? transcripts.map((t, i) => (
                     <Card key={i} className="p-6 flex items-center justify-between group hover:bg-primary/5 transition-all border-dashed">
                        <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center text-indigo-600">
+                          <div className="w-12 h-12 rounded-2xl bg-[var(--primary-dim)] flex items-center justify-center text-primary">
                              <Award size={24} />
                           </div>
                           <div>
@@ -131,7 +200,24 @@ export default function ParentAcademicReport() {
                              <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>Posted {formatDate(t.created_at, 'short')}</p>
                           </div>
                        </div>
-                       <Button size="sm" variant="secondary" className="rounded-xl group-hover:bg-primary group-hover:text-white"><Download size={14} /></Button>
+                       <div className="flex gap-2">
+                          <Button 
+                            size="sm" 
+                            variant="outline" 
+                            className="rounded-xl border-[var(--card-border)]"
+                            onClick={() => { setSelectedTranscript(t); setIsPreviewOpen(true) }}
+                          >
+                            <Eye size={14} className="mr-2" /> View
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="secondary" 
+                            className="rounded-xl group-hover:bg-primary group-hover:text-white"
+                            onClick={() => { setSelectedTranscript(t); downloadPDF(t) }}
+                          >
+                            <Download size={14} />
+                          </Button>
+                       </div>
                     </Card>
                   )) : (
                     <div className="col-span-full py-12 text-center border-2 border-dashed rounded-3xl" style={{ borderColor: 'var(--card-border)' }}>
@@ -170,10 +256,29 @@ export default function ParentAcademicReport() {
                   ))}
                </div>
             </div>
+          </div>
+       </div>
+ 
+       <Modal
+         isOpen={isPreviewOpen}
+         onClose={() => setIsPreviewOpen(false)}
+         title="Academic Report Preview"
+         size="lg"
+       >
+         <div className="bg-[var(--bg)] p-4 md:p-8 rounded-b-3xl">
+           <div id="parent-transcript-preview">
+             {selectedTranscript && <PremiumTranscript transcript={selectedTranscript} />}
+           </div>
+           <div className="mt-8 flex justify-end gap-3">
+             <Button variant="outline" onClick={() => setIsPreviewOpen(false)} className="rounded-2xl border-[var(--card-border)] text-[var(--text)]">Close</Button>
+             <Button onClick={() => downloadPDF(selectedTranscript)} className="rounded-2xl shadow-xl shadow-primary/20">
+               <Download size={16} className="mr-2" /> Download official PDF
+             </Button>
+           </div>
          </div>
-      </div>
+       </Modal>
     </div>
   )
 }
 
-import { ChevronLeft } from 'lucide-react'
+

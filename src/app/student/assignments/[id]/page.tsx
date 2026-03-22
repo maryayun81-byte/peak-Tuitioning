@@ -300,7 +300,9 @@ export default function StudentWorksheetSolver() {
                      </div>
                      <div className="p-4 rounded-2xl bg-white/50 dark:bg-black/20 backdrop-blur-sm border border-white/20">
                         <div className="text-xs font-bold text-muted uppercase tracking-tighter mb-1">XP Earned</div>
-                        <div className="text-2xl font-black text-amber-500">+150 XP</div>
+                        <div className="text-2xl font-black text-amber-500">
+                          +{((returnedSub?.marks || 0) / (assignment?.total_marks || 1)) >= 0.8 ? 70 : 20} XP
+                        </div>
                      </div>
                   </div>
                </div>

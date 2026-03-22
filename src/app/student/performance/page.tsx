@@ -45,14 +45,16 @@ export default function StudentPerformance() {
     // In a real app, these would be complex aggregation queries
     // Here we simulate data based on logical structures
     
-    const [subRes, attRes, rankRes, certRes] = await Promise.all([
+    const [subRes, quizRes, attRes, rankRes, certRes] = await Promise.all([
       supabase.from('submissions').select('*, assignment:assignments(*, subject:subjects(name))').eq('student_id', student?.id),
+      supabase.from('quiz_attempts').select('*, quiz:quizzes(*, subject:subjects(name))').eq('student_id', student?.id),
       supabase.from('attendance').select('*').eq('student_id', student?.id),
       supabase.from('students').select('id, full_name, xp').eq('curriculum_id', student?.curriculum_id).order('xp', { ascending: false }),
       supabase.from('certificates').select('*').eq('student_id', student?.id)
     ])
 
     const submissions = subRes.data || []
+    const quizzes = quizRes.data || []
     const rankList = rankRes.data || []
     const myRank = rankList.findIndex(s => s.id === student?.id) + 1
     
@@ -65,8 +67,8 @@ export default function StudentPerformance() {
     }
 
     // Calculate aggregated stats
-    const totalMarks = submissions.reduce((acc, s) => acc + (s.marks || 0), 0)
-    const totalMax = submissions.reduce((acc, s) => acc + (s.max_marks || 100), 0)
+    const totalMarks = submissions.reduce((acc, s) => acc + (s.marks || 0), 0) + quizzes.reduce((acc, q) => acc + (q.score || 0), 0)
+    const totalMax = submissions.reduce((acc, s) => acc + (s.max_marks || 100), 0) + quizzes.reduce((acc, q) => acc + (q.total_marks || 100), 0)
     setAccuracy(totalMax > 0 ? Math.round((totalMarks / totalMax) * 100) : 0)
 
     // Subject performance logic
@@ -77,6 +79,12 @@ export default function StudentPerformance() {
       statsBySubject[subjName].total += (s.marks || 0)
       statsBySubject[subjName].max += (s.max_marks || 100)
     })
+    quizzes.forEach(q => {
+      const subjName = q.quiz?.subject?.name || 'General'
+      if (!statsBySubject[subjName]) statsBySubject[subjName] = { total: 0, max: 0 }
+      statsBySubject[subjName].total += (q.score || 0)
+      statsBySubject[subjName].max += (q.total_marks || 100)
+    })
     
     const realSubjectStats = Object.entries(statsBySubject).map(([name, data]) => ({
       name,
@@ -86,28 +94,57 @@ export default function StudentPerformance() {
     setSubjectStats(realSubjectStats)
 
     // Success log
-    const recent = submissions
+    const assignSuccesses = submissions
       .filter(s => s.status === 'returned')
-      .sort((a, b) => new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime())
-      .slice(0, 3)
       .map(s => {
         const pct = s.max_marks > 0 ? (s.marks / s.max_marks) : 0
         return {
           title: s.assignment?.title || 'Assignment',
-          score: `${Math.round(pct * 100)}%`,
-          date: s.updated_at ? formatDate(s.updated_at) : 'Recent',
+          score: Math.round(pct * 100),
+          date: s.updated_at || s.created_at,
           delta: pct >= 0.8 ? 'Excellent' : 'Good'
         }
       })
+
+    const quizSuccesses = quizzes
+      .filter(q => q.result === 'pass' || (q.percentage || 0) >= 80)
+      .map(q => {
+        return {
+          title: q.quiz?.title || 'Quiz Challenge',
+          score: Math.round(q.percentage || 0),
+          date: q.completed_at || q.created_at,
+          delta: (q.percentage || 0) >= 80 ? 'Excellent' : 'Good'
+        }
+      })
+
+    const recent = [...assignSuccesses, ...quizSuccesses]
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, 3)
+      .map(item => ({
+        title: item.title,
+        score: `${item.score}%`,
+        date: formatDate(item.date),
+        delta: item.delta
+      }))
     setRecentSuccesses(recent)
 
-    // Timeline (simplified from submissions)
-    const timeline = submissions
-      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
-      .map(s => ({
-        date: new Date(s.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
-        accuracy: Math.round(((s.marks || 0) / (s.max_marks || 100)) * 100)
-      }))
+    // Timeline (simplified from both submissions and quizzes)
+    const assignTimeline = submissions.map(s => ({
+      rawDate: new Date(s.created_at),
+      date: new Date(s.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+      accuracy: Math.round(((s.marks || 0) / (s.max_marks || 100)) * 100)
+    }))
+
+    const quizTimelineData = quizzes.map(q => ({
+      rawDate: new Date(q.completed_at || q.created_at),
+      date: new Date(q.completed_at || q.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+      accuracy: Math.round(q.percentage || 0)
+    }))
+
+    const timeline = [...assignTimeline, ...quizTimelineData]
+      .sort((a, b) => a.rawDate.getTime() - b.rawDate.getTime())
+      .map(item => ({ date: item.date, accuracy: item.accuracy }))
+
     setQuizTimeline(timeline.length > 0 ? timeline : [{ date: 'Start', accuracy: 0 }])
 
     setAttendance({

@@ -4,13 +4,14 @@ import { cn } from '@/lib/utils'
 
 interface BadgeProps {
   children: React.ReactNode
-  variant?: 'primary' | 'success' | 'warning' | 'danger' | 'info' | 'muted'
+  variant?: 'primary' | 'secondary' | 'success' | 'warning' | 'danger' | 'info' | 'muted'
   className?: string
 }
 
 export function Badge({ children, variant = 'primary', className }: BadgeProps) {
   const variants = {
     primary: { bg: 'rgba(79,140,255,0.15)', color: '#4F8CFF', border: '1px solid rgba(79,140,255,0.3)' },
+    secondary: { bg: 'var(--input)', color: 'var(--text)', border: '1px solid var(--card-border)' },
     success: { bg: 'rgba(16,185,129,0.15)', color: '#10B981', border: '1px solid rgba(16,185,129,0.3)' },
     warning: { bg: 'rgba(245,158,11,0.15)', color: '#F59E0B', border: '1px solid rgba(245,158,11,0.3)' },
     danger: { bg: 'rgba(239,68,68,0.15)', color: '#EF4444', border: '1px solid rgba(239,68,68,0.3)' },

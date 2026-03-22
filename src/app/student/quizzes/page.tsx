@@ -13,6 +13,7 @@ import { SkeletonList } from '@/components/ui/Skeleton'
 import { useAuthStore } from '@/stores/authStore'
 import { formatDate } from '@/lib/utils'
 import Link from 'next/link'
+import toast from 'react-hot-toast'
 import type { Quiz, QuizAttempt } from '@/types/database'
 
 export default function StudentQuizzes() {
@@ -40,20 +41,41 @@ export default function StudentQuizzes() {
       
       const subjectIds = subData?.map(s => s.subject_id) || []
 
+      // Debugging logs
+      console.log('Quiz Arena Debug Info:', { studentId: student.id, classId: student.class_id })
+
       // 2. Fetch quizzes & attempts
-      const [qRes, aRes] = await Promise.all([
+      const [allRes, classRes, aRes] = await Promise.all([
         supabase
           .from('quizzes')
-          .select('*, subject:subjects(name), teacher:teachers(full_name)')
-          .in('subject_id', subjectIds)
-          .order('created_at', { ascending: false }),
+          .select('id, title, created_at, audience, class_id')
+          .eq('audience', 'all_classes')
+          .eq('is_published', true)
+          .or(`publish_at.is.null,publish_at.lte.${new Date().toISOString()}`),
+        student.class_id ? supabase
+          .from('quizzes')
+          .select('id, title, created_at, audience, class_id')
+          .in('audience', ['class', 'class_subject'])
+          .eq('class_id', student.class_id)
+          .eq('is_published', true)
+          .or(`publish_at.is.null,publish_at.lte.${new Date().toISOString()}`) : Promise.resolve({ data: [], error: null }),
         supabase
           .from('quiz_attempts')
           .select('*')
           .eq('student_id', student.id)
       ])
       
-      setQuizzes(qRes.data ?? [])
+      const matchedIds = [...(allRes.data || []), ...(classRes.data || [])].map(q => q.id)
+      if (matchedIds.length > 0) {
+         const { data: finalData } = await supabase
+            .from('quizzes')
+            .select('*, subject:subjects(name), teacher:teachers(full_name)')
+            .in('id', matchedIds)
+            .order('created_at', { ascending: false })
+         setQuizzes(finalData || [])
+      } else {
+         setQuizzes([])
+      }
       const attMap = (aRes.data ?? []).reduce((acc, a) => {
         if (!acc[a.quiz_id]) acc[a.quiz_id] = []
         acc[a.quiz_id].push(a)
@@ -83,7 +105,14 @@ export default function StudentQuizzes() {
                <span className="text-[10px] font-bold uppercase tracking-wider text-muted">Challenges Done</span>
             </div>
             <div className="px-6 py-2 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex flex-col items-center">
-               <span className="text-xl font-black text-amber-600">{Math.round(Object.values(attempts).reduce((acc, a) => acc + a.score, 0) / (Object.keys(attempts).length || 1))}%</span>
+               <span className="text-xl font-black text-amber-600">
+                  {Object.keys(attempts).length > 0 
+                    ? Math.round(Object.values(attempts).reduce((acc, aArr: any[]) => {
+                        const best = aArr.reduce((prev, curr) => (curr.percentage > prev.percentage ? curr : prev), aArr[0])
+                        return acc + (best?.percentage || 0)
+                      }, 0) / Object.keys(attempts).length)
+                    : 0}%
+               </span>
                <span className="text-[10px] font-bold uppercase tracking-wider text-muted">Avg. Accuracy</span>
             </div>
          </div>

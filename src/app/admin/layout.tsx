@@ -27,6 +27,7 @@ const NAV_ITEMS = [
   { label: 'Timetables', href: '/admin/timetables', icon: <Calendar size={18} /> },
   { label: 'Tuition Events', href: '/admin/tuition-events', icon: <CalendarDays size={18} /> },
   { label: 'Exam Events', href: '/admin/exam-events', icon: <ClipboardList size={18} /> },
+  { label: 'Grading Systems', href: '/admin/grading', icon: <Award size={18} /> },
   { label: 'Attendance', href: '/admin/attendance', icon: <ClipboardList size={18} /> },
   { label: 'Payments', href: '/admin/payments', icon: <CreditCard size={18} /> },
   { label: 'Transcripts', href: '/admin/transcripts', icon: <FileText size={18} /> },
@@ -61,11 +62,22 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     console.log(`[AdminLayout] Auth State: isLoading=${isLoading}, role=${profile?.role}`)
-    if (!isLoading && !profile) {
-      console.log('[AdminLayout] No session, redirecting to login...')
-      router.push('/auth/login?role=admin')
+    
+    if (isLoading) return
+
+    if (!profile) {
+      // Defensive delay: Wait 1s before redirecting to login to allow AuthHandler 
+      // to potentially restore session (prevents flash of login on refresh)
+      const timer = setTimeout(() => {
+        if (!useAuthStore.getState().profile) {
+          console.log('[AdminLayout] Still no session after delay, redirecting to login...')
+          router.push('/auth/login?role=admin')
+        }
+      }, 1000)
+      return () => clearTimeout(timer)
     }
-    if (!isLoading && profile?.role && profile.role !== 'admin') {
+
+    if (profile.role && profile.role !== 'admin') {
       console.log(`[AdminLayout] Wrong role (${profile.role}), redirecting...`)
       router.push(`/${profile.role}`)
     }

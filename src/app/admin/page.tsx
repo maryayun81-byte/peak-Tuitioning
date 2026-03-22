@@ -52,6 +52,9 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     loadStats()
+    // CRITICAL SAFETY: Never leave the admin hanging on a skeleton
+    const safetyTimer = setTimeout(() => setLoading(false), 5000)
+    return () => clearTimeout(safetyTimer)
   }, [])
 
   const loadStats = async () => {

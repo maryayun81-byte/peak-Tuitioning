@@ -3,19 +3,31 @@
 import { useState, useEffect, useMemo, Suspense } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
-  FileText, Download, Send, Plus, Trash2, Eye, 
-  User, FileCheck, Stamp, RefreshCw, AlertTriangle, 
-  CheckCircle2, Search, Filter, Printer, Zap, Clock
+  Zap, 
+  ChevronLeft,
+  LayoutGrid,
+  RefreshCw,
+  Search,
+  PlusCircle,
+  Clock,
+  CheckCircle2,
+  FileText,
+  Quote,
+  Calendar,
+  Layers,
+  Award,
+  Printer
 } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
-import { Input, Select } from '@/components/ui/Input'
-import { Card, Badge, StatCard } from '@/components/ui/Card'
+import { TranscriptCollectionCard } from '@/components/admin/TranscriptCollectionCard'
+import { TranscriptList } from '@/components/admin/TranscriptList'
+import { PremiumTranscript } from '@/components/admin/PremiumTranscript'
 import { Modal } from '@/components/ui/Modal'
 import { SkeletonList } from '@/components/ui/Skeleton'
+import { Card } from '@/components/ui/Card'
 import toast from 'react-hot-toast'
-import { formatDate } from '@/lib/utils'
-import type { Transcript, Student, ExamEvent, ExamMark, Subject, GradingSystem } from '@/types/database'
+import type { Transcript, ExamEvent, TuitionEvent, GradingSystem } from '@/types/database'
 import { useSearchParams, useRouter } from 'next/navigation'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
@@ -24,475 +36,585 @@ function AdminTranscriptsContent() {
   const supabase = getSupabaseBrowserClient()
   const searchParams = useSearchParams()
   const router = useRouter()
-  const initialExamId = searchParams.get('examId') || ''
 
-  // State
-  const [exams, setExams] = useState<ExamEvent[]>([])
-  const [selectedExamId, setSelectedExamId] = useState(initialExamId)
-  const [students, setStudents] = useState<any[]>([])
+  // STATE
+  const [tuitionEvents, setTuitionEvents] = useState<TuitionEvent[]>([])
+  const [examEvents, setExamEvents] = useState<ExamEvent[]>([])
   const [transcripts, setTranscripts] = useState<Transcript[]>([])
   const [gradingSystems, setGradingSystems] = useState<GradingSystem[]>([])
-  const [loading, setLoading] = useState(true)
-  const [generating, setGenerating] = useState(false)
-  const [publishing, setPublishing] = useState(false)
-  const [search, setSearch] = useState('')
+  const [transcriptCounts, setTranscriptCounts] = useState<Record<string, number>>({})
   
-  // UI State
+  const [loading, setLoading] = useState(true)
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
+  const [selectedExamId, setSelectedExamId] = useState<string | null>(null)
+  const [view, setView] = useState<'collections' | 'manager'>('collections')
+  
+  // MODAL EXCLUSIVE STATE
   const [previewOpen, setPreviewOpen] = useState(false)
   const [selectedTranscript, setSelectedTranscript] = useState<Transcript | null>(null)
-  const [remarkValue, setRemarkValue] = useState('')
+  const [remarkOpen, setRemarkOpen] = useState(false)
+  const [tempRemark, setTempRemark] = useState('')
+  const [isSavingRemark, setIsSavingRemark] = useState(false)
 
-  useEffect(() => { loadInitialData() }, [])
-  useEffect(() => { if (selectedExamId) loadExamData() }, [selectedExamId])
+  useEffect(() => {
+    loadCollections().then(() => {
+      const examId = searchParams.get('examId')
+      if (examId) {
+        handleExamNavigation(examId)
+      }
+    })
+  }, [searchParams])
 
-  const loadInitialData = async () => {
+  const handleExamNavigation = async (examId: string) => {
+    try {
+      // Find which tuition event this exam belongs to
+      const { data: exam } = await supabase
+        .from('exam_events')
+        .select('tuition_event_id')
+        .eq('id', examId)
+        .single()
+      
+      if (exam?.tuition_event_id) {
+        setSelectedEventId(exam.tuition_event_id)
+        setSelectedExamId(examId)
+        setView('manager')
+        loadTranscripts(exam.tuition_event_id, examId)
+      }
+    } catch (err) {
+      console.error('Navigation error:', err)
+    }
+  }
+
+  const loadCollections = async () => {
     setLoading(true)
     try {
-      const { data: ex } = await supabase.from('exam_events').select('*, tuition_event:tuition_events(name)').in('status', ['closed', 'generated', 'published']).order('start_date', { ascending: false })
-      const { data: gs } = await supabase.from('grading_systems').select('*')
-      setExams(ex || [])
-      setGradingSystems(gs || [])
+      const [te, ee, gs, counts] = await Promise.all([
+        supabase.from('tuition_events').select('*').order('start_date', { ascending: false }),
+        supabase.from('exam_events').select('*'),
+        supabase.from('grading_systems').select('*, scales:grading_scales(*)'),
+        supabase.from('transcripts').select('tuition_event_id')
+      ])
+
+      setTuitionEvents(te.data || [])
+      setExamEvents(ee.data || [])
+      setGradingSystems(gs.data || [])
+      
+      const countMap: Record<string, number> = {}
+      counts.data?.forEach((t: any) => {
+        countMap[t.tuition_event_id] = (countMap[t.tuition_event_id] || 0) + 1
+      })
+      setTranscriptCounts(countMap)
     } finally {
       setLoading(false)
     }
   }
 
-  const loadExamData = async () => {
+  const loadTranscripts = async (eventId: string, examId?: string | null) => {
     setLoading(true)
     try {
-       // 1. Fetch transcripts for this exam
-       const { data: tRes } = await supabase
-         .from('transcripts')
-         .select('*, student:students(full_name, admission_number, class:classes(name))')
-         .eq('exam_event_id', selectedExamId)
-
-       // 2. Fetch all students who *should* have transcripts (those registered for subjects in this tuition event)
-       const exam = exams.find(e => e.id === selectedExamId)
-       if (!exam) return
-
-       // For now, let's get students who have marks in this exam
-       const { data: marks } = await supabase
-         .from('exam_marks')
-         .select('student_id, student:students(id, full_name, admission_number, class:classes(name))')
-         .eq('exam_event_id', selectedExamId)
-       
-       // Deduplicate students from marks
-       const studentsFromMarks = Array.from(new Map(marks?.map(m => [m.student_id, m.student])).values())
-       
-       setTranscripts(tRes || [])
-       setStudents(studentsFromMarks || [])
+      let query = supabase
+        .from('transcripts')
+        .select(`
+          *,
+          student:students(*, class:classes(*), curriculum:curriculums(*)),
+          exam_event:exam_events(*)
+        `)
+        .eq('tuition_event_id', eventId)
+        
+      if (examId) {
+        query = query.eq('exam_event_id', examId)
+      }
+      
+      const { data } = await query
+      setTranscripts(data || [])
     } finally {
-       setLoading(false)
+      setLoading(false)
     }
   }
 
-  const computeGrade = (score: number, curriculumId?: string) => {
-    if (!curriculumId) return 'N/A'
-    const system = gradingSystems.find(s => s.curriculum_id === curriculumId)
-    if (!system) return 'N/A'
-    const grades = system.grades as any[]
-    const match = grades.find(g => score >= g.min_mark && score <= g.max_mark)
+  const handleSelectCollection = (id: string) => {
+    setSelectedEventId(id)
+    setView('manager')
+    const collectionExams = examEvents.filter(e => e.tuition_event_id === id)
+    const defaultExam = collectionExams.length > 0 ? collectionExams[0].id : null
+    setSelectedExamId(defaultExam)
+    
+    if (defaultExam) {
+      loadTranscripts(id, defaultExam)
+    } else {
+      setTranscripts([])
+    }
+  }
+
+  const handleBack = () => {
+    setView('collections')
+    setSelectedEventId(null)
+    setSelectedExamId(null)
+    loadCollections()
+  }
+
+  // --- LOGIC ---
+
+  const computeGrade = (score: number, curriculumId: string, subjectId?: string, classId?: string, isOverall = false) => {
+    let system = null
+    if (isOverall) {
+      system = gradingSystems.find(s => s.curriculum_id === curriculumId && (s as any).is_overall === true)
+      if (!system) {
+        system = gradingSystems.find(s => s.curriculum_id === curriculumId && (s as any).is_default === true)
+      }
+    } else {
+      system = gradingSystems.find(s => s.curriculum_id === curriculumId && s.subject_id === subjectId && (s as any).class_id === classId)
+      if (!system) {
+         system = gradingSystems.find(s => s.curriculum_id === curriculumId && s.subject_id === subjectId)
+      }
+      if (!system) {
+         system = gradingSystems.find(s => s.curriculum_id === curriculumId && (s as any).is_default === true)
+      }
+      if (!system) {
+         system = gradingSystems.find(s => s.curriculum_id === curriculumId)
+      }
+    }
+
+    if (!system || !system.scales) return 'N/A'
+    const match = system.scales.find(s => score >= s.min_score && score <= s.max_score)
     return match ? match.grade : 'F'
   }
 
-  const generateTranscripts = async () => {
-    if (!selectedExamId) return
-    const exam = exams.find(e => e.id === selectedExamId)
-    if (!exam) return
+  const regenerateAll = async () => {
+    if (!selectedEventId) return
+    if (!selectedExamId) {
+      toast.error('Please select an Exam Event below to generate transcripts.')
+      return
+    }
+    const event = tuitionEvents.find(e => e.id === selectedEventId)
+    if (!event) return
 
-    setGenerating(true)
-    const toastId = toast.loading('Generating transcripts...')
-    
+    const toastId = toast.loading('Calculating rankings & generating transcripts...')
     try {
-      // 1. Fetch all marks and student info
+      // 1. Fetch ALL marks for the specific exam_event
       const { data: allMarks } = await supabase
         .from('exam_marks')
-        .select('*, student:students(*), subject:subjects(name, curriculum_id)')
+        .select(`
+          *,
+          student:students(*, class:classes(*), curriculum:curriculums(*)),
+          exam_event:exam_events(*),
+          subject:subjects(name, curriculum_id)
+        `)
         .eq('exam_event_id', selectedExamId)
 
       if (!allMarks?.length) {
-        toast.error('No marks found for this exam.', { id: toastId })
+        toast.error('No marks found for this tuition event', { id: toastId })
         return
       }
 
-      // Group marks by student
-      const studentMap = new Map<string, any[]>()
+      // 2. Fetch config
+      const { data: config } = await supabase.from('transcript_config').select('*').maybeSingle()
+
+      // 3. Group marks by exam_event AND student
+      // Transcripts are unique per (student, exam_event)
+      const transcriptGroups = new Map<string, any[]>() 
       allMarks.forEach(m => {
-        if (!studentMap.has(m.student_id)) studentMap.set(m.student_id, [])
-        studentMap.get(m.student_id)!.push(m)
+        const key = `${m.exam_event_id}_${m.student_id}`
+        if (!transcriptGroups.has(key)) transcriptGroups.set(key, [])
+        transcriptGroups.get(key)!.push(m)
       })
 
-      // Fetch branding config
-      const { data: config } = await supabase.from('transcript_config').select('*').single()
+      const rawTranscripts: any[] = []
 
-      const newTranscripts = []
-      for (const [studentId, marks] of studentMap.entries()) {
+      // 4. Calculate raw data for each transcript
+      for (const [key, marks] of transcriptGroups.entries()) {
         const student = marks[0].student
+        const exam = marks[0].exam_event
         const total = marks.reduce((sum, m) => sum + (Number(m.marks) || 0), 0)
         const avg = total / marks.length
         
-        const subjectResults = marks.map(m => ({
+        const subjResults = marks.map(m => ({
           subject_id: m.subject_id,
           subject_name: m.subject?.name || 'Unknown',
           marks: Number(m.marks),
-          grade: computeGrade(Number(m.marks), exam.curriculum_id || m.subject?.curriculum_id),
+          grade: m.grade || computeGrade(Number(m.marks), exam.curriculum_id || m.subject?.curriculum_id || '', m.subject_id, student.class_id),
           remark: m.teacher_remark || ''
         }))
 
-        newTranscripts.push({
-          student_id: studentId,
-          exam_event_id: selectedExamId,
-          tuition_event_id: exam.tuition_event_id,
-          title: `${exam.name} Report - ${student.full_name}`,
-          file_url: '', // Will be used for PDF link later
-          subject_results: subjectResults,
+        rawTranscripts.push({
+          student_id: student.id,
+          exam_event_id: exam.id,
+          tuition_event_id: selectedEventId,
+          subject_results: subjResults,
           total_marks: total,
           average_score: avg,
-          overall_grade: computeGrade(avg, exam.curriculum_id),
+          overall_grade: computeGrade(avg, exam.curriculum_id || student.curriculum_id || student.class?.curriculum_id || '', undefined, student.class_id, true),
           branding_snapshot: config || {},
-          is_published: false
+          // Temporaries for ranking
+          class_id: student.class_id,
+          curriculum_id: exam.curriculum_id || student.curriculum_id || student.class?.curriculum_id
         })
       }
 
-      // Bulk upsert
+      // 5. CALCULATE RANKINGS
+      // Rankings are within the same exam_event
+      const examIds = Array.from(new Set(rawTranscripts.map(t => t.exam_event_id)))
+      
+      examIds.forEach(examId => {
+        const examTranscripts = rawTranscripts.filter(t => t.exam_event_id === examId)
+        
+        // a. Class Ranking
+        const classIds = Array.from(new Set(examTranscripts.map(t => t.class_id)))
+        classIds.forEach(classId => {
+          const classSet = examTranscripts
+            .filter(t => t.class_id === classId)
+            .sort((a, b) => b.average_score - a.average_score)
+          
+          classSet.forEach((t, index) => {
+            t.class_rank = index + 1
+          })
+        })
+
+        // b. Curriculum Ranking
+        const curriculumIds = Array.from(new Set(examTranscripts.map(t => t.curriculum_id)))
+        curriculumIds.forEach(currId => {
+          const currSet = examTranscripts
+            .filter(t => t.curriculum_id === currId)
+            .sort((a, b) => b.average_score - a.average_score)
+          
+          currSet.forEach((t, index) => {
+            t.curriculum_rank = index + 1
+          })
+        })
+      })
+
+      // 6. UPSERT
       const { error } = await supabase
         .from('transcripts')
-        .upsert(newTranscripts, { onConflict: 'student_id,exam_event_id' })
+        .upsert(rawTranscripts.map(({ class_id, curriculum_id, ...rest }) => rest), { 
+          onConflict: 'student_id,exam_event_id' 
+        })
 
       if (error) throw error
-
-      // Update exam status to 'generated'
-      await supabase.from('exam_events').update({ status: 'generated' }).eq('id', selectedExamId)
-
-      toast.success(`Generated ${newTranscripts.length} transcripts!`, { id: toastId })
-      loadExamData()
-      loadInitialData() // refresh exam statuses
+      toast.success('Successfully generated persistent transcripts with rankings!', { id: toastId })
+      loadTranscripts(selectedEventId, selectedExamId)
     } catch (err: any) {
       console.error(err)
-      toast.error('Generation failed: ' + err.message, { id: toastId })
-    } finally {
-      setGenerating(false)
-    }
-  }
-
-  const handlePublishAll = async () => {
-    if (!selectedExamId) return
-    setPublishing(true)
-    const { error } = await supabase
-      .from('transcripts')
-      .update({ is_published: true, published_at: new Date().toISOString() })
-      .eq('exam_event_id', selectedExamId)
-    
-    if (error) toast.error('Publish failed')
-    else {
-      await supabase.from('exam_events').update({ status: 'published' }).eq('id', selectedExamId)
-      toast.success('All transcripts published!')
-      loadExamData()
-      loadInitialData()
-    }
-    setPublishing(false)
-  }
-
-  const saveDirectorRemark = async () => {
-    if (!selectedTranscript) return
-    const { error } = await supabase
-      .from('transcripts')
-      .update({ remarks: remarkValue })
-      .eq('id', selectedTranscript.id)
-    
-    if (error) toast.error('Save failed')
-    else {
-      toast.success('Remark added')
-      setPreviewOpen(false)
-      loadExamData()
+      toast.error('Failed: ' + err.message, { id: toastId })
     }
   }
 
   const downloadPDF = async (transcript: Transcript) => {
-    // If not already in preview, we might need a hidden div or to open preview first.
-    // For better UX, we'll use the already open preview if available, 
-    // or quickly mount/unmount a hidden one if called from table.
-    
     const elementId = 'transcript-preview'
     let element = document.getElementById(elementId)
     
-    const wasOpen = previewOpen
     if (!element) {
-      // Logic for bulk/direct download from table: 
-      // We'll just open the preview first or use a hidden portal.
-      // But for a cleaner implementation, we'll assume preview is open for now 
-      // or open it programmatically.
       setSelectedTranscript(transcript)
       setPreviewOpen(true)
-      // Wait for DOM
-      setTimeout(() => downloadPDF(transcript), 100)
+      // Wait for modal to open and content to render
+      setTimeout(() => downloadPDF(transcript), 500)
       return
     }
 
-    const toastId = toast.loading('Generating PDF...')
+    const toastId = toast.loading('Brewing luxury PDF...')
     try {
+      // Ensure images are loaded and fonts are ready
       const canvas = await html2canvas(element, {
-        scale: 2, // Higher resolution
+        scale: 3,
         useCORS: true,
-        logging: false
+        logging: false,
+        backgroundColor: '#ffffff',
+        windowWidth: 1200,
+        onclone: (clonedDoc) => {
+          const el = clonedDoc.getElementById(elementId)
+          if (el) {
+            el.style.width = '1200px'
+            el.style.padding = '20px'
+          }
+        }
       })
-      const imgData = canvas.toDataURL('image/png')
+      
+      const imgData = canvas.toDataURL('image/png', 1.0)
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
-        format: 'a4'
+        format: 'a4',
+        compress: true
       })
       
-      const imgProps = pdf.getImageProperties(imgData)
       const pdfWidth = pdf.internal.pageSize.getWidth()
-      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width
       
-      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight)
-      pdf.save(`Transcript_${(transcript as any).student?.admission_number || 'ST'}.pdf`)
-      toast.success('PDF Downloaded!', { id: toastId })
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST')
+      
+      // Sanitize filename: replace spaces and weird characters with underscores
+      const safeName = (transcript.student?.full_name || 'Student').replace(/[^a-z0-9]/gi, '_')
+      const safeTitle = (transcript.title || 'Report').replace(/[^a-z0-9]/gi, '_')
+      const filename = `Transcript_${safeName}_${safeTitle}.pdf`
+      
+      pdf.save(filename)
+      
+      toast.success('Delivered!', { id: toastId })
     } catch (err) {
-      toast.error('PDF Generation failed', { id: toastId })
+      console.error('PDF error:', err)
+      toast.error('PDF Failed', { id: toastId })
     }
   }
 
-  const filtered = useMemo(() => {
-    return transcripts.filter(t => 
-      (t as any).student?.full_name?.toLowerCase().includes(search.toLowerCase()) ||
-      (t as any).student?.admission_number?.toLowerCase().includes(search.toLowerCase())
-    )
-  }, [transcripts, search])
-
-  const stats = useMemo(() => {
-    return {
-      total: students.length,
-      generated: transcripts.length,
-      published: transcripts.filter(t => t.is_published).length,
-      missing: students.length - transcripts.length
+  const saveRemark = async () => {
+    if (!selectedTranscript) return
+    setIsSavingRemark(true)
+    try {
+      const { data, error } = await supabase
+        .from('transcripts')
+        .update({ remarks: tempRemark })
+        .eq('id', selectedTranscript.id)
+        .select()
+      
+      if (error) throw error
+      if (!data || data.length === 0) throw new Error('Database update rejected (possibly due to invalid ID or permissions).')
+      
+      toast.success('Remark updated')
+      setRemarkOpen(false)
+      // Update local state immediately for the preview
+      setSelectedTranscript(prev => prev ? { ...prev, remarks: tempRemark } : null)
+      loadTranscripts(selectedEventId!, selectedExamId)
+    } catch (e: any) {
+      console.error(e)
+      toast.error(e.message || 'Remark save failed')
+    } finally {
+      setIsSavingRemark(false)
     }
-  }, [students, transcripts])
+  }
+
+  const deleteTranscript = async (t: Transcript) => {
+     if (!confirm('Are you sure you want to delete this transcript?')) return
+     const { error } = await supabase.from('transcripts').delete().eq('id', t.id)
+     if (error) toast.error('Delete failed')
+     else {
+       toast.success('Deleted')
+       loadTranscripts(selectedEventId!, selectedExamId)
+     }
+  }
+
+  const bulkPublish = async () => {
+    if (!selectedEventId) return
+    const toastId = toast.loading('Publishing selected transcripts...')
+    try {
+      let query = supabase.from('transcripts').update({ is_published: true }).eq('tuition_event_id', selectedEventId)
+      if (selectedExamId) query = query.eq('exam_event_id', selectedExamId)
+      const { error } = await query
+
+      if (error) throw error
+      toast.success('Transcripts published to students', { id: toastId })
+      loadTranscripts(selectedEventId, selectedExamId)
+    } catch (err) {
+      toast.error('Failed to publish transcripts', { id: toastId })
+    }
+  }
+
+  const togglePublish = async (t: Transcript) => {
+    const toastId = toast.loading(`${t.is_published ? 'Unpublishing' : 'Publishing'} transcript...`)
+    try {
+      const { error } = await supabase
+        .from('transcripts')
+        .update({ is_published: !t.is_published })
+        .eq('id', t.id)
+
+      if (error) throw error
+      toast.success(`Transcript ${t.is_published ? 'unpublished' : 'published'}`, { id: toastId })
+      loadTranscripts(selectedEventId!, selectedExamId)
+    } catch (err) {
+      toast.error('Failed to update publishing status', { id: toastId })
+    }
+  }
+
+  const bulkDelete = async () => {
+     if (!confirm('EXTREME WARNING: You are about to delete ALL selected transcripts. Proceed?')) return
+     let query = supabase.from('transcripts').delete().eq('tuition_event_id', selectedEventId)
+     if (selectedExamId) query = query.eq('exam_event_id', selectedExamId)
+     const { error } = await query
+     if (error) toast.error('Bulk delete failed')
+     else {
+       toast.success('Transcripts cleared')
+       loadTranscripts(selectedEventId!, selectedExamId)
+     }
+  }
+
+  // --- RENDERING ---
 
   return (
-    <div className="p-6 space-y-6 pb-24">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-black flex items-center gap-2">
-            <Zap className="text-primary" /> Transcripts Center
-          </h1>
-          <p className="text-sm text-muted-foreground">Lifecycle: Generate → Review → Publish</p>
+    <div className="min-h-screen bg-[var(--bg)] pb-24 transition-theme">
+      <div className="max-w-7xl mx-auto p-6 md:p-8 space-y-8">
+        
+        {/* HEADER SECTION */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="space-y-1">
+            <h1 className="text-3xl font-black tracking-tight text-[var(--text)] flex items-center gap-3">
+               <div className="w-12 h-12 bg-[var(--primary)] rounded-2xl flex items-center justify-center text-white shadow-xl shadow-[var(--primary)]/20">
+                 <Zap size={24} />
+               </div>
+               Transcript Collections
+            </h1>
+            <p className="text-sm font-medium text-[var(--text-muted)] uppercase tracking-widest pl-1">Premium Academic Management System</p>
+          </div>
+          
+          <AnimatePresence mode="wait">
+            {view === 'manager' && (
+              <motion.div 
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 20 }}
+              >
+                <Button variant="outline" onClick={handleBack} className="rounded-2xl px-6 font-bold uppercase tracking-widest text-xs border-[var(--card-border)] text-[var(--text)]">
+                  <ChevronLeft size={16} className="mr-2" /> Back to Collections
+                </Button>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
-        <div className="flex gap-2">
-           <Select value={selectedExamId} onChange={e => setSelectedExamId(e.target.value)} className="w-64">
-              <option value="">Select Exam Event...</option>
-              {exams.map(e => (
-                <option key={e.id} value={e.id}>{e.name} ({e.status.toUpperCase()})</option>
-              ))}
-           </Select>
-           <Button variant="secondary" onClick={() => loadExamData()} disabled={!selectedExamId}>
-             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-           </Button>
-        </div>
+
+        {loading ? (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+               <div className="h-64 rounded-[2.5rem] bg-[var(--input)] animate-pulse" />
+               <div className="h-64 rounded-[2.5rem] bg-[var(--input)] animate-pulse" />
+               <div className="h-64 rounded-[2.5rem] bg-[var(--input)] animate-pulse" />
+            </div>
+            <SkeletonList count={8} />
+          </div>
+        ) : (
+          <AnimatePresence mode="wait">
+             {view === 'collections' ? (
+               <motion.div 
+                 key="collections"
+                 initial={{ opacity: 0, y: 20 }}
+                 animate={{ opacity: 1, y: 0 }}
+                 exit={{ opacity: 0, y: -20 }}
+                 className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8"
+               >
+                 {tuitionEvents.map(event => (
+                   <TranscriptCollectionCard 
+                     key={event.id}
+                     event={event}
+                     transcriptCount={transcriptCounts[event.id] || 0}
+                     onClick={() => handleSelectCollection(event.id)}
+                   />
+                 ))}
+                 
+                 {tuitionEvents.length === 0 && (
+                   <div className="col-span-full py-32 text-center bg-[var(--card)] rounded-[3rem] border border-dashed border-[var(--card-border)] transition-theme">
+                      <LayoutGrid className="mx-auto text-[var(--text-muted)] opacity-20 mb-6" size={64} />
+                      <h2 className="text-xl font-black text-[var(--text)] uppercase mb-2">No Collections Found</h2>
+                      <p className="text-[var(--text-muted)] text-sm font-medium">Create tuition events first to start organizing transcripts.</p>
+                   </div>
+                 )}
+               </motion.div>
+             ) : (
+               <motion.div 
+                 key="manager"
+                 initial={{ opacity: 0, y: 20 }}
+                 animate={{ opacity: 1, y: 0 }}
+                 exit={{ opacity: 0, y: -20 }}
+                 className="space-y-8"
+               >
+                 <div className="bg-[var(--sidebar)] rounded-[2.5rem] p-10 text-white relative overflow-hidden shadow-2xl border border-white/5 transition-theme">
+                    <div className="absolute top-0 right-0 w-96 h-96 bg-[var(--primary)]/10 rounded-full translate-x-1/2 -translate-y-1/2 blur-3xl" />
+                    <div className="relative">
+                       <h2 className="text-4xl font-black mb-2 uppercase tracking-tight">Collection Management</h2>
+                       <div className="flex flex-col gap-4 mt-6">
+                          <div className="flex items-center gap-4 text-white/50">
+                            <span className="flex items-center gap-2 px-3 py-1 bg-white/5 rounded-full text-[10px] font-black uppercase tracking-widest border border-white/10">
+                               <LayoutGrid size={12} /> {tuitionEvents.find(e => e.id === selectedEventId)?.name}
+                            </span>
+                            <span className="flex items-center gap-2 px-3 py-1 bg-white/5 rounded-full text-[10px] font-black uppercase tracking-widest border border-white/10">
+                               <FileText size={12} /> {transcripts.length} Transcripts
+                            </span>
+                          </div>
+                          
+                          <div className="flex flex-wrap items-center gap-3">
+                            <div className="relative w-full md:w-64">
+                              <select 
+                                value={selectedExamId || ''} 
+                                onChange={e => {
+                                  setSelectedExamId(e.target.value)
+                                  loadTranscripts(selectedEventId!, e.target.value)
+                                }}
+                                className="w-full bg-white/10 border border-white/20 text-white text-xs font-bold rounded-2xl px-4 py-2 outline-none appearance-none focus:ring-2 ring-white/30"
+                              >
+                                <option value="" className="text-black">All Exams in Collection</option>
+                                {examEvents.filter(e => e.tuition_event_id === selectedEventId).map(e => (
+                                  <option key={e.id} value={e.id} className="text-black">{e.name} ({e.status})</option>
+                                ))}
+                              </select>
+                              <Calendar size={14} className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none opacity-50" />
+                            </div>
+                            
+                            {!selectedExamId && transcripts.length === 0 && (
+                              <div className="text-xs font-medium text-amber-200 bg-amber-500/10 px-3 py-1.5 rounded-xl border border-amber-500/20">
+                                Please select an exam to view or generate transcripts.
+                              </div>
+                            )}
+                          </div>
+                       </div>
+                    </div>
+                 </div>
+
+                  <TranscriptList 
+                    transcripts={transcripts}
+                    onPreview={t => { setSelectedTranscript(t); setPreviewOpen(true) }}
+                    onDownload={downloadPDF}
+                    onDelete={deleteTranscript}
+                    onRegenerate={t => regenerateAll()} // Simplified for bulk
+                    onBulkRegenerate={regenerateAll}
+                    onBulkDelete={bulkDelete}
+                    onUpdateRemark={t => { setSelectedTranscript(t); setTempRemark(t.remarks || ''); setRemarkOpen(true) }}
+                    onPublishIndividual={togglePublish}
+                    onBulkPublish={bulkPublish}
+                  />
+               </motion.div>
+             )}
+          </AnimatePresence>
+        )}
       </div>
 
-      {selectedExamId ? (
-        <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard title="Target Students" value={stats.total} icon={<User size={18} />} />
-            <StatCard title="Generated" value={stats.generated} icon={<FileText size={18} />} />
-            <StatCard title="Published" value={stats.published} icon={<FileCheck size={18} />} />
-            <StatCard title="Pending Generation" value={stats.missing} icon={<Clock size={18} />} changeType={stats.missing > 0 ? 'down' : 'neutral'} />
-          </div>
-
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-             <div className="flex-1 w-full">
-               <Input 
-                 placeholder="Search student or admission #..." 
-                 value={search} 
-                 onChange={e => setSearch(e.target.value)}
-                 leftIcon={<Search size={16} />}
-               />
-             </div>
-             <div className="flex gap-2 w-full md:w-auto">
-                <Button variant="primary" onClick={generateTranscripts} isLoading={generating} disabled={loading}>
-                  <Zap size={16} className="mr-2" /> Generate All
-                </Button>
-                <Button variant="success" onClick={handlePublishAll} isLoading={publishing} disabled={loading || transcripts.length === 0}>
-                   <Send size={16} className="mr-2" /> Publish All
-                </Button>
-             </div>
-          </div>
-
-          {loading ? <SkeletonList count={8} /> : (
-            <Card className="overflow-hidden border-none shadow-xl shadow-blue-500/5">
-               <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                     <thead className="bg-[var(--input)] text-muted-foreground uppercase text-[10px] font-black tracking-widest">
-                        <tr>
-                           <th className="px-6 py-4 text-left">Student</th>
-                           <th className="px-6 py-4 text-left">Class</th>
-                           <th className="px-6 py-4 text-center">Avg Score</th>
-                           <th className="px-6 py-4 text-center">Grade</th>
-                           <th className="px-6 py-4 text-center">Status</th>
-                           <th className="px-6 py-4 text-right">Actions</th>
-                        </tr>
-                     </thead>
-                     <tbody className="divide-y divide-[var(--card-border)]">
-                        {filtered.map(t => (
-                          <tr key={t.id} className="hover:bg-[var(--bg)] transition-colors">
-                             <td className="px-6 py-4">
-                                <div className="flex items-center gap-3">
-                                   <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-xs capitalize">
-                                      {(t as any).student?.full_name[0]}
-                                   </div>
-                                   <div>
-                                      <div className="font-bold">{(t as any).student?.full_name}</div>
-                                      <div className="text-[10px] opacity-60">{(t as any).student?.admission_number}</div>
-                                   </div>
-                                </div>
-                             </td>
-                             <td className="px-6 py-4 opacity-70">{(t as any).student?.class?.name}</td>
-                             <td className="px-6 py-4 text-center font-black">{t.average_score?.toFixed(1) || '0.0'}</td>
-                             <td className="px-6 py-4 text-center">
-                                <Badge variant={t.overall_grade === 'F' ? 'danger' : 'success'}>{t.overall_grade}</Badge>
-                             </td>
-                             <td className="px-6 py-4 text-center">
-                                <Badge variant={t.is_published ? 'success' : 'warning'}>
-                                   {t.is_published ? 'Published' : 'Draft'}
-                                </Badge>
-                             </td>
-                             <td className="px-6 py-4 text-right">
-                                <div className="flex justify-end gap-1">
-                                   <button 
-                                     onClick={() => { setSelectedTranscript(t); setRemarkValue(t.remarks || ''); setPreviewOpen(true) }}
-                                     className="p-2 rounded-lg hover:bg-blue-50 text-blue-600 transition-colors"
-                                     title="Preview & Remarks"
-                                   >
-                                      <Eye size={16} />
-                                   </button>
-                                   <button 
-                                     onClick={() => downloadPDF(t)}
-                                     className="p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition-colors" 
-                                     title="Print PDF"
-                                   >
-                                      <Printer size={16} />
-                                   </button>
-                                </div>
-                             </td>
-                          </tr>
-                        ))}
-                        {transcripts.length === 0 && (
-                          <tr>
-                             <td colSpan={6} className="py-20 text-center">
-                                <FileText className="mx-auto mb-3 opacity-20" size={48} />
-                                <p className="text-muted-foreground font-medium">No transcripts generated for this exam yet.</p>
-                                <Button variant="ghost" className="mt-4" onClick={generateTranscripts}>Click "Generate All" to begin</Button>
-                             </td>
-                          </tr>
-                        )}
-                     </tbody>
-                  </table>
-               </div>
-            </Card>
-          )}
-        </>
-      ) : (
-        <Card className="p-20 text-center border-dashed border-2">
-           <Stamp className="mx-auto mb-4 opacity-10" size={64} />
-           <h2 className="text-xl font-bold opacity-40">Select an exam event to start</h2>
-           <p className="text-sm opacity-30 mt-2">Transcripts are generated based on the marks recorded for a specific exam.</p>
-        </Card>
-      )}
-
-      {/* Preview & Remark Modal */}
+      {/* PREVIEW MODAL */}
       <Modal 
         isOpen={previewOpen} 
         onClose={() => setPreviewOpen(false)} 
-        title="Review Transcript" 
+        title="Transcript Mastery Preview" 
         size="lg"
       >
-        {selectedTranscript && (
-          <div className="space-y-6">
-             {/* Mock Transcript Layout */}
-             <div className="p-8 bg-white text-black border shadow-sm rounded-sm font-serif" id="transcript-preview">
-                <div className="text-center mb-8 border-b-2 border-black pb-4">
-                   <h1 className="text-2xl font-bold uppercase">{(selectedTranscript.branding_snapshot as any)?.school_name || 'Peak Performance Tutoring'}</h1>
-                   <p className="text-xs tracking-widest mt-1">Official Academic Report Card</p>
-                </div>
+        <div className="p-4 md:p-8 bg-[var(--bg)]/50 rounded-b-3xl">
+           <div id="transcript-preview">
+             {selectedTranscript && <PremiumTranscript transcript={selectedTranscript} />}
+           </div>
+           <div className="mt-8 flex justify-end gap-3">
+              <Button variant="outline" onClick={() => setPreviewOpen(false)} className="rounded-2xl px-8 uppercase tracking-widest font-black text-xs text-[var(--text)] border-[var(--card-border)]">Close Preview</Button>
+              <Button onClick={() => downloadPDF(selectedTranscript!)} className="rounded-2xl px-8 uppercase tracking-widest font-black text-xs shadow-xl shadow-[var(--primary)]/20">
+                 <Printer size={16} className="mr-2" /> Download PDF
+              </Button>
+           </div>
+        </div>
+      </Modal>
 
-                <div className="grid grid-cols-2 gap-8 mb-8 text-sm">
-                   <div>
-                      <div className="opacity-50 text-[10px] uppercase font-bold mb-1">Student Details</div>
-                      <div className="font-bold">{(selectedTranscript as any).student?.full_name}</div>
-                      <div>Adm: {(selectedTranscript as any).student?.admission_number}</div>
-                      <div>Class: {(selectedTranscript as any).student?.class?.name}</div>
-                   </div>
-                   <div className="text-right">
-                      <div className="opacity-50 text-[10px] uppercase font-bold mb-1">Exam Details</div>
-                      <div className="font-bold">{exams.find(e => e.id === selectedExamId)?.name}</div>
-                      <div>Date: {formatDate(selectedTranscript.created_at)}</div>
-                   </div>
-                </div>
-
-                <table className="w-full text-xs border-collapse">
-                   <thead>
-                      <tr className="border-y-2 border-black bg-slate-50">
-                         <th className="p-3 text-left">Subject</th>
-                         <th className="p-3 text-center">Mark</th>
-                         <th className="p-3 text-center">Grade</th>
-                         <th className="p-3 text-left">Teacher&apos;s Remark</th>
-                      </tr>
-                   </thead>
-                   <tbody className="divide-y border-b-2 border-black">
-                      {selectedTranscript.subject_results.map((res, i) => (
-                        <tr key={i}>
-                           <td className="p-3 font-bold">{res.subject_name}</td>
-                           <td className="p-3 text-center">{res.marks}</td>
-                           <td className="p-3 text-center font-bold">{res.grade}</td>
-                           <td className="p-3 italic text-[10px]">{res.remark}</td>
-                        </tr>
-                      ))}
-                   </tbody>
-                   <tfoot>
-                      <tr className="font-bold">
-                         <td className="p-3">TOTAL / AVERAGE</td>
-                         <td className="p-3 text-center">{selectedTranscript.total_marks?.toFixed(0)}</td>
-                         <td className="p-3 text-center text-lg">{selectedTranscript.overall_grade}</td>
-                         <td className="p-3">AVG: {selectedTranscript.average_score?.toFixed(1)}%</td>
-                      </tr>
-                   </tfoot>
-                </table>
-
-                <div className="mt-8 space-y-4">
-                   <div className="p-4 border border-black/10 rounded-sm">
-                      <div className="text-[10px] font-bold uppercase mb-2">Director&apos;s Remarks</div>
-                      <p className="text-sm italic">{remarkValue || 'Pending remark...'}</p>
-                   </div>
-                   <div className="flex justify-between items-end pt-8">
-                      <div className="text-center w-32 border-t border-black pt-2 text-[10px]">DIRECTOR SIGNATURE</div>
-                      <div className="text-center w-32 border-t border-black pt-2 text-[10px]">SCHOOL STAMP</div>
-                   </div>
-                </div>
-             </div>
-
-             {/* Admin Control Pane */}
-             <div className="p-6 bg-[var(--input)] rounded-2xl space-y-4">
-                <label className="text-xs font-black uppercase tracking-widest text-muted-foreground">Modify Director Remarks</label>
-                <textarea 
-                  className="w-full p-4 rounded-xl text-sm border focus:ring-2 ring-primary outline-none"
-                  rows={3}
-                  value={remarkValue}
-                  onChange={e => setRemarkValue(e.target.value)}
-                  placeholder="Excellent results, keep up the momentum!"
-                />
-                <div className="flex gap-2 justify-end">
-                  <Button variant="secondary" onClick={() => setPreviewOpen(false)}>Close</Button>
-                  <Button variant="outline" onClick={() => downloadPDF(selectedTranscript)}>
-                     <Download size={16} className="mr-2" /> Download PDF
-                  </Button>
-                  <Button onClick={saveDirectorRemark}>Save Remark & Update</Button>
-                </div>
-             </div>
-          </div>
-        )}
+      {/* REMARK MODAL */}
+      <Modal
+        isOpen={remarkOpen}
+        onClose={() => setRemarkOpen(false)}
+        title="Admin Remarks"
+        size="md"
+      >
+        <div className="p-6 space-y-6 bg-[var(--card)] rounded-b-3xl transition-theme">
+           <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] mb-2 px-1">Director&apos;s Comment</p>
+              <textarea 
+                className="w-full h-40 p-6 rounded-[2rem] bg-[var(--input)] border border-[var(--card-border)] text-[var(--text)] font-medium text-sm focus:ring-4 ring-[var(--primary)]/10 outline-none resize-none transition-all placeholder:text-[var(--text-muted)]/50"
+                placeholder="Enter overall student feedback..."
+                value={tempRemark}
+                onChange={e => setTempRemark(e.target.value)}
+              />
+           </div>
+           <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setRemarkOpen(false)} disabled={isSavingRemark} className="rounded-2xl text-[var(--text)] border-[var(--card-border)]">Cancel</Button>
+              <Button onClick={saveRemark} isLoading={isSavingRemark} className="rounded-2xl px-8 shadow-lg shadow-[var(--primary)]/20">Save & Commit</Button>
+           </div>
+        </div>
       </Modal>
     </div>
   )
@@ -500,7 +622,7 @@ function AdminTranscriptsContent() {
 
 export default function AdminTranscripts() {
   return (
-    <Suspense fallback={<div className="p-12 text-center opacity-40">Loading transcripts...</div>}>
+    <Suspense fallback={<div className="p-12 text-center opacity-40 uppercase font-black tracking-widest text-xs">Initializing Transcript Engine...</div>}>
       <AdminTranscriptsContent />
     </Suspense>
   )

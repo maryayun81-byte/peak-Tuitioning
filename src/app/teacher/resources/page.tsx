@@ -35,6 +35,8 @@ export default function TeacherResources() {
     type: 'pdf' as 'video' | 'pdf' | 'image' | 'link' | 'document',
     url: '',
     subject_id: '',
+    chapter: 'General',
+    is_practice: false,
     is_public: true,
   })
 
@@ -144,7 +146,17 @@ export default function TeacherResources() {
                    </div>
 
                    <h3 className="font-bold text-sm mb-1 line-clamp-2" style={{ color: 'var(--text)' }}>{r.title}</h3>
-                   <div className="text-[10px] mb-4" style={{ color: 'var(--text-muted)' }}>{r.subject?.name}</div>
+                   <div className="flex items-center gap-2 mb-4">
+                      <div className="text-[10px] opacity-60">{r.subject?.name}</div>
+                      <div className="w-1 h-1 rounded-full bg-current opacity-20" />
+                      <div className="text-[10px] font-bold text-primary">{r.chapter || 'General'}</div>
+                   </div>
+
+                   {r.is_practice && (
+                      <Badge variant="primary" className="mb-4 w-fit py-0.5 text-[8px] tracking-wider uppercase font-black bg-primary/10 text-primary border-primary/20">
+                         PRACTICE TASK
+                      </Badge>
+                   )}
 
                    <div className="mt-auto pt-3 border-t flex items-center justify-between" style={{ borderColor: 'var(--card-border)' }}>
                       <Badge variant={r.is_public ? 'success' : 'muted'} className="text-[9px]">
@@ -176,12 +188,21 @@ export default function TeacherResources() {
                   {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                </Select>
             </div>
-            <Input label="File URL" placeholder="Cloud storage link or external URL" value={newResource.url} onChange={e => setNewResource({...newResource, url: e.target.value})} />
+            <div className="grid grid-cols-2 gap-4">
+               <Input label="Chapter / Topic" placeholder="e.g. Algebra" value={newResource.chapter} onChange={e => setNewResource({...newResource, chapter: e.target.value})} />
+               <Input label="File URL" placeholder="Cloud storage link" value={newResource.url} onChange={e => setNewResource({...newResource, url: e.target.value})} />
+            </div>
             <Textarea label="Short Description" placeholder="What is this about?" value={newResource.description} onChange={e => setNewResource({...newResource, description: e.target.value})} />
             
-            <div className="flex items-center gap-2">
-               <input type="checkbox" id="is_public" checked={newResource.is_public} onChange={e => setNewResource({...newResource, is_public: e.target.checked})} className="w-4 h-4 accent-primary" />
-               <label htmlFor="is_public" className="text-xs font-bold" style={{ color: 'var(--text)' }}>Make visible to all students</label>
+            <div className="flex items-center justify-between p-3 rounded-xl bg-[var(--input)] border border-[var(--card-border)]">
+               <div className="flex items-center gap-2">
+                  <input type="checkbox" id="is_practice" checked={newResource.is_practice} onChange={e => setNewResource({...newResource, is_practice: e.target.checked})} className="w-4 h-4 accent-primary" />
+                  <label htmlFor="is_practice" className="text-xs font-bold" style={{ color: 'var(--text)' }}>Practice Assignment</label>
+               </div>
+               <div className="flex items-center gap-2">
+                  <input type="checkbox" id="is_public" checked={newResource.is_public} onChange={e => setNewResource({...newResource, is_public: e.target.checked})} className="w-4 h-4 accent-primary" />
+                  <label htmlFor="is_public" className="text-xs font-bold" style={{ color: 'var(--text)' }}>Publicly Visible</label>
+               </div>
             </div>
 
             <div className="flex gap-3 justify-end pt-4">

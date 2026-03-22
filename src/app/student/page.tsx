@@ -1,12 +1,12 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { 
   Zap, Trophy, Target, Clock, 
   ArrowRight, Play, CheckCircle2,
   Calendar, Award, MessageSquare,
-  Sparkles, Flame, Rocket
+  Sparkles, Flame, Rocket, ChevronRight
 } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Card, Badge } from '@/components/ui/Card'
@@ -16,7 +16,125 @@ import { useAuthStore } from '@/stores/authStore'
 import { formatDate } from '@/lib/utils'
 import { ExamEventBanner } from '@/components/dashboard/ExamEventBanner'
 import { TuitionEventBanner } from '@/components/dashboard/TuitionEventBanner'
+import { TimetableWidget } from '@/components/dashboard/TimetableWidget'
 import Link from 'next/link'
+import { Modal } from '@/components/ui/Modal'
+
+function TypingText({ phrases }: { phrases: string[] }) {
+  const [index, setIndex] = useState(0)
+  const [displayText, setDisplayText] = useState('')
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [speed, setSpeed] = useState(150)
+
+  useEffect(() => {
+    const handleTyping = () => {
+      const currentPhrase = phrases[index % phrases.length]
+      
+      if (isDeleting) {
+        setDisplayText(currentPhrase.substring(0, displayText.length - 1))
+        setSpeed(50)
+      } else {
+        setDisplayText(currentPhrase.substring(0, displayText.length + 1))
+        setSpeed(100)
+      }
+
+      if (!isDeleting && displayText === currentPhrase) {
+        setTimeout(() => setIsDeleting(true), 2000)
+      } else if (isDeleting && displayText === '') {
+        setIsDeleting(false)
+        setIndex((prev) => prev + 1)
+      }
+    }
+
+    const timer = setTimeout(handleTyping, speed)
+    return () => clearTimeout(timer)
+  }, [displayText, isDeleting, index, phrases, speed])
+
+  return (
+    <span className="inline-block min-h-[1.5em] text-primary">
+      {displayText}
+      <span className="ml-1 border-r-2 border-primary animate-pulse" />
+    </span>
+  )
+}
+
+function WelcomeModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) {
+  const [step, setStep] = useState(1)
+  const steps = [
+    {
+      title: 'Welcome to Peak!',
+      desc: 'Your ultimate academic companion is here. Let’s get you ready for success!',
+      icon: <Rocket size={48} />,
+      color: 'bg-primary/10 text-primary'
+    },
+    {
+      title: 'AI Study Planner',
+      desc: 'Use the Study Planner to organize your week. Automate your revisions and never miss a deadline!',
+      icon: <Clock size={48} />,
+      color: 'bg-blue-500/10 text-blue-500'
+    },
+    {
+      title: 'XP & Rewards',
+      desc: 'Complete assignments and quizzes to earn XP. Level up to unlock new avatars and special badges!',
+      icon: <Zap size={48} />,
+      color: 'bg-amber-500/10 text-amber-500'
+    },
+    {
+      title: 'Leaderboards',
+      desc: 'Compete with your classmates in real-time. Top performers get recognized on the global leaderboard!',
+      icon: <Trophy size={48} />,
+      color: 'bg-emerald-500/10 text-emerald-500'
+    }
+  ]
+
+  const current = steps[step - 1]
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} closable={false} size="md">
+      <div className="p-8 text-center space-y-8 relative overflow-hidden">
+        <AnimatePresence mode="wait">
+          <motion.div 
+            key={step}
+            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 1.1, y: -20 }}
+            className="space-y-8"
+          >
+            <div className={`w-24 h-24 rounded-[2.5rem] ${current.color} flex items-center justify-center mx-auto shadow-inner`}>
+              {current.icon}
+            </div>
+
+            <div className="space-y-3">
+              <h2 className="text-3xl font-black" style={{ color: 'var(--text)' }}>
+                {step === 1 ? <TypingText phrases={['Welcome to Peak!', 'The Future is You', 'Let\'s Get Started']} /> : current.title}
+              </h2>
+              <p className="text-sm leading-relaxed max-w-xs mx-auto text-muted-foreground" style={{ color: 'var(--text-muted)' }}>
+                {current.desc}
+              </p>
+            </div>
+
+            <div className="flex gap-2 justify-center">
+              {steps.map((_, i) => (
+                <div key={i} className={`h-1.5 rounded-full transition-all ${step === i + 1 ? 'w-8 bg-primary' : 'w-2 bg-muted'}`} />
+              ))}
+            </div>
+
+            <div className="flex gap-4">
+              {step > 1 && (
+                <Button variant="secondary" className="flex-1 py-6 rounded-2xl" onClick={() => setStep(step - 1)}>
+                  Back
+                </Button>
+              )}
+              <Button className="flex-[2] py-6 rounded-2xl shadow-xl shadow-primary/20" onClick={() => step < steps.length ? setStep(step + 1) : onClose()}>
+                {step < steps.length ? 'Continue' : 'Start My Journey'} <ChevronRight className="ml-2" />
+              </Button>
+            </div>
+          </motion.div>
+        </AnimatePresence>
+      </div>
+    </Modal>
+  )
+}
 
 export default function StudentDashboard() {
   const supabase = getSupabaseBrowserClient()
@@ -27,9 +145,41 @@ export default function StudentDashboard() {
   const [nextClass, setNextClass] = useState<any>(null)
   const [intel, setIntel] = useState<any[]>([])
   const [stats, setStats] = useState({ tasks: 0, awards: 0, attendance: 98 })
+  const [showWelcome, setShowWelcome] = useState(false)
   
   useEffect(() => {
-    if (student) loadDashboard()
+    // Check if welcome has been shown
+    const shown = localStorage.getItem(`welcome_student_${profile?.id}`)
+    if (!shown && profile) {
+      setShowWelcome(true)
+    }
+  }, [profile])
+
+  const handleCloseWelcome = () => {
+    setShowWelcome(false)
+    if (profile) {
+      localStorage.setItem(`welcome_student_${profile.id}`, 'true')
+    }
+  }
+  
+  useEffect(() => {
+    let mounted = true
+    
+    // Safety timeout: if Zustand hydration fails or takes too long, stop loading
+    const timer = setTimeout(() => {
+       if (mounted && loading && !student) {
+          setLoading(false)
+       }
+    }, 2000)
+
+    if (student && profile) {
+       loadDashboard()
+    }
+
+    return () => {
+       mounted = false
+       clearTimeout(timer)
+    }
   }, [student, profile])
 
   const loadDashboard = async () => {
@@ -44,8 +194,8 @@ export default function StudentDashboard() {
       
       const subjectIds = subData?.map(s => s.subject_id) || []
 
-      // 2. Fetch assignments for those subjects & next class
-      const [aRes, tRes] = await Promise.all([
+      // 2. Fetch assignments for those subjects
+      const [aRes] = await Promise.all([
         supabase
           .from('assignments')
           .select('*, subject:subjects(name)')
@@ -53,12 +203,6 @@ export default function StudentDashboard() {
           .eq('status', 'published')
           .order('created_at', { ascending: false })
           .limit(3),
-        supabase
-          .from('timetables')
-          .select('*, subject:subjects(name)')
-          .eq('class_id', student.class_id)
-          .limit(1)
-          .single()
       ])
 
       // 3. Fetch notifications for "Recent Intel"
@@ -76,7 +220,6 @@ export default function StudentDashboard() {
       ])
 
       setActiveQuests(aRes.data ?? [])
-      setNextClass(tRes.data ?? null)
       setIntel(nData ?? [])
       setStats({
         tasks: subsCount.count || 0,
@@ -92,6 +235,7 @@ export default function StudentDashboard() {
 
   return (
     <div className="p-6 space-y-8 pb-12">
+      <WelcomeModal isOpen={showWelcome} onClose={handleCloseWelcome} />
       {/* Hero Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
          <div className="space-y-1">
@@ -190,24 +334,15 @@ export default function StudentDashboard() {
                  </motion.div>
                ))}
                
-               {/* Upcoming Class Card */}
-               <Card className="p-5 bg-gradient-to-br from-[#4F8CFF] to-[#3B82F6] border-none text-white shadow-xl shadow-blue-500/20 col-span-full md:col-span-1">
-                  <div className="flex justify-between items-start mb-6">
-                     <div className="p-2.5 rounded-2xl bg-white/20">
-                        <Clock size={20} />
-                     </div>
-                     <Badge className="bg-white/20 text-white border-transparent">Next Class</Badge>
-                  </div>
-                  <h3 className="font-bold text-lg mb-1">{nextClass?.subject?.name || 'Loading schedule...'}</h3>
-                  <p className="text-xs opacity-80 mb-6">Starts in 15 minutes • Room {nextClass?.room_number || 'TBA'}</p>
-                  <Button className="w-full bg-white text-blue-600 border-none hover:bg-white/90">Join Live Session</Button>
-               </Card>
-            </div>
-         </div>
+             </div>
+          </div>
 
          {/* Right Sidebar */}
          <div className="space-y-6">
-            {/* Recent Feedback */}
+            {/* Timetable Widget */}
+            <TimetableWidget role="student" />
+
+            {/* Recent Intel */}
             <h2 className="text-xl font-black flex items-center gap-2" style={{ color: 'var(--text)' }}>
                <MessageSquare size={20} className="text-secondary" /> Recent Intel
             </h2>

@@ -6,19 +6,21 @@ import { motion } from 'framer-motion'
 import {
   LayoutDashboard, BookOpen, FileText, BrainCircuit,
   Trophy, Calendar, Library, GraduationCap,
-  Award, Settings, LogOut, Bell, Zap, Star
+  Award, Settings, LogOut, Bell, Zap, Star, Clock
 } from 'lucide-react'
 import { Sidebar, BottomNav } from '@/components/layout/Sidebar'
 import { useAuthStore } from '@/stores/authStore'
 import { useAuth } from '@/hooks/useAuth'
 import { GraduationCap as Logo } from 'lucide-react'
 import { SplashScreen } from '@/components/SplashScreen'
+import { Avatar } from '@/components/ui/Avatar'
 
 const NAV_ITEMS = [
   { label: 'My Hub', href: '/student', icon: <LayoutDashboard size={18} /> },
   { label: 'Assignments', href: '/student/assignments', icon: <FileText size={18} /> },
   { label: 'Quizzes', href: '/student/quizzes', icon: <BrainCircuit size={18} /> },
   { label: 'Schedule', href: '/student/schedule', icon: <Calendar size={18} /> },
+  { label: 'Study Timer', href: '/student/study', icon: <Clock size={18} /> },
   { label: 'My Progress', href: '/student/performance', icon: <Trophy size={18} /> },
   { label: 'Library', href: '/student/resources', icon: <Library size={18} /> },
   { label: 'Awards', href: '/student/awards', icon: <Star size={18} /> },
@@ -90,8 +92,8 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
               const title = titles[Math.min(Math.floor((level - 1) / 5), titles.length - 1)]
               return (
                 <>
-                  <div className="hidden md:block">
-                     <h2 className="text-sm font-bold opacity-60">Level {level} • {title}</h2>
+                  <div className="flex-1 min-w-0 mr-2">
+                     <h2 className="text-xs md:text-sm font-bold opacity-60 truncate">Level {level} • {title}</h2>
                   </div>
                   
                   <div className="flex items-center gap-4 md:gap-6">
@@ -104,12 +106,12 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
                         <Bell size={20} className="text-[var(--text-muted)]" />
                         <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-[var(--bg)]" />
                      </button>
-                      <div className="w-8 h-8 rounded-xl bg-primary/20 border-2 border-primary/40 flex items-center justify-center font-black text-[10px] text-primary relative group cursor-pointer" onClick={signOut}>
-                         {profile?.full_name[0]}
-                         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-primary/20 rounded-xl transition-opacity">
-                            <LogOut size={12} className="text-primary" />
-                         </div>
-                      </div>
+                      <Avatar 
+                        url={profile?.avatar_url} 
+                        name={profile?.full_name} 
+                        size="sm" 
+                        className="cursor-pointer group"
+                      />
                   </div>
                 </>
               )

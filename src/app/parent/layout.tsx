@@ -7,13 +7,14 @@ import {
   LayoutDashboard, Users, CreditCard, 
   LineChart, ClipboardList, Bell, 
   Settings, LogOut, ChevronDown, 
-  GraduationCap as Logo, ShieldCheck
+  GraduationCap as Logo, ShieldCheck, BookOpen
 } from 'lucide-react'
 import { Sidebar, BottomNav } from '@/components/layout/Sidebar'
 import { useAuthStore } from '@/stores/authStore'
 import { useAuth } from '@/hooks/useAuth'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { SplashScreen } from '@/components/SplashScreen'
+import Link from 'next/link'
 
 const NAV_ITEMS = [
   { label: 'Overview', href: '/parent', icon: <LayoutDashboard size={18} /> },
@@ -21,6 +22,8 @@ const NAV_ITEMS = [
   { label: 'Billing', href: '/parent/billing', icon: <CreditCard size={18} /> },
   { label: 'Academics', href: '/parent/academics', icon: <LineChart size={18} /> },
   { label: 'Attendance', href: '/parent/attendance', icon: <ClipboardList size={18} /> },
+  { label: 'Study Tracker', href: '/parent/academics/study', icon: <BookOpen size={18} /> },
+  { label: 'Notifications', href: '/parent/notifications', icon: <Bell size={18} /> },
   { label: 'Settings', href: '/parent/settings', icon: <Settings size={18} /> },
 ]
 
@@ -44,30 +47,83 @@ const LogoComponent = (
 
 export default function ParentLayout({ children }: { children: React.ReactNode }) {
   const supabase = getSupabaseBrowserClient()
-  const { profile, isLoading } = useAuthStore()
+  const { profile, parent, isLoading } = useAuthStore()
   const { signOut } = useAuth()
   const router = useRouter()
   
   const [linkedStudents, setLinkedStudents] = useState<any[]>([])
   const [selectedChild, setSelectedChild] = useState<any>(null)
+  const [unreadCount, setUnreadCount] = useState(0)
 
   useEffect(() => {
-    if (!isLoading && !profile) router.push('/auth/login?role=parent')
-    if (!isLoading && profile?.role !== 'parent') router.push(`/${profile?.role}`)
+    if (isLoading) return
+
+    if (!profile) {
+      router.push('/auth/login?role=parent')
+      return
+    }
+
+    if (profile.role && profile.role !== 'parent') {
+      router.push(`/${profile.role}`)
+    }
   }, [profile, isLoading, router])
 
   useEffect(() => {
-    if (profile?.id) loadLinkedStudents()
+    if (profile?.id) {
+       loadUnreadCount()
+       
+       // Real-time subscription for notifications (uses user_id)
+       const channel = supabase
+         .channel('parent-notifications')
+         .on('postgres_changes', { 
+           event: '*', 
+           schema: 'public', 
+           table: 'notifications',
+           filter: `user_id=eq.${profile.id}`
+         }, () => {
+           loadUnreadCount()
+         })
+         .subscribe()
+       
+       return () => {
+         supabase.removeChannel(channel)
+       }
+    }
   }, [profile])
 
-  const loadLinkedStudents = async () => {
-    const { data } = await supabase
-      .from('students')
-      .select('*, class:classes(name)')
-      .eq('parent_id', profile?.id)
+  useEffect(() => {
+    if (parent?.id) {
+       loadLinkedStudents()
+    }
+  }, [parent])
+
+  const loadUnreadCount = async () => {
+    const { count } = await supabase
+      .from('notifications')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', profile?.id)
+      .eq('read', false)
     
-    setLinkedStudents(data ?? [])
-    if (data && data.length > 0) setSelectedChild(data[0])
+    setUnreadCount(count || 0)
+  }
+
+  const loadLinkedStudents = async () => {
+    if (!parent?.id) return
+    console.log('[ParentLayout] Loading students for parent:', parent.id)
+    const { data, error } = await supabase
+      .from('parent_student_links')
+      .select('student:students(*, class:classes(name))')
+      .eq('parent_id', parent.id)
+    
+    if (error) {
+      console.error('[ParentLayout] Error loading students:', error)
+      return
+    }
+    
+    const students = data?.map((link: any) => link.student).filter(Boolean) ?? []
+    console.log(`[ParentLayout] Loaded ${students.length} students`)
+    setLinkedStudents(students)
+    if (students.length > 0) setSelectedChild(students[0])
   }
 
 
@@ -131,10 +187,17 @@ export default function ParentLayout({ children }: { children: React.ReactNode }
                  <ShieldCheck size={14} />
                  <span className="text-[10px] font-black uppercase tracking-wider">Verified Parent</span>
               </div>
-              <button className="relative p-2 rounded-xl hover:bg-[var(--input)] transition-colors">
+              <Link 
+                href="/parent/notifications" 
+                className="relative p-2 rounded-xl hover:bg-[var(--input)] transition-colors"
+              >
                  <Bell size={20} className="text-[var(--text-muted)]" />
-                 <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-[var(--bg)]" />
-              </button>
+                 {unreadCount > 0 && (
+                   <span className="absolute top-1.5 right-1.5 min-w-[16px] h-4 px-1 flex items-center justify-center bg-red-600 text-white text-[8px] font-black rounded-full border-2 border-[var(--bg)] shadow-lg animate-pulse">
+                      {unreadCount > 9 ? '9+' : unreadCount}
+                   </span>
+                 )}
+              </Link>
               <div className="w-8 h-8 rounded-xl bg-emerald-100 border-2 border-emerald-200 flex items-center justify-center font-black text-[10px] text-emerald-600">
                  {profile?.full_name[0]}
               </div>

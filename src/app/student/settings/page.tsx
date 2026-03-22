@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
   User, Bell, Shield, Palette, 
@@ -8,6 +8,7 @@ import {
   MapPin, Rocket, Star, Heart,
   Sparkles, Zap, Flame, LogOut
 } from 'lucide-react'
+import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Card, Badge } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input, Select, Textarea } from '@/components/ui/Input'
@@ -15,15 +16,129 @@ import { useAuthStore } from '@/stores/authStore'
 import { useThemeStore } from '@/stores/themeStore'
 import { THEMES } from '@/lib/themes'
 import { useAuth } from '@/hooks/useAuth'
+import { Avatar } from '@/components/ui/Avatar'
+import { AvatarStudio } from '@/components/student/settings/AvatarStudio'
+import { AvatarConfig } from '@/lib/avatars/avatarData'
 import toast from 'react-hot-toast'
 
 export default function StudentSettings() {
   const { profile, student } = useAuthStore()
   const { theme, syncThemeToProfile } = useThemeStore()
   const { signOut } = useAuth()
+  const supabase = getSupabaseBrowserClient()
+  const fileInputRef = useRef<HTMLInputElement>(null)
   
   const [loading, setLoading] = useState(false)
   const [activeTab, setActiveTab] = useState('profile')
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [savingPassword, setSavingPassword] = useState(false)
+  
+  const [pingSettings, setPingSettings] = useState({
+    levelUp: true,
+    questReminders: true,
+    teacherIntel: true,
+    globalNews: false
+  })
+
+  useEffect(() => {
+     const saved = localStorage.getItem('peak_ping_settings')
+     if (saved) setPingSettings(JSON.parse(saved))
+  }, [])
+
+  const playPing = () => {
+     try {
+       const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+       if (!AudioContext) return;
+       const ctx = new AudioContext();
+       const osc = ctx.createOscillator();
+       const gain = ctx.createGain();
+       osc.type = 'sine';
+       osc.frequency.setValueAtTime(880, ctx.currentTime);
+       gain.gain.setValueAtTime(0.1, ctx.currentTime);
+       gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
+       osc.connect(gain);
+       gain.connect(ctx.destination);
+       osc.start();
+       osc.stop(ctx.currentTime + 0.2);
+     } catch(e) {}
+  }
+
+  const handleTogglePing = (key: keyof typeof pingSettings) => {
+     const next = { ...pingSettings, [key]: !pingSettings[key] }
+     setPingSettings(next)
+     localStorage.setItem('peak_ping_settings', JSON.stringify(next))
+     if (next[key]) {
+        playPing()
+        toast.success('Ping enabled! 🔔')
+     }
+  }
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+     const file = e.target.files?.[0]
+     if (!file || !profile) return
+     
+     setUploadingAvatar(true)
+     const toastId = toast.loading('Uploading avatar...')
+     try {
+        const fileExt = file.name.split('.').pop()
+        const fileName = `${profile.id}-${Math.random()}.${fileExt}`
+        
+        const { error: uploadError } = await supabase.storage.from('avatars').upload(fileName, file)
+        if (uploadError) throw uploadError
+
+        const { data } = supabase.storage.from('avatars').getPublicUrl(fileName)
+        
+        const { error: updateError } = await supabase.from('profiles').update({ avatar_url: data.publicUrl }).eq('id', profile.id)
+        if (updateError) throw updateError
+        
+        toast.success('Looking sharp! Avatar updated.', { id: toastId })
+        setTimeout(() => window.location.reload(), 1000)
+     } catch (err: any) {
+        toast.error(err.message || 'Error uploading avatar', { id: toastId })
+     } finally {
+        setUploadingAvatar(false)
+     }
+  }
+
+  const handlePasswordUpdate = async () => {
+     if (!newPassword || newPassword !== confirmPassword) {
+        return toast.error("Passwords don't match!")
+     }
+     if (newPassword.length < 6) return toast.error("Password too short")
+     
+     setSavingPassword(true)
+     const { error } = await supabase.auth.updateUser({ password: newPassword })
+     setSavingPassword(false)
+     
+     if (error) {
+        toast.error(error.message)
+     } else {
+        toast.success('Access code updated and encrypted! 🔒')
+        setNewPassword('')
+        setConfirmPassword('')
+     }
+  }
+
+  const handleAvatarSave = async (config: AvatarConfig) => {
+    if (!profile) return
+    setLoading(true)
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ avatar_metadata: config })
+        .eq('id', profile.id)
+      
+      if (error) throw error
+      toast.success('Identity Updated! +100 XP 🌟')
+      setTimeout(() => window.location.reload(), 1000)
+    } catch (err: any) {
+      toast.error('Failed to save avatar: ' + err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleSave = async () => {
     setLoading(true)
@@ -35,6 +150,7 @@ export default function StudentSettings() {
 
   const TABS = [
     { id: 'profile', label: 'My Identity', icon: <User size={16} /> },
+    { id: 'avatar', label: 'Avatar Legend', icon: <Rocket size={16} /> },
     { id: 'custom', label: 'Customization', icon: <Palette size={16} /> },
     { id: 'notifications', label: 'Pings', icon: <Bell size={16} /> },
     { id: 'security', label: 'Guardians', icon: <Shield size={16} /> },
@@ -76,10 +192,25 @@ export default function StudentSettings() {
                     <motion.div key="profile" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
                        <div className="flex flex-col items-center gap-6 mb-8">
                           <div className="relative group">
+                             <input 
+                                type="file" 
+                                ref={fileInputRef} 
+                                onChange={handleAvatarUpload} 
+                                className="hidden" 
+                                accept="image/*" 
+                             />
                              <div className="w-32 h-32 rounded-[3rem] bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white shadow-2xl overflow-hidden relative border-8 border-white">
-                                <span className="text-5xl font-black">{profile?.full_name[0]}</span>
-                                <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
-                                   <Camera size={24} />
+                                <Avatar 
+                                  url={(profile as any)?.avatar_url} 
+                                  name={profile?.full_name} 
+                                  size="2xl" 
+                                  className="border-none w-full h-full rounded-none shadow-none"
+                                />
+                                <div 
+                                   onClick={() => fileInputRef.current?.click()} 
+                                   className={`absolute inset-0 bg-black/40 flex items-center justify-center transition-opacity cursor-pointer z-20 ${uploadingAvatar ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+                                >
+                                   <Camera size={24} className={uploadingAvatar ? "animate-pulse" : ""} />
                                 </div>
                              </div>
                              <div className="absolute -bottom-2 -right-2 w-10 h-10 rounded-2xl bg-amber-500 border-4 border-white flex items-center justify-center shadow-lg">
@@ -99,7 +230,7 @@ export default function StudentSettings() {
                           <Input label="Display Name" value={profile?.full_name} disabled placeholder="Your name" />
                           <Input label="Email" value={profile?.email} disabled placeholder="Your email" />
                           <Input label="Admission No." value={student?.admission_number} disabled placeholder="Admission #" />
-                          <Input label="Learning Group" value="Grade 8 Red" disabled />
+                          <Input label="Learning Group" value={(student as any)?.class?.name || 'Class Assigned'} disabled />
                        </div>
                        
                        <section className="pt-6 border-t border-[var(--card-border)]">
@@ -110,6 +241,20 @@ export default function StudentSettings() {
                        <div className="pt-4 flex justify-end">
                           <Button onClick={handleSave} isLoading={loading} className="px-10 py-6 rounded-[1.5rem] shadow-xl shadow-primary/20"><Save size={16} className="mr-2" /> Update Legend</Button>
                        </div>
+                    </motion.div>
+                  )}
+
+                  {activeTab === 'avatar' && (
+                    <motion.div key="avatar" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
+                       <div className="mb-6">
+                          <h3 className="font-black text-2xl" style={{ color: 'var(--text)' }}>Avatar Studio</h3>
+                          <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>Forge your legendary appearance here.</p>
+                       </div>
+                       <AvatarStudio 
+                         initialConfig={(profile as any)?.avatar_metadata} 
+                         onSave={handleAvatarSave}
+                         isLoading={loading}
+                       />
                     </motion.div>
                   )}
 
@@ -153,21 +298,23 @@ export default function StudentSettings() {
                        
                        <div className="space-y-3">
                           {[
-                            { label: 'Level Up Celebrations', desc: 'Fancy animations when you hit a new level', enabled: true },
-                            { label: 'Quest Reminders', desc: 'Nudges when an assignment is almost due', enabled: true },
-                            { label: 'Teacher Intel', desc: 'When you get feedback or a marked worksheet', enabled: true },
-                            { label: 'Global News', desc: 'Admin broadcasts and school events', enabled: false },
-                          ].map((n, i) => (
+                            { id: 'levelUp', label: 'Level Up Celebrations', desc: 'Fancy animations when you hit a new level' },
+                            { id: 'questReminders', label: 'Quest Reminders', desc: 'Nudges when an assignment is almost due' },
+                            { id: 'teacherIntel', label: 'Teacher Intel', desc: 'When you get feedback or a marked worksheet' },
+                            { id: 'globalNews', label: 'Global News', desc: 'Admin broadcasts and school events' },
+                          ].map((n, i) => {
+                            const isEnabled = pingSettings[n.id as keyof typeof pingSettings]
+                            return (
                             <div key={i} className="flex items-center justify-between p-5 rounded-3xl bg-[var(--input)]">
                                <div>
                                   <p className="font-bold text-sm" style={{ color: 'var(--text)' }}>{n.label}</p>
                                   <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{n.desc}</p>
                                </div>
-                               <div className={`w-12 h-6 rounded-full p-1 transition-all flex cursor-pointer ${n.enabled ? 'bg-primary justify-end' : 'bg-slate-300 justify-start'}`}>
+                               <div onClick={() => handleTogglePing(n.id as any)} className={`w-12 h-6 rounded-full p-1 transition-all flex cursor-pointer ${isEnabled ? 'bg-primary justify-end' : 'bg-slate-300 justify-start'}`}>
                                   <div className="w-4 h-4 rounded-full bg-white shadow-sm" />
                                </div>
                             </div>
-                          ))}
+                          )})}
                        </div>
                     </motion.div>
                   )}
@@ -189,9 +336,9 @@ export default function StudentSettings() {
 
                        <div className="space-y-4">
                           <label className="text-xs font-black uppercase tracking-widest text-muted">Portal Password</label>
-                          <Input type="password" placeholder="New Password" />
-                          <Input type="password" placeholder="Confirm New Password" />
-                          <Button variant="secondary" className="w-full py-4 text-xs font-bold rounded-2xl">Update Access Code</Button>
+                          <Input type="password" placeholder="New Password" value={newPassword} onChange={e => setNewPassword(e.target.value)} />
+                          <Input type="password" placeholder="Confirm New Password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} />
+                          <Button onClick={handlePasswordUpdate} isLoading={savingPassword} variant="secondary" className="w-full py-4 text-xs font-bold rounded-2xl">Update Access Code</Button>
                        </div>
                     </motion.div>
                   )}

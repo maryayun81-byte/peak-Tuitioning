@@ -26,6 +26,9 @@ export default function QuizResults() {
   const [quiz, setQuiz] = useState<any>(null)
   const [attempt, setAttempt] = useState<any>(null)
   const [rankings, setRankings] = useState<any>(null)
+  const [leaderboard, setLeaderboard] = useState<any[]>([])
+  const [globalLeaderboard, setGlobalLeaderboard] = useState<any[]>([])
+  const [activeTab, setActiveTab] = useState<'class' | 'curriculum'>('class')
 
   useEffect(() => {
     if (student) loadData()
@@ -40,17 +43,28 @@ export default function QuizResults() {
     
     if (qRes.data && aRes.data && student) {
       try {
-        const [classRank, subjRank, overallRank] = await Promise.all([
+        const curriculumId = (student as any)?.curriculum_id || (student as any)?.classes?.curriculum_id
+        const [classRank, curriculumLeaderboard, overallRank] = await Promise.all([
           supabase.rpc('get_class_quiz_ranking', { p_quiz_id: id, p_class_id: (student as any)?.class_id }),
-          supabase.rpc('get_subject_ranking', { p_subject_id: qRes.data.subject_id }),
+          supabase.rpc('get_subject_curriculum_leaderboard', { 
+            p_subject_id: qRes.data.subject_id, 
+            p_curriculum_id: curriculumId 
+          }),
           supabase.rpc('get_overall_performance_ranking')
         ])
         
         setRankings({
           class: classRank.data?.find((r: any) => r.student_id === ((student as any)?.id || student?.id))?.rank,
-          subject: subjRank.data?.find((r: any) => r.student_id === ((student as any)?.id || student?.id))?.rank,
+          subject: curriculumLeaderboard.data?.find((r: any) => r.student_id === ((student as any)?.id || student?.id))?.rank,
           overall: overallRank.data?.find((r: any) => r.student_id === ((student as any)?.id || student?.id))?.rank,
         })
+
+        if (classRank.data) {
+          setLeaderboard(classRank.data.slice(0, 5))
+        }
+        if (curriculumLeaderboard.data) {
+          setGlobalLeaderboard(curriculumLeaderboard.data.slice(0, 5))
+        }
       } catch (err) {
         console.error('Ranking load error', err)
       }
@@ -83,7 +97,9 @@ export default function QuizResults() {
                        {passed ? <Trophy size={40} /> : <BrainCircuit size={40} />}
                     </div>
                     <div className="text-center">
-                       <div className="text-4xl font-black" style={{ color: 'var(--text)' }}>{attempt.percentage}%</div>
+                       <div className="text-4xl font-black" style={{ color: 'var(--text)' }}>
+                          {attempt.score} / {attempt.total_marks || quiz?.total_marks || 0}
+                       </div>
                        <div className="text-[10px] items-center gap-2 flex justify-center uppercase font-black tracking-[0.2em] mt-1" style={{ color: 'var(--text-muted)' }}>
                           {passed ? <Badge variant="success">Passed Sector</Badge> : <Badge variant="warning">Attempt Again</Badge>}
                        </div>
@@ -94,7 +110,7 @@ export default function QuizResults() {
                    {[
                       { label: 'Class Rank', value: rankings?.class, icon: <Users size={14} /> },
                       { label: 'Subject Rank', value: rankings?.subject, icon: <Award size={14} /> },
-                      { label: 'Overall Rank', value: rankings?.overall, icon: <Trophy size={14} /> }
+                      { label: 'Global Rank', value: rankings?.overall, icon: <Trophy size={14} /> }
                    ].map((r, i) => (
                       <Card key={i} className="p-3 flex flex-col items-center justify-center bg-white/5 border-none">
                          <div className="text-lg font-black text-primary">{r.value || '--'}</div>
@@ -105,6 +121,72 @@ export default function QuizResults() {
              </div>
              <motion.div initial={{ width: 0 }} animate={{ width: `${attempt.percentage}%` }} className={`h-1.5 rounded-full absolute bottom-0 left-0 ${passed ? 'bg-emerald-500 shadow-[0_0_12px_var(--emerald-500)]' : 'bg-amber-500'}`} />
           </div>
+
+          {/* Total XP & Progress */}
+          <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-4">
+             <Card className="p-4 flex items-center gap-4 bg-primary/5 border-primary/20">
+                <div className="p-3 rounded-2xl bg-primary text-white shadow-lg shadow-primary/20">
+                   <Zap size={24} />
+                </div>
+                <div>
+                   <div className="text-2xl font-black" style={{ color: 'var(--text)' }}>{student?.xp || 0} XP</div>
+                   <div className="text-[10px] font-bold uppercase tracking-wider text-muted">Total Experience</div>
+                </div>
+             </Card>
+             <Card className="p-4 flex items-center gap-4 bg-amber-500/5 border-amber-500/20">
+                <div className="p-3 rounded-2xl bg-amber-500 text-white shadow-lg shadow-amber-500/20">
+                   <Trophy size={24} />
+                </div>
+                <div>
+                   <div className="text-2xl font-black" style={{ color: 'var(--text)' }}>#{rankings?.subject || '--'}</div>
+                   <div className="text-[10px] font-bold uppercase tracking-wider text-muted">Curriculum Rank</div>
+                </div>
+             </Card>
+          </div>
+
+          {/* Dual Leaderboards */}
+          {(leaderboard.length > 0 || globalLeaderboard.length > 0) && (
+            <Card className="w-full p-6 space-y-6">
+               <div className="flex items-center justify-between border-b border-[var(--card-border)] pb-4">
+                  <h3 className="font-bold text-sm flex items-center gap-2" style={{ color: 'var(--text)' }}>
+                     <Trophy size={16} className="text-amber-500" /> Leaderboards
+                  </h3>
+                  <div className="flex bg-[var(--input)] p-1 rounded-xl gap-1">
+                     <button 
+                        onClick={() => setActiveTab('class')}
+                        className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${activeTab === 'class' ? 'bg-white shadow-sm text-primary' : 'text-muted hover:text-primary'}`}
+                     >Class</button>
+                     <button 
+                        onClick={() => setActiveTab('curriculum')}
+                        className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${activeTab === 'curriculum' ? 'bg-white shadow-sm text-primary' : 'text-muted hover:text-primary'}`}
+                     >Curriculum</button>
+                  </div>
+               </div>
+
+               <div className="space-y-2">
+                  {(activeTab === 'class' ? leaderboard : globalLeaderboard).map((entry, i) => (
+                    <div key={i} className={`flex items-center justify-between p-3 rounded-xl ${entry.student_id === student?.id ? 'bg-primary/10 border border-primary/20' : 'bg-[var(--input)]'}`}>
+                       <div className="flex items-center gap-3 text-sm font-bold">
+                          <span className={`${i === 0 ? 'text-amber-500' : 'text-muted'} w-4 text-xs`}>{i + 1}</span>
+                          <span style={{ color: 'var(--text)' }}>{entry.full_name}</span>
+                       </div>
+                       <div className="text-xs font-black text-primary">
+                          {activeTab === 'class' ? `${entry.percentage}%` : `${entry.avg_percentage}%`}
+                       </div>
+                    </div>
+                  ))}
+                  {(activeTab === 'class' ? leaderboard : globalLeaderboard).length === 0 && (
+                    <p className="text-center py-4 text-xs text-muted font-bold italic">No data available for this field yet.</p>
+                  )}
+               </div>
+               
+               <p className="text-[9px] text-center text-muted font-bold opacity-60">
+                  {activeTab === 'class' 
+                    ? "Ranked based on scores for this specific quiz challenge." 
+                    : "Ranked based on average performance in this subject across all classes in your curriculum."}
+               </p>
+            </Card>
+          )}
       </div>
 
       {/* Review Section */}
