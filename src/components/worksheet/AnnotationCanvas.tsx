@@ -204,7 +204,7 @@ export function AnnotationCanvas({
       canvas.isDrawingMode = true
       const brush = new PencilBrush(canvas)
       brush.color = defaultColorRef.current
-      brush.width = 5
+      brush.width = 2
       canvas.freeDrawingBrush = brush
 
       canvas.on('object:modified', () => save(canvas))
