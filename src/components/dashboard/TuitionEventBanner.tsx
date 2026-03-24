@@ -27,22 +27,29 @@ export function TuitionEventBanner() {
     if (!profile) return
     setLoading(true)
     try {
-      // Fetch upcoming or active or postponed events
+      const todayStr = new Date().toISOString().split('T')[0]
       const { data, error } = await supabase
         .from('tuition_events')
         .select('*, curriculum:curriculums(name)')
-        .in('status', ['upcoming', 'active', 'postponed'])
+        .gte('end_date', todayStr)
         .order('start_date', { ascending: true })
 
       if (error) throw error
 
-      // For students, only show events matching their curriculum (if event specifies one)
-      const filtered = (data as TuitionEvent[] || []).filter(event => {
+      const filtered = (data as any[] || []).filter(event => {
+        if (event.status === 'cancelled') return false
         if (event.curriculum_id && profile.role === 'student' && student) {
           if (student.curriculum_id !== event.curriculum_id) return false
         }
         return true
-      })
+      }).map(event => {
+        if (event.status !== 'postponed' && event.status !== 'cancelled') {
+           if (todayStr < event.start_date) event.status = 'upcoming'
+           else if (todayStr >= event.start_date && todayStr <= event.end_date) event.status = 'active'
+           else event.status = 'closed'
+        }
+        return event
+      }).filter(e => e.status !== 'closed')
 
       setEvents(filtered)
     } catch (err) {

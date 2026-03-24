@@ -19,6 +19,7 @@ const TYPES: { type: QuestionType; icon: React.ReactNode; label: string; desc: s
   { type: 'short_answer',    icon: <AlignLeft size={20} />,     label: 'Short Answer',     desc: '1–3 line written response',               color: '#10B981' },
   { type: 'long_answer',     icon: <FileText size={20} />,      label: 'Long Answer/Essay',desc: 'Extended written response',               color: '#F59E0B' },
   { type: 'math',            icon: <Calculator size={20} />,    label: 'Math / Equation',  desc: 'LaTeX/KaTeX rendered math question',      color: '#EF4444' },
+  { type: 'math_drawing',    icon: <Type size={20} />,          label: 'Virtual Paper',    desc: 'Student draws their answer on a canvas',color: '#8B5CF6' },
   { type: 'file_upload',     icon: <Upload size={20} />,        label: 'File Upload',      desc: 'Student uploads image or document',       color: '#EC4899' },
   { type: 'matching',        icon: <GitMerge size={20} />,      label: 'Matching',         desc: 'Connect left items to right matches',     color: '#14B8A6' },
   { type: 'true_false',      icon: <ToggleLeft size={20} />,    label: 'True / False',     desc: 'Binary true or false question',          color: '#F97316' },

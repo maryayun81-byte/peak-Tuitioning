@@ -281,11 +281,13 @@ export default function WorksheetGraderPage() {
           {/* Annotation */}
           <div className="p-5 space-y-2" style={{ borderBottom: '1px solid var(--card-border)' }}>
             <div className="text-xs font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Annotation Canvas</div>
-            <div style={{ minHeight: '500px' }} className="h-full">
-              <AnnotationCanvas
-                key={activeBlockId ?? 'canvas'}
-                backgroundText={typeof answers[activeBlockId ?? ''] === 'string' ? answers[activeBlockId ?? ''] as string : undefined}
-                initialJson={activeBlockId ? annotations[activeBlockId] : undefined}
+          <div className="rounded-2xl border border-[var(--card-border)] bg-white">
+                <AnnotationCanvas
+                 key={activeBlockId ?? 'canvas'}
+                 backgroundText={activeBlockId && typeof answers[activeBlockId] === 'string' && !(answers[activeBlockId] as string).startsWith('{') ? (answers[activeBlockId] as string) : undefined}
+                 backgroundJson={activeBlockId && typeof answers[activeBlockId] === 'string' && (answers[activeBlockId] as string).startsWith('{') ? (answers[activeBlockId] as string) : undefined}
+                 initialJson={activeBlockId ? annotations[activeBlockId] : undefined}
+                 defaultColor="#EF4444"
                 onSave={json => activeBlockId && setAnnotations(p => ({ ...p, [activeBlockId]: json }))}
               />
             </div>

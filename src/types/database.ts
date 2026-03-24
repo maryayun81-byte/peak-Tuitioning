@@ -36,6 +36,7 @@ export interface Student {
   full_name: string
   class_id: string
   curriculum_id: string
+  avatar_url?: string
   school_name?: string
   parent_id?: string
   temp_password?: string
@@ -53,6 +54,8 @@ export interface Student {
   curriculum?: Curriculum
   parent?: Parent
   subjects?: Subject[]
+  attendance?: Attendance[]
+  marks?: ExamMark[]
 }
 
 export interface Parent {
@@ -63,6 +66,7 @@ export interface Parent {
   email: string
   phone?: string
   security_pin?: string
+  onboarded: boolean
   created_at: string
   // joins
   students?: Student[]
@@ -547,6 +551,7 @@ export type QuestionType =
   | 'sub_question'
   | 'diagram_labeling'
   | 'table_question'
+  | 'math_drawing'
   | 'fill_in_blank'
 
 export type DifficultyLevel = 'easy' | 'medium' | 'hard'
@@ -580,6 +585,7 @@ export interface WorksheetBlock {
   // Short/Long answer
   answer_lines?: number
   answer_placeholder?: string
+  diagram_json?: string
   // Matching
   matching_pairs?: MatchingPair[]
   // Section header
@@ -606,6 +612,29 @@ export interface WorksheetAnswers {
     | Record<string, string> // diagram_labeling, fill_in_blank
     | string[][] // table_question
     | null
+}
+
+export interface Topic {
+  id: string
+  subject_id: string
+  name: string
+  created_at: string
+  updated_at: string
+  // joins
+  subject?: Subject
+  practice_questions?: PracticeQuestion[]
+}
+
+export interface PracticeQuestion {
+  id: string
+  topic_id: string
+  teacher_id: string
+  content: string // Tiptap JSON Stringified
+  created_at: string
+  updated_at: string
+  // joins
+  topic?: Topic
+  teacher?: Teacher
 }
 
 export interface WorksheetTemplate {

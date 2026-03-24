@@ -453,9 +453,10 @@ export default function StudentWorksheetSolver() {
                         } catch { blockAnnotation = undefined }
 
                         return (
-                           <div key={`ann-${block.id}`} style={{ height: '320px' }} className="rounded-2xl overflow-hidden border border-[var(--card-border)]">
+                           <div key={`ann-${block.id}`} className="rounded-[2rem] border-4 border-slate-100 shadow-lg bg-white">
                               <AnnotationCanvas
-                                 backgroundText={typeof answers[block.id] === 'string' ? answers[block.id] as string : undefined}
+                                 backgroundText={typeof answers[block.id] === 'string' && !(answers[block.id] as string).startsWith('{') ? (answers[block.id] as string) : undefined}
+                                 backgroundJson={typeof answers[block.id] === 'string' && (answers[block.id] as string).startsWith('{') ? (answers[block.id] as string) : undefined}
                                  initialJson={blockAnnotation}
                                  readOnly={true}
                                  onSave={() => {}}

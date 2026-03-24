@@ -202,9 +202,9 @@ export default function NewWorksheetPage() {
             size="sm"
             variant="outline"
             onClick={() => setTemplatesOpen(true)}
-            className="hidden sm:flex"
+            className="flex"
           >
-            <LayoutTemplate size={14} className="mr-1.5" /> Templates
+            <LayoutTemplate size={14} /> <span className="hidden sm:inline ml-1.5">Templates</span>
           </Button>
           <button
             onClick={() => setShowPreviewPanel(p => !p)}

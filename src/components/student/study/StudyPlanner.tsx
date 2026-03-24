@@ -161,6 +161,13 @@ export const StudyPlanner = ({ onComplete }: StudyPlannerProps) => {
       if (isEditMode && existingPlanId) {
         await supabase.from('study_plans').update(planData).eq('id', existingPlanId)
       } else {
+        // Deactivate all previous plans for this student first to ensure data integrity
+        await supabase
+          .from('study_plans')
+          .update({ is_active: false })
+          .eq('student_id', student?.id)
+          .eq('is_active', true)
+
         const { data: newPlan, error: pErr } = await supabase.from('study_plans').insert(planData).select().single()
         if (pErr) throw pErr
         planId = newPlan.id

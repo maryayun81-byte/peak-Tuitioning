@@ -157,14 +157,14 @@ function RegisterForm() {
       } else if (selectedRole === 'parent') {
         const parentCode = generateParentCode()
         const securityPin = Math.floor(1000 + Math.random() * 9000).toString()
-        const { error: e2 } = await supabase.from('parents').insert({
+        const { error: e2 } = await supabase.from('parents').upsert({
           user_id: userId,
           parent_code: parentCode,
           full_name: data.full_name,
           email: data.email,
           phone: data.phone || null,
           security_pin: securityPin
-        })
+        }, { onConflict: 'user_id' })
         if (e2) { 
           console.error('Parent profile creation error:', e2)
           toast.error('Account created but profile setup failed: ' + e2.message)

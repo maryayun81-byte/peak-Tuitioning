@@ -14,6 +14,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { GraduationCap as Logo } from 'lucide-react'
 import { SplashScreen } from '@/components/SplashScreen'
 import { Avatar } from '@/components/ui/Avatar'
+import { InstallPWAButton } from '@/components/InstallPWAButton'
 
 const NAV_ITEMS = [
   { label: 'My Hub', href: '/student', icon: <LayoutDashboard size={18} /> },
@@ -24,7 +25,7 @@ const NAV_ITEMS = [
   { label: 'My Progress', href: '/student/performance', icon: <Trophy size={18} /> },
   { label: 'Library', href: '/student/resources', icon: <Library size={18} /> },
   { label: 'Awards', href: '/student/awards', icon: <Star size={18} /> },
-  { label: 'Documents', href: '/student/documents', icon: <Award size={18} /> },
+  { label: 'Transcripts', href: '/student/transcripts', icon: <Award size={18} /> },
   { label: 'Settings', href: '/student/settings', icon: <Settings size={18} /> },
 ]
 
@@ -101,6 +102,7 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
                         <Zap size={14} className="text-amber-500 fill-amber-500" />
                         <span className="text-xs font-black text-amber-500">{student?.xp?.toLocaleString() || 0} XP</span>
                      </div>
+                     <InstallPWAButton variant="minimal" />
                      <div className="w-px h-6 bg-[var(--card-border)]" />
                      <button className="relative p-2 rounded-xl hover:bg-[var(--input)] transition-colors">
                         <Bell size={20} className="text-[var(--text-muted)]" />

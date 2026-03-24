@@ -180,11 +180,11 @@ export const StudyPath = ({
             >
                <Sparkles size={14} fill="currentColor" /> Active Roadmap
             </motion.div>
-            <h1 className="text-4xl sm:text-5xl font-black tracking-tighter text-slate-900 uppercase italic">
+            <h1 className="text-2xl sm:text-5xl font-black tracking-tighter uppercase italic line-clamp-2 max-w-[95%] mx-auto leading-tight break-words" style={{ color: 'var(--text)' }}>
                {planName}
             </h1>
             {planRange && (
-               <p className="text-xs font-black text-slate-400 uppercase tracking-widest bg-slate-100 px-6 py-2 rounded-2xl inline-block">
+               <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] bg-slate-100/80 px-4 py-1.5 rounded-full inline-block mt-2">
                   {planRange}
                </p>
             )}
@@ -249,40 +249,40 @@ export const StudyPath = ({
                return (
                   <motion.div 
                     key={day.date}
-                    initial={{ opacity: 0, scale: 0 }}
+                    initial={{ opacity: 0, scale: 0, x: '-50%', y: '-50%' }}
                     whileInView={{ opacity: 1, scale: 1 }}
                     viewport={{ once: true, margin: "-100px" }}
                     transition={{ type: 'spring', damping: 12, stiffness: 100 }}
-                    style={{ position: 'absolute', top: pos.y, left: pos.x, x: '-50%', y: '-50%' }}
+                    style={{ position: 'absolute', top: pos.y, left: pos.x }}
                     className="z-10"
                   >
                      {/* Motivational Speech Bubble */}
-                     {isActive && (
+                      {isActive && (
                         <motion.div 
                           initial={{ opacity: 0, y: 20 }}
                           animate={{ 
                              opacity: 1,
                              y: [0, -5, 0] 
                           }}
-                          transition={{ 
-                             opacity: { duration: 0.5 },
-                             y: { duration: 3, repeat: Infinity } 
-                          }}
-                          style={{ 
-                             left: '50%',
-                             x: '-50%',
-                             // Clamp bubble to screen edges on mobile
-                             translateX: width < 640 
-                               ? Math.max(10 - pos.x + 90, Math.min(width - 42 - pos.x - 90, -90)) 
-                               : -110 // -110 is 50% of 220px
-                          }}
-                          className="absolute -top-32 bg-white/95 backdrop-blur-sm p-4 rounded-[2rem] shadow-2xl border-2 border-primary/10 w-[180px] sm:w-[220px] ring-8 ring-primary/5"
+                           transition={{ 
+                              opacity: { duration: 0.5 },
+                              y: { duration: 3, repeat: Infinity } 
+                           }}
+                           style={{ 
+                              left: '50%',
+                              x: '-50%',
+                              // Viewport clamping to ensure the bubble stays on screen
+                              translateX: width < 640 
+                                ? Math.max(10 - pos.x, Math.min(width - 42 - pos.x, 0)) 
+                                : 0
+                           }}
+                          className="absolute -top-32 sm:-top-40 bg-white border-2 border-primary/20 p-4 sm:p-6 rounded-[2.5rem] shadow-[0_20px_50px_-10px_rgba(0,0,0,0.2)] w-[180px] sm:w-[280px] z-[50] ring-8 ring-primary/5"
                         >
-                           <p className="text-[10px] font-black text-primary/60 uppercase tracking-widest mb-1 text-center">CURRENT GOAL</p>
-                           <p className="text-xs sm:text-sm font-black text-slate-900 text-center uppercase leading-tight">
+                           <p className="text-[8px] sm:text-[10px] font-black text-primary/60 uppercase tracking-[0.2em] mb-2 text-center">CURRENT FOCUS</p>
+                           <p className="text-xs sm:text-base font-black text-slate-800 text-center uppercase leading-tight line-clamp-4">
                               {getDayMotivationalMessage(idx, days.length)}
                            </p>
-                           <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-white/95 rotate-45 border-b-2 border-r-2 border-primary/10" />
+                           <div className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 w-5 h-5 bg-white rotate-45 border-b-2 border-r-2 border-primary/10" />
                         </motion.div>
                      )}
 
@@ -429,41 +429,86 @@ export const StudyPath = ({
                          {selectedDay.sessions.map((s: any, i: number) => (
                            <div 
                              key={s.id}
-                             className={`p-6 rounded-[2rem] border-2 transition-all flex items-center justify-between group
-                               ${s.status === 'completed' ? 'bg-emerald-50 border-emerald-100' : 'bg-slate-50 border-slate-100 hover:border-primary/30'}
+                             className={`p-6 rounded-[2.5rem] border-2 transition-all flex flex-col gap-6 group
+                               ${s.status === 'completed' ? 'bg-emerald-50/50 border-emerald-100' : 'bg-slate-50 border-slate-100 hover:border-primary/30'}
                              `}
                            >
-                              <div className="flex items-center gap-5">
-                                 <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg transition-transform group-hover:scale-110
-                                    ${s.status === 'completed' ? 'bg-emerald-500 text-white' : 'bg-white text-primary'}
-                                 `}>
-                                    {s.status === 'completed' ? <Check size={28} strokeWidth={3} /> : <Play size={24} fill="currentColor" />}
+                              <div className="flex items-center justify-between">
+                                 <div className="flex items-center gap-5">
+                                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg transition-transform group-hover:scale-110
+                                       ${s.status === 'completed' ? 'bg-emerald-500 text-white' : 'bg-white text-primary'}
+                                    `}>
+                                       {s.status === 'completed' ? <Check size={28} strokeWidth={3} /> : <Play size={24} fill="currentColor" />}
+                                    </div>
+                                    <div className="space-y-1">
+                                       <p className="text-[10px] font-black tracking-[0.2em] text-slate-400 uppercase leading-none">{s.subject?.name || 'Self-Study'}</p>
+                                       <p className="text-sm font-black text-slate-900 uppercase tracking-tight">{s.start_time} - {s.end_time}</p>
+                                    </div>
                                  </div>
-                                 <div className="space-y-1">
-                                    <p className="text-[10px] font-black tracking-[0.2em] text-slate-400 uppercase leading-none">{s.subject?.name || 'Self-Study'}</p>
-                                    <p className="text-sm font-black text-slate-900 uppercase tracking-tight">{s.start_time} - {s.end_time}</p>
-                                 </div>
+
+                                 {s.status !== 'completed' ? (
+                                    <button 
+                                      onClick={() => !readOnly && router.push(`/student/study/focus/${s.id}`)}
+                                      disabled={readOnly}
+                                      className={`px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-all flex items-center gap-2
+                                        ${readOnly 
+                                          ? 'bg-white/50 text-slate-400 border border-slate-100 shadow-sm' 
+                                          : 'bg-primary text-white shadow-[0_10px_20px_-5px_rgba(var(--primary-rgb),0.4)] hover:shadow-[0_15px_30px_-5px_rgba(var(--primary-rgb),0.6)] hover:translate-x-1'}
+                                      `}
+                                    >
+                                       {readOnly ? (
+                                         <>
+                                           <span className="text-[8px] font-black uppercase tracking-tighter opacity-70">Ready to Focus</span>
+                                           <Lock size={12} className="ml-1 opacity-40" />
+                                         </>
+                                       ) : <span className="flex items-center gap-2 text-white">START MISSION <ArrowRight size={14} /></span>}
+                                    </button>
+                                 ) : (
+                                    <div className="flex items-center gap-2 text-emerald-600 font-extrabold text-[10px] uppercase tracking-widest bg-white/60 px-4 py-2 rounded-xl shadow-sm border border-emerald-100">
+                                       CLEARED <Check size={14} strokeWidth={3} />
+                                    </div>
+                                 )}
                               </div>
 
-                              {s.status !== 'completed' ? (
-                                 <button 
-                                   onClick={() => !readOnly && router.push(`/student/study/focus/${s.id}`)}
-                                   disabled={readOnly}
-                                   className={`px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-all flex items-center gap-2
-                                     ${readOnly 
-                                       ? 'bg-[var(--input)] text-[var(--text-muted)] border border-[var(--card-border)]' 
-                                       : 'bg-primary text-white shadow-[0_10px_20px_-5px_rgba(var(--primary-rgb),0.4)] hover:shadow-[0_15px_30px_-5px_rgba(var(--primary-rgb),0.6)] hover:translate-x-1'}
-                                   `}
-                                 >
-                                    {readOnly ? <Lock size={14} /> : <span className="flex items-center gap-2 text-white">START MISSION <ArrowRight size={14} /></span>}
-                                 </button>
-                              ) : (
-                                 <div className="flex items-center gap-2 text-emerald-600 font-extrabold text-[10px] uppercase tracking-widest">
-                                    CLEARED <Check size={14} strokeWidth={3} />
-                                 </div>
+                              {/* Detailed Telemetry: Goals & Reflections */}
+                              {(s.goals?.length > 0 || s.reflections?.length > 0) && (
+                                <div className="pt-6 border-t border-slate-200/50 space-y-6">
+                                   {s.goals?.length > 0 && (
+                                      <div className="space-y-3">
+                                         <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2">
+                                            <Star size={10} fill="currentColor" className="text-amber-400" /> Strategic Milestones
+                                         </p>
+                                         <div className="grid grid-cols-1 gap-2">
+                                            {s.goals.map((goal: any) => (
+                                               <div key={goal.id} className="flex items-center gap-3 p-3 rounded-xl bg-white/60 border border-slate-100 shadow-sm">
+                                                  <div className={`w-4 h-4 rounded-md flex items-center justify-center border-2 ${goal.is_completed ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-200'}`}>
+                                                     {goal.is_completed && <Check size={10} strokeWidth={4} />}
+                                                  </div>
+                                                  <p className={`text-[11px] font-bold ${goal.is_completed ? 'line-through opacity-40' : 'text-slate-700'}`}>
+                                                     {goal.objective}
+                                                  </p>
+                                               </div>
+                                            ))}
+                                         </div>
+                                      </div>
+                                   )}
+
+                                   {s.reflections?.length > 0 && (
+                                      <div className="space-y-3">
+                                         <p className="text-[9px] font-black text-indigo-400 uppercase tracking-[0.2em] flex items-center gap-2">
+                                            <Sparkles size={10} fill="currentColor" /> Session Reflection
+                                         </p>
+                                         <div className="p-4 rounded-2xl bg-indigo-50/50 border border-indigo-100 italic">
+                                            <p className="text-xs font-bold text-slate-600 leading-relaxed">
+                                               "{(s.reflections[0].learned_summary || s.reflections[0].completed_summary)?.substring(0, 150)}..."
+                                            </p>
+                                         </div>
+                                      </div>
+                                   )}
+                                </div>
                               )}
                            </div>
-                        ))}
+                         ))}
                       </div>
 
                      <div className="pt-4 text-center">

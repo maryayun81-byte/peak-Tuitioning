@@ -82,11 +82,11 @@ export default function MyStudents() {
              <div className="flex items-center gap-2 text-primary font-black text-[10px] uppercase tracking-[0.3em]">
                 <Sparkles size={12} /> Elite Education
              </div>
-             <h1 className="text-3xl sm:text-5xl font-black tracking-tight" style={{ color: 'var(--text)' }}>
-                My Students
+             <h1 className="text-3xl sm:text-5xl font-black tracking-tighter uppercase italic" style={{ color: 'var(--text)' }}>
+                Scholar Collective
              </h1>
-             <p className="text-sm sm:text-base max-w-md" style={{ color: 'var(--text-muted)' }}>
-                Real-time academic oversight and growth tracking for your family.
+             <p className="font-bold text-sm uppercase tracking-wide max-w-xl" style={{ color: 'var(--text-muted)' }}>
+                Overview of linked student profiles and core academic status.
              </p>
           </div>
           <div className="flex items-center gap-3">
@@ -174,62 +174,27 @@ export default function MyStudents() {
                             </div>
                          </div>
 
-                         {/* Core Metrics */}
-                         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                            <div className="p-4 rounded-2xl bg-[var(--input)] border border-[var(--card-border)] hover:-translate-y-1 transition-transform cursor-default">
-                               <p className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] mb-3 flex items-center gap-1.5">
-                                 <Users size={12} className="text-emerald-500" /> Attendance
-                               </p>
-                               <div className="flex items-end justify-between">
-                                  <span className="text-2xl font-black text-[var(--text)]">{Math.round(student.attRate)}%</span>
-                               </div>
-                               <div className="h-1.5 w-full bg-[var(--card-border)] rounded-full mt-3 overflow-hidden">
-                                  <div className="h-full bg-emerald-500" style={{ width: `${student.attRate}%` }} />
-                               </div>
-                            </div>
-                            
-                            <div className="p-4 rounded-2xl bg-[var(--input)] border border-[var(--card-border)] hover:-translate-y-1 transition-transform cursor-default">
-                               <p className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] mb-3 flex items-center gap-1.5">
-                                 <TrendingUp size={12} className="text-[var(--primary)]" /> Mean Score
-                               </p>
-                               <div className="flex items-end justify-between">
-                                  <span className="text-2xl font-black text-[var(--text)]">{Math.round(student.avgScore)}%</span>
-                               </div>
-                               <div className="h-1.5 w-full bg-[var(--card-border)] rounded-full mt-3 overflow-hidden">
-                                  <div className="h-full bg-[var(--primary)]" style={{ width: `${student.avgScore}%` }} />
-                               </div>
-                            </div>
-                            
-                            <div className="col-span-2 md:col-span-1 p-4 rounded-2xl bg-[var(--input)] border border-[var(--card-border)] hover:-translate-y-1 transition-transform cursor-default flex flex-col justify-between">
-                               <p className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] mb-3 flex items-center gap-1.5">
-                                 <Award size={12} className="text-amber-500" /> Badges Earned
-                               </p>
-                               <div className="flex items-center gap-2">
-                                 <span className="text-2xl font-black text-[var(--text)]">{student.badges?.length || 0}</span>
-                                 <span className="text-[10px] font-bold text-amber-500 tracking-widest uppercase">Rewards</span>
-                               </div>
-                               <div className="h-1.5 w-full mt-3 invisible" />
-                            </div>
-                         </div>
+                           {/* Core Metrics - Simplified */}
+                          <div className="grid grid-cols-2 gap-4">
+                             <div className="p-5 rounded-3xl bg-[var(--input)] border border-[var(--card-border)] transition-all">
+                                <p className="text-[9px] font-black uppercase tracking-widest text-[var(--text-muted)] mb-2">Attendance</p>
+                                <p className="text-xl font-black" style={{ color: 'var(--text)' }}>{Math.round(student.attRate)}%</p>
+                             </div>
+                             
+                             <div className="p-5 rounded-3xl bg-[var(--input)] border border-[var(--card-border)] transition-all">
+                                <p className="text-[9px] font-black uppercase tracking-widest text-[var(--text-muted)] mb-2">Rank Index</p>
+                                <p className="text-xl font-black text-indigo-500">Tier 1</p>
+                             </div>
+                          </div>
 
-                         {/* Action Buttons */}
-                         <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-[var(--card-border)] hidden sm:flex">
-                         </div>
-                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                            <Link href={`/parent/students/${student.id}/progress`} className="block">
-                               <Button className="w-full py-6 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-[var(--primary)]/20 hover:-translate-y-1 transition-transform">
-                                  <Sparkles size={16} className="mr-2" /> Live Journey
-                               </Button>
-                            </Link>
-                            <Link href={`/parent/academics/${student.id}`} className="block">
-                               <Button variant="secondary" className="w-full py-6 rounded-2xl font-black text-[10px] uppercase tracking-widest border border-[var(--card-border)] bg-[var(--input)] text-[var(--text)] hover:-translate-y-1 transition-transform">
-                                  <BookOpen size={16} className="mr-2 opacity-50" /> Academics & Report
-                               </Button>
-                            </Link>
-                         </div>
-                      </div>
-                   </div>
-                </motion.div>
+                          <Link href="/parent/academics" className="block">
+                             <Button className="w-full h-12 rounded-xl bg-[var(--input)] text-[var(--text)] border-none font-black text-[10px] uppercase tracking-widest hover:bg-slate-900 hover:text-white transition-all">
+                                VIEW ACADEMIC HUB
+                             </Button>
+                          </Link>
+                       </div>
+                    </div>
+                 </motion.div>
               ))}
            </div>
         )}

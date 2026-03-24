@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Map, Calendar, Check, Star, Trophy, Award, Medal, Shield, Target, Rocket, Zap, Lock } from 'lucide-react'
+import { ArrowLeft, Map, Calendar, Check, Star, Trophy, Award, Medal, Shield, Target, Rocket, Zap, Lock, Sparkles, CheckCircle2 } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { StudyPath } from '@/components/student/study/StudyPath'
 import { Card } from '@/components/ui/Card'
@@ -62,10 +62,10 @@ export default function StudentProgressPage() {
         if (studentError) throw studentError
         setStudent(studentData)
 
-        // 2. Sessions
+        // 2. Sessions — include full sub-data to populate StudyPath goals and reflections
         const { data: sessionData, error: sessionError } = await supabase
           .from('study_sessions')
-          .select('*, subject:subjects(name)')
+          .select('*, subject:subjects(name), goals:study_goals(*), reflections:study_reflections(*), focus_logs:focus_logs(*)')
           .eq('student_id', id)
           .order('date', { ascending: true })
         if (sessionError) throw sessionError
@@ -168,42 +168,130 @@ export default function StudentProgressPage() {
       <div className="max-w-5xl mx-auto px-6 mt-8">
         {/* ── JOURNEY TAB ── */}
         {activeTab === 'journey' && (
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-            className="bg-white rounded-[3rem] shadow-2xl shadow-slate-200/50 border border-slate-100 overflow-hidden relative"
-          >
-            {sessions.length > 0 ? (
-              <div className="relative">
-                <div className="absolute top-8 left-8 right-8 z-50 flex justify-between items-start pointer-events-none">
-                   <div className="bg-slate-900/90 backdrop-blur-md text-white px-6 py-3 rounded-2xl shadow-2xl pointer-events-auto flex items-center gap-4">
-                      <Map size={18} className="text-primary" />
-                      <div className="flex flex-col">
-                         <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Current View</span>
-                         <span className="text-[10px] font-black uppercase">Interactive Roadmap</span>
-                      </div>
-                   </div>
+          <div className="space-y-12">
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+              className="bg-white rounded-[3rem] shadow-2xl shadow-slate-200/50 border border-slate-100 overflow-hidden relative"
+            >
+              {sessions.length > 0 ? (
+                <div className="relative">
+                  <div className="absolute top-8 left-8 right-8 z-50 flex justify-between items-start pointer-events-none">
+                     <div className="bg-slate-900/90 backdrop-blur-md text-white px-6 py-3 rounded-2xl shadow-2xl pointer-events-auto flex items-center gap-4">
+                        <Map size={18} className="text-primary" />
+                        <div className="flex flex-col">
+                           <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Current View</span>
+                           <span className="text-[10px] font-black uppercase">Interactive Roadmap</span>
+                        </div>
+                     </div>
+                  </div>
+                  <StudyPath sessions={sessions} readOnly={true} planName={`${student?.full_name?.split(' ')[0]}'s Elite Roadmap`} />
                 </div>
-                <StudyPath sessions={sessions} readOnly={true} />
-              </div>
-            ) : (
-              <div className="py-40 text-center space-y-6">
-                <div className="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mx-auto text-slate-200">
-                  <Map size={48} />
+              ) : (
+                <div className="py-40 text-center space-y-6">
+                  <div className="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mx-auto text-slate-200">
+                    <Map size={48} />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-black text-slate-900 tracking-tighter uppercase">No Roadmap Found</h2>
+                    <p className="text-slate-500 font-medium max-w-xs mx-auto mt-2">
+                      {student?.full_name} hasn't created a study roadmap yet.
+                    </p>
+                  </div>
+                  <button 
+                    onClick={() => router.back()}
+                    className="px-8 py-3 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:scale-105 transition-transform shadow-xl"
+                  >
+                    Go Back
+                  </button>
                 </div>
-                <div>
-                  <h2 className="text-2xl font-black text-slate-900 tracking-tighter uppercase">No Roadmap Found</h2>
-                  <p className="text-slate-500 font-medium max-w-xs mx-auto mt-2">
-                    {student?.full_name} hasn't created a study roadmap yet.
-                  </p>
-                </div>
-                <button 
-                  onClick={() => router.back()}
-                  className="px-8 py-3 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:scale-105 transition-transform shadow-xl"
-                >
-                  Go Back
-                </button>
-              </div>
+              )}
+            </motion.div>
+
+            {/* Detailed Activity Feed (Matches Overview Page Detail) */}
+            {sessions.length > 0 && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }} className="space-y-8">
+                 <div className="flex items-center justify-between">
+                    <div>
+                       <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tighter italic">Recent Activity Feed</h2>
+                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Detailed telemetry from student study sessions</p>
+                    </div>
+                 </div>
+
+                 <div className="space-y-6">
+                    {sessions.slice().reverse().map((session, i) => (
+                      <Card key={session.id} className="p-8 rounded-[3rem] border-none bg-white shadow-xl hover:shadow-2xl transition-all group">
+                         <div className="flex flex-col gap-8">
+                            <div className="flex items-start justify-between">
+                               <div className="flex items-center gap-6">
+                                  <div className={`w-20 h-20 rounded-[2.5rem] flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform ${session.status === 'completed' ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-primary'}`}>
+                                     {session.status === 'completed' ? <Check size={36} strokeWidth={3} /> : <Rocket size={32} />}
+                                  </div>
+                                  <div>
+                                     <p className="text-[10px] font-black tracking-[0.2em] text-slate-400 uppercase mb-1">{session.subject?.name || 'Self Discovery'}</p>
+                                     <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tight italic">{new Date(session.date).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</h3>
+                                     <div className="flex items-center gap-3 mt-2">
+                                        <span className="text-[10px] font-black text-slate-400 bg-slate-50 px-3 py-1 rounded-full uppercase tracking-widest">{session.start_time} - {session.end_time}</span>
+                                        {session.status === 'completed' && <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest flex items-center gap-1.5"><Check size={12} strokeWidth={3} /> Mission Cleared</span>}
+                                     </div>
+                                  </div>
+                               </div>
+                            </div>
+
+                            {/* Session Telemetry */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-8 border-t border-slate-50">
+                               {/* Goals/Milestones */}
+                               <div className="space-y-4">
+                                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2">
+                                     <Target size={14} className="text-amber-500" /> Session Milestones
+                                  </h4>
+                                  <div className="space-y-2">
+                                     {session.goals?.length > 0 ? (
+                                        session.goals.map((goal: any) => (
+                                          <div key={goal.id} className="flex items-center gap-3 p-4 rounded-2xl bg-slate-50/50 border border-slate-100">
+                                             <div className={`w-5 h-5 rounded flex items-center justify-center border-2 ${goal.is_completed ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-200'}`}>
+                                                {goal.is_completed && <Check size={12} strokeWidth={3} />}
+                                             </div>
+                                             <span className={`text-xs font-bold ${goal.is_completed ? 'text-slate-400 line-through' : 'text-slate-700'}`}>{goal.objective}</span>
+                                          </div>
+                                        ))
+                                     ) : (
+                                        <p className="text-xs text-slate-400 font-medium italic">No milestones defined for this session.</p>
+                                     )}
+                                  </div>
+                               </div>
+
+                               {/* Reflections */}
+                               <div className="space-y-4">
+                                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2">
+                                     <Sparkles size={14} className="text-indigo-400" /> Student Reflection
+                                  </h4>
+                                  {session.reflections?.length > 0 ? (
+                                     <div className="p-6 rounded-3xl bg-indigo-50/50 border border-indigo-100 relative">
+                                        <div className="text-slate-600 text-xs font-bold italic leading-relaxed">
+                                          "{session.reflections[0].learned_summary || session.reflections[0].completed_summary}"
+                                        </div>
+                                        <div className="mt-4 flex items-center gap-4">
+                                           <div className="flex flex-col">
+                                              <span className="text-[9px] font-black text-indigo-400 uppercase">Confidence</span>
+                                              <div className="flex gap-0.5 mt-0.5">
+                                                 {[1, 2, 3, 4, 5].map(star => (
+                                                   <Star key={star} size={8} fill={star <= (session.reflections[0].confidence || 0) ? 'currentColor' : 'none'} className={star <= (session.reflections[0].confidence || 0) ? 'text-amber-400' : 'text-slate-200'} />
+                                                 ))}
+                                              </div>
+                                           </div>
+                                        </div>
+                                     </div>
+                                  ) : (
+                                     <p className="text-xs text-slate-400 font-medium italic">Student hasn't submitted a reflection yet.</p>
+                                  )}
+                               </div>
+                            </div>
+                         </div>
+                      </Card>
+                    ))}
+                 </div>
+              </motion.div>
             )}
-          </motion.div>
+          </div>
         )}
 
         {/* ── BADGES TAB ── */}

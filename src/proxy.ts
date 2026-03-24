@@ -41,7 +41,8 @@ export default async function proxy(request: NextRequest) {
   const isProtected = protectedRoutes.some(r => path.startsWith(r))
 
   if (isProtected && !user) {
-    return NextResponse.redirect(new URL('/auth/login', request.url))
+    const from = encodeURIComponent(path)
+    return NextResponse.redirect(new URL(`/auth/login?role=parent&from=${from}`, request.url))
   }
 
   // Role-based protection
@@ -83,7 +84,9 @@ export default async function proxy(request: NextRequest) {
 
       // Redirect logged-in users away from auth pages
       if (path.startsWith('/auth')) {
-        return NextResponse.redirect(new URL(`/${role}`, request.url))
+        const from = request.nextUrl.searchParams.get('from')
+        const destination = from ? decodeURIComponent(from) : `/${role}`
+        return NextResponse.redirect(new URL(destination, request.url))
       }
     }
   }

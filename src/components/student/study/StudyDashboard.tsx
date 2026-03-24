@@ -288,11 +288,11 @@ export const StudyDashboard = ({ planId, onPlanUpdate }: StudyDashboardProps) =>
 
             <Card className="p-6 border-none shadow-xl bg-gradient-to-br from-indigo-600 to-indigo-800 text-white relative overflow-hidden">
                <div className="relative z-10 space-y-4">
-                  <h3 className="font-black text-sm uppercase tracking-widest opacity-60">Weekly Report</h3>
-                  <p className="text-xs opacity-80 leading-relaxed">Your weekly performance summary is ready to be shared with your teachers.</p>
-                  <Button variant="secondary" className="w-full bg-white/10 hover:bg-white/20 border-white/10 text-white font-bold h-10 text-xs" onClick={() => setShowReport(true)}>
-                     View Report
-                  </Button>
+               <h3 className="font-black text-sm uppercase tracking-widest opacity-60">Mission Report</h3>
+               <p className="text-xs opacity-80 leading-relaxed">Your definitive performance summary for this study operation.</p>
+               <Button variant="secondary" className="w-full bg-white/10 hover:bg-white/20 border-white/10 text-white font-bold h-10 text-xs" onClick={() => setShowReport(true)}>
+                  View Report
+               </Button>
                </div>
                <div className="absolute -bottom-4 -right-4 opacity-10">
                   <BarChart3 size={120} />
@@ -304,22 +304,26 @@ export const StudyDashboard = ({ planId, onPlanUpdate }: StudyDashboardProps) =>
       {/* Weekly Report Modal */}
       <AnimatePresence>
          {showReport && (
-            <div className="fixed inset-0 z-[150] bg-black/60 backdrop-blur-xl flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
-               <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="max-w-4xl w-full relative">
+            <div className="fixed inset-0 z-[150] bg-black/60 backdrop-blur-xl flex items-center justify-center p-4 sm:p-10">
+               <motion.div 
+                 initial={{ scale: 0.9, opacity: 0, y: 20 }} 
+                 animate={{ scale: 1, opacity: 1, y: 0 }} 
+                 exit={{ scale: 0.9, opacity: 0, y: 20 }} 
+                 className="max-w-6xl w-full max-h-[90vh] relative flex flex-col"
+               >
                   <button 
-                  onClick={() => setShowReport(false)}
-                  className="absolute -top-4 -right-4 w-12 h-12 bg-white text-black rounded-full flex items-center justify-center shadow-xl z-20 hover:scale-110 transition-transform"
+                    onClick={() => setShowReport(false)}
+                    className="absolute -top-5 -right-5 w-14 h-14 bg-white text-black rounded-2xl flex items-center justify-center shadow-2xl z-[160] hover:scale-110 active:scale-95 transition-all border border-slate-100"
                   >
-                  <X size={20} />
+                    <X size={24} strokeWidth={3} />
                   </button>
-                  <WeeklyReport 
-                  studentId={student?.id || ''} 
-                  weekStartDate={(() => {
-                     const d = new Date()
-                     d.setDate(d.getDate() - d.getDay())
-                     return d.toISOString().split('T')[0]
-                  })()} 
-                  />
+
+                  <div className="flex-1 overflow-y-auto rounded-[3.5rem] custom-scrollbar shadow-[0_50px_100px_-20px_rgba(0,0,0,0.5)] bg-[var(--card)]">
+                     <WeeklyReport 
+                       studentId={student?.id || ''} 
+                       planId={currentPlan?.id || ''} 
+                     />
+                  </div>
                </motion.div>
             </div>
          )}

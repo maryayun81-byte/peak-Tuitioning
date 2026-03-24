@@ -2,8 +2,10 @@
 
 import { useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { CheckSquare, Circle, ChevronDown, ChevronUp, Upload, BookOpen } from 'lucide-react'
+import { CheckSquare, Circle, ChevronDown, ChevronUp, Upload, BookOpen, Type as DrawIcon } from 'lucide-react'
 import type { WorksheetBlock, WorksheetAnswers } from '@/types/database'
+import { AnnotationCanvas } from '@/components/worksheet/AnnotationCanvas'
+import MathRenderer from '@/components/ui/MathRenderer'
 import { useDropzone } from 'react-dropzone'
 import { cn } from '@/lib/utils'
 
@@ -19,7 +21,56 @@ interface QuestionRendererProps {
 const OPTION_LABELS = ['A', 'B', 'C', 'D', 'E', 'F']
 const DIFF = { easy: '#10B981', medium: '#F59E0B', hard: '#EF4444' }
 
+const lightPaperStyle = {
+  '--card': '#ffffff',
+  '--input': '#f9fafb',
+  '--text': '#000000',
+  '--text-muted': '#4b5563',
+  '--card-border': '#e5e7eb',
+} as React.CSSProperties
+
 export function QuestionRenderer({ block, index, answer, onChange, readOnly, showCorrect }: QuestionRendererProps) {
+  
+  // Helper to render text with KaTeX support
+  const renderTextWithMath = (text: string) => {
+    if (!text) return null
+    // Split by $ or $$
+    const parts = text.split(/(\$\$[\s\S]*?\$\$|\$[\s\S]*?\$)/g)
+    return (
+      <>
+        {parts.map((part, i) => {
+          if (part.startsWith('$$') && part.endsWith('$$')) {
+            const formula = part.slice(2, -2)
+            return <MathRenderer key={i} formula={formula} block={true} />
+          } else if (part.startsWith('$') && part.endsWith('$')) {
+            const formula = part.slice(1, -1)
+            return <MathRenderer key={i} formula={formula} block={false} />
+          }
+          return <span key={i}>{part}</span>
+        })}
+      </>
+    )
+  }
+
+  // --- Teacher Diagram Rendering ---
+  const renderTeacherDiagram = () => {
+    if (!block.diagram_json) return null
+    return (
+      <div className="my-4 rounded-2xl overflow-hidden border border-slate-100 bg-white shadow-sm w-full">
+        <div className="bg-slate-50/50 px-3 py-1.5 border-b border-slate-100 flex items-center gap-2">
+           <DrawIcon size={12} className="text-slate-400" />
+           <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Diagram / Illustration</span>
+        </div>
+        {/* No fixed height — canvas auto-sizes to its content */}
+        <AnnotationCanvas
+          key={`diagram-render-${block.id}`}
+          backgroundJson={block.diagram_json}
+          onSave={() => {}}
+          readOnly={true}
+        />
+      </div>
+    )
+  }
 
   // --- MCQ ---
   const renderMCQ = () => (
@@ -44,7 +95,9 @@ export function QuestionRenderer({ block, index, answer, onChange, readOnly, sho
             <span className="w-6 h-6 rounded-lg flex items-center justify-center text-xs font-black shrink-0" style={{ background: selected || (showCorrect && isCorrect) ? border : 'var(--card-border)', color: selected || (showCorrect && isCorrect) ? 'white' : 'var(--text-muted)' }}>
               {letter}
             </span>
-            <span className="text-sm font-medium break-words overflow-hidden">{opt}</span>
+            <span className="text-sm font-medium break-words overflow-hidden">
+              {renderTextWithMath(opt)}
+            </span>
           </button>
         )
       })}
@@ -80,7 +133,9 @@ export function QuestionRenderer({ block, index, answer, onChange, readOnly, sho
               <span className="w-5 h-5 rounded flex items-center justify-center shrink-0" style={{ border: `2px solid ${border}`, background: isSelected ? '#8B5CF6' : 'transparent' }}>
                 {isSelected && <span className="text-white text-[10px] font-black">✓</span>}
               </span>
-              <span className="text-sm font-medium break-words overflow-hidden" style={{ color: 'var(--text)' }}>{opt}</span>
+              <span className="text-sm font-medium break-words overflow-hidden" style={{ color: 'var(--text)' }}>
+                {renderTextWithMath(opt)}
+              </span>
             </button>
           )
         })}
@@ -140,7 +195,9 @@ export function QuestionRenderer({ block, index, answer, onChange, readOnly, sho
         </div>
         {pairs.map((pair, i) => (
           <div key={i} className="grid grid-cols-2 gap-2 items-center">
-            <div className="p-2.5 rounded-lg text-sm" style={{ background: 'var(--input)', color: 'var(--text)' }}>{pair.left}</div>
+            <div className="p-2.5 rounded-lg text-sm" style={{ background: 'var(--input)', color: 'var(--text)' }}>
+              {renderTextWithMath(pair.left)}
+            </div>
             {readOnly ? (
               <div className="p-2.5 rounded-lg text-sm" style={{ background: 'var(--input)', color: 'var(--text)' }}>
                 {answerMap.find(a => a.left === pair.left)?.right ?? '—'}
@@ -287,13 +344,47 @@ export function QuestionRenderer({ block, index, answer, onChange, readOnly, sho
       </div>
     )
   }
-
+ 
+  // --- Math/Drawing/Virtual Paper ---
+  const renderDrawingCanvas = () => {
+    // CRITICAL: The height is passed to AnnotationCanvas as a fixed value.
+    // Previously the outer div had a dynamic height that caused page reflow (jitter) on every stroke.
+    const canvasHeight = Math.max(400, (block.answer_lines || 12) * 32)
+    return (
+      <div className="mt-3 space-y-2">
+         <div className="flex items-center gap-2 mb-2 p-3 rounded-xl bg-primary/5 border border-primary/10">
+            <DrawIcon size={14} className="text-primary" />
+            <span className="text-[10px] font-black uppercase tracking-widest text-primary">Virtual Paper Mode — Draw your working below</span>
+         </div>
+         {/* No inline height here — canvas controls its own size via the height prop */}
+         <div className="rounded-2xl overflow-hidden border-2 border-[var(--card-border)] bg-white shadow-inner">
+            <AnnotationCanvas
+               key={block.id}
+               backgroundText={undefined}
+               defaultColor="#3b82f6"
+               initialJson={typeof answer === 'string' && answer.startsWith('{') ? (answer as string) : undefined}
+               onSave={json => !readOnly && onChange(json)}
+               readOnly={readOnly}
+               height={canvasHeight}
+            />
+         </div>
+         {!readOnly && <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest text-center mt-2">Marks will be awarded for your working steps</p>}
+      </div>
+    )
+  }
+ 
   // --- Section header (not a question) ---
   if (block.type === 'section_header') {
     return (
-      <div className="py-4" style={{ borderBottom: '2px solid var(--card-border)' }}>
-        <h3 className="font-black uppercase text-sm tracking-wide" style={{ color: 'var(--text)' }}>{block.section_title}</h3>
-        {block.section_instructions && <p className="text-xs mt-1 italic" style={{ color: 'var(--text-muted)' }}>{block.section_instructions}</p>}
+      <div className="py-4" style={{ borderBottom: '2px solid var(--card-border)', ...lightPaperStyle }}>
+        <h3 className="font-black uppercase text-sm tracking-wide" style={{ color: 'var(--text)' }}>
+          {renderTextWithMath(block.section_title || '')}
+        </h3>
+        {block.section_instructions && (
+          <p className="text-xs mt-1 italic" style={{ color: 'var(--text-muted)' }}>
+            {renderTextWithMath(block.section_instructions)}
+          </p>
+        )}
       </div>
     )
   }
@@ -306,7 +397,7 @@ export function QuestionRenderer({ block, index, answer, onChange, readOnly, sho
     const isHtml = rawContent.includes('</') || rawContent.includes('<br')
 
     return (
-      <div className="py-2 mb-4">
+      <div className="py-2 mb-4" style={lightPaperStyle}>
         <div 
           className={cn(
             "text-base leading-relaxed whitespace-pre-wrap",
@@ -328,7 +419,7 @@ export function QuestionRenderer({ block, index, answer, onChange, readOnly, sho
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       className="rounded-2xl p-5"
-      style={{ background: 'var(--card)', border: '1px solid var(--card-border)' }}
+      style={{ background: 'var(--card)', border: '1px solid var(--card-border)', ...lightPaperStyle }}
     >
       {/* Question header */}
       <div className="flex items-start justify-between gap-3 mb-1">
@@ -337,7 +428,10 @@ export function QuestionRenderer({ block, index, answer, onChange, readOnly, sho
             {index}
           </span>
           <div>
-            <p className="text-sm font-medium leading-relaxed break-words overflow-hidden" style={{ color: 'var(--text)' }}>{block.question}</p>
+            <div className="text-sm font-medium leading-relaxed break-words overflow-hidden" style={{ color: 'var(--text)' }}>
+              {renderTextWithMath(block.question)}
+            </div>
+            {renderTeacherDiagram()}
             {block.topic && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full mt-1 inline-block" style={{ background: 'var(--input)', color: 'var(--text-muted)' }}>{block.topic}</span>}
           </div>
         </div>
@@ -351,6 +445,7 @@ export function QuestionRenderer({ block, index, answer, onChange, readOnly, sho
       {block.type === 'multi_select' && renderMultiSelect()}
       {block.type === 'true_false' && renderTrueFalse()}
       {(block.type === 'short_answer' || block.type === 'long_answer' || block.type === 'math' || block.type === 'sub_question') && renderTextAnswer()}
+      {block.type === 'math_drawing' && renderDrawingCanvas()}
       {block.type === 'matching' && renderMatching()}
       {block.type === 'file_upload' && <FileUpload />}
       {block.type === 'diagram_labeling' && renderDiagramLabeling()}

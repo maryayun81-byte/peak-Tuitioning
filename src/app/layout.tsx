@@ -3,6 +3,7 @@ import { Toaster } from 'react-hot-toast'
 import { QueryProvider } from '@/providers/QueryProvider'
 import { ThemeProvider } from '@/providers/ThemeProvider'
 import { AuthHandler } from '@/components/AuthHandler'
+import { PWAHandler } from '@/components/PWAHandler'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -61,6 +62,7 @@ export default function RootLayout({
         <QueryProvider>
           <ThemeProvider>
             <AuthHandler />
+            <PWAHandler />
             {children}
             <Toaster
               position="top-right"

@@ -6,7 +6,7 @@ import { motion } from 'framer-motion'
 import {
   LayoutDashboard, BookOpen, ClipboardList, Calendar, 
   Library, GraduationCap, Award, Settings, LogOut,
-  PlusCircle, FileText, Bell, Users, Layers, BrainCircuit
+  PlusCircle, FileText, Bell, Users, Layers, BrainCircuit, HelpCircle
 } from 'lucide-react'
 import { Sidebar, BottomNav } from '@/components/layout/Sidebar'
 import { useAuthStore } from '@/stores/authStore'
@@ -19,6 +19,7 @@ const NAV_ITEMS = [
   { label: 'Attendance', href: '/teacher/attendance', icon: <ClipboardList size={18} /> },
   { label: 'Assignments', href: '/teacher/assignments', icon: <FileText size={18} /> },
   { label: 'Worksheets', href: '/teacher/worksheets/new', icon: <Layers size={18} /> },
+  { label: 'Practice Bank', href: '/teacher/practice-questions', icon: <HelpCircle size={18} /> },
   { label: 'Quizzes', href: '/teacher/quizzes', icon: <Award size={18} /> },
   { label: 'Marking', href: '/teacher/marking', icon: <PlusCircle size={18} /> },
   { label: 'Exam Marks', href: '/teacher/exam-marks', icon: <Award size={18} /> },

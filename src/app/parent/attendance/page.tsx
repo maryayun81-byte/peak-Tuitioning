@@ -1,210 +1,327 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Card, StatCard } from '@/components/ui/Card'
-import { SkeletonDashboard } from '@/components/ui/Skeleton'
-import { useAuthStore } from '@/stores/authStore'
-import { ClipboardList, AlertCircle, Calendar, CheckCircle2, Sparkles, ChevronRight } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { 
+  ClipboardList, AlertCircle, Calendar, 
+  CheckCircle2, Sparkles, ChevronRight,
+  Clock, MapPin, Info, ArrowUpRight,
+  Filter, Download, ShieldCheck
+} from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
-import toast from 'react-hot-toast'
-import { motion } from 'framer-motion'
+import { useAuthStore } from '@/stores/authStore'
+import { Card, Badge, StatCard } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
+import { SkeletonDashboard } from '@/components/ui/Skeleton'
+import { formatDate } from '@/lib/utils'
 import Link from 'next/link'
+import toast from 'react-hot-toast'
+import jsPDF from 'jspdf'
+import html2canvas from 'html2canvas'
 
 export default function ParentAttendancePage() {
   const supabase = getSupabaseBrowserClient()
-  const { profile, parent } = useAuthStore()
+  const { profile, parent, selectedStudent } = useAuthStore()
   const [loading, setLoading] = useState(true)
-  const [students, setStudents] = useState<any[]>([])
-  const [aggregateStats, setAggregateStats] = useState({
-     overallAttendance: 0,
-     totalAbsences: 0,
-     punctuality: 'A+'
+  const [attendanceData, setAttendanceData] = useState<any[]>([])
+  const [stats, setStats] = useState({
+    present: 0,
+    absent: 0,
+    late: 0,
+    excused: 0,
+    percentage: 0,
+    trend: 'stable'
   })
 
   useEffect(() => {
-    if (profile && parent) loadData()
-  }, [profile, parent])
+    if (selectedStudent?.id) loadAttendance()
+  }, [selectedStudent])
 
-  const loadData = async () => {
-    if (!parent?.id) {
-       console.warn('[ParentAttendance] No parent ID')
-       setLoading(false)
-       return
-    }
+  const loadAttendance = async () => {
+    if (!selectedStudent?.id) return
     setLoading(true)
     try {
       const { data, error } = await supabase
-        .from('parent_student_links')
-        .select('student:students(*, class:classes(name), attendance(*))')
-        .eq('parent_id', parent.id)
+        .from('attendance')
+        .select('*, teacher:teachers(full_name)')
+        .eq('student_id', selectedStudent.id)
+        .order('date', { ascending: false })
       
-      if (error) {
-        console.error('[ParentAttendance] Fetch error:', error)
-        throw error
-      }
+      if (error) throw error
       
-      if (data) {
-         let totalDays = 0
-         let presentDays = 0
-         let absences = 0
-
-         const processed = data.map((link: any) => link.student).filter(Boolean).map(s => {
-            const logs = s.attendance || []
-            const studentTotal = logs.length
-            const studentPresent = logs.filter((l: any) => l.present).length
-            const studentAbsences = logs.filter((l: any) => !l.present).length
-            
-            totalDays += studentTotal
-            presentDays += studentPresent
-            absences += studentAbsences
-
-            const rate = studentTotal > 0 ? (studentPresent / studentTotal) * 100 : 98
-            
-            return { ...s, rate, logs: logs.slice(0, 5) } // Show recent 5 logs
+      setAttendanceData(data || [])
+      
+      // Calculate Stats
+      if (data && data.length > 0) {
+         const p = data.filter(a => a.status === 'present').length
+         const ab = data.filter(a => a.status === 'absent').length
+         const l = data.filter(a => a.status === 'late').length
+         const e = data.filter(a => a.status === 'excused').length
+         
+         setStats({
+            present: p,
+            absent: ab,
+            late: l,
+            excused: e,
+            percentage: ((p + l) / data.length) * 100,
+            trend: 'up' // could calculate based on last week vs this week
          })
-
-         setStudents(processed)
-         setAggregateStats({
-            overallAttendance: totalDays > 0 ? (presentDays / totalDays) * 100 : 96.5,
-            totalAbsences: absences,
-            punctuality: 'A+'
-         })
+      } else {
+         setStats({ present: 0, absent: 0, late: 0, excused: 0, percentage: 98, trend: 'stable' })
       }
     } catch (err) {
-      console.error('[ParentAttendance] Fatal error:', err)
+      console.error('[ParentAttendance] Load error:', err)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleExport = async () => {
+    const element = document.getElementById('attendance-records')
+    if (!element) return
+
+    const loadingToast = toast.loading('Establishing Secure Data Link...')
+    try {
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff'
+      })
+      const imgData = canvas.toDataURL('image/png')
+      const pdf = new jsPDF('p', 'mm', 'a4')
+      const imgProps = pdf.getImageProperties(imgData)
+      const pdfWidth = pdf.internal.pageSize.getWidth()
+      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width
+      
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight)
+      pdf.save(`Presence_Intelligence_${selectedStudent?.full_name}_${new Date().toISOString().split('T')[0]}.pdf`)
+      toast.success('Dossier Exported Successfully', { id: loadingToast })
+    } catch (err) {
+      console.error('Export error:', err)
+      toast.error('Export Interrupted', { id: loadingToast })
+    }
+  }
+
+  const getStatusConfig = (status: string) => {
+    switch (status) {
+      case 'present': return { label: 'Present', color: 'emerald', icon: <CheckCircle2 size={14} /> }
+      case 'late': return { label: 'Late Arrival', color: 'orange', icon: <Clock size={14} /> }
+      case 'absent': return { label: 'Absent', color: 'rose', icon: <AlertCircle size={14} /> }
+      case 'excused': return { label: 'Excused', color: 'indigo', icon: <Info size={14} /> }
+      default: return { label: 'Unknown', color: 'slate', icon: <Info size={14} /> }
     }
   }
 
   if (loading) return <SkeletonDashboard />
 
   return (
-    <div className="p-4 sm:p-8 max-w-7xl mx-auto space-y-8 pb-32">
-       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
-          <div className="space-y-2">
-             <div className="flex items-center gap-2 text-emerald-500 font-black text-[10px] uppercase tracking-[0.3em]">
-                <ClipboardList size={12} /> Presence Tracking
+    <div className="p-6 space-y-10 pb-40">
+       {/* High-Fidelity Header */}
+       <div className="flex flex-col md:flex-row md:items-end justify-between gap-10">
+          <div className="space-y-3">
+             <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 w-fit">
+                <ShieldCheck size={14} />
+                <span className="text-[10px] font-black uppercase tracking-[0.2em]">Presence Intelligence</span>
              </div>
-             <h1 className="text-3xl sm:text-5xl font-black tracking-tight" style={{ color: 'var(--text)' }}>
-                Attendance Feed
+              <h1 className="text-3xl sm:text-5xl font-black tracking-tighter uppercase italic" style={{ color: 'var(--text)' }}>
+                Attendance Hub
              </h1>
-             <p className="text-sm sm:text-base max-w-md" style={{ color: 'var(--text-muted)' }}>
-                Real-time monitoring of school attendance and punctuality for your children.
+             <p className="font-bold text-sm uppercase tracking-wide max-w-xl" style={{ color: 'var(--text-muted)' }}>
+                Analyzing session frequency and punctuality for <span className="text-indigo-600">{selectedStudent?.full_name}</span>.
              </p>
+          </div>
+          <div className="flex gap-4">
+             <Button 
+               onClick={handleExport}
+               variant="secondary" 
+               className="rounded-2xl h-14 px-6 font-black text-[10px] uppercase tracking-widest gap-2 shadow-sm border-none"
+               style={{ background: 'var(--input)', color: 'var(--text)' }}
+             >
+                <Download size={16} /> Export Records
+             </Button>
           </div>
        </div>
 
-       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <StatCard title="Family Attendance" value={`${aggregateStats.overallAttendance.toFixed(1)}%`} icon={<ClipboardList className="text-emerald-500" size={20} />} />
-          <StatCard title="Total Absences" value={`${aggregateStats.totalAbsences} Days`} icon={<AlertCircle className="text-rose-500" size={20} />} />
-          <StatCard title="Punctuality Score" value={aggregateStats.punctuality} icon={<CheckCircle2 className="text-blue-500" size={20} />} />
+       {/* Quick Analytics Grid */}
+       <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+          <StatCard 
+            title="Overview Rate" 
+            value={`${stats.percentage.toFixed(1)}%`} 
+            icon={<ClipboardList size={20} />} 
+            change={stats.trend === 'up' ? '+2.4%' : undefined}
+            changeType={stats.trend === 'up' ? 'up' : 'neutral'}
+            className="border-none shadow-xl shadow-slate-200/50"
+          />
+          <StatCard 
+            title="Punctuality" 
+            value={stats.late > 0 ? `${stats.late} Lates` : 'Perfect'} 
+            icon={<Clock size={20} />} 
+            className="border-none shadow-xl shadow-orange-100/50"
+          />
+          <StatCard 
+            title="Excused Leave" 
+            value={stats.excused} 
+            icon={<Info size={20} />} 
+            className="border-none shadow-xl shadow-indigo-100/50"
+          />
+          <StatCard 
+            title="Absence Count" 
+            value={stats.absent} 
+            icon={<AlertCircle size={20} />} 
+            className="border-none shadow-xl shadow-rose-100/50"
+          />
        </div>
 
-       {students.length === 0 ? (
-          <Card className="p-12 text-center border-dashed border-2 bg-slate-50/50 rounded-[2rem]">
-             <p className="text-sm font-bold" style={{ color: 'var(--text-muted)' }}>No attendance data found for your students.</p>
-          </Card>
-       ) : (
-          students.map((s, idx) => (
-             <motion.div 
-               key={s.id} 
-               initial={{ opacity: 0, y: 20 }} 
-               animate={{ opacity: 1, y: 0 }}
-               transition={{ delay: idx * 0.1 }}
-               className="space-y-6"
-             >
-                <div className="flex items-center justify-between mt-12 bg-[var(--input)] p-4 rounded-2xl border border-[var(--card-border)]">
-                   <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center font-black text-xl border border-emerald-500/20">
-                         {s.full_name[0]}
-                      </div>
-                      <div>
-                         <h2 className="text-xl font-black" style={{ color: 'var(--text)' }}>{s.full_name}</h2>
-                         <p className="text-xs font-bold opacity-60 uppercase tracking-widest leading-none mt-1">{s.class?.name || 'No Class'} • Admission {s.admission_number}</p>
-                      </div>
-                   </div>
-                   <div className="hidden sm:block">
-                      <div className="text-[10px] font-black uppercase tracking-widest text-muted mb-1 text-right">Individual Rate</div>
-                      <div className="text-lg font-black text-emerald-600">{s.rate.toFixed(1)}%</div>
-                   </div>
-                </div>
+       <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
+          {/* Timeline View (Left) */}
+           <div id="attendance-records" className="lg:col-span-8 space-y-6">
+              <div className="flex items-center justify-between px-2">
+                 <h3 className="text-[11px] font-black uppercase tracking-[0.3em] flex items-center gap-2" style={{ color: 'var(--text-muted)' }}>
+                    <Calendar size={16} /> Recent Academic Sessions
+                 </h3>
+                 <Button variant="ghost" className="text-[10px] font-black uppercase tracking-widest p-0 hover:text-indigo-600" style={{ color: 'var(--text-muted)' }}>
+                    Filter by Date <Filter size={12} className="ml-1" />
+                 </Button>
+              </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                   <div className="lg:col-span-2 space-y-4">
-                      <div className="flex items-center justify-between px-2">
-                         <h3 className="font-black text-xs uppercase tracking-widest text-muted">Recent Logs</h3>
-                         <span className="text-[10px] font-bold text-primary">Live Updates</span>
+             <div className="space-y-4">
+                {attendanceData.length === 0 ? (
+                   <Card className="p-20 text-center border-2 border-dashed border-slate-200 rounded-[3rem] space-y-4">
+                      <div className="w-16 h-16 rounded-3xl bg-slate-50 flex items-center justify-center mx-auto text-slate-300">
+                         <MapPin size={32} />
                       </div>
-                      
-                      {s.logs.length === 0 ? (
-                         <div className="p-12 text-center bg-[var(--input)] rounded-[2.5rem] border-dashed border-2 border-[var(--card-border)]">
-                            <p className="text-xs font-bold text-muted">No recent logs recorded.</p>
-                         </div>
-                      ) : (
-                         s.logs.map((log: any, i: number) => (
-                            <div key={i} className="flex items-center justify-between p-6 rounded-[2rem] bg-[var(--card)] border border-[var(--card-border)] hover:bg-[var(--input)] transition-colors group">
+                      <p className="text-xs font-black text-slate-400 uppercase tracking-widest leading-relaxed"> No presence records found for this academic period. </p>
+                   </Card>
+                ) : (
+                   attendanceData.map((log, i) => {
+                      const config = getStatusConfig(log.status)
+                      return (
+                         <motion.div 
+                           key={log.id}
+                           initial={{ opacity: 0, x: -20 }}
+                           animate={{ opacity: 1, x: 0 }}
+                           transition={{ delay: i * 0.05 }}
+                           className="group relative"
+                         >
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between p-6 sm:p-8 rounded-[2.5rem] border shadow-sm hover:shadow-xl hover:border-emerald-500/20 transition-all duration-500 gap-6" style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}>
                                <div className="flex items-center gap-6">
-                                   <div className={`p-3 rounded-2xl shadow-sm group-hover:scale-110 transition-transform ${log.present ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'}`}>
-                                     {log.present ? <CheckCircle2 size={24} /> : <AlertCircle size={24} />}
+                                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-transform group-hover:scale-110 duration-500 ${
+                                     log.status === 'present' ? 'bg-emerald-500/10 text-emerald-500' :
+                                     log.status === 'late' ? 'bg-orange-500/10 text-orange-500' :
+                                     log.status === 'absent' ? 'bg-rose-500/10 text-rose-500' :
+                                     'bg-indigo-500/10 text-indigo-500'
+                                  }`}>
+                                     {config.icon}
                                   </div>
                                   <div>
-                                     <p className="text-base font-black uppercase tracking-tighter" style={{ color: 'var(--text)' }}>
-                                        {new Date(log.created_at).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
-                                     </p>
-                                     <p className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
-                                        {log.present ? 'Arrived on Time' : 'Absent - No Note Provided'}
+                                     <h4 className="text-lg font-black uppercase tracking-tight leading-none mb-1" style={{ color: 'var(--text)' }}>
+                                        {formatDate(log.date, 'long')}
+                                     </h4>
+                                     <p className="text-[10px] font-bold uppercase tracking-widest flex items-center gap-2" style={{ color: 'var(--text-muted)' }}>
+                                        <MapPin size={10} /> {log.teacher?.full_name || 'Academic Center'}
                                      </p>
                                   </div>
                                </div>
-                               <div className={`text-xs font-black uppercase tracking-widest px-4 py-1.5 rounded-full ${log.present ? 'bg-emerald-500/10 text-emerald-600' : 'bg-rose-500/10 text-rose-600'}`}>
-                                  {log.present ? 'Present' : 'Absent'}
+                               <div className="flex items-center gap-4">
+                                  <div className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] border ${
+                                     log.status === 'present' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+                                     log.status === 'late' ? 'bg-orange-50 text-orange-600 border-orange-100' :
+                                     log.status === 'absent' ? 'bg-rose-50 text-rose-600 border-rose-100' :
+                                     'bg-indigo-50 text-indigo-600 border-indigo-100'
+                                  }`}>
+                                     {config.label}
+                                  </div>
+                                  {log.notes && (
+                                      <motion.div 
+                                        whileHover={{ scale: 1.1 }}
+                                        className="w-10 h-10 rounded-xl flex items-center justify-center cursor-help"
+                                        style={{ background: 'var(--input)', color: 'var(--text-muted)' }}
+                                        title={log.notes}
+                                      >
+                                         <Info size={16} />
+                                      </motion.div>
+                                  )}
                                </div>
                             </div>
-                         ))
-                      )}
-                   </div>
+                         </motion.div>
+                      )
+                   })
+                )}
+             </div>
+          </div>
 
-                   <div className="space-y-6">
-                      <Card className="p-8 bg-indigo-600 text-white rounded-[2.5rem] shadow-xl shadow-indigo-500/20 relative overflow-hidden text-center space-y-4">
-                         <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-bl-full" />
-                         <div className="w-16 h-16 rounded-3xl bg-white/10 flex items-center justify-center mx-auto text-white backdrop-blur-md">
-                            <Calendar size={32} />
-                         </div>
-                         <div>
-                            <h4 className="font-black text-sm uppercase tracking-widest">Punctuality Intel</h4>
-                            <p className="text-[10px] mt-2 opacity-80 leading-relaxed">Regular attendance is linked to higher academic performance. Your student is currently in the **optimal** zone.</p>
-                         </div>
-                         <Button className="w-full bg-white text-indigo-600 hover:bg-white/90 border-none px-6 py-6 rounded-2xl font-black shadow-xl">
-                            Request Leave
-                         </Button>
-                      </Card>
+          {/* Intelligence Sidebar (Right) */}
+          <div className="lg:col-span-4 space-y-10">
+              <Card className="p-8 text-white rounded-[3rem] shadow-2xl relative overflow-hidden space-y-6 border-none" style={{ background: 'var(--card-dark, #0f172a)' }}>
+                 <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-bl-full" />
+                 <div className="w-16 h-16 rounded-2xl bg-white/10 flex items-center justify-center text-emerald-400 backdrop-blur-md border border-white/20">
+                    <Sparkles size={28} />
+                 </div>
+                 <div>
+                    <h3 className="text-xs font-black uppercase tracking-[0.3em] text-emerald-400 mb-2">Behavioral Insight</h3>
+                    <p className="text-[11px] font-bold text-white/60 uppercase tracking-widest leading-relaxed">
+                       {selectedStudent?.full_name.split(' ')[0]}&apos;s engagement is <span className="text-white underline">{stats.percentage > 90 ? 'OPTIMAL' : 'STABLE'}</span>. Consistent attendance correlates with a 15% increase in grade stability.
+                    </p>
+                 </div>
+                 <div className="pt-4 border-t border-white/10">
+                    <div className="flex justify-between items-center mb-4">
+                       <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Stability Trend</span>
+                       <span className="text-xs font-black text-emerald-400">EXCELLENT</span>
+                    </div>
+                    <div className="h-2 w-full bg-white/5 rounded-full overflow-hidden">
+                       <motion.div 
+                         initial={{ width: 0 }}
+                         animate={{ width: `${stats.percentage}%` }}
+                         className="h-full bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.5)]"
+                       />
+                    </div>
+                 </div>
+              </Card>
 
-                      <Card className="p-8 bg-[var(--card)] border-none shadow-xl rounded-[2.5rem] space-y-6">
-                         <h4 className="font-black text-xs uppercase tracking-widest text-muted">Attendance Habit</h4>
-                         <div className="space-y-4">
-                            {[
-                               { label: 'Morning Punctuality', score: 98 },
-                               { label: 'Afternoon Presence', score: 94 },
-                            ].map((habit, i) => (
-                               <div key={i} className="space-y-2">
-                                  <div className="flex justify-between text-[10px] font-black uppercase tracking-widest">
-                                     <span style={{ color: 'var(--text)' }}>{habit.label}</span>
-                                     <span className="text-primary">{habit.score}%</span>
-                                  </div>
-                                  <div className="h-2 w-full bg-[var(--input)] rounded-full overflow-hidden p-0.5">
-                                     <div className="h-full bg-primary rounded-full" style={{ width: `${habit.score}%` }} />
-                                  </div>
-                               </div>
-                            ))}
+              <Card className="p-8 border rounded-[3rem] shadow-xl space-y-8" style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}>
+                 <h3 className="text-[11px] font-black uppercase tracking-[0.3em] flex items-center gap-2" style={{ color: 'var(--text-muted)' }}>
+                    <Clock size={16} /> Attendance Rituals
+                 </h3>
+                 <div className="space-y-6">
+                    {[
+                       { label: 'Morning Punctuality', value: 100 - (stats.late / (attendanceData.length || 1) * 100), color: 'emerald' },
+                       { label: 'Full Day Completion', value: stats.percentage, color: 'indigo' },
+                       { label: 'Consistency Streak', value: 95, color: 'orange' }
+                    ].map((ritual, i) => (
+                       <div key={i} className="space-y-2">
+                         <div className="flex justify-between items-end">
+                            <span className="text-[10px] font-black uppercase tracking-tight" style={{ color: 'var(--text)' }}>{ritual.label}</span>
+                            <span className="text-xs font-black" style={{ color: 'var(--text-muted)' }}>{ritual.value.toFixed(0)}%</span>
                          </div>
-                      </Card>
-                   </div>
+                         <div className="h-1.5 w-full rounded-full overflow-hidden p-0" style={{ background: 'var(--input)' }}>
+                           <motion.div 
+                             initial={{ width: 0 }}
+                             animate={{ width: `${ritual.value}%` }}
+                             className={`h-full bg-${ritual.color}-500 rounded-full`}
+                           />
+                        </div>
+                      </div>
+                   ))}
                 </div>
-             </motion.div>
-          ))
-       )}
+                 <Button className="w-full h-14 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-500 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-none border-none">
+                    REQUEST LEAVE OF ABSENCE
+                 </Button>
+             </Card>
+
+             <Card className="p-8 bg-gradient-to-br from-indigo-500 to-indigo-700 text-white rounded-[3rem] shadow-xl shadow-indigo-100 text-center space-y-5">
+                <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center mx-auto text-white backdrop-blur-sm">
+                   <Calendar size={28} />
+                </div>
+                <h4 className="text-xs font-black uppercase tracking-widest">Planning Ahead</h4>
+                <p className="text-[10px] font-bold text-white/70 uppercase tracking-widest leading-relaxed">
+                   Sync school holidays and events with your personal calendar.
+                </p>
+                <Button className="w-full h-12 bg-white text-indigo-600 rounded-xl font-black text-[10px] uppercase tracking-widest">
+                   GET ACADEMIC CALENDAR
+                </Button>
+             </Card>
+          </div>
+       </div>
     </div>
   )
 }

@@ -27,33 +27,31 @@ export function ExamEventBanner() {
     if (!profile) return
     setLoading(true)
     try {
-      // Fetch events that are upcoming or active
+      const todayStr = new Date().toISOString().split('T')[0]
       let query = supabase
         .from('exam_events')
         .select('*, curriculum:curriculums(name)')
-        .in('status', ['upcoming', 'active'])
+        .gte('end_date', todayStr)
         .order('start_date', { ascending: true })
 
       const { data, error } = await query
       if (error) throw error
 
-      // Client-side filtering for targeting
-      const filtered = (data as ExamEvent[] || []).filter(event => {
-        // 1. Curriculum targeting
-        if (event.curriculum_id) {
-          if (profile.role === 'student' && student && student.curriculum_id !== event.curriculum_id) return false
-          // Teachers can see events for any curriculum they teach (implied)
-        }
-
-        // 2. Class targeting
-        if (event.target_class_ids && event.target_class_ids.length > 0) {
-          if (profile.role === 'student' && student && !event.target_class_ids.includes(student.class_id)) return false
-        }
-
+      const filtered = (data as any[] || []).filter(event => {
+        if (event.status === 'cancelled' || event.status === 'generated' || event.status === 'closed') return false
+        if (event.curriculum_id && profile.role === 'student' && student && student.curriculum_id !== event.curriculum_id) return false
+        if (event.target_class_ids && event.target_class_ids.length > 0 && profile.role === 'student' && student && !event.target_class_ids.includes(student.class_id)) return false
         return true
-      })
+      }).map(event => {
+        if (event.status !== 'postponed' && event.status !== 'cancelled' && event.status !== 'generated') {
+           if (todayStr < event.start_date) event.status = 'upcoming'
+           else if (todayStr >= event.start_date && todayStr <= event.end_date) event.status = 'active'
+           else event.status = 'closed'
+        }
+        return event
+      }).filter(e => e.status !== 'closed' && e.status !== 'generated')
 
-      setEvents(filtered)
+      setEvents(filtered as ExamEvent[])
     } catch (err) {
       console.error('[ExamEventBanner] Failed to fetch events:', err)
     } finally {

@@ -168,30 +168,50 @@ export function useAuth() {
                  console.log('[useAuth] XP and Streak are already up to date.')
               }
             }
-          } else if (p.role === 'teacher') {
-            const { data } = await supabase.from('teachers').select('*').eq('user_id', userId).single()
-            if (data) setTeacher(data as Teacher)
           } else if (p.role === 'parent') {
             console.log('[useAuth] Fetching parent record for', userId)
-            const { data, error: parentError } = await supabase.from('parents').select('*').eq('user_id', userId).maybeSingle()
+            
+            // Handle potential duplicate profiles by fetching all and merging the 'onboarded' status
+            const { data: parentListData, error: parentError } = await supabase
+              .from('parents')
+              .select('*')
+              .eq('user_id', userId)
+
             if (parentError) {
               console.error('[useAuth] Parent fetch error:', parentError)
-              // If it's a 406 error, it's likely a duplicate row issue.
-              if (parentError.code === 'PGRST116' || parentError.message?.includes('406')) {
-                 console.warn('[useAuth] 406/Multiple rows detected for parent, falling back to first match')
-                 const { data: listData } = await supabase.from('parents').select('*').eq('user_id', userId).limit(1)
-                 if (listData?.[0]) {
-                   setParent(listData[0] as Parent)
-                   return
-                 }
-              }
               toast.error('Parent Data Sync Error: ' + parentError.message)
             }
-            if (data) {
-              setParent(data as Parent)
+
+            if (parentListData && parentListData.length > 0) {
+              // Merge: if ANY duplicate record is marked as onboarded, the parent is onboarded.
+              // This prevents a stale/older duplicate from triggering the modal again.
+              const anyOnboarded = parentListData.some(r => r.onboarded === true)
+              const firstRecord = parentListData[0]
+              
+              setParent({
+                ...firstRecord,
+                onboarded: anyOnboarded
+              } as Parent)
             } else if (!parentError) {
-              console.warn('[useAuth] No parent record found for', userId, '- This user may need to link students or have an entry created.')
-              // We do NOT toast here, because the dashboard will handle the empty state.
+              console.warn('[useAuth] No parent record found for', userId)
+            }
+          } else if (p.role === 'teacher') {
+            console.log('[useAuth] Fetching teacher record for', userId)
+            const { data: teacherData, error: teacherError } = await supabase
+              .from('teachers')
+              .select('*')
+              .eq('user_id', userId)
+              .single()
+
+            if (teacherError && teacherError.code !== 'PGRST116') {
+              console.error('[useAuth] Teacher fetch error:', teacherError)
+              toast.error('Teacher Data Sync Error: ' + teacherError.message)
+            }
+
+            if (teacherData) {
+              setTeacher(teacherData as Teacher)
+            } else if (!teacherError) {
+              console.warn('[useAuth] No teacher record found for', userId)
             }
           }
         } catch (roleError) {
