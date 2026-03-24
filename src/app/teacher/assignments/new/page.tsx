@@ -16,6 +16,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { WorksheetPreview } from '@/components/worksheet/WorksheetPreview'
 import { QuestionBlock, createBlock } from '@/components/worksheet/QuestionBlock'
 import { QuestionTypeSheet } from '@/components/worksheet/QuestionTypeSheet'
+import { FileUploadZone } from '@/components/worksheet/FileUploadZone'
 import toast from 'react-hot-toast'
 import type { WorksheetBlock, QuestionType } from '@/types/database'
 import Link from 'next/link'
@@ -38,6 +39,10 @@ export default function NewWorksheetPage() {
 
   // Block state
   const [blocks, setBlocks] = useState<WorksheetBlock[]>([])
+
+  // Document upload state
+  const [attachmentUrl, setAttachmentUrl] = useState<string | null>(null)
+  const [responseMode, setResponseMode] = useState<'draw' | 'type' | 'both'>('draw')
 
   // UI state
   const [typeSheetOpen, setTypeSheetOpen] = useState(false)
@@ -151,7 +156,8 @@ export default function NewWorksheetPage() {
     if (!title.trim()) { toast.error('Please enter a worksheet title'); return }
     if (!classId) { toast.error('Please select a class'); return }
     if (!subjectId) { toast.error('Please select a subject'); return }
-    if (blocks.length === 0) { toast.error('Add at least one question'); return }
+    // Allow empty blocks if a document is uploaded
+    if (blocks.length === 0 && !attachmentUrl) { toast.error('Add at least one question or upload a document'); return }
 
     setSaving(true)
     const { error } = await supabase.from('assignments').insert({
@@ -170,6 +176,9 @@ export default function NewWorksheetPage() {
       show_timer: showTimer,
       time_limit: showTimer ? timeLimit : null,
       max_marks: totalMarks,
+      // Document upload fields
+      attachment_url: attachmentUrl || null,
+      response_mode: attachmentUrl ? responseMode : 'blocks',
       // Required fields
       content: JSON.stringify(blocks), // backward compat
       audience: 'class',
@@ -295,7 +304,50 @@ export default function NewWorksheetPage() {
                 />
               )}
             </div>
+
+            {/* Document Upload Section */}
+            <div>
+              <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-muted)' }}>
+                📎 Source Document (Optional)
+              </label>
+              <p className="text-[11px] mb-2" style={{ color: 'var(--text-muted)' }}>
+                Upload a PDF or image (e.g. a scanned question paper). Students will work directly on it.
+              </p>
+              <FileUploadZone value={attachmentUrl} onChange={setAttachmentUrl} />
+            </div>
+
+            {/* Student Response Mode — only shown when a document is uploaded */}
+            {attachmentUrl && (
+              <div>
+                <label className="block text-xs font-semibold mb-2" style={{ color: 'var(--text-muted)' }}>
+                  Student Response Mode
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    { value: 'draw', emoji: '✏️', label: 'Draw', desc: 'Pen & annotation tools (Math)' },
+                    { value: 'type', emoji: '📝', label: 'Type',  desc: 'Click to type in spaces (English)' },
+                    { value: 'both', emoji: '🔀', label: 'Both',  desc: 'Student can switch modes' },
+                  ] as const).map(m => (
+                    <button
+                      key={m.value}
+                      type="button"
+                      onClick={() => setResponseMode(m.value)}
+                      className="rounded-2xl p-3 text-left transition-all border-2 text-xs"
+                      style={{
+                        background: responseMode === m.value ? 'var(--primary-dim)' : 'var(--input)',
+                        borderColor: responseMode === m.value ? 'var(--primary)' : 'transparent',
+                      }}
+                    >
+                      <div className="text-lg mb-1">{m.emoji}</div>
+                      <div className="font-black" style={{ color: 'var(--text)' }}>{m.label}</div>
+                      <div style={{ color: 'var(--text-muted)' }}>{m.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
+
 
           {/* Questions */}
           <div className="p-4 md:p-6 space-y-3">

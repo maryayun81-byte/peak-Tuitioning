@@ -14,7 +14,9 @@ import { Button } from '@/components/ui/Button'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { useAuthStore } from '@/stores/authStore'
 import { useThemeStore } from '@/stores/themeStore'
+import { useNotificationStore, type NotificationPreferences } from '@/stores/notificationStore'
 import { THEMES } from '@/lib/themes'
+import { playGeneratedSound, type SoundProfile, type SoundVariant } from '@/lib/sounds'
 import { useAuth } from '@/hooks/useAuth'
 import { Avatar } from '@/components/ui/Avatar'
 import { AvatarStudio } from '@/components/student/settings/AvatarStudio'
@@ -35,43 +37,23 @@ export default function StudentSettings() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [savingPassword, setSavingPassword] = useState(false)
   
-  const [pingSettings, setPingSettings] = useState({
-    levelUp: true,
-    questReminders: true,
-    teacherIntel: true,
-    globalNews: false
-  })
-
-  useEffect(() => {
-     const saved = localStorage.getItem('peak_ping_settings')
-     if (saved) setPingSettings(JSON.parse(saved))
-  }, [])
-
-  const playPing = () => {
-     try {
-       const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-       if (!AudioContext) return;
-       const ctx = new AudioContext();
-       const osc = ctx.createOscillator();
-       const gain = ctx.createGain();
-       osc.type = 'sine';
-       osc.frequency.setValueAtTime(880, ctx.currentTime);
-       gain.gain.setValueAtTime(0.1, ctx.currentTime);
-       gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
-       osc.connect(gain);
-       gain.connect(ctx.destination);
-       osc.start();
-       osc.stop(ctx.currentTime + 0.2);
-     } catch(e) {}
-  }
-
-  const handleTogglePing = (key: keyof typeof pingSettings) => {
-     const next = { ...pingSettings, [key]: !pingSettings[key] }
-     setPingSettings(next)
-     localStorage.setItem('peak_ping_settings', JSON.stringify(next))
-     if (next[key]) {
-        playPing()
-        toast.success('Ping enabled! 🔔')
+  const { preferences, updatePreference } = useNotificationStore()
+  
+  const handleTogglePing = (key: keyof NotificationPreferences) => {
+     if (typeof preferences[key] !== 'boolean') return
+     const newValue = !preferences[key] as boolean
+     updatePreference(key, newValue as any)
+     
+     if (newValue && preferences.soundEnabled) {
+        // Play the correct sound profile based on the key
+        let profile: SoundProfile = 'default'
+        if (key === 'levelUp') profile = 'achievement'
+        else if (key === 'questReminders') profile = 'assignment'
+        else if (key === 'teacherIntel') profile = 'intel'
+        else if (key === 'globalNews') profile = 'news'
+        
+        playGeneratedSound(profile, preferences.soundVariant)
+        toast.success(`${String(key).replace(/([A-Z])/g, ' $1')} enabled! 🔔`)
      }
   }
 
@@ -103,22 +85,27 @@ export default function StudentSettings() {
   }
 
   const handlePasswordUpdate = async () => {
-     if (!newPassword || newPassword !== confirmPassword) {
-        return toast.error("Passwords don't match!")
-     }
-     if (newPassword.length < 6) return toast.error("Password too short")
-     
-     setSavingPassword(true)
-     const { error } = await supabase.auth.updateUser({ password: newPassword })
-     setSavingPassword(false)
-     
-     if (error) {
+    if (!newPassword || newPassword !== confirmPassword) {
+      return toast.error("Passwords don't match!")
+    }
+    if (newPassword.length < 6) return toast.error("Password too short (min 6 chars)")
+    
+    setSavingPassword(true)
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword })
+      if (error) {
         toast.error(error.message)
-     } else {
+      } else {
         toast.success('Access code updated and encrypted! 🔒')
         setNewPassword('')
         setConfirmPassword('')
-     }
+      }
+    } catch (err: any) {
+      console.error('Password update error:', err)
+      toast.error('System error occurred. Please try again.')
+    } finally {
+      setSavingPassword(false)
+    }
   }
 
   const handleAvatarSave = async (config: AvatarConfig) => {
@@ -153,7 +140,7 @@ export default function StudentSettings() {
     { id: 'avatar', label: 'Avatar Legend', icon: <Rocket size={16} /> },
     { id: 'custom', label: 'Customization', icon: <Palette size={16} /> },
     { id: 'notifications', label: 'Pings', icon: <Bell size={16} /> },
-    { id: 'security', label: 'Guardians', icon: <Shield size={16} /> },
+    { id: 'security', label: 'Security & Password', icon: <Shield size={16} /> },
   ]
 
   return (
@@ -292,9 +279,45 @@ export default function StudentSettings() {
                     </motion.div>
                   )}
 
-                  {activeTab === 'notifications' && (
+                   {activeTab === 'notifications' && (
                     <motion.div key="notif" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
-                       <h3 className="font-black text-xl" style={{ color: 'var(--text)' }}>Haptic & Sound Pings</h3>
+                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-2">
+                          <h3 className="font-black text-xl" style={{ color: 'var(--text)' }}>Haptic & Sound Pings</h3>
+                          <div className="flex items-center gap-4">
+                             <div className="flex items-center gap-2">
+                                <span className="text-[10px] font-bold text-muted uppercase">Global Sound</span>
+                                <div 
+                                   onClick={() => handleTogglePing('soundEnabled')} 
+                                   className={`w-10 h-5 rounded-full p-0.5 transition-all flex cursor-pointer ${preferences.soundEnabled ? 'bg-primary justify-end' : 'bg-slate-300 justify-start'}`}
+                                >
+                                   <div className="w-4 h-4 rounded-full bg-white shadow-sm" />
+                                </div>
+                             </div>
+                          </div>
+                       </div>
+
+                       <div className="p-4 sm:p-6 rounded-[2rem] sm:rounded-[2.5rem] bg-[var(--input)] border border-[var(--card-border)] space-y-4 mb-6">
+                          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                             <div>
+                                <p className="font-black text-xs uppercase tracking-widest text-primary">Sound Signature</p>
+                                <p className="text-[10px] text-muted">Choose the "voice" of your notifications</p>
+                             </div>
+                             <div className="flex flex-wrap gap-1 bg-white/50 dark:bg-black/20 p-1 rounded-2xl border border-black/5">
+                                {(['classic', 'crystal', 'sparkle', 'vibrant'] as SoundVariant[]).map((v) => (
+                                   <button
+                                      key={v}
+                                      onClick={() => {
+                                         updatePreference('soundVariant', v)
+                                         playGeneratedSound('default', v)
+                                      }}
+                                      className={`px-3 py-1.5 rounded-xl text-[10px] font-bold transition-all ${preferences.soundVariant === v ? 'bg-primary text-white shadow-lg' : 'text-muted hover:text-text'}`}
+                                   >
+                                      {v.charAt(0).toUpperCase() + v.slice(1)}
+                                   </button>
+                                ))}
+                             </div>
+                          </div>
+                       </div>
                        
                        <div className="space-y-3">
                           {[
@@ -303,14 +326,14 @@ export default function StudentSettings() {
                             { id: 'teacherIntel', label: 'Teacher Intel', desc: 'When you get feedback or a marked worksheet' },
                             { id: 'globalNews', label: 'Global News', desc: 'Admin broadcasts and school events' },
                           ].map((n, i) => {
-                            const isEnabled = pingSettings[n.id as keyof typeof pingSettings]
+                            const isEnabled = (preferences as any)[n.id]
                             return (
-                            <div key={i} className="flex items-center justify-between p-5 rounded-3xl bg-[var(--input)]">
-                               <div>
-                                  <p className="font-bold text-sm" style={{ color: 'var(--text)' }}>{n.label}</p>
-                                  <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{n.desc}</p>
+                             <div key={i} className="flex items-center justify-between p-4 sm:p-5 rounded-3xl bg-[var(--input)] gap-4">
+                               <div className="flex-1 min-w-0">
+                                  <p className="font-bold text-sm truncate sm:whitespace-normal" style={{ color: 'var(--text)' }}>{n.label}</p>
+                                  <p className="text-[10px] truncate sm:whitespace-normal" style={{ color: 'var(--text-muted)' }}>{n.desc}</p>
                                </div>
-                               <div onClick={() => handleTogglePing(n.id as any)} className={`w-12 h-6 rounded-full p-1 transition-all flex cursor-pointer ${isEnabled ? 'bg-primary justify-end' : 'bg-slate-300 justify-start'}`}>
+                               <div onClick={() => handleTogglePing(n.id as any)} className="shrink-0 w-12 h-6 rounded-full p-1 transition-all flex cursor-pointer" style={{ background: isEnabled ? 'var(--primary)' : '#cbd5e1', justifyContent: isEnabled ? 'flex-end' : 'flex-start' }}>
                                   <div className="w-4 h-4 rounded-full bg-white shadow-sm" />
                                </div>
                             </div>
@@ -321,8 +344,8 @@ export default function StudentSettings() {
 
                   {activeTab === 'security' && (
                     <motion.div key="sec" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
-                       <h3 className="font-black text-xl" style={{ color: 'var(--text)' }}>Linked Guardians</h3>
-                       <p className="text-sm" style={{ color: 'var(--text-muted)' }}>The people looking out for your progress.</p>
+                       <h3 className="font-black text-xl" style={{ color: 'var(--text)' }}>Security & Access</h3>
+                       <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Manage your access codes and view linked accounts.</p>
                        
                        <div className="p-6 rounded-3xl bg-indigo-50 border border-indigo-100 flex gap-4">
                           <Heart className="text-indigo-500 shrink-0" size={24} />
@@ -344,8 +367,8 @@ export default function StudentSettings() {
                   )}
                </AnimatePresence>
             </Card>
-         </div>
-      </div>
+          </div>
+       </div>
     </div>
   )
 }

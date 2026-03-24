@@ -14,6 +14,7 @@ import { Modal } from '@/components/ui/Modal'
 import { useAuthStore } from '@/stores/authStore'
 import { QuestionRenderer } from '@/components/worksheet/QuestionRenderer'
 import { AnnotationCanvas } from '@/components/worksheet/AnnotationCanvas'
+import { renderPdfToImages } from '@/lib/pdf-renderer'
 import toast from 'react-hot-toast'
 import type { WorksheetBlock, WorksheetAnswers } from '@/types/database'
 import Link from 'next/link'
@@ -37,6 +38,8 @@ export default function WorksheetGraderPage() {
   const [returning, setReturning] = useState(false)
   const [confirmReturn, setConfirmReturn] = useState(false)
   const [activeBlockId, setActiveBlockId] = useState<string | null>(null)
+  const [pageImages, setPageImages] = useState<string[]>([])
+  const [renderingPdf, setRenderingPdf] = useState(false)
 
   useEffect(() => { loadSubmission() }, [submissionId])
 
@@ -86,6 +89,23 @@ export default function WorksheetGraderPage() {
 
     const first = ws.find((b: WorksheetBlock) => b.type !== 'section_header' && b.type !== 'reading_passage')
     if (first) setActiveBlockId(first.id)
+
+    // Multi-page PDF logic
+    if (a.attachment_url?.toLowerCase().endsWith('.pdf')) {
+       setRenderingPdf(true)
+       try {
+          const imgs = await renderPdfToImages(a.attachment_url)
+          setPageImages(imgs)
+       } catch (err: any) {
+          console.error('[Grader] PDF render error:', err)
+          toast.error(`Rendering failed: ${err.message || 'Unknown error'}. Try refreshing or check the browser console.`)
+          setPageImages([a.attachment_url]) // Fallback
+       } finally {
+          setRenderingPdf(false)
+       }
+    } else if (a.attachment_url) {
+       setPageImages([a.attachment_url])
+    }
 
     setLoading(false)
   }
@@ -162,6 +182,8 @@ export default function WorksheetGraderPage() {
     </div>
   )
 
+  const isDocumentAssignment = !!assignment?.attachment_url
+
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg)' }}>
       {/* Top bar */}
@@ -189,145 +211,244 @@ export default function WorksheetGraderPage() {
         </Button>
       </div>
 
-      {/* Body: 2 columns */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 overflow-hidden">
-        {/* LEFT — Question + Student Answer */}
-        <div className="overflow-y-auto" style={{ borderRight: '1px solid var(--card-border)' }}>
-          {/* Question navigator */}
-          <div className="sticky top-0 z-10 flex items-center gap-2 px-4 py-2" style={{ background: 'var(--card)', borderBottom: '1px solid var(--card-border)' }}>
-            <button onClick={() => navQuestion(-1)} disabled={activeIndex <= 0} className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'var(--input)', color: 'var(--text-muted)' }}>
-              <ChevronLeft size={14} />
-            </button>
-            <div className="flex gap-1 flex-wrap flex-1">
-              {questionBlocks.map((b, i) => {
-                const awarded = questionMarks[b.id] ?? -1
-                const isActive = b.id === activeBlockId
-                const bg = isActive ? 'var(--primary)' : awarded === b.marks ? '#10B981' : awarded > 0 ? '#F59E0B' : awarded === 0 ? '#EF444420' : 'var(--input)'
-                return (
-                  <button key={b.id} onClick={() => setActiveBlockId(b.id)}
-                    className="w-7 h-7 rounded-lg text-xs font-bold flex items-center justify-center"
-                    style={{ background: bg, color: isActive ? 'white' : 'var(--text)' }}>
-                    {i + 1}
-                  </button>
-                )
-              })}
-            </div>
-            <button onClick={() => navQuestion(1)} disabled={activeIndex >= questionBlocks.length - 1} className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'var(--input)', color: 'var(--text-muted)' }}>
-              <ChevronRight size={14} />
-            </button>
-          </div>
-
-          <div className="p-5 space-y-4">
-            {activeBlock && (
-              <>
-                <div className="p-4 rounded-2xl" style={{ background: 'var(--card)', border: '1px solid var(--card-border)' }}>
-                  <div className="flex items-start gap-3">
-                    <span className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-black shrink-0" style={{ background: 'var(--primary)', color: 'white' }}>
-                      {activeIndex + 1}
-                    </span>
-                    <div>
-                      <p className="text-sm font-medium leading-relaxed" style={{ color: 'var(--text)' }}>{activeBlock.question}</p>
-                      {(activeBlock.type === 'mcq' || activeBlock.type === 'true_false') && (
-                        <p className="text-xs mt-2 font-bold" style={{ color: '#10B981' }}>
-                          ✓ Correct answer: {activeBlock.correct_answer}
-                        </p>
-                      )}
-                    </div>
+      {/* Body */}
+      {isDocumentAssignment ? (
+         /* DOCUMENT MARKING VIEW */
+         <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+            {/* Left: Interactive Canvas */}
+            <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-slate-50">
+               <div className="max-w-4xl mx-auto space-y-4">
+                  <div className="flex items-center justify-between px-2">
+                     <h2 className="text-xs font-black uppercase tracking-widest text-slate-400">Student Submission & Marking</h2>
+                     <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
+                           <div className="w-2 h-2 rounded-full border border-slate-300"></div> Original Paper
+                        </div>
+                        <div className="flex items-center gap-2 text-[10px] font-bold text-blue-500 uppercase tracking-tighter">
+                           <div className="w-2 h-2 rounded-full bg-blue-500"></div> Student Work
+                        </div>
+                        <div className="flex items-center gap-2 text-[10px] font-bold text-red-500 uppercase tracking-tighter">
+                           <div className="w-2 h-2 rounded-full bg-red-500"></div> Your Marks
+                        </div>
+                     </div>
                   </div>
-                </div>
-                <div>
-                  <div className="text-xs font-black uppercase tracking-widest mb-2" style={{ color: 'var(--text-muted)' }}>Student&apos;s Answer</div>
-                  <QuestionRenderer
-                    block={activeBlock}
-                    index={activeIndex + 1}
-                    answer={answers[activeBlock.id]}
-                    onChange={() => {}}
-                    readOnly
-                    showCorrect
+                  
+                  <div className="flex flex-col gap-10">
+                    {renderingPdf ? (
+                       <div className="flex flex-col items-center justify-center py-20 gap-4">
+                          <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+                          <div className="text-sm font-bold text-slate-500">Rendering PDF Pages...</div>
+                       </div>
+                    ) : pageImages.map((img, idx) => {
+                       const studentAnnMap = typeof answers.__annotation__ === 'string'
+                          ? { "0": answers.__annotation__ }
+                          : (answers.__annotation__ as any || {})
+                       
+                       return (
+                          <div key={idx} className="space-y-3">
+                             <div className="px-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Page {idx + 1}</div>
+                             <Card className="p-0 overflow-hidden border-4 border-white shadow-2xl rounded-[2.5rem] bg-white">
+                                <AnnotationCanvas 
+                                   key={`grader-page-${idx}`}
+                                   backgroundImageUrl={img}
+                                   backgroundJson={studentAnnMap[idx.toString()]}
+                                   initialJson={annotations[`doc_${idx}`] || annotations[idx.toString()]}
+                                   onSave={json => setAnnotations(p => ({ ...p, [`doc_${idx}`]: json }))}
+                                   defaultColor="#EF4444"
+                                />
+                             </Card>
+                          </div>
+                       )
+                    })}
+                  </div>
+               </div>
+            </div>
+
+            {/* Right: Scoring & Feedback */}
+            <div className="w-full lg:w-96 overflow-y-auto bg-white border-l border-[var(--card-border)] p-6 space-y-6">
+               <div>
+                  <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-4">Award Marks</h3>
+                  <div className="p-5 rounded-3xl bg-slate-50 border border-slate-100 flex flex-col items-center justify-center gap-2 text-center">
+                     <input 
+                        type="number" 
+                        min={0} 
+                        max={totalMarks}
+                        value={awardedMarks}
+                        onChange={e => {
+                           const v = Math.min(totalMarks, Math.max(0, parseInt(e.target.value) || 0))
+                           // For doc assignments, we store the overall score in a special key or distribute it
+                           setQuestionMarks({ __total__: v })
+                        }}
+                        className="text-4xl font-black w-32 text-center bg-transparent focus:outline-none"
+                        style={{ color: 'var(--primary)' }}
+                     />
+                     <div className="text-xs font-bold text-slate-400 uppercase tracking-widest border-t border-slate-200 pt-2 w-full">
+                        Total out of {totalMarks}
+                     </div>
+                  </div>
+               </div>
+
+               <div className="space-y-3">
+                  <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                     <MessageSquare size={14} /> Overall Feedback
+                  </h3>
+                  <textarea 
+                     className="w-full rounded-2xl p-4 text-sm resize-none min-h-[160px] focus:ring-2 focus:ring-primary/20 border-slate-200"
+                     style={{ background: 'var(--input)', color: 'var(--text)' }}
+                     value={feedback}
+                     onChange={e => setFeedback(e.target.value)}
+                     placeholder="Write some encouraging words or specific feedback..."
                   />
-                </div>
-              </>
-            )}
-          </div>
-        </div>
+               </div>
 
-        {/* RIGHT — Marks + Annotation + Feedback */}
-        <div className="overflow-y-auto">
-          {activeBlock && (
-            <div className="p-5 space-y-3" style={{ borderBottom: '1px solid var(--card-border)' }}>
-              <div className="text-xs font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Marks — Q{activeIndex + 1}</div>
-              <div className="flex items-center gap-2 flex-wrap">
-                {[0, Math.ceil(activeBlock.marks / 2), activeBlock.marks]
-                  .filter((v, i, a) => a.indexOf(v) === i)
-                  .map(v => (
-                    <button key={v} onClick={() => setQuestionMarks(p => ({ ...p, [activeBlock.id]: v }))}
-                      className="px-4 py-2 rounded-xl text-sm font-black transition-all"
-                      style={{ background: questionMarks[activeBlock.id] === v ? 'var(--primary)' : 'var(--input)', color: questionMarks[activeBlock.id] === v ? 'white' : 'var(--text-muted)' }}>
-                      {v}
-                    </button>
-                  ))}
-                <input
-                  type="number" min={0} max={activeBlock.marks}
-                  value={questionMarks[activeBlock.id] ?? 0}
-                  onChange={e => setQuestionMarks(p => ({ ...p, [activeBlock.id]: Math.min(activeBlock.marks, Math.max(0, parseInt(e.target.value) || 0)) }))}
-                  className="w-20 rounded-xl px-3 py-2 text-sm text-center font-bold"
-                  style={{ background: 'var(--input)', color: 'var(--primary)', border: '1px solid var(--card-border)' }}
-                />
-                <span className="text-sm ml-1" style={{ color: 'var(--text-muted)' }}>/ {activeBlock.marks}</span>
-              </div>
+               <div className="pt-6 border-t border-slate-100">
+                  <p className="text-[11px] text-slate-400 italic">
+                     Students will see your red annotations overlaid on their work when you return this assignment.
+                  </p>
+               </div>
             </div>
-          )}
+         </div>
+      ) : (
+         /* TRADITIONAL BLOCK MARKING VIEW */
+         <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 overflow-hidden">
+            {/* LEFT — Question + Student Answer */}
+            <div className="overflow-y-auto" style={{ borderRight: '1px solid var(--card-border)' }}>
+               {/* Question navigator */}
+               <div className="sticky top-0 z-10 flex items-center gap-2 px-4 py-2" style={{ background: 'var(--card)', borderBottom: '1px solid var(--card-border)' }}>
+               <button onClick={() => navQuestion(-1)} disabled={activeIndex <= 0} className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'var(--input)', color: 'var(--text-muted)' }}>
+                  <ChevronLeft size={14} />
+               </button>
+               <div className="flex gap-1 flex-wrap flex-1">
+                  {questionBlocks.map((b, i) => {
+                     const awarded = questionMarks[b.id] ?? -1
+                     const isActive = b.id === activeBlockId
+                     const bg = isActive ? 'var(--primary)' : awarded === b.marks ? '#10B981' : awarded > 0 ? '#F59E0B' : awarded === 0 ? '#EF444420' : 'var(--input)'
+                     return (
+                        <button key={b.id} onClick={() => setActiveBlockId(b.id)}
+                        className="w-7 h-7 rounded-lg text-xs font-bold flex items-center justify-center"
+                        style={{ background: bg, color: isActive ? 'white' : 'var(--text)' }}>
+                        {i + 1}
+                        </button>
+                     )
+                  })}
+               </div>
+               <button onClick={() => navQuestion(1)} disabled={activeIndex >= questionBlocks.length - 1} className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'var(--input)', color: 'var(--text-muted)' }}>
+                  <ChevronRight size={14} />
+               </button>
+               </div>
 
-          {/* Annotation */}
-          <div className="p-5 space-y-2" style={{ borderBottom: '1px solid var(--card-border)' }}>
-            <div className="text-xs font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Annotation Canvas</div>
-          <div className="rounded-2xl border border-[var(--card-border)] bg-white">
-                <AnnotationCanvas
-                 key={activeBlockId ?? 'canvas'}
-                 backgroundText={activeBlockId && typeof answers[activeBlockId] === 'string' && !(answers[activeBlockId] as string).startsWith('{') ? (answers[activeBlockId] as string) : undefined}
-                 backgroundJson={activeBlockId && typeof answers[activeBlockId] === 'string' && (answers[activeBlockId] as string).startsWith('{') ? (answers[activeBlockId] as string) : undefined}
-                 initialJson={activeBlockId ? annotations[activeBlockId] : undefined}
-                 defaultColor="#EF4444"
-                onSave={json => activeBlockId && setAnnotations(p => ({ ...p, [activeBlockId]: json }))}
-              />
+               <div className="p-5 space-y-4">
+               {activeBlock && (
+                  <>
+                     <div className="p-4 rounded-2xl" style={{ background: 'var(--card)', border: '1px solid var(--card-border)' }}>
+                        <div className="flex items-start gap-3">
+                        <span className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-black shrink-0" style={{ background: 'var(--primary)', color: 'white' }}>
+                           {activeIndex + 1}
+                        </span>
+                        <div>
+                           <p className="text-sm font-medium leading-relaxed" style={{ color: 'var(--text)' }}>{activeBlock.question}</p>
+                           {(activeBlock.type === 'mcq' || activeBlock.type === 'true_false') && (
+                              <p className="text-xs mt-2 font-bold" style={{ color: '#10B981' }}>
+                              ✓ Correct answer: {activeBlock.correct_answer}
+                              </p>
+                           )}
+                        </div>
+                        </div>
+                     </div>
+                     <div>
+                        <div className="text-xs font-black uppercase tracking-widest mb-2" style={{ color: 'var(--text-muted)' }}>Student&apos;s Answer</div>
+                        <QuestionRenderer
+                        block={activeBlock}
+                        index={activeIndex + 1}
+                        answer={answers[activeBlock.id]}
+                        onChange={() => {}}
+                        readOnly
+                        showCorrect
+                        />
+                     </div>
+                  </>
+               )}
+               </div>
             </div>
-          </div>
 
-          {/* Feedback + all-questions summary */}
-          <div className="p-5 space-y-4">
-            <div className="text-xs font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Overall Feedback</div>
-            <textarea
-              className="w-full rounded-xl p-3 text-sm resize-none"
-              style={{ background: 'var(--input)', color: 'var(--text)', border: '1px solid var(--card-border)' }}
-              rows={4}
-              value={feedback}
-              onChange={e => setFeedback(e.target.value)}
-              placeholder="Write overall feedback for this student..."
-            />
+            {/* RIGHT — Marks + Annotation + Feedback */}
+            <div className="overflow-y-auto">
+               {activeBlock && (
+               <div className="p-5 space-y-3" style={{ borderBottom: '1px solid var(--card-border)' }}>
+                  <div className="text-xs font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Marks — Q{activeIndex + 1}</div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                     {[0, Math.ceil(activeBlock.marks / 2), activeBlock.marks]
+                        .filter((v, i, a) => a.indexOf(v) === i)
+                        .map(v => (
+                        <button key={v} onClick={() => setQuestionMarks(p => ({ ...p, [activeBlock.id]: v }))}
+                           className="px-4 py-2 rounded-xl text-sm font-black transition-all"
+                           style={{ background: questionMarks[activeBlock.id] === v ? 'var(--primary)' : 'var(--input)', color: questionMarks[activeBlock.id] === v ? 'white' : 'var(--text-muted)' }}>
+                           {v}
+                        </button>
+                        ))}
+                     <input
+                        type="number" min={0} max={activeBlock.marks}
+                        value={questionMarks[activeBlock.id] ?? 0}
+                        onChange={e => setQuestionMarks(p => ({ ...p, [activeBlock.id]: Math.min(activeBlock.marks, Math.max(0, parseInt(e.target.value) || 0)) }))}
+                        className="w-20 rounded-xl px-3 py-2 text-sm text-center font-bold"
+                        style={{ background: 'var(--input)', color: 'var(--primary)', border: '1px solid var(--card-border)' }}
+                     />
+                     <span className="text-sm ml-1" style={{ color: 'var(--text-muted)' }}>/ {activeBlock.marks}</span>
+                  </div>
+               </div>
+               )}
 
-            <div className="text-xs font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>All Questions</div>
-            <div className="space-y-2">
-              {questionBlocks.map((b, i) => {
-                const awarded = questionMarks[b.id] ?? 0
-                const pct = b.marks > 0 ? (awarded / b.marks) * 100 : 0
-                return (
-                  <button key={b.id} onClick={() => setActiveBlockId(b.id)} className="w-full flex items-center gap-3 p-3 rounded-xl transition-all text-left"
-                    style={{ background: b.id === activeBlockId ? 'var(--primary-dim)' : 'var(--input)', border: `1px solid ${b.id === activeBlockId ? 'var(--primary)' : 'transparent'}` }}>
-                    <span className="w-6 h-6 rounded-lg flex items-center justify-center text-xs font-black shrink-0" style={{ background: 'var(--primary)', color: 'white' }}>{i + 1}</span>
-                    <span className="flex-1 text-xs truncate" style={{ color: 'var(--text)' }}>{b.question.slice(0, 50)}</span>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <div className="w-16 h-1.5 rounded-full" style={{ background: 'var(--card-border)' }}>
-                        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: pct === 100 ? '#10B981' : pct > 0 ? '#F59E0B' : '#EF4444' }} />
-                      </div>
-                      <span className="text-xs font-bold w-12 text-right" style={{ color: 'var(--text)' }}>{awarded}/{b.marks}</span>
-                    </div>
-                  </button>
-                )
-              })}
+               {/* Annotation */}
+               <div className="p-5 space-y-2" style={{ borderBottom: '1px solid var(--card-border)' }}>
+               <div className="text-xs font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Annotation Canvas</div>
+               <div className="rounded-2xl border border-[var(--card-border)] bg-white">
+                     <AnnotationCanvas
+                        key={activeBlockId ?? 'canvas'}
+                        backgroundText={activeBlockId && typeof answers[activeBlockId] === 'string' && !(answers[activeBlockId] as string).startsWith('{') ? (answers[activeBlockId] as string) : undefined}
+                        backgroundJson={activeBlockId && typeof answers[activeBlockId] === 'string' && (answers[activeBlockId] as string).startsWith('{') ? (answers[activeBlockId] as string) : undefined}
+                        initialJson={activeBlockId ? annotations[activeBlockId] : undefined}
+                        defaultColor="#EF4444"
+                     onSave={json => activeBlockId && setAnnotations(p => ({ ...p, [activeBlockId]: json }))}
+                  />
+                  </div>
+               </div>
+
+               {/* Feedback + all-questions summary */}
+               <div className="p-5 space-y-4">
+               <div className="text-xs font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Overall Feedback</div>
+               <textarea
+                  className="w-full rounded-xl p-3 text-sm resize-none"
+                  style={{ background: 'var(--input)', color: 'var(--text)', border: '1px solid var(--card-border)' }}
+                  rows={4}
+                  value={feedback}
+                  onChange={e => setFeedback(e.target.value)}
+                  placeholder="Write overall feedback for this student..."
+               />
+
+               <div className="text-xs font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>All Questions</div>
+               <div className="space-y-2">
+                  {questionBlocks.map((b, i) => {
+                     const awarded = questionMarks[b.id] ?? 0
+                     const pct = b.marks > 0 ? (awarded / b.marks) * 100 : 0
+                     return (
+                        <button key={b.id} onClick={() => setActiveBlockId(b.id)} className="w-full flex items-center gap-3 p-3 rounded-xl transition-all text-left"
+                        style={{ background: b.id === activeBlockId ? 'var(--primary-dim)' : 'var(--input)', border: `1px solid ${b.id === activeBlockId ? 'var(--primary)' : 'transparent'}` }}>
+                        <span className="w-6 h-6 rounded-lg flex items-center justify-center text-xs font-black shrink-0" style={{ background: 'var(--primary)', color: 'white' }}>{i + 1}</span>
+                        <span className="flex-1 text-xs truncate" style={{ color: 'var(--text)' }}>{b.question.slice(0, 50)}</span>
+                        <div className="flex items-center gap-2 shrink-0">
+                           <div className="w-16 h-1.5 rounded-full" style={{ background: 'var(--card-border)' }}>
+                              <div className="h-full rounded-full" style={{ width: `${pct}%`, background: pct === 100 ? '#10B981' : pct > 0 ? '#F59E0B' : '#EF4444' }} />
+                           </div>
+                           <span className="text-xs font-bold w-12 text-right" style={{ color: 'var(--text)' }}>{awarded}/{b.marks}</span>
+                        </div>
+                        </button>
+                     )
+                  })}
+               </div>
+               </div>
             </div>
-          </div>
-        </div>
-      </div>
+         </div>
+      )}
 
       {/* Return confirm modal */}
       <Modal isOpen={confirmReturn} onClose={() => setConfirmReturn(false)} title="Return to Student?" size="sm">

@@ -11,6 +11,8 @@ export type Theme =
   | 'cyber-blue'
   | 'graphite-pro'
   | 'sunrise-energy'
+  | 'sakura-blossom'
+  | 'aurora-highland'
 
 export interface ThemeConfig {
   id: Theme
@@ -247,6 +249,42 @@ export const THEMES: ThemeConfig[] = [
     input: '#FFF7ED',
     gradient: 'linear-gradient(135deg, #FFF7ED 0%, #FED7AA 100%)',
     isDark: false,
+  },
+  {
+    id: 'sakura-blossom',
+    name: '🌸 Sakura Blossom',
+    font: 'Quicksand',
+    fontUrl: 'https://fonts.googleapis.com/css2?family=Quicksand:wght@300;400;500;600;700&display=swap',
+    bg: '#FFF5F7',
+    card: '#FFFFFF',
+    cardBorder: '#FCE7F3',
+    primary: '#EC4899',
+    primaryHover: '#DB2777',
+    accent: '#F472B6',
+    text: '#831843',
+    textMuted: '#BE185D',
+    sidebar: '#FDF2F8',
+    input: '#FFF1F2',
+    gradient: 'linear-gradient(135deg, #FFF5F7 0%, #FCE7F3 100%)',
+    isDark: false,
+  },
+  {
+    id: 'aurora-highland',
+    name: '🌌 Aurora Highland',
+    font: 'Outfit',
+    fontUrl: 'https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap',
+    bg: '#0F071E',
+    card: '#1A0B2E',
+    cardBorder: '#311455',
+    primary: '#A855F7',
+    primaryHover: '#9333EA',
+    accent: '#2DD4BF',
+    text: '#F5F3FF',
+    textMuted: '#9CA3AF',
+    sidebar: '#0A0514',
+    input: '#251042',
+    gradient: 'linear-gradient(135deg, #0F071E 0%, #311455 100%)',
+    isDark: true,
   },
 ]
 

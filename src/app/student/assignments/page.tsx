@@ -27,12 +27,41 @@ export default function StudentAssignments() {
   const [submissions, setSubmissions] = useState<Record<string, any>>({})
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
+  
+  // Pagination state
+  const [page, setPage] = useState(1)
+  const [pageSize] = useState(6)
+  const [totalCount, setTotalCount] = useState(0)
 
   useEffect(() => {
-    if (student) loadData()
-  }, [student])
+    if (student) {
+      setPage(1) // Reset to first page when student changes
+      loadData(1)
 
-  const loadData = async () => {
+      // Real-time listener for new assignments
+      const channel = supabase
+        .channel('new-assignments')
+        .on('postgres_changes', { 
+          event: 'INSERT', 
+          schema: 'public', 
+          table: 'assignments' 
+        }, () => {
+          loadData(page) // Refresh list when new assignment is added
+        })
+        .on('postgres_changes', {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'assignments'
+        }, () => {
+          loadData(page) // Refresh if status changes (e.g. published)
+        })
+        .subscribe()
+      
+      return () => { supabase.removeChannel(channel) }
+    }
+  }, [student, page])
+
+  const loadData = async (currentPage: number = page) => {
     if (!student) return
     setLoading(true)
     try {
@@ -43,15 +72,25 @@ export default function StudentAssignments() {
         .eq('student_id', student.id)
       
       const subjectIds = subData?.map(s => s.subject_id) || []
+      if (subjectIds.length === 0) {
+        setAssignments([])
+        setTotalCount(0)
+        setLoading(false)
+        return
+      }
 
       // 2. Fetch assignments & submissions
+      const from = (currentPage - 1) * pageSize
+      const to = from + pageSize - 1
+
       const [aRes, sRes] = await Promise.all([
         supabase
           .from('assignments')
-          .select('*, subject:subjects(name), teacher:teachers(full_name)')
+          .select('*, subject:subjects(name), teacher:teachers(full_name)', { count: 'exact' })
           .in('subject_id', subjectIds)
           .eq('status', 'published')
-          .order('due_date'),
+          .order('created_at', { ascending: false })
+          .range(from, to),
         supabase
           .from('submissions')
           .select('*')
@@ -59,6 +98,8 @@ export default function StudentAssignments() {
       ])
       
       setAssignments(aRes.data ?? [])
+      setTotalCount(aRes.count || 0)
+      
       const subMap = (sRes.data ?? []).reduce((acc, s) => {
         acc[s.assignment_id] = s
         return acc
@@ -67,6 +108,12 @@ export default function StudentAssignments() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const handlePageChange = (newPage: number) => {
+    setPage(newPage)
+    loadData(newPage)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   const filtered = assignments.filter(a => {
@@ -89,7 +136,7 @@ export default function StudentAssignments() {
          </div>
          <div className="flex gap-4">
             <StatCard title="Completed" value={Object.keys(submissions).length} icon={<CheckCircle2 size={16} />} className="w-40 py-2" />
-            <StatCard title="Pending" value={assignments.length - Object.keys(submissions).length} icon={<Clock size={16} />} className="w-40 py-2" />
+            <StatCard title="Pending" value={Math.max(0, totalCount - Object.keys(submissions).length)} icon={<Clock size={16} />} className="w-40 py-2" />
          </div>
       </div>
 
@@ -178,6 +225,47 @@ export default function StudentAssignments() {
               </div>
            )}
         </div>
+      )}
+
+      {/* Pagination Controls */}
+      {totalCount > pageSize && !loading && (
+         <div className="flex items-center justify-center gap-4 pt-12">
+            <Button 
+               variant="secondary" 
+               size="sm" 
+               disabled={page === 1} 
+               onClick={() => handlePageChange(page - 1)}
+               className="rounded-xl px-4 h-10 shadow-sm"
+            >
+               <ChevronRight size={16} className="rotate-180 mr-1 opacity-70" /> Previous
+            </Button>
+            
+            <div className="flex items-center gap-2 bg-[var(--input)] p-1 rounded-2xl border border-[var(--card-border)]">
+               {Array.from({ length: Math.ceil(totalCount / pageSize) }).map((_, i) => (
+                  <button
+                     key={i}
+                     onClick={() => handlePageChange(i + 1)}
+                     className={`w-8 h-8 rounded-xl text-xs font-black transition-all ${
+                        page === i + 1 
+                        ? 'bg-primary text-white shadow-lg shadow-primary/30' 
+                        : 'text-[var(--text-muted)] hover:bg-[var(--card-border)] hover:text-[var(--text)]'
+                     }`}
+                  >
+                     {i + 1}
+                  </button>
+               ))}
+            </div>
+
+            <Button 
+               variant="secondary" 
+               size="sm" 
+               disabled={page >= Math.ceil(totalCount / pageSize)} 
+               onClick={() => handlePageChange(page + 1)}
+               className="rounded-xl px-4 h-10 shadow-sm"
+            >
+               Next <ChevronRight size={16} className="ml-1 opacity-70" />
+            </Button>
+         </div>
       )}
     </div>
   )

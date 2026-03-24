@@ -5,7 +5,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { 
   Trophy, Award, Star, Zap, 
   Calendar, CheckCircle2, ChevronRight,
-  Shield, Medal, Target, Rocket
+  Shield, Medal, Target, Rocket,
+  Crown, Sparkles
 } from 'lucide-react'
 import { Card, Badge } from '@/components/ui/Card'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
@@ -36,11 +37,38 @@ const BADGE_CONFIG: Record<string, { label: string; icon: any; color: string; de
     icon: <Rocket size={32} />, 
     color: 'from-emerald-400 to-teal-600',
     description: 'Started a focus session before 7:00 AM.'
+  },
+  'level_1_pioneer': {
+    label: 'L1 Pioneer',
+    icon: <Trophy size={32} />,
+    color: 'from-amber-400 to-orange-500',
+    description: 'The first legendary student to reach Level 1 (1000 XP).'
+  },
+  'level_1_conqueror': {
+    label: 'Level 1 Hero',
+    icon: <Award size={32} />,
+    color: 'from-indigo-400 to-purple-600',
+    description: 'Reached the 1000 XP milestone and mastered Level 1.'
+  },
+  'level_2_pioneer': {
+    label: 'L2 Pioneer',
+    icon: <Sparkles size={32} />,
+    color: 'from-amber-400 to-orange-500',
+    description: 'The first to reach Level 2 (1800 XP).'
+  },
+  'level_5_pioneer': {
+    label: 'Ultimate Pioneer',
+    icon: <Crown size={32} />,
+    color: 'from-amber-400 to-orange-500',
+    description: 'The first to reach the ultimate peak of 4000 XP.'
   }
 }
 
 // All available badges students can earn
-const ALL_BADGE_TYPES = ['map_master', 'weekly_mastery', 'consistency_king', 'early_bird']
+const ALL_BADGE_TYPES = [
+  'map_master', 'weekly_mastery', 'consistency_king', 'early_bird',
+  'level_1_pioneer', 'level_1_conqueror', 'level_2_pioneer', 'level_5_pioneer'
+]
 
 export default function AwardsPage() {
   const supabase = getSupabaseBrowserClient()

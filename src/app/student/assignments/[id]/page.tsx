@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   ChevronLeft, ChevronRight, Send, Clock, BookOpen,
-  ChevronDown, ChevronUp, CheckCircle2, AlertCircle, Save
+  ChevronDown, ChevronUp, CheckCircle2, AlertCircle, Save, MessageSquare
 } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
@@ -15,6 +15,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { cn } from '@/lib/utils'
 import { QuestionRenderer } from '@/components/worksheet/QuestionRenderer'
 import { AnnotationCanvas } from '@/components/worksheet/AnnotationCanvas'
+import { renderPdfToImages } from '@/lib/pdf-renderer'
 import toast from 'react-hot-toast'
 import type { WorksheetBlock, WorksheetAnswers, Student } from '@/types/database'
 import Link from 'next/link'
@@ -52,6 +53,9 @@ export default function StudentWorksheetSolver() {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [resultMode, setResultMode] = useState(false)
   const [returnedSub, setReturnedSub] = useState<any>(null)
+  const [pageImages, setPageImages] = useState<string[]>([])
+  const [renderingPdf, setRenderingPdf] = useState(false)
+  const [hasExistingSubmission, setHasExistingSubmission] = useState(false)
 
   // Pagination: page = group of questions
   const [currentPage, setCurrentPage] = useState(0)
@@ -90,18 +94,39 @@ export default function StudentWorksheetSolver() {
       setReturnedSub(sRes.data)
       setAnswers(sRes.data.worksheet_answers ?? {})
       setResultMode(true)
-      setLoading(false)
-      return
     }
 
-    // Restore from IDB or existing submission
-    const idbAnswers = await idbGet(`ws-${assignmentId}`)
-    const existing: WorksheetAnswers = sRes.data?.worksheet_answers ?? {}
-    setAnswers(idbAnswers && Object.keys(idbAnswers).length > 0 ? idbAnswers : existing)
+    // Restore from IDB or existing submission if not in result mode
+    if (sRes.data) {
+      setHasExistingSubmission(true)
+    }
 
-    // Timer
-    if (a.show_timer && a.time_limit && sRes.data?.status !== 'submitted') {
-      setTimeLeft(a.time_limit * 60)
+    if (sRes.data?.status !== 'returned') {
+      const idbAnswers = await idbGet(`ws-${assignmentId}`)
+      const existing: WorksheetAnswers = sRes.data?.worksheet_answers ?? {}
+      setAnswers(idbAnswers && Object.keys(idbAnswers).length > 0 ? idbAnswers : existing)
+      
+      // Timer
+      if (a.show_timer && a.time_limit && sRes.data?.status !== 'submitted') {
+        setTimeLeft(a.time_limit * 60)
+      }
+    }
+
+    // Multi-page PDF logic
+    if (a.attachment_url?.toLowerCase().endsWith('.pdf')) {
+       setRenderingPdf(true)
+       try {
+          const imgs = await renderPdfToImages(a.attachment_url)
+          setPageImages(imgs)
+       } catch (err: any) {
+          console.error('[Solver] PDF render error:', err)
+          toast.error(`Rendering failed: ${err.message || 'Unknown error'}. Try refreshing or check the browser console.`)
+          setPageImages([a.attachment_url]) // Fallback
+       } finally {
+          setRenderingPdf(false)
+       }
+    } else if (a.attachment_url) {
+       setPageImages([a.attachment_url])
     }
 
     setLoading(false)
@@ -133,6 +158,25 @@ export default function StudentWorksheetSolver() {
   const updateAnswer = (blockId: string, value: WorksheetAnswers[string]) => {
     if (resultMode) return
     setAnswers(prev => ({ ...prev, [blockId]: value }))
+    setIsDirty(true)
+  }
+
+  const updateAnnotation = (json: string, pageIndex: number = 0) => {
+    if (resultMode) return
+    setAnswers(prev => {
+       const current = prev.__annotation__
+       let updated: any = {}
+       
+       // Handle migration from single string to object
+       if (typeof current === 'string') {
+          updated = { "0": current }
+       } else {
+          updated = { ...(current as object || {}) }
+       }
+       
+       updated[pageIndex.toString()] = json
+       return { ...prev, __annotation__: updated }
+    })
     setIsDirty(true)
   }
 
@@ -174,45 +218,52 @@ export default function StudentWorksheetSolver() {
 
     if (error) { toast.error('Submission failed: ' + error.message); setSubmitting(false); return }
 
-    // Award Completion XP (+20 XP)
-    const { data: updatedStudent } = await supabase
-      .from('students')
-      .update({ xp: (student?.xp || 0) + 20 })
-      .eq('id', student?.id)
-      .select('*')
-      .single()
-    
-    if (updatedStudent) {
-      useAuthStore.getState().setStudent(updatedStudent as Student)
-      await supabase.from('notifications').insert({
-        user_id: profile?.id,
-        title: 'Quest Submitted!',
-        body: 'You earned +20 XP for submitting your worksheet.',
-        type: 'info',
-        data: { xp: 20, category: 'assignment_completion' }
-      })
-      toast.success('✅ Worksheet submitted! +20 XP earned!', { icon: '🚀' })
+    // Award Completion XP (+20 XP) - Only if first time submitting
+    if (!hasExistingSubmission) {
+      const { data: updatedStudent } = await supabase
+        .from('students')
+        .update({ xp: (student?.xp || 0) + 20 })
+        .eq('id', student?.id)
+        .select('*')
+        .single()
+      
+      if (updatedStudent) {
+        useAuthStore.getState().setStudent(updatedStudent as Student)
+        await supabase.from('notifications').insert({
+          user_id: profile?.id,
+          title: 'Quest Submitted!',
+          body: 'You earned +20 XP for submitting your worksheet.',
+          type: 'info',
+          data: { xp: 20, category: 'assignment_completion' }
+        })
+        toast.success('✅ Worksheet submitted! +20 XP earned!', { icon: '🚀' })
+      } else {
+        toast.success('✅ Worksheet submitted successfully!')
+      }
     } else {
-      toast.success('✅ Worksheet submitted successfully!')
+      toast.success('✅ Submission updated successfully!')
     }
 
     router.push('/student/assignments')
   }
 
   // Paginate: only real questions (skip section_header, reading_passage)
+  const isDocumentAssignment = !!assignment?.attachment_url
   const questionBlocks = blocks.filter(b => b.type !== 'section_header' && b.type !== 'reading_passage')
   const passageBlocks = blocks.filter(b => b.type === 'reading_passage')
   const sectionHeaders = blocks.filter(b => b.type === 'section_header')
-  const totalPages = Math.ceil(questionBlocks.length / QUESTIONS_PER_PAGE)
-  const pageBlocks = questionBlocks.slice(currentPage * QUESTIONS_PER_PAGE, (currentPage + 1) * QUESTIONS_PER_PAGE)
+  const totalPages = isDocumentAssignment ? 1 : Math.ceil(questionBlocks.length / QUESTIONS_PER_PAGE)
+  const pageBlocks = isDocumentAssignment ? [] : questionBlocks.slice(currentPage * QUESTIONS_PER_PAGE, (currentPage + 1) * QUESTIONS_PER_PAGE)
 
-  const answeredCount = questionBlocks.filter(b => {
-    const a = answers[b.id]
-    if (a === null || a === undefined) return false
-    if (typeof a === 'string') return a.trim().length > 0
-    if (Array.isArray(a)) return a.length > 0
-    return false
-  }).length
+  const answeredCount = isDocumentAssignment 
+    ? (answers.__annotation__ ? 1 : 0)
+    : questionBlocks.filter(b => {
+        const a = answers[b.id]
+        if (a === null || a === undefined) return false
+        if (typeof a === 'string') return a.trim().length > 0
+        if (Array.isArray(a)) return a.length > 0
+        return false
+      }).length
 
   // Find the question index in the full list for display
   const getQuestionNumber = (blockId: string) => questionBlocks.findIndex(b => b.id === blockId) + 1
@@ -408,41 +459,125 @@ export default function StudentWorksheetSolver() {
             </div>
 
             {/* Main Worksheet Display */}
-            <div className={resultMode ? 'grid grid-cols-1 lg:grid-cols-2 gap-6' : 'space-y-4'}>
-               {/* Question Side */}
-               <div className="space-y-4">
-                  <AnimatePresence mode="wait">
-                     <motion.div
-                        key={currentPage}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -10 }}
-                        className="space-y-4"
-                     >
-                        {pageBlocks.map(block => (
-                           <div key={block.id} className="space-y-4">
-                              <QuestionRenderer
-                                 block={block}
-                                 index={getQuestionNumber(block.id)}
-                                 answer={answers[block.id]}
-                                 onChange={val => updateAnswer(block.id, val)}
-                                 readOnly={resultMode}
-                                 showCorrect={resultMode}
-                              />
-                              {resultMode && (
-                                 <div className="p-4 rounded-xl flex items-center justify-between" style={{ background: 'var(--input)' }}>
-                                    <span className="text-xs font-black uppercase tracking-widest text-muted">Marks Awarded</span>
-                                    <span className="font-black text-primary">{returnedSub?.question_marks?.[block.id] ?? 0} / {block.marks}</span>
-                                 </div>
+            <div className={resultMode || isDocumentAssignment ? 'grid grid-cols-1 gap-6' : 'space-y-4'}>
+               {/* Document Assignment View */}
+               {isDocumentAssignment && (
+                  <div className="space-y-6">
+                     <Card className="p-0 overflow-hidden border-4 border-slate-100 shadow-xl bg-white rounded-[2.5rem]">
+                        <div className="bg-slate-50 border-b border-slate-100 px-6 py-3 flex items-center justify-between">
+                           <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
+                                 <BookOpen size={18} />
+                              </div>
+                              <span className="text-xs font-black uppercase tracking-widest text-slate-500">Document Assignment</span>
+                           </div>
+                           <div className="flex items-center gap-2">
+                              {assignment.response_mode === 'both' && (
+                                 <span className="text-[10px] font-black px-2 py-1 rounded-lg bg-amber-100 text-amber-600">Free Form Mode</span>
+                              )}
+                              {assignment.response_mode === 'draw' && (
+                                 <span className="text-[10px] font-black px-2 py-1 rounded-lg bg-blue-100 text-blue-600">Drawing Mode</span>
+                              )}
+                              {assignment.response_mode === 'type' && (
+                                 <span className="text-[10px] font-black px-2 py-1 rounded-lg bg-emerald-100 text-emerald-600">Typing Mode</span>
                               )}
                            </div>
-                        ))}
-                     </motion.div>
-                  </AnimatePresence>
-               </div>
+                        </div>
 
-               {/* Annotation Side (Result Mode Only) */}
-               {resultMode && (
+                        {/* Annotation Canvas for student work & teacher marks */}
+                        <div className="flex flex-col gap-8 p-4 md:p-8 bg-slate-50">
+                           {renderingPdf ? (
+                              <div className="flex flex-col items-center justify-center py-20 gap-4">
+                                 <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+                                 <p className="text-sm font-bold text-slate-500">Preparing worksheet pages...</p>
+                              </div>
+                           ) : pageImages.map((img, idx) => {
+                              const studentAnnMap = typeof answers.__annotation__ === 'string' 
+                                 ? { "0": answers.__annotation__ } 
+                                 : (answers.__annotation__ as any || {})
+                              
+                              const teacherAnnMap = typeof returnedSub?.annotations === 'string'
+                                 ? JSON.parse(returnedSub.annotations)
+                                 : (returnedSub?.annotations ?? {})
+
+                              return (
+                                 <div key={idx} className="space-y-2">
+                                    <div className="flex items-center justify-between px-4">
+                                       <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Page {idx + 1}</span>
+                                    </div>
+                                    <Card className="p-0 overflow-hidden border-4 border-white shadow-xl rounded-[2rem] bg-white">
+                                       <AnnotationCanvas
+                                          backgroundImageUrl={img}
+                                          backgroundJson={resultMode ? studentAnnMap[idx.toString()] : undefined}
+                                          initialJson={resultMode 
+                                             ? teacherAnnMap[`doc_${idx}`] || teacherAnnMap[idx.toString()] // check both formats
+                                             : studentAnnMap[idx.toString()]
+                                          }
+                                          readOnly={resultMode}
+                                          onSave={json => updateAnnotation(json, idx)}
+                                          defaultColor={assignment.response_mode === 'type' ? '#000000' : '#2563eb'}
+                                       />
+                                    </Card>
+                                 </div>
+                              )
+                           })}
+                        </div>
+
+                        {/* If in Result Mode, show teacher annotations on top? 
+                            Actually, for document assignments, teacher will mark on the SAME canvas.
+                            In result mode, we might want to overlay teacher annotations if they are stored separately.
+                        */}
+                     </Card>
+
+                     {resultMode && returnedSub?.feedback && (
+                        <div className="mt-8">
+                           <h3 className="text-sm font-black uppercase tracking-widest text-muted mb-3 flex items-center gap-2">
+                              <MessageSquare size={16} /> Teacher Feedback
+                           </h3>
+                           <Card className="p-6 border-l-4 border-l-primary">
+                              <p className="text-sm italic leading-relaxed text-slate-600">"{returnedSub.feedback}"</p>
+                           </Card>
+                        </div>
+                     )}
+                  </div>
+               )}
+
+               {/* Question Side (Traditional Block Assignment) */}
+               {!isDocumentAssignment && (
+                  <div className="space-y-4">
+                     <AnimatePresence mode="wait">
+                        <motion.div
+                           key={currentPage}
+                           initial={{ opacity: 0, y: 10 }}
+                           animate={{ opacity: 1, y: 0 }}
+                           exit={{ opacity: 0, y: -10 }}
+                           className="space-y-4"
+                        >
+                           {pageBlocks.map(block => (
+                              <div key={block.id} className="space-y-4">
+                                 <QuestionRenderer
+                                    block={block}
+                                    index={getQuestionNumber(block.id)}
+                                    answer={answers[block.id]}
+                                    onChange={val => updateAnswer(block.id, val)}
+                                    readOnly={resultMode}
+                                    showCorrect={resultMode}
+                                 />
+                                 {resultMode && (
+                                    <div className="p-4 rounded-xl flex items-center justify-between" style={{ background: 'var(--input)' }}>
+                                       <span className="text-xs font-black uppercase tracking-widest text-muted">Marks Awarded</span>
+                                       <span className="font-black text-primary">{returnedSub?.question_marks?.[block.id] ?? 0} / {block.marks}</span>
+                                    </div>
+                                 )}
+                              </div>
+                           ))}
+                        </motion.div>
+                     </AnimatePresence>
+                  </div>
+               )}
+
+               {/* Annotation Side (Result Mode Only - Traditional Blocks) */}
+               {!isDocumentAssignment && resultMode && (
                   <div className="space-y-4">
                      <div className="text-xs font-black uppercase tracking-widest text-muted">Teacher Annotations</div>
                      {pageBlocks.map(block => {

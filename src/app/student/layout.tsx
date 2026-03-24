@@ -15,6 +15,12 @@ import { GraduationCap as Logo } from 'lucide-react'
 import { SplashScreen } from '@/components/SplashScreen'
 import { Avatar } from '@/components/ui/Avatar'
 import { InstallPWAButton } from '@/components/InstallPWAButton'
+import Link from 'next/link'
+
+import { useNotificationStore } from '@/stores/notificationStore'
+import { useRealtimeNotifications } from '@/hooks/useRealtimeNotifications'
+import { LevelUpManager } from '@/components/student/gamification/LevelUpManager'
+import { calculateLevel } from '@/lib/gamification'
 
 const NAV_ITEMS = [
   { label: 'My Hub', href: '/student', icon: <LayoutDashboard size={18} /> },
@@ -49,6 +55,9 @@ const LogoComponent = (
 
 export default function StudentLayout({ children }: { children: React.ReactNode }) {
   const { profile, student, isLoading } = useAuthStore()
+  const { unreadCount } = useNotificationStore()
+  useRealtimeNotifications()
+
   const { signOut } = useAuth()
   const router = useRouter()
 
@@ -83,19 +92,21 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
 
       <main className="min-h-screen transition-all duration-300 pb-20 md:pb-0">
         {/* Modern Header for Students (XP & Levels) */}
-        <header
-          className="sticky top-0 z-40 px-6 py-4 flex items-center justify-between border-b border-[var(--card-border)] md:ml-[260px]"
-          style={{ background: 'rgba(var(--card-rgb), 0.8)', backdropFilter: 'blur(12px)' }}
-        >
-           {(() => {
-              const level = Math.floor((student?.xp || 0) / 1000) + 1
-              const titles = ['Novice Explorer', 'Brave Adventurer', 'Hero Explorer', 'Master Guardian', 'Legend of Peak']
-              const title = titles[Math.min(Math.floor((level - 1) / 5), titles.length - 1)]
-              return (
-                <>
-                  <div className="flex-1 min-w-0 mr-2">
-                     <h2 className="text-xs md:text-sm font-bold opacity-60 truncate">Level {level} • {title}</h2>
-                  </div>
+          <header
+            className="sticky top-0 z-40 px-6 py-4 flex items-center justify-between border-b border-[var(--card-border)] md:ml-[260px]"
+            style={{ background: 'rgba(var(--card-rgb), 0.8)', backdropFilter: 'blur(12px)' }}
+          >
+             {(() => {
+                 const { level, title, isProspect } = calculateLevel(student?.xp || 0)
+                 const xp = student?.xp || 0
+
+                return (
+                  <>
+                    <div className="flex-1 min-w-0 mr-2">
+                       <h2 className="text-xs md:text-sm font-bold opacity-60 truncate">
+                         {level > 0 ? `Level ${level} • ${title}` : title}
+                       </h2>
+                    </div>
                   
                   <div className="flex items-center gap-4 md:gap-6">
                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-amber-500/10 border border-amber-500/20">
@@ -104,10 +115,14 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
                      </div>
                      <InstallPWAButton variant="minimal" />
                      <div className="w-px h-6 bg-[var(--card-border)]" />
-                     <button className="relative p-2 rounded-xl hover:bg-[var(--input)] transition-colors">
-                        <Bell size={20} className="text-[var(--text-muted)]" />
-                        <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-[var(--bg)]" />
-                     </button>
+                     <Link href="/student/notifications" className="relative p-2 rounded-xl hover:bg-[var(--input)] transition-colors group">
+                        <Bell size={20} className="text-[var(--text-muted)] group-hover:text-primary transition-colors" />
+                        {unreadCount > 0 && (
+                          <span className="absolute top-1.5 right-1.5 flex h-4 min-w-[16px] px-1 items-center justify-center bg-rose-500 text-white text-[10px] font-black rounded-full border-2 border-[var(--bg)] shadow-sm animate-in zoom-in">
+                            {unreadCount > 99 ? '99+' : unreadCount}
+                          </span>
+                        )}
+                     </Link>
                       <Avatar 
                         url={profile?.avatar_url} 
                         name={profile?.full_name} 
@@ -121,12 +136,12 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
         </header>
 
 
-        {/* Content */}
         <div className="md:ml-[260px]">
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
             {children}
           </motion.div>
         </div>
+        <LevelUpManager />
       </main>
 
       <BottomNav 

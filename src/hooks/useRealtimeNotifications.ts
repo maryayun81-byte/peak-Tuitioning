@@ -5,18 +5,35 @@ import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/authStore'
 import { useNotificationStore } from '@/stores/notificationStore'
 import toast from 'react-hot-toast'
+import { playGeneratedSound, type SoundProfile } from '@/lib/sounds'
 
 export function useRealtimeNotifications() {
   const supabase = getSupabaseBrowserClient()
   const { profile } = useAuthStore()
-  const { addNotification } = useNotificationStore()
+  const { addNotification, setNotifications, markRead, deleteNotification } = useNotificationStore()
 
   useEffect(() => {
     if (!profile?.id) return
 
-    // Subscribe to the notifications table for this user
+    // 1. Fetch initial notifications
+    const fetchInitial = async () => {
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', profile.id)
+        .order('created_at', { ascending: false })
+        .limit(50) // Initial load limit
+      
+      if (!error && data) {
+        setNotifications(data)
+      }
+    }
+
+    fetchInitial()
+
+    // 2. Subscribe to the notifications table for this user
     const channel = supabase
-      .channel(`user-notifications-${profile.id}`)
+      .channel(`user-updates-${profile.id}`)
       .on(
         'postgres_changes',
         {
@@ -54,8 +71,72 @@ export function useRealtimeNotifications() {
           })
 
           // Play subtle notification sound if enabled
-          const audio = new Audio('/sounds/notification.mp3')
-          audio.play().catch(() => {}) // Handle browsers blocking autoplay
+          const { preferences } = useNotificationStore.getState()
+          if (preferences.soundEnabled) {
+             // Map notification type to sound profile
+             let profile: SoundProfile = 'default'
+             if (newNotif.type === 'achievement' || newNotif.type === 'award') profile = 'achievement'
+             else if (newNotif.type === 'assignment') profile = 'assignment'
+             else if (newNotif.type === 'intel' || newNotif.type === 'info') profile = 'intel'
+             else if (newNotif.type === 'system') profile = 'news'
+
+             // Check if specific ping is enabled
+             const categoryMap: Record<string, keyof typeof preferences> = {
+                achievement: 'levelUp',
+                award: 'levelUp',
+                assignment: 'questReminders',
+                intel: 'teacherIntel',
+                info: 'teacherIntel',
+                system: 'globalNews'
+             }
+
+             const category = categoryMap[newNotif.type]
+             if (!category || preferences[category]) {
+                playGeneratedSound(profile, preferences.soundVariant)
+             }
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${profile.id}`
+        },
+        (payload) => {
+           // Sync update (e.g. if marked as read elsewhere)
+           if (payload.new.read) {
+             markRead(payload.new.id)
+           }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${profile.id}`
+        },
+        (payload) => {
+           // Sync deletion
+           deleteNotification(payload.old.id)
+        }
+      )
+      // Listen for student profile updates (XP, streaks, etc.)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'students',
+          filter: `user_id=eq.${profile.id}`
+        },
+        (payload) => {
+          const { setStudent } = useAuthStore.getState()
+          setStudent(payload.new as any)
         }
       )
       .subscribe()
@@ -63,5 +144,5 @@ export function useRealtimeNotifications() {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [profile?.id, supabase, addNotification])
+  }, [profile?.id, supabase, addNotification, setNotifications, markRead])
 }

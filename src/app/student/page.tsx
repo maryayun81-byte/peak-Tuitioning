@@ -11,6 +11,8 @@ import {
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Card, Badge } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
+import { Modal } from '@/components/ui/Modal'
+import { Avatar } from '@/components/ui/Avatar'
 import { SkeletonDashboard } from '@/components/ui/Skeleton'
 import { useAuthStore } from '@/stores/authStore'
 import { formatDate } from '@/lib/utils'
@@ -19,6 +21,7 @@ import { TuitionEventBanner } from '@/components/dashboard/TuitionEventBanner'
 import { TimetableWidget } from '@/components/dashboard/TimetableWidget'
 import Link from 'next/link'
 import { OnboardingModal, type OnboardingStep } from '@/components/ui/OnboardingModal'
+import { calculateLevel } from '@/lib/gamification'
 
 // ── Typing animation helper ──────────────────────────────────────────────
 function TypingText({ phrases }: { phrases: string[] }) {
@@ -204,6 +207,9 @@ export default function StudentDashboard() {
   const [intel, setIntel] = useState<any[]>([])
   const [stats, setStats] = useState({ tasks: 0, awards: 0, attendance: 98 })
   const [showWelcome, setShowWelcome] = useState(false)
+  const [leaderboard, setLeaderboard] = useState<any[]>([])
+  const [studentRank, setStudentRank] = useState<number | null>(null)
+  const [showFullLeaderboard, setShowFullLeaderboard] = useState(false)
   
   useEffect(() => {
     if (student && student.onboarded === false) {
@@ -244,14 +250,30 @@ export default function StudentDashboard() {
       const { data: nData } = await supabase.from('notifications').select('*')
         .eq('user_id', profile.id).order('created_at', { ascending: false }).limit(3)
 
-      const [subsCount, certsCount] = await Promise.all([
+      const [subsCount, certsCount, badgesCount, lbRes, rankRes] = await Promise.all([
         supabase.from('submissions').select('*', { count: 'exact', head: true }).eq('student_id', student.id),
-        supabase.from('certificates').select('*', { count: 'exact', head: true }).eq('student_id', student.id)
+        supabase.from('certificates').select('*', { count: 'exact', head: true }).eq('student_id', student.id),
+        supabase.from('study_badges').select('*', { count: 'exact', head: true }).eq('student_id', student.id),
+        supabase.from('students').select('full_name, avatar_url, xp, class:classes(name)').order('xp', { ascending: false }).limit(20),
+        supabase.rpc('get_student_rank', { input_student_id: student.id })
       ])
 
       setActiveQuests(aRes.data ?? [])
       setIntel(nData ?? [])
-      setStats({ tasks: subsCount.count || 0, awards: certsCount.count || 0, attendance: 98 })
+      setStats({ 
+        tasks: subsCount.count || 0, 
+        awards: (certsCount.count || 0) + (badgesCount.count || 0), 
+        attendance: 98 
+      })
+      setLeaderboard(lbRes.data ?? [])
+      
+      // Fallback rank calculation if RPC fails
+      if (rankRes.data) {
+        setStudentRank(rankRes.data)
+      } else {
+        const { count } = await supabase.from('students').select('*', { count: 'exact', head: true }).gt('xp', student.xp)
+        setStudentRank((count || 0) + 1)
+      }
     } finally {
       setLoading(false)
     }
@@ -275,9 +297,13 @@ export default function StudentDashboard() {
             <h1 className="text-3xl font-black flex items-center gap-3" style={{ color: 'var(--text)' }}>
                Ready to soar, {profile?.full_name.split(' ')[0]}? <Rocket className="text-primary animate-pulse" />
             </h1>
-            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-               You have <b>{student?.xp || 0} XP</b>. Level {Math.floor((student?.xp || 0) / 1000) + 1}
-            </p>
+             <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+               {(() => {
+                 const { level, isProspect } = calculateLevel(student?.xp || 0)
+                 const xp = student?.xp || 0
+                 return `You have ${xp.toLocaleString()} XP. ${!isProspect ? `Level ${level}` : 'Prospect'}`
+               })()}
+             </p>
          </div>
          <div className="flex gap-4">
             <div className="p-4 rounded-3xl bg-[var(--card)] border border-[var(--card-border)] flex items-center gap-4 shadow-xl shadow-amber-500/5">
@@ -303,16 +329,25 @@ export default function StudentDashboard() {
          <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full -mr-32 -mt-32 blur-3xl group-hover:bg-primary/10 transition-colors" />
          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 relative z-10">
             <div className="space-y-4">
-               <div className="flex justify-between items-end">
-                  <span className="text-xs font-black uppercase tracking-widest text-muted">Level {Math.floor((student?.xp || 0) / 1000) + 1}</span>
-                  <span className="text-xs font-black text-primary">{Math.floor(((student?.xp || 0) % 1000) / 10)}% to Level Up</span>
-               </div>
-               <div className="h-4 bg-[var(--input)] rounded-full overflow-hidden border border-[var(--card-border)]">
-                  <motion.div initial={{ width: 0 }} animate={{ width: `${((student?.xp || 0) % 1000) / 10}%` }} transition={{ duration: 1.5, ease: 'easeOut' }} className="h-full bg-primary" style={{ boxShadow: '0 0 12px var(--primary)' }} />
-               </div>
-               <div className="flex items-center gap-2 text-[10px]" style={{ color: 'var(--text-muted)' }}>
-                  <Sparkles size={12} className="text-amber-500" /> {1000 - ((student?.xp || 0) % 1000)} more XP to reach the next horizon!
-               </div>
+               {(() => {
+                 const { level, progressPercent, nextMilestone, isProspect } = calculateLevel(student?.xp || 0)
+                 const xp = student?.xp || 0
+                 
+                 return (
+                   <>
+                     <div className="flex justify-between items-end">
+                        <span className="text-xs font-black uppercase tracking-widest text-muted">{!isProspect ? `Level ${level}` : 'Prospect'}</span>
+                        <span className="text-xs font-black text-primary">{progressPercent}% to Level Up</span>
+                     </div>
+                     <div className="h-4 bg-[var(--input)] rounded-full overflow-hidden border border-[var(--card-border)]">
+                        <motion.div initial={{ width: 0 }} animate={{ width: `${progressPercent}%` }} transition={{ duration: 1.5, ease: 'easeOut' }} className="h-full bg-primary" style={{ boxShadow: '0 0 12px var(--primary)' }} />
+                     </div>
+                     <div className="flex items-center gap-2 text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                        <Sparkles size={12} className="text-amber-500" /> {nextMilestone - xp} more XP to reach the next horizon!
+                     </div>
+                   </>
+                 )
+               })()}
             </div>
             <div className="flex items-center justify-around col-span-2 border-l border-[var(--card-border)] pl-8">
                <div className="text-center">
@@ -388,15 +423,22 @@ export default function StudentDashboard() {
             </div>
 
             <Card className="p-6 text-center space-y-4">
-               <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mx-auto border-4 border-white shadow-inner">
-                  <Trophy size={32} className="text-amber-500" />
-               </div>
-               <div>
-                  <h4 className="font-bold text-sm" style={{ color: 'var(--text)' }}>Leaderboard Ranking</h4>
-                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Position #4 in Grade 8 Red</p>
-               </div>
-               <Button variant="ghost" size="sm" className="w-full text-xs">View Full Standings</Button>
-            </Card>
+                <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mx-auto border-4 border-white shadow-inner overflow-hidden">
+                   {student?.avatar_url ? (
+                      <img src={student.avatar_url} alt="You" className="w-full h-full object-cover" />
+                   ) : (
+                      <Trophy size={32} className="text-amber-500" />
+                   )}
+                </div>
+                <div>
+                   <h4 className="font-bold text-sm" style={{ color: 'var(--text)' }}>Leaderboard Ranking</h4>
+                   <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                      {studentRank ? `Position #${studentRank} ` : 'Calculating... '}
+                      {student?.class?.name ? `in ${student.class.name}` : ''}
+                   </p>
+                </div>
+                <Button variant="ghost" size="sm" className="w-full text-xs" onClick={() => setShowFullLeaderboard(true)}>View Full Standings</Button>
+             </Card>
 
             <Link href="/student/transcripts">
               <Card className="p-6 bg-gradient-to-br from-indigo-500 to-purple-600 text-white border-none shadow-lg hover:scale-105 transition-all cursor-pointer">
@@ -413,6 +455,47 @@ export default function StudentDashboard() {
             </Link>
          </div>
       </div>
+      <Modal isOpen={showFullLeaderboard} onClose={() => setShowFullLeaderboard(false)} title="Global Leaderboard 🏆" size="lg">
+         <div className="space-y-6 py-2 pb-6">
+            <div className="flex items-center justify-between p-4 rounded-2xl bg-primary/5 border border-primary/10">
+               <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary font-black text-xl">
+                     #{studentRank || '?'}
+                  </div>
+                  <div>
+                     <div className="font-black text-sm" style={{ color: 'var(--text)' }}>Your Rank</div>
+                     <div className="text-[10px] font-bold text-muted uppercase tracking-widest">{student?.xp?.toLocaleString()} XP Total</div>
+                  </div>
+               </div>
+             <div className="text-right">
+                <Badge variant="primary" className="mb-1">Level {calculateLevel(student?.xp || 0).level || 1}</Badge>
+             </div>
+            </div>
+
+            <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+               {leaderboard.map((entry, i) => (
+                  <div key={i} className={`flex items-center justify-between p-3 rounded-2xl transition-all ${entry.full_name === profile?.full_name ? 'bg-primary/10 border border-primary/20 shadow-lg shadow-primary/5' : 'hover:bg-[var(--input)]'}`}>
+                     <div className="flex items-center gap-4">
+                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs ${i === 0 ? 'bg-amber-400 text-white' : i === 1 ? 'bg-slate-300 text-white' : i === 2 ? 'bg-amber-600 text-white' : 'text-muted'}`}>
+                           {i + 1}
+                        </div>
+                        <Avatar url={entry.avatar_url} name={entry.full_name} size="sm" />
+                        <div>
+                           <div className="text-sm font-bold" style={{ color: 'var(--text)' }}>{entry.full_name}</div>
+                           <div className="text-[10px] text-muted">{entry.class?.name || 'Top Student'}</div>
+                        </div>
+                     </div>
+                     <div className="text-right">
+                        <div className="text-sm font-black text-primary">{entry.xp.toLocaleString()}</div>
+                        <div className="text-[9px] font-bold text-muted uppercase tracking-tighter">XP Points</div>
+                     </div>
+                  </div>
+               ))}
+            </div>
+            
+            <p className="text-[10px] text-center text-muted italic">Leaderboard updates in real-time as you earn XP from quests and focus sessions.</p>
+         </div>
+      </Modal>
     </div>
   )
 }

@@ -13,6 +13,11 @@ import { useAuthStore } from '@/stores/authStore'
 import { useAuth } from '@/hooks/useAuth'
 import { GraduationCap as Logo } from 'lucide-react'
 import { SplashScreen } from '@/components/SplashScreen'
+import { Avatar } from '@/components/ui/Avatar'
+import Link from 'next/link'
+
+import { useNotificationStore } from '@/stores/notificationStore'
+import { useRealtimeNotifications } from '@/hooks/useRealtimeNotifications'
 
 const NAV_ITEMS = [
   { label: 'Dashboard', href: '/teacher', icon: <LayoutDashboard size={18} /> },
@@ -51,6 +56,8 @@ const LogoComponent = (
 
 export default function TeacherLayout({ children }: { children: React.ReactNode }) {
   const { profile, teacher, isLoading, setProfile } = useAuthStore()
+  const { unreadCount } = useNotificationStore()
+  useRealtimeNotifications()
   const { signOut } = useAuth()
   const router = useRouter()
   const pathname = usePathname()
@@ -94,22 +101,35 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
       />
 
       <main className="min-h-screen transition-all duration-300 pb-20 md:pb-0" style={{ marginLeft: 0 }}>
-        {/* Mobile Header */}
-        <div
-          className="sticky top-0 z-30 flex md:hidden items-center justify-between px-4 py-3"
-          style={{
-            background: 'rgba(11,15,26,0.9)',
-            backdropFilter: 'blur(12px)',
-            borderBottom: '1px solid var(--card-border)',
-          }}
+        {/* Modern Header for Teachers */}
+        <header
+          className="sticky top-0 z-40 px-6 py-4 flex items-center justify-between border-b border-[var(--card-border)] md:ml-[260px]"
+          style={{ background: 'rgba(var(--card-rgb), 0.8)', backdropFilter: 'blur(12px)' }}
         >
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #0EA5E9, #22D3EE)' }}>
-              <Logo size={16} className="text-white" />
-            </div>
-            <span className="text-sm font-bold" style={{ color: 'var(--text)' }}>Teacher</span>
+          <div className="flex-1 min-w-0 mr-2 md:hidden">
+            {LogoComponent}
           </div>
-        </div>
+          
+          <div className="flex-1 hidden md:block" />
+
+          <div className="flex items-center gap-4 md:gap-6">
+             <Link href="/teacher/notifications" className="relative p-2 rounded-xl hover:bg-[var(--input)] transition-colors group">
+                <Bell size={20} className="text-[var(--text-muted)] group-hover:text-primary transition-colors" />
+                {unreadCount > 0 && (
+                  <span className="absolute top-1.5 right-1.5 flex h-4 min-w-[16px] px-1 items-center justify-center bg-rose-500 text-white text-[10px] font-black rounded-full border-2 border-[var(--bg)] shadow-sm animate-in zoom-in">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
+             </Link>
+             <div className="w-px h-6 bg-[var(--card-border)]" />
+             <Avatar 
+                url={profile?.avatar_url} 
+                name={profile?.full_name} 
+                size="sm" 
+                className="cursor-pointer"
+              />
+          </div>
+        </header>
 
         {/* Main Content */}
         <div className="md:ml-[260px]">

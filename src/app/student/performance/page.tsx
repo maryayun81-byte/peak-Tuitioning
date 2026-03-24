@@ -157,10 +157,18 @@ export default function StudentPerformance() {
     const newBadges = []
     
     // 1. Level-based badges
-    const level = Math.floor((student?.xp || 0) / 1000) + 1
-    if (level >= 10) newBadges.push({ label: 'Elite Hero', icon: '💎', color: 'bg-indigo-100' })
-    else if (level >= 5) newBadges.push({ label: 'Rising Star', icon: '⭐', color: 'bg-amber-100' })
-    else newBadges.push({ label: 'New Recruit', icon: '🌱', color: 'bg-emerald-100' })
+    const xp = student?.xp || 0
+    let level = 0
+    if (xp >= 1000) level = 1
+    if (xp >= 1800) level = 2
+    if (xp >= 2600) level = 3
+    if (xp >= 3400) level = 4
+    if (xp >= 4000) level = 5
+
+    if (level >= 5) newBadges.push({ label: 'Peak Perfectionist', icon: '💎', color: 'bg-indigo-100' })
+    else if (level >= 3) newBadges.push({ label: 'Master Mind', icon: '⭐', color: 'bg-amber-100' })
+    else if (level >= 1) newBadges.push({ label: 'Brave Adventurer', icon: '🌱', color: 'bg-emerald-100' })
+    else newBadges.push({ label: 'Novice Explorer', icon: '🐣', color: 'bg-slate-100' })
 
     // 2. Streak badges
     const streak = student?.streak_count || 0
