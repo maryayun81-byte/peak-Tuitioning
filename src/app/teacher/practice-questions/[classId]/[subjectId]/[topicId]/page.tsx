@@ -10,15 +10,20 @@ import { Modal } from '@/components/ui/Modal'
 import { LayoutGrid, ArrowLeft, Plus, Edit, Trash2, ChevronRight, FileQuestion } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { use } from 'react'
 import toast from 'react-hot-toast'
 import type { PracticeQuestion } from '@/types/database'
 
 interface PageProps {
-  params: { classId: string; subjectId: string; topicId: string }
+  params: Promise<{ classId: string; subjectId: string; topicId: string }>
 }
 
 export default function PracticeQuestionsListPage({ params }: PageProps) {
   const router = useRouter()
+  const resolvedParams = use(params)
+  const classId = resolvedParams.classId
+  const subjectId = resolvedParams.subjectId
+  const topicId = resolvedParams.topicId
   const supabase = getSupabaseBrowserClient()
   
   const [questions, setQuestions] = useState<PracticeQuestion[]>([])
@@ -32,16 +37,16 @@ export default function PracticeQuestionsListPage({ params }: PageProps) {
 
   useEffect(() => {
     load()
-  }, [params.classId, params.subjectId, params.topicId])
+  }, [classId, subjectId, topicId])
 
   const load = async () => {
     setLoading(true)
     try {
       // Get context names
       const [classRes, subRes, topicRes] = await Promise.all([
-         supabase.from('classes').select('name').eq('id', params.classId).single(),
-         supabase.from('subjects').select('name').eq('id', params.subjectId).single(),
-         supabase.from('topics').select('name').eq('id', params.topicId).single()
+         supabase.from('classes').select('name').eq('id', classId).single(),
+         supabase.from('subjects').select('name').eq('id', subjectId).single(),
+         supabase.from('topics').select('name').eq('id', topicId).single()
       ])
       
       if (classRes.data) setClassName(classRes.data.name)
@@ -52,7 +57,7 @@ export default function PracticeQuestionsListPage({ params }: PageProps) {
       const { data: qData, error } = await supabase
         .from('practice_questions')
         .select('*')
-        .eq('topic_id', params.topicId)
+        .eq('topic_id', topicId)
         .order('created_at', { ascending: false })
 
       if (error) throw error
@@ -128,7 +133,7 @@ export default function PracticeQuestionsListPage({ params }: PageProps) {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
          <div className="flex items-center gap-4">
            <button 
-              onClick={() => router.push(`/teacher/practice-questions/${params.classId}/${params.subjectId}`)}
+              onClick={() => router.push(`/teacher/practice-questions/${classId}/${subjectId}`)}
               className="w-10 h-10 rounded-2xl flex items-center justify-center transition-all hover:scale-105" 
               style={{ background: 'var(--input)', color: 'var(--text-muted)' }}>
               <ArrowLeft size={18} />
@@ -146,7 +151,7 @@ export default function PracticeQuestionsListPage({ params }: PageProps) {
              </p>
            </div>
          </div>
-         <Link href={`/teacher/practice-questions/new?classId=${params.classId}&subjectId=${params.subjectId}&topicId=${params.topicId}`}>
+         <Link href={`/teacher/practice-questions/new?classId=${classId}&subjectId=${subjectId}&topicId=${topicId}`}>
             <Button className="shrink-0 group w-full sm:w-auto" style={{ background: '#A855F7', color: 'white' }}>
                <Plus size={16} className="mr-2" /> Create Question
             </Button>
@@ -158,7 +163,7 @@ export default function PracticeQuestionsListPage({ params }: PageProps) {
             <FileQuestion size={48} className="mx-auto mb-4 opacity-20" />
             <h3 className="font-bold text-lg mb-1" style={{ color: 'var(--text)' }}>No Questions Found</h3>
             <p className="text-sm mb-6" style={{ color: 'var(--text-muted)' }}>Start building your question bank for this topic.</p>
-            <Link href={`/teacher/practice-questions/new?classId=${params.classId}&subjectId=${params.subjectId}&topicId=${params.topicId}`}>
+            <Link href={`/teacher/practice-questions/new?classId=${classId}&subjectId=${subjectId}&topicId=${topicId}`}>
                <Button variant="outline">Create First Question</Button>
             </Link>
          </div>
@@ -206,7 +211,7 @@ export default function PracticeQuestionsListPage({ params }: PageProps) {
                       {/* Right: Actions */}
                       <div className="flex items-center gap-2 sm:self-center shrink-0 border-t sm:border-t-0 pt-3 sm:pt-0" style={{ borderColor: 'var(--card-border)' }}>
                          {/* Pass questionId to edit page via query param */}
-                         <Link href={`/teacher/practice-questions/new?classId=${params.classId}&subjectId=${params.subjectId}&topicId=${params.topicId}&editId=${q.id}`}>
+                         <Link href={`/teacher/practice-questions/new?classId=${classId}&subjectId=${subjectId}&topicId=${topicId}&editId=${q.id}`}>
                             <button className="p-2.5 rounded-xl transition-all hover:bg-white/10" style={{ background: 'var(--input)', color: 'var(--text-muted)' }}>
                                <Edit size={16} />
                             </button>

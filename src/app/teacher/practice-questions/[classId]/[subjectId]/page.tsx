@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/Button'
 import { LayoutGrid, HelpCircle, ArrowRight, ArrowLeft, Plus, AlertCircle, Bookmark } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { use } from 'react'
 import toast from 'react-hot-toast'
 
 interface TopicStat {
@@ -21,11 +22,14 @@ interface TopicStat {
 }
 
 interface PageProps {
-  params: { classId: string; subjectId: string }
+  params: Promise<{ classId: string; subjectId: string }>
 }
 
 export default function PracticeQuestionsTopicsPage({ params }: PageProps) {
   const router = useRouter()
+  const resolvedParams = use(params)
+  const classId = resolvedParams.classId
+  const subjectId = resolvedParams.subjectId
   const supabase = getSupabaseBrowserClient()
   
   const [topics, setTopics] = useState<TopicStat[]>([])
@@ -40,15 +44,15 @@ export default function PracticeQuestionsTopicsPage({ params }: PageProps) {
 
   useEffect(() => {
     load()
-  }, [params.classId, params.subjectId])
+  }, [classId, subjectId])
 
   const load = async () => {
     setLoading(true)
     try {
       // Get context names
       const [classRes, subRes] = await Promise.all([
-         supabase.from('classes').select('name').eq('id', params.classId).single(),
-         supabase.from('subjects').select('name').eq('id', params.subjectId).single()
+         supabase.from('classes').select('name').eq('id', classId).single(),
+         supabase.from('subjects').select('name').eq('id', subjectId).single()
       ])
       
       if (classRes.data) setClassName(classRes.data.name)
@@ -58,7 +62,7 @@ export default function PracticeQuestionsTopicsPage({ params }: PageProps) {
       const { data: topicData, error } = await supabase
         .from('topics')
         .select('id, name, created_at, practice_questions(id)')
-        .eq('subject_id', params.subjectId)
+        .eq('subject_id', subjectId)
         .order('created_at', { ascending: true })
 
       if (error) throw error
@@ -86,7 +90,7 @@ export default function PracticeQuestionsTopicsPage({ params }: PageProps) {
      setSaving(true)
      try {
         const { error } = await supabase.from('topics').insert({
-           subject_id: params.subjectId,
+           subject_id: subjectId,
            name: newTopicName.trim()
         })
         if (error) throw error
@@ -114,7 +118,7 @@ export default function PracticeQuestionsTopicsPage({ params }: PageProps) {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
          <div className="flex items-center gap-4">
            <button 
-              onClick={() => router.push(`/teacher/practice-questions/${params.classId}`)}
+              onClick={() => router.push(`/teacher/practice-questions/${classId}`)}
               className="w-10 h-10 rounded-2xl flex items-center justify-center transition-all hover:scale-105" 
               style={{ background: 'var(--input)', color: 'var(--text-muted)' }}>
               <ArrowLeft size={18} />
@@ -146,7 +150,7 @@ export default function PracticeQuestionsTopicsPage({ params }: PageProps) {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <AnimatePresence>
             {topics.map((t, idx) => (
-              <Link key={t.id} href={`/teacher/practice-questions/${params.classId}/${params.subjectId}/${t.id}`}>
+              <Link key={t.id} href={`/teacher/practice-questions/${classId}/${subjectId}/${t.id}`}>
                 <motion.div
                   initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}

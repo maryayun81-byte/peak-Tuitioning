@@ -88,23 +88,33 @@ export default function NewWorksheetPage() {
     }
 
     // Extract unique classes from the map
-    const mappedClasses = Array.from(new Set((mapRes.data || [])
-      .flatMap(m => m.classes)
-      .filter(Boolean)
-      .map(c => JSON.stringify(c))))
-      .map(s => JSON.parse(s as string))
+    const classMap = new Map<string, any>()
+    ;(mapRes.data || []).forEach(m => {
+      if (!m.class_id) return
+      if (!classMap.has(m.class_id)) {
+        let name = 'Unknown Class'
+        const cObj = Array.isArray(m.classes) ? m.classes[0] : m.classes
+        if (cObj && cObj.name) name = cObj.name
+        classMap.set(m.class_id, { id: m.class_id, name })
+      }
+    })
+    const mappedClasses = Array.from(classMap.values())
 
     // Extract unique subjects from the map
-    const mappedSubjects = Array.from(new Set((mapRes.data || [])
-      .flatMap(m => {
-        const subjs = Array.isArray(m.subjects) ? m.subjects : [m.subjects];
-        return subjs.filter(Boolean).map(s => ({
-          ...s,
-          class_id: m.class_id // Link subject to the class assigned in the mapping table
-        }));
-      })
-      .map(s => JSON.stringify(s))))
-      .map(s => JSON.parse(s as string))
+    const subjectMap = new Map<string, any>()
+    ;(mapRes.data || []).forEach(m => {
+      if (!m.subject_id) return
+      // Create a unique key per class AND subject so subjects are duplicated per class if needed
+      const key = `${m.class_id}_${m.subject_id}`
+      if (!subjectMap.has(key)) {
+        let name = 'Unknown Subject'
+        const sObj = Array.isArray(m.subjects) ? m.subjects[0] : m.subjects
+        // Handle name if properly queried
+        if (sObj && sObj.name) name = sObj.name
+        subjectMap.set(key, { id: m.subject_id, name, class_id: m.class_id })
+      }
+    })
+    const mappedSubjects = Array.from(subjectMap.values())
 
     setClasses(mappedClasses)
     setSubjects(mappedSubjects)

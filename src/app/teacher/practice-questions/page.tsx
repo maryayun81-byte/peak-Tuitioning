@@ -53,14 +53,23 @@ export default function PracticeQuestionsDashboard() {
 
       if (mapError) throw mapError
 
-      // Unique classes
-      const uniqueClasses = Array.from(new Set((mapData || [])
-          .map(m => {
-            const c = m.classes
-            return JSON.stringify(Array.isArray(c) ? c[0] : c)
-          })))
-          .filter(c => c !== 'null')
-          .map(c => JSON.parse(c as string)) as Class[]
+      // Unique classes aggregated reliably
+      const classMap = new Map<string, Class>()
+      ;(mapData || []).forEach(m => {
+        if (!m.class_id) return
+        if (!classMap.has(m.class_id)) {
+           // Provide fallback name if joined object is missing
+           let name = 'Unknown Class'
+           const cObj = Array.isArray(m.classes) ? m.classes[0] : m.classes
+           if (cObj && cObj.name) name = cObj.name
+
+           classMap.set(m.class_id, {
+             id: m.class_id,
+             name: name,
+           } as Class)
+        }
+      })
+      const uniqueClasses = Array.from(classMap.values())
 
       const stats: ClassStat[] = []
 

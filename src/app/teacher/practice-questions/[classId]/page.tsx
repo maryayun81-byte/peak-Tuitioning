@@ -9,6 +9,7 @@ import { SkeletonList } from '@/components/ui/Skeleton'
 import { BookOpen, HelpCircle, ArrowRight, ArrowLeft, LayoutGrid, AlertCircle } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { use } from 'react'
 import toast from 'react-hot-toast'
 
 interface SubjectStat {
@@ -19,11 +20,13 @@ interface SubjectStat {
 }
 
 interface PageProps {
-  params: { classId: string }
+  params: Promise<{ classId: string }>
 }
 
 export default function PracticeQuestionsSubjectsPage({ params }: PageProps) {
   const router = useRouter()
+  const resolvedParams = use(params)
+  const classId = resolvedParams.classId
   const supabase = getSupabaseBrowserClient()
   const { profile, teacher } = useAuthStore()
   const [subjectStats, setSubjectStats] = useState<SubjectStat[]>([])
@@ -32,7 +35,7 @@ export default function PracticeQuestionsSubjectsPage({ params }: PageProps) {
 
   useEffect(() => {
     loadSubjects()
-  }, [profile, teacher, params.classId])
+  }, [profile, teacher, classId])
 
   const loadSubjects = async () => {
     let currentTeacherId = teacher?.id
@@ -46,7 +49,7 @@ export default function PracticeQuestionsSubjectsPage({ params }: PageProps) {
     setLoading(true)
     try {
       // Get class name
-      const { data: classData } = await supabase.from('classes').select('name').eq('id', params.classId).single()
+      const { data: classData } = await supabase.from('classes').select('name').eq('id', classId).single()
       if (classData) setClassName(classData.name)
 
       // Fetch assigned subjects for this class
@@ -57,7 +60,7 @@ export default function PracticeQuestionsSubjectsPage({ params }: PageProps) {
           subjects (id, name)
         `)
         .eq('teacher_id', currentTeacherId)
-        .eq('class_id', params.classId)
+        .eq('class_id', classId)
 
       if (mapError) throw mapError
 
@@ -71,14 +74,22 @@ export default function PracticeQuestionsSubjectsPage({ params }: PageProps) {
          return
       }
 
-      // Unique subjects
-      const uniqueSubjects = Array.from(new Set((mapData || [])
-          .map(m => {
-            const s = m.subjects
-            return JSON.stringify(Array.isArray(s) ? s[0] : s)
-          })))
-          .filter(s => s && s !== 'null' && s !== 'undefined')
-          .map(s => JSON.parse(s as string))
+      // Unique subjects aggregated reliably
+      const subjectMap = new Map<string, any>()
+      ;(mapData || []).forEach(m => {
+         if (!m.subject_id) return
+         if (!subjectMap.has(m.subject_id)) {
+            let name = 'Unknown Subject'
+            const sObj = Array.isArray(m.subjects) ? m.subjects[0] : m.subjects
+            if (sObj && sObj.name) name = sObj.name
+
+            subjectMap.set(m.subject_id, {
+               id: m.subject_id,
+               name: name
+            })
+         }
+      })
+      const uniqueSubjects = Array.from(subjectMap.values())
 
       // Fetch topics and questions to get counts
       const { data: topicData } = await supabase
@@ -142,7 +153,7 @@ export default function PracticeQuestionsSubjectsPage({ params }: PageProps) {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {subjectStats.map((stat, idx) => (
-            <Link key={stat.subject_id} href={`/teacher/practice-questions/${params.classId}/${stat.subject_id}`}>
+            <Link key={stat.subject_id} href={`/teacher/practice-questions/${classId}/${stat.subject_id}`}>
               <motion.div
                 initial={{ opacity: 0, y: 15 }}
                 animate={{ opacity: 1, y: 0 }}
