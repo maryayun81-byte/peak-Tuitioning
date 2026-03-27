@@ -256,6 +256,24 @@ export default function StudentTriviaLobbyPage() {
      else { toast.success('Left the squad'); loadAll() }
   }
 
+  const handleLeavePersistentSquad = async () => {
+     if (!myPersistentSquad) return
+     if (confirm('Are you sure you want to leave this persistent squad?')) {
+        setLoading(true)
+        const { error } = await supabase.from('squad_members')
+           .delete()
+           .eq('squad_id', myPersistentSquad.id)
+           .eq('student_id', student!.id)
+        
+        if (error) { toast.error('Failed to leave squad'); setLoading(false) }
+        else { 
+           toast.success('You have left the squad')
+           setMyPersistentSquad(null)
+           loadAll() 
+        }
+     }
+  }
+
   const handleJoinGroup = async (groupId: string) => {
      setLoading(true)
      const { error } = await supabase.from('trivia_group_members').insert({
@@ -318,9 +336,12 @@ export default function StudentTriviaLobbyPage() {
                           ))}
                         </div>
                       </div>
-                      <Button className="w-full sm:w-auto h-12 px-6 font-black uppercase tracking-widest" onClick={() => handleJoinTriviaWithSquad(myPersistentSquad.id, myPersistentSquad.name, myPersistentSquad.avatar_url, myPersistentSquad.members.map((m: any) => m.student_id))}>
-                        <Zap size={18} className="fill-current" /> Enter Arena
-                      </Button>
+                      <div className="flex flex-col sm:flex-row items-center gap-4 w-full sm:w-auto">
+                        <Button variant="ghost" size="sm" className="text-[10px] font-black uppercase text-rose-500 hover:bg-rose-50 px-4" onClick={handleLeavePersistentSquad}>Leave Squad</Button>
+                        <Button className="w-full sm:w-auto h-12 px-6 font-black uppercase tracking-widest" onClick={() => handleJoinTriviaWithSquad(myPersistentSquad.id, myPersistentSquad.name, myPersistentSquad.avatar_url, myPersistentSquad.members.map((m: any) => m.student_id))}>
+                          <Zap size={18} className="fill-current" /> Enter Arena
+                        </Button>
+                      </div>
                     </div>
                   </Card>
                 ) : (
