@@ -108,7 +108,7 @@ export default function AdminClasses() {
                     </tr>
                   </thead>
                   <tbody>
-                    {cls.map((c) => (
+                    {(cls as Class[]).map((c) => (
                       <tr key={c.id} style={{ borderBottom: '1px solid var(--card-border)' }}>
                         <td className="px-5 py-3 font-semibold" style={{ color: 'var(--text)' }}>{c.name}</td>
                         <td className="px-5 py-3"><Badge variant="muted">Level {c.level}</Badge></td>

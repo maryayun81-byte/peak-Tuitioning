@@ -199,7 +199,7 @@ export function useAuth() {
             console.log('[useAuth] Fetching teacher record for', userId)
             const { data: teacherData, error: teacherError } = await supabase
               .from('teachers')
-              .select('*')
+              .select('*, teacher_assignments(is_class_teacher)')
               .eq('user_id', userId)
               .single()
 
@@ -209,7 +209,8 @@ export function useAuth() {
             }
 
             if (teacherData) {
-              setTeacher(teacherData as Teacher)
+              const isClassTeacher = teacherData.teacher_assignments?.some((a: any) => a.is_class_teacher) || false
+              setTeacher({ ...teacherData, is_class_teacher: isClassTeacher } as Teacher)
             } else if (!teacherError) {
               console.warn('[useAuth] No teacher record found for', userId)
             }

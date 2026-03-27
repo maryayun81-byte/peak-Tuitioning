@@ -176,7 +176,7 @@ function AdminTranscriptsContent() {
     }
 
     if (!system || !system.scales) return 'N/A'
-    const match = system.scales.find(s => score >= s.min_score && score <= s.max_score)
+    const match = system.scales.find((s: any) => score >= s.min_score && score <= s.max_score)
     return match ? match.grade : 'F'
   }
 
@@ -372,7 +372,7 @@ function AdminTranscriptsContent() {
       toast.success('Remark updated')
       setRemarkOpen(false)
       // Update local state immediately for the preview
-      setSelectedTranscript(prev => prev ? { ...prev, remarks: tempRemark } : null)
+      setSelectedTranscript((prev: any) => prev ? { ...prev, remarks: tempRemark } : null)
       loadTranscripts(selectedEventId!, selectedExamId)
     } catch (e: any) {
       console.error(e)

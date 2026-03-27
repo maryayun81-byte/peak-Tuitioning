@@ -174,7 +174,7 @@ export function PropertiesPanel() {
             {(block.type === 'mcq' || block.type === 'multi_select') && (
               <div className="space-y-2">
                 <label className="block text-xs font-bold uppercase tracking-widest opacity-50">Options — tap letter to mark correct</label>
-                {(block.options ?? []).map((opt, i) => {
+                {(block.options ?? []).map((opt: any, i: any) => {
                   const letter = String.fromCharCode(65 + i)
                   const isCorrect = block.type === 'mcq'
                     ? block.correct_answer === letter
@@ -186,7 +186,7 @@ export function PropertiesPanel() {
                           if (block.type === 'mcq') update({ correct_answer: letter })
                           else {
                             const cur = block.correct_answers || []
-                            update({ correct_answers: cur.includes(letter) ? cur.filter(x => x !== letter) : [...cur, letter] })
+                            update({ correct_answers: cur.includes(letter) ? cur.filter((x: any) => x !== letter) : [...cur, letter] })
                           }
                         }}
                         className="w-8 h-8 rounded-lg shrink-0 flex items-center justify-center font-black text-xs transition-all"
@@ -207,7 +207,7 @@ export function PropertiesPanel() {
                       />
                       {(block.options?.length ?? 0) > 2 && (
                         <button
-                          onClick={() => update({ options: (block.options || []).filter((_, idx) => idx !== i) })}
+                          onClick={() => update({ options: (block.options || []).filter((_: any, idx: any) => idx !== i) })}
                           className="p-1.5 rounded-lg opacity-40 hover:opacity-100 transition-opacity"
                           style={{ color: '#EF4444' }}
                         >

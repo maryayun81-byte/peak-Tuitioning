@@ -75,7 +75,7 @@ export function QuestionRenderer({ block, index, answer, onChange, readOnly, sho
   // --- MCQ ---
   const renderMCQ = () => (
     <div className="space-y-2 mt-3">
-      {(block.options ?? []).map((opt, i) => {
+      {(block.options ?? []).map((opt: any, i: any) => {
         const letter = OPTION_LABELS[i]
         const selected = answer === letter
         const isCorrect = block.correct_answer === letter
@@ -109,7 +109,7 @@ export function QuestionRenderer({ block, index, answer, onChange, readOnly, sho
     const selected = Array.isArray(answer) ? (answer as string[]) : []
     return (
       <div className="space-y-2 mt-3">
-        {(block.options ?? []).map((opt, i) => {
+        {(block.options ?? []).map((opt: any, i: any) => {
           const letter = OPTION_LABELS[i]
           const isSelected = selected.includes(letter)
           const isCorrect = (block.correct_answers ?? []).includes(letter)
@@ -184,7 +184,7 @@ export function QuestionRenderer({ block, index, answer, onChange, readOnly, sho
   const renderMatching = () => {
     const pairs = block.matching_pairs ?? []
     const answerMap = (Array.isArray(answer) ? answer : []) as { left: string; right: string }[]
-    const shuffledRight = [...pairs.map(p => p.right)].sort(() => 0.5 - Math.random())
+    const shuffledRight = [...pairs.map((p: any) => p.right)].sort(() => 0.5 - Math.random())
     const [localRight] = useState(shuffledRight)
 
     return (
@@ -193,7 +193,7 @@ export function QuestionRenderer({ block, index, answer, onChange, readOnly, sho
           <span style={{ color: 'var(--text-muted)' }}>Column A</span>
           <span style={{ color: 'var(--text-muted)' }}>Column B</span>
         </div>
-        {pairs.map((pair, i) => (
+        {pairs.map((pair: any, i: any) => (
           <div key={i} className="grid grid-cols-2 gap-2 items-center">
             <div className="p-2.5 rounded-lg text-sm" style={{ background: 'var(--input)', color: 'var(--text)' }}>
               {renderTextWithMath(pair.left)}
@@ -235,7 +235,7 @@ export function QuestionRenderer({ block, index, answer, onChange, readOnly, sho
            ) : (
               <div className="w-full h-full flex items-center justify-center opacity-10"><BookOpen size={48} /></div>
            )}
-           {labels.map(label => (
+           {labels.map((label: any) => (
               <div 
                 key={label.id} 
                 className="absolute w-6 h-6 bg-primary rounded-full ring-2 ring-white transform -translate-x-1/2 -translate-y-1/2 flex items-center justify-center text-[10px] font-black text-white shadow-xl"
@@ -246,7 +246,7 @@ export function QuestionRenderer({ block, index, answer, onChange, readOnly, sho
            ))}
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-           {labels.map((label, i) => (
+           {labels.map((label: any, i: any) => (
               <div key={label.id} className="flex items-center gap-2">
                  <div className="w-6 h-6 rounded-lg bg-[var(--input)] flex items-center justify-center text-[10px] font-black shrink-0">{i + 1}</div>
                  <input 
@@ -273,13 +273,13 @@ export function QuestionRenderer({ block, index, answer, onChange, readOnly, sho
          <table className="w-full text-sm text-left border-collapse">
             <thead className="bg-[var(--input)]">
                <tr>
-                  {headers.map((h, i) => <th key={i} className="px-4 py-2 font-black uppercase tracking-wider text-[10px] opacity-60 border-r border-[var(--card-border)]">{h}</th>)}
+                  {headers.map((h: any, i: any) => <th key={i} className="px-4 py-2 font-black uppercase tracking-wider text-[10px] opacity-60 border-r border-[var(--card-border)]">{h}</th>)}
                </tr>
             </thead>
             <tbody>
                {[0, 1, 2].map(rowIndex => (
                   <tr key={rowIndex} className="border-t border-[var(--card-border)]">
-                     {headers.map((_, colIndex) => (
+                     {headers.map((_: any, colIndex: any) => (
                         <td key={colIndex} className="p-0 border-r border-[var(--card-border)]">
                            <input 
                               disabled={readOnly}
@@ -310,7 +310,7 @@ export function QuestionRenderer({ block, index, answer, onChange, readOnly, sho
 
     return (
       <div className="mt-3 p-4 rounded-xl bg-[var(--input)]/50 border border-[var(--card-border)] leading-relaxed text-base">
-         {parts.map((part, i) => {
+         {parts.map((part: any, i: any) => {
             if (part.startsWith('[') && part.endsWith(']')) {
                const blankId = `blank-${blankCounter++}`
                return (
@@ -437,7 +437,7 @@ export function QuestionRenderer({ block, index, answer, onChange, readOnly, sho
         </div>
         <div className="text-right shrink-0">
           <div className="text-xs font-black" style={{ color: 'var(--primary)' }}>[{block.marks}]</div>
-          <div className="text-[9px] font-bold uppercase mt-0.5" style={{ color: DIFF[block.difficulty] }}>{block.difficulty}</div>
+          <div className="text-[9px] font-bold uppercase mt-0.5" style={{ color: DIFF[block.difficulty as keyof typeof DIFF] }}>{block.difficulty}</div>
         </div>
       </div>
 

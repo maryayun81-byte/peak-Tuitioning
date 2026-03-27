@@ -164,7 +164,7 @@ export function WorksheetPreview({ title, subject, class_name, blocks, passage, 
                       <div className="shrink-0 text-right">
                         <div className="text-xs font-black text-blue-600">[{block.marks} mk]</div>
                         {block.difficulty && (
-                          <div className="text-[9px] uppercase font-bold mt-0.5" style={{ color: DIFF_COLORS[block.difficulty] }}>
+                          <div className="text-[9px] uppercase font-bold mt-0.5" style={{ color: DIFF_COLORS[block.difficulty as keyof typeof DIFF_COLORS] }}>
                             {block.difficulty}
                           </div>
                         )}
@@ -175,7 +175,7 @@ export function WorksheetPreview({ title, subject, class_name, blocks, passage, 
                   {/* MCQ */}
                   {(block.type === 'mcq' || block.type === 'multi_select') && (
                     <div className="ml-10 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
-                      {(block.options ?? []).filter(o => o).map((opt, i) => (
+                      {(block.options ?? []).filter((o: any) => o).map((opt: any, i: any) => (
                         <div key={i} className="flex items-center gap-2 text-sm text-gray-700">
                           <span className="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold shrink-0" style={{ border: '1.5px solid #d1d5db' }}>{OPTION_LABELS[i]}</span>
                           <span className="leading-tight">{opt}</span>
@@ -196,10 +196,10 @@ export function WorksheetPreview({ title, subject, class_name, blocks, passage, 
                   {block.type === 'matching' && (
                     <div className="ml-10 grid grid-cols-2 gap-8 pr-4">
                       <div className="space-y-2">
-                        {(block.matching_pairs ?? []).map((p, i) => <div key={i} className="text-sm border-b border-gray-100 pb-1.5 flex gap-2"><span className="opacity-40 font-bold">{i + 1}.</span> {p.left}</div>)}
+                        {(block.matching_pairs ?? []).map((p: any, i: any) => <div key={i} className="text-sm border-b border-gray-100 pb-1.5 flex gap-2"><span className="opacity-40 font-bold">{i + 1}.</span> {p.left}</div>)}
                       </div>
                       <div className="space-y-2">
-                        {(block.matching_pairs ?? []).map((p, i) => <div key={i} className="text-sm border-b border-gray-100 pb-1.5 flex gap-2"><span className="opacity-40 font-bold">{String.fromCharCode(65 + i)}.</span> {p.right}</div>)}
+                        {(block.matching_pairs ?? []).map((p: any, i: any) => <div key={i} className="text-sm border-b border-gray-100 pb-1.5 flex gap-2"><span className="opacity-40 font-bold">{String.fromCharCode(65 + i)}.</span> {p.right}</div>)}
                       </div>
                     </div>
                   )}

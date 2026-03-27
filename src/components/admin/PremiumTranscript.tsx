@@ -128,7 +128,7 @@ export function PremiumTranscript({ transcript, schoolName = 'PEAK PERFORMANCE T
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--card-border)]">
-              {transcript.subject_results.map((res, i) => (
+              {transcript.subject_results.map((res: any, i: any) => (
                 <tr key={i} className="hover:bg-[var(--input)]/50 transition-colors">
                   <td className="px-5 py-2.5">
                     <span className="font-bold text-sm text-[var(--text)] uppercase">{res.subject_name}</span>
@@ -143,7 +143,7 @@ export function PremiumTranscript({ transcript, schoolName = 'PEAK PERFORMANCE T
 
         {/* COMPACT MOBILE LIST */}
         <div className="md:hidden space-y-2">
-          {transcript.subject_results.map((res, i) => (
+          {transcript.subject_results.map((res: any, i: any) => (
             <div key={i} className="flex items-center justify-between p-3 bg-[var(--input)] rounded-xl border border-[var(--card-border)]">
               <span className="font-bold text-xs text-[var(--text)] uppercase">{res.subject_name}</span>
               <div className="flex items-center gap-3">

@@ -205,7 +205,7 @@ export default function AdminTuitionEvents() {
                 </div>
 
                 <div className="flex flex-wrap gap-1 mb-3">
-                  {event.active_days.map(d => (
+                  {event.active_days.map((d: string) => (
                     <Badge key={d} variant="info">{d.slice(0, 3).toUpperCase()}</Badge>
                   ))}
                 </div>

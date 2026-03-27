@@ -59,7 +59,7 @@ export function QuestionBlock({ block, index, onChange, onDelete }: QuestionBloc
     update({ options: opts })
   }
   const addOption = () => update({ options: [...(block.options ?? []), ''] })
-  const removeOption = (i: number) => update({ options: (block.options ?? []).filter((_, idx) => idx !== i) })
+  const removeOption = (i: number) => update({ options: (block.options ?? []).filter((_: any, idx: any) => idx !== i) })
 
   const updatePair = (i: number, key: 'left' | 'right', val: string) => {
     const pairs = [...(block.matching_pairs ?? [])]
@@ -67,7 +67,7 @@ export function QuestionBlock({ block, index, onChange, onDelete }: QuestionBloc
     update({ matching_pairs: pairs })
   }
   const addPair = () => update({ matching_pairs: [...(block.matching_pairs ?? []), { left: '', right: '' }] })
-  const removePair = (i: number) => update({ matching_pairs: (block.matching_pairs ?? []).filter((_, idx) => idx !== i) })
+  const removePair = (i: number) => update({ matching_pairs: (block.matching_pairs ?? []).filter((_: any, idx: any) => idx !== i) })
 
   const handleDiagramSave = () => {
     // Only now do we write to parent state — one time, on explicit save
@@ -149,7 +149,7 @@ export function QuestionBlock({ block, index, onChange, onDelete }: QuestionBloc
                         <div className="mt-2 p-3 rounded-xl bg-indigo-50/50 border border-indigo-100">
                           <div className="text-[9px] font-black uppercase tracking-widest text-indigo-400 mb-2">Math Live Preview</div>
                           <div className="text-sm">
-                            {block.question.split(/(\$\$[\s\S]*?\$\$|\$[\s\S]*?\$)/g).map((part, i) => {
+                            {block.question.split(/(\$\$[\s\S]*?\$\$|\$[\s\S]*?\$)/g).map((part: any, i: any) => {
                               if (part.startsWith('$$') && part.endsWith('$$')) return <MathRenderer key={i} formula={part.slice(2, -2)} block={true} />
                               if (part.startsWith('$') && part.endsWith('$')) return <MathRenderer key={i} formula={part.slice(1, -1)} block={false} />
                               return <span key={i}>{part}</span>
@@ -162,7 +162,7 @@ export function QuestionBlock({ block, index, onChange, onDelete }: QuestionBloc
                     {(block.type === 'mcq' || block.type === 'multi_select') && (
                       <div className="space-y-2">
                         <label className="block text-xs font-semibold text-slate-500">Options</label>
-                        {(block.options ?? []).map((opt, i) => (
+                        {(block.options ?? []).map((opt: any, i: any) => (
                            <div key={i} className="flex items-center gap-2 group">
                               <button
                                  type="button"
@@ -191,7 +191,7 @@ export function QuestionBlock({ block, index, onChange, onDelete }: QuestionBloc
 
                     {block.type === 'matching' && (
                         <div className="space-y-2">
-                            {(block.matching_pairs ?? []).map((p, i) => (
+                            {(block.matching_pairs ?? []).map((p: any, i: any) => (
                                 <div key={i} className="flex items-center gap-2 group">
                                     <input className="flex-1 rounded-xl px-3 py-2 text-sm shadow-sm" style={{ background: 'var(--input)', color: 'var(--text)', border: '1px solid var(--card-border)' }} value={p.left} onChange={e => updatePair(i, 'left', e.target.value)} placeholder="Left" />
                                     <span className="text-slate-300">→</span>

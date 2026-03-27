@@ -580,7 +580,7 @@ interface SBProps {
 
 function SessionBlock({ entry, teachers: _teachers, onEdit, onDelete, onSetStatus, mobile }: SBProps) {
   const status = entry.status ?? 'draft'
-  const sc = STATUS_CONFIG[status]
+  const sc = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG] || STATUS_CONFIG.draft
   return (
     <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
       className={`group relative rounded-xl border border-[var(--card-border)] p-3 transition-all hover:border-primary/40 hover:shadow-lg hover:shadow-primary/5 ${mobile ? 'flex items-start gap-3' : ''}`}

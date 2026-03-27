@@ -66,7 +66,7 @@ export default function AdminGrading() {
 
         if (sysErr) throw sysErr
 
-        const scalesPayload = (system.scales || []).map(s => ({
+        const scalesPayload = (system.scales || []).map((s: any) => ({
             grading_system_id: newSys.id,
             grade: s.grade,
             min_score: s.min_score,
@@ -182,7 +182,7 @@ export default function AdminGrading() {
                               <p className="text-xs">Create a system to start mapping scores to grades.</p>
                            </div>
                         ) : (
-                           curriculum.systems.map(system => (
+                           curriculum.systems.map((system: any) => (
                               <Card key={system.id} className="p-0 overflow-hidden group hover:shadow-2xl transition-all duration-300">
                                  <div className="p-5 space-y-4">
                                     <div className="flex items-start justify-between">
@@ -219,7 +219,7 @@ export default function AdminGrading() {
                                     <div className="space-y-2">
                                        <div className="text-[10px] font-black uppercase tracking-widest opacity-40">Grade Bands ({system.scales?.length || 0})</div>
                                        <div className="flex flex-wrap gap-1.5">
-                                          {system.scales?.sort((a,b) => b.min_score - a.min_score).map(scale => (
+                                          {system.scales?.sort((a: any, b: any) => b.min_score - a.min_score).map((scale: any) => (
                                              <div key={scale.id} className="px-2 py-1 rounded-lg bg-[var(--input)] border border-[var(--card-border)] text-[10px] font-bold">
                                                 <span className="text-primary">{scale.grade}</span>: {scale.min_score}-{scale.max_score}
                                              </div>

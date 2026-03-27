@@ -146,7 +146,7 @@ export function SortableBlock({ block, index, qNumber }: SortableBlockProps) {
               </h2>
             ) : block.type === 'fill_in_blank' ? (
               <p className="text-sm leading-relaxed" style={{ color: 'var(--text)' }}>
-                {block.blank_text?.split(/\[.*?\]/).map((part, i, arr) => (
+                {block.blank_text?.split(/\[.*?\]/).map((part: any, i: any, arr: any) => (
                   <span key={i}>
                     {part}
                     {i < arr.length - 1 && (
@@ -187,9 +187,9 @@ export function SortableBlock({ block, index, qNumber }: SortableBlockProps) {
                   )}
                 </div>
                 {/* MCQ options preview */}
-                {(block.type === 'mcq' || block.type === 'multi_select') && block.options && block.options.some(o => o) && (
+                {(block.type === 'mcq' || block.type === 'multi_select') && block.options && block.options.some((o: any) => o) && (
                   <div className="mt-2.5 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                    {block.options.filter(o => o).map((opt, i) => (
+                    {block.options.filter((o: any) => o).map((opt: any, i: any) => (
                       <div key={i} className="flex items-center gap-2 text-xs opacity-60">
                         <div 
                           className="w-5 h-5 rounded-md flex items-center justify-center font-black shrink-0 text-[10px]"

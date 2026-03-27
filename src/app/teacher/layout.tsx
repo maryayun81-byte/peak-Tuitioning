@@ -36,12 +36,6 @@ const NAV_ITEMS = [
   { label: 'Settings', href: '/teacher/settings', icon: <Settings size={18} /> },
 ]
 
-const MOBILE_BOTTOM = NAV_ITEMS.slice(0, 4)
-const MOBILE_MORE = [
-  ...NAV_ITEMS.slice(4),
-  { label: 'Sign Out', href: '#', icon: <LogOut size={18} /> },
-]
-
 const LogoComponent = (
   <div className="flex items-center gap-2">
     <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #0EA5E9, #22D3EE)' }}>
@@ -92,7 +86,7 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
     <div className="min-h-screen" style={{ background: 'var(--bg)' }}>
       <SplashScreen storageKey="splash-teacher" role="teacher" />
       <Sidebar
-        items={NAV_ITEMS}
+        items={NAV_ITEMS.filter(item => item.label !== 'Attendance' || teacher?.is_class_teacher)}
         bottomItems={[
           { label: 'Sign Out', href: '#', icon: <LogOut size={18} />, onClick: () => signOut() },
         ]}
@@ -140,10 +134,11 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
       </main>
 
       <BottomNav 
-        items={MOBILE_BOTTOM} 
-        moreItems={MOBILE_MORE.map(item => 
-          item.label === 'Sign Out' ? { ...item, onClick: signOut } : item
-        )} 
+        items={NAV_ITEMS.filter(item => item.label !== 'Attendance' || teacher?.is_class_teacher).slice(0, 4)} 
+        moreItems={[
+          ...NAV_ITEMS.filter(item => item.label !== 'Attendance' || teacher?.is_class_teacher).slice(4),
+          { label: 'Sign Out', href: '#', icon: <LogOut size={18} />, onClick: signOut }
+        ]} 
       />
     </div>
   )

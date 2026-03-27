@@ -157,13 +157,13 @@ export default function StudentWorksheetSolver() {
 
   const updateAnswer = (blockId: string, value: WorksheetAnswers[string]) => {
     if (resultMode) return
-    setAnswers(prev => ({ ...prev, [blockId]: value }))
+    setAnswers((prev: any) => ({ ...prev, [blockId]: value }))
     setIsDirty(true)
   }
 
   const updateAnnotation = (json: string, pageIndex: number = 0) => {
     if (resultMode) return
-    setAnswers(prev => {
+    setAnswers((prev: any) => {
        const current = prev.__annotation__
        let updated: any = {}
        
