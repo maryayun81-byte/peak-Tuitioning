@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { 
   Trophy, Award, Star, Zap, 
   Calendar, CheckCircle2, ChevronRight,
-  Shield, Medal, Target, Rocket,
+  Shield, Medal, Target, Rocket, Timer,
   Crown, Sparkles
 } from 'lucide-react'
 import { Card, Badge } from '@/components/ui/Card'
@@ -61,13 +61,32 @@ const BADGE_CONFIG: Record<string, { label: string; icon: any; color: string; de
     icon: <Crown size={32} />,
     color: 'from-amber-400 to-orange-500',
     description: 'The first to reach the ultimate peak of 4000 XP.'
+  },
+  'trivia_champion': {
+    label: 'Trivia Titan',
+    icon: <Trophy size={32} />,
+    color: 'from-amber-400 to-yellow-600',
+    description: 'Led your squad to a #1 victory in an official trivia quest.'
+  },
+  'quick_draw': {
+    label: 'Quick Draw',
+    icon: <Timer size={32} />,
+    color: 'from-emerald-400 to-cyan-500',
+    description: 'Awarded for having the fastest average response time in a trivia session.'
+  },
+  'streak_master': {
+    label: 'Streak Master',
+    icon: <Zap size={32} />,
+    color: 'from-orange-400 to-rose-500',
+    description: 'Maintained a massive 5+ question streak during a trivia mission.'
   }
 }
 
 // All available badges students can earn
 const ALL_BADGE_TYPES = [
   'map_master', 'weekly_mastery', 'consistency_king', 'early_bird',
-  'level_1_pioneer', 'level_1_conqueror', 'level_2_pioneer', 'level_5_pioneer'
+  'level_1_pioneer', 'level_1_conqueror', 'level_2_pioneer', 'level_5_pioneer',
+  'trivia_champion', 'quick_draw', 'streak_master'
 ]
 
 export default function AwardsPage() {

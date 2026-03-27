@@ -24,6 +24,7 @@ import { calculateLevel } from '@/lib/gamification'
 
 const NAV_ITEMS = [
   { label: 'My Hub', href: '/student', icon: <LayoutDashboard size={18} /> },
+  { label: 'Trivia', href: '/student/trivia', icon: <Trophy size={18} /> },
   { label: 'Assignments', href: '/student/assignments', icon: <FileText size={18} /> },
   { label: 'Quizzes', href: '/student/quizzes', icon: <BrainCircuit size={18} /> },
   { label: 'Schedule', href: '/student/schedule', icon: <Calendar size={18} /> },

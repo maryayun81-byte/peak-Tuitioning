@@ -242,7 +242,6 @@ export default function TeacherAttendance() {
       week_number: selectedWeekNum,
       status: data.status,
       notes: data.notes,
-      marked_by: profile?.id,
     }))
 
     const { error } = await supabase.from('attendance').upsert(items, {
@@ -580,18 +579,18 @@ export default function TeacherAttendance() {
               <div className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
                 {studentsLoading ? 'Loading...' : `${filteredStudents.length} student${filteredStudents.length !== 1 ? 's' : ''}`}
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Button size="sm" onClick={() => {
                   const bulk = Object.fromEntries(students.map(s => [s.id, { status: 'present' as AttendanceStatus, notes: '' }]))
                   setAttendance(bulk)
-                }} className="bg-emerald-500 hover:bg-emerald-600 text-white border-0 shadow-sm shadow-emerald-500/20">
-                  <CheckCircle2 size={16} className="mr-1.5" /> All Present
+                }} className="bg-emerald-500 hover:bg-emerald-600 text-white border-0 shadow-sm shadow-emerald-500/20 flex-1 sm:flex-none min-w-[120px]">
+                  <CheckCircle2 size={14} className="mr-1" /> All Present
                 </Button>
                 <Button size="sm" onClick={() => {
                   const bulk = Object.fromEntries(students.map(s => [s.id, { status: 'absent' as AttendanceStatus, notes: '' }]))
                   setAttendance(bulk)
-                }} className="bg-red-500 hover:bg-red-600 text-white border-0 shadow-sm shadow-red-500/20">
-                  <XCircle size={16} className="mr-1.5" /> All Absent
+                }} className="bg-red-500 hover:bg-red-600 text-white border-0 shadow-sm shadow-red-500/20 flex-1 sm:flex-none min-w-[120px]">
+                  <XCircle size={14} className="mr-1" /> All Absent
                 </Button>
               </div>
             </div>
@@ -927,17 +926,17 @@ function StudentAnalyticsModal({ studentId, onClose, allAttendance, weeks, stude
   return (
     <Modal isOpen={!!studentId} onClose={onClose} title="Student Performance Deep-Dive" size="xl">
        <div className="space-y-6">
-          <div className="flex items-center justify-between gap-4 p-4 rounded-3xl bg-[var(--input)] border border-[var(--card-border)]">
-             <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-2xl bg-primary flex items-center justify-center text-white font-black text-xl shadow-lg shadow-primary/20">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 rounded-3xl bg-[var(--input)] border border-[var(--card-border)]">
+             <div className="flex items-center gap-3 flex-1 min-w-0">
+                <div className="w-12 h-12 rounded-2xl bg-primary flex items-center justify-center text-white font-black text-xl shadow-lg shadow-primary/20 shrink-0">
                    {studentName ? studentName[0] : '?'}
                 </div>
-                <div>
-                   <h3 className="font-black text-lg" style={{ color: 'var(--text)' }}>{studentName}</h3>
-                   <div className="text-xs font-bold" style={{ color: 'var(--text-muted)' }}>Viewing Analytics Matrix</div>
+                <div className="min-w-0">
+                   <h3 className="font-black text-base truncate" style={{ color: 'var(--text)' }}>{studentName}</h3>
+                   <div className="text-xs font-bold" style={{ color: 'var(--text-muted)' }}>Viewing Analytics</div>
                 </div>
              </div>
-             <Select value={selectedWeekNum.toString()} onChange={e => setSelectedWeekNum(parseInt(e.target.value))} className="w-40 h-10 rounded-xl">
+             <Select value={selectedWeekNum.toString()} onChange={e => setSelectedWeekNum(parseInt(e.target.value))} className="w-full sm:w-44">
                 {weeks.map((w: any) => <option key={w.weekNumber} value={w.weekNumber}>{w.label}</option>)}
              </Select>
           </div>

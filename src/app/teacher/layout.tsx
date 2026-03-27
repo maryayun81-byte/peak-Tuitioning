@@ -6,7 +6,7 @@ import { motion } from 'framer-motion'
 import {
   LayoutDashboard, BookOpen, ClipboardList, Calendar, 
   Library, GraduationCap, Award, Settings, LogOut,
-  PlusCircle, FileText, Bell, Users, Layers, BrainCircuit, HelpCircle
+  PlusCircle, FileText, Bell, Users, Layers, BrainCircuit, HelpCircle, Trophy
 } from 'lucide-react'
 import { Sidebar, BottomNav } from '@/components/layout/Sidebar'
 import { useAuthStore } from '@/stores/authStore'
@@ -22,6 +22,7 @@ import { useRealtimeNotifications } from '@/hooks/useRealtimeNotifications'
 const NAV_ITEMS = [
   { label: 'Dashboard', href: '/teacher', icon: <LayoutDashboard size={18} /> },
   { label: 'Attendance', href: '/teacher/attendance', icon: <ClipboardList size={18} /> },
+  { label: 'Trivia', href: '/teacher/trivia', icon: <Trophy size={18} /> },
   { label: 'Assignments', href: '/teacher/assignments', icon: <FileText size={18} /> },
   { label: 'Worksheets', href: '/teacher/worksheets/new', icon: <Layers size={18} /> },
   { label: 'Practice Bank', href: '/teacher/practice-questions', icon: <HelpCircle size={18} /> },
