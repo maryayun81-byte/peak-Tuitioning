@@ -110,13 +110,44 @@ export default function StudentTriviaResultsPage() {
     if (!cert) return
     setIsDownloading(true)
     try {
-      const canvas = await html2canvas(cert, { scale: 2, useCORS: true, backgroundColor: '#ffffff' })
+      // Convert external images to Data URIs to prevent html2canvas CORS crashes
+      const imgs = cert.querySelectorAll('img')
+      const originalSrcs: string[] = []
+      for (let i = 0; i < imgs.length; i++) {
+         const img = imgs[i]
+         originalSrcs.push(img.src)
+         if (img.src.startsWith('http')) {
+            try {
+               const res = await fetch(img.src, { mode: 'cors' })
+               const blob = await res.blob()
+               const dataUrl = await new Promise<string>((resolve) => {
+                  const reader = new FileReader()
+                  reader.onloadend = () => resolve(reader.result as string)
+                  reader.readAsDataURL(blob)
+               })
+               img.src = dataUrl
+               // Force wait for image to load the new data URI
+               await new Promise((resolve) => { img.onload = resolve; setTimeout(resolve, 100); })
+            } catch (e) {
+               console.warn('Failed to convert image for snapshot', e)
+            }
+         }
+      }
+
+      const canvas = await html2canvas(cert, { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false })
+      
+      // Restore original sources
+      for (let i = 0; i < imgs.length; i++) {
+         imgs[i].src = originalSrcs[i]
+      }
+
       const link = document.createElement('a')
-      link.download = `${myGroup?.name}_Champion_Certificate.png`
+      link.download = `${myGroup?.name || 'Squad'}_Champion_Certificate.png`
       link.href = canvas.toDataURL('image/png')
       link.click()
     } catch (err) {
-      toast.error('Snapshot failed')
+      console.error('Snapshot error:', err)
+      toast.error('Snapshot failed: Could not render image.')
     } finally {
       setIsDownloading(false)
     }
@@ -145,7 +176,7 @@ export default function StudentTriviaResultsPage() {
   // Celebration only if they didn't time out the whole session (user request)
   const shouldCelebrate = isWinner && !mySubmission?.auto_submitted
 
-  if (loading) return <div className="p-10 text-center font-black uppercase">Syncing Leaderboard...</div>
+  if (loading) return <div className="p-10 text-center font-black uppercase text-[var(--text-muted)]">Syncing Leaderboard...</div>
 
   return (
     <div className="p-4 md:p-6 pb-20 max-w-2xl mx-auto space-y-8 relative overflow-hidden bg-[var(--bg)] min-h-screen">
@@ -169,10 +200,10 @@ export default function StudentTriviaResultsPage() {
 
       {/* Header */}
       <div className="relative z-10 flex items-center justify-between">
-         <Button variant="ghost" size="sm" onClick={() => router.push('/student/trivia')}>
+         <Button variant="ghost" size="sm" onClick={() => router.push('/student/trivia')} className="text-[var(--text-muted)] hover:text-primary">
             <ChevronLeft size={18} />
          </Button>
-         <h1 className="text-xl font-black uppercase tracking-tighter italic" style={{ color: 'var(--text)' }}>Mission Data</h1>
+         <h1 className="text-xl font-black uppercase tracking-tighter italic" style={{ color: 'var(--text)' }}>Session Record</h1>
          <div className="w-10" />
       </div>
 
@@ -182,10 +213,10 @@ export default function StudentTriviaResultsPage() {
                <motion.div 
                   animate={{ scale: [1, 1.1, 1], rotate: [0, 5, -5, 0] }} 
                   transition={{ duration: 0.5, repeat: Infinity, repeatDelay: 4 }}
-                  className="w-24 h-24 rounded-[2rem] bg-white border-4 border-amber-400 flex items-center justify-center p-3 shadow-2xl shadow-amber-500/30 relative mb-4"
+                  className="w-24 h-24 rounded-[2rem] bg-[var(--card)] border-4 border-[var(--primary)] flex items-center justify-center p-3 shadow-2xl shadow-[var(--primary)]/30 relative mb-4"
                >
                    <img src={myGroup?.avatar_url || 'https://api.dicebear.com/7.x/bottts/svg?seed=Winner'} alt="" className="w-full h-full object-contain" />
-                   <div className="absolute -bottom-2 bg-amber-400 text-black px-4 py-1 rounded-full text-[10px] font-black shadow-lg border-2 border-white uppercase italic">Elite #1</div>
+                   <div className="absolute -bottom-2 bg-[var(--primary)] text-[var(--bg)] px-4 py-1 rounded-full text-[10px] font-black shadow-lg border-2 border-[var(--card)] uppercase italic">Elite #1</div>
                </motion.div>
             ) : (
                <div className="w-24 h-24 rounded-[2rem] bg-[var(--input)] border-2 border-[var(--card-border)] flex items-center justify-center p-4 mb-4 shadow-xl">
@@ -193,7 +224,7 @@ export default function StudentTriviaResultsPage() {
                </div>
             )}
             <h2 className="text-3xl font-black tracking-tighter uppercase italic" style={{ color: 'var(--text)' }}>
-               {shouldCelebrate ? 'Supreme Victory!' : isWinner ? 'Top Rank Achieved' : 'Mission Logs Ready'}
+               {shouldCelebrate ? 'Mastery Attained!' : isWinner ? 'Top Rank Achieved' : 'Record Finalized'}
             </h2>
             <p className="text-xs font-black text-primary uppercase tracking-[0.3em] mt-1">
                {myGroup?.name}
@@ -207,21 +238,21 @@ export default function StudentTriviaResultsPage() {
                <div className="text-[10px] font-bold text-[var(--text-muted)]">OF {leaderboard.length}</div>
             </Card>
             <Card className="p-4 flex flex-col items-center justify-center border-b-4 border-emerald-500/50 bg-[var(--card)]/50">
-               <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] mb-1">Combat Score</div>
+               <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] mb-1">Academic Score</div>
                <div className="text-3xl font-black text-emerald-500">{mySubmission?.score}</div>
                <div className="text-[10px] font-bold text-[var(--text-muted)]">PT TOTAL {totalMarks}</div>
             </Card>
             <Card className="p-4 flex flex-col items-center justify-center border-b-4 border-amber-500/50 bg-[var(--card)]/50">
-               <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] mb-1">Elapsed Time</div>
+               <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] mb-1">Response Velocity</div>
                <div className="text-xl font-black text-amber-500">
                   {mySubmission ? fmtDuration(mySubmission.time_taken_seconds) : '—'}
                </div>
-               <div className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-tighter">Mission Clock</div>
+               <div className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-tighter">Session Clock</div>
             </Card>
             <Card className="p-4 flex flex-col items-center justify-center border-b-4 border-orange-500/50 bg-[var(--card)]/50 col-span-full">
-               <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] mb-1">Squad Synchronicity</div>
+               <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] mb-1">Academy Synchronicity</div>
                <div className="text-2xl font-black text-orange-500 flex items-center gap-3">
-                  <Zap size={24} className="fill-orange-500" /> {mySubmission?.max_streak ?? 0} BEST COMBO
+                  <Zap size={24} className="fill-orange-500" /> {mySubmission?.max_streak ?? 0} BEST STREAK
                </div>
             </Card>
          </div>
@@ -231,143 +262,131 @@ export default function StudentTriviaResultsPage() {
                onClick={() => setShowCertificate(true)}
                className="w-full h-16 bg-gradient-to-r from-amber-400 to-orange-500 hover:from-amber-500 hover:to-orange-600 border-0 text-black font-black uppercase tracking-[0.2em] shadow-2xl shadow-amber-500/30 gap-3"
             >
-               <Award size={24} /> Mint Champion Badge
+               <Award size={24} /> Mint Academy Scroll
             </Button>
          )}
       </motion.div>
 
       {/* Certificate Modal */}
+      {/* Certificate Modal */}
       <AnimatePresence>
          {showCertificate && (
             <motion.div 
-               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+               initial={{ opacity: 0 }} 
+               animate={{ opacity: 1 }} 
+               exit={{ opacity: 0 }}
                className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-2xl p-4 flex flex-col items-center justify-center pt-20"
             >
                <div className="w-full flex justify-center overflow-hidden">
-                  <div className="origin-top scale-[0.35] sm:scale-[0.6] md:scale-[0.8] lg:scale-100 transition-transform duration-500">
-                  {/* Premium Certificate: worth 1,000,000 dollars :) */}
-                  <div id="victory-certificate" className="w-[1000px] aspect-[1.414/1] bg-[#FCFBF4] p-2 relative shadow-2xl shrink-0 overflow-hidden font-serif selection:bg-amber-100">
-                     
-                     {/* Outer Border Layer */}
-                     <div className="absolute inset-4 border-[1px] border-amber-900/20" />
-                     <div className="absolute inset-8 border-[2px] border-amber-600/40" />
-                     
-                     {/* Main Decorative Frame */}
-                     <div className="absolute inset-12 border-[12px] border-double border-slate-900 flex flex-col items-center p-12 text-slate-900">
+                  <div className="origin-top scale-[0.35] sm:scale-[0.55] md:scale-[0.75] lg:scale-90 transition-transform duration-500">
+                     {/* Theme-Aware Premium Certificate */}
+                     <div id="victory-certificate" className="w-[1000px] aspect-[1.414/1] p-[2px] relative shadow-2xl shrink-0 overflow-hidden font-sans uppercase rounded-sm" style={{ background: 'var(--card-border)' }}>
                         
-                        {/* Corner Ornaments */}
-                        <div className="absolute -top-4 -left-4 w-24 h-24 text-amber-600 opacity-80">
-                           <svg viewBox="0 0 100 100" className="w-full h-full"><path d="M0,0 Q50,0 50,50 Q0,50 0,100" fill="none" stroke="currentColor" strokeWidth="2" /><path d="M0,0 L10,10 M20,20 Q40,0 60,20" fill="none" stroke="currentColor" strokeWidth="1" /></svg>
-                        </div>
-                        <div className="absolute -top-4 -right-4 w-24 h-24 text-amber-600 opacity-80 rotate-90">
-                           <svg viewBox="0 0 100 100" className="w-full h-full"><path d="M0,0 Q50,0 50,50 Q0,50 0,100" fill="none" stroke="currentColor" strokeWidth="2" /><path d="M0,0 L10,10 M20,20 Q40,0 60,20" fill="none" stroke="currentColor" strokeWidth="1" /></svg>
-                        </div>
-                        <div className="absolute -bottom-4 -left-4 w-24 h-24 text-amber-600 opacity-80 -rotate-90">
-                           <svg viewBox="0 0 100 100" className="w-full h-full"><path d="M0,0 Q50,0 50,50 Q0,50 0,100" fill="none" stroke="currentColor" strokeWidth="2" /><path d="M0,0 L10,10 M20,20 Q40,0 60,20" fill="none" stroke="currentColor" strokeWidth="1" /></svg>
-                        </div>
-                        <div className="absolute -bottom-4 -right-4 w-24 h-24 text-amber-600 opacity-80 rotate-180">
-                           <svg viewBox="0 0 100 100" className="w-full h-full"><path d="M0,0 Q50,0 50,50 Q0,50 0,100" fill="none" stroke="currentColor" strokeWidth="2" /><path d="M0,0 L10,10 M20,20 Q40,0 60,20" fill="none" stroke="currentColor" strokeWidth="1" /></svg>
-                        </div>
+                        {/* Dynamic Background with Theme Accents */}
+                        <div className="absolute inset-0" style={{ background: 'var(--bg)' }} />
+                        <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundImage: 'radial-gradient(var(--primary) 1px, transparent 0)', backgroundSize: '32px 32px' }} />
+                        
+                        {/* Metallic Theme Border */}
+                        <div className="absolute inset-4 border-[1px]" style={{ borderColor: 'var(--primary)', opacity: 0.3 }} />
+                        <div className="absolute inset-8 border-[4px]" style={{ borderColor: 'var(--primary)', opacity: 0.1 }} />
+                        <div className="absolute inset-0 bg-gradient-to-br from-transparent via-primary/5 to-transparent pointer-events-none" />
 
-                        {/* Top Section */}
-                        <div className="flex flex-col items-center space-y-4 mb-8">
-                           <div className="flex items-center gap-4 text-amber-600">
-                              <div className="h-px w-20 bg-amber-600/30" />
-                              <Award size={48} className="drop-shadow-sm" />
-                              <div className="h-px w-20 bg-amber-600/30" />
+                        {/* Main Content Area */}
+                        <div className="absolute inset-4 flex flex-col items-center p-16 text-center" style={{ color: 'var(--text)' }}>
+                           
+                           {/* Decorative Glass Elements */}
+                           <div className="absolute top-0 left-0 w-32 h-32 opacity-20" style={{ background: 'radial-gradient(circle at 0 0, var(--primary), transparent 70%)' }} />
+                           <div className="absolute bottom-0 right-0 w-32 h-32 opacity-20" style={{ background: 'radial-gradient(circle at 100% 100%, var(--primary), transparent 70%)' }} />
+
+                           {/* Top Badge Section */}
+                           <div className="mb-10 relative">
+                              <motion.div animate={{ rotate: 360 }} transition={{ duration: 40, repeat: Infinity, ease: 'linear' }} className="absolute -inset-10 opacity-10">
+                                 <div className="w-40 h-40 border-2 border-dashed rounded-full" style={{ borderColor: 'var(--primary)' }} />
+                              </motion.div>
+                              <div className="relative p-6 rounded-[2.5rem] shadow-2xl border-2" style={{ background: 'var(--primary)', color: 'white', borderColor: 'rgba(255,255,255,0.2)' }}>
+                                 <Award size={64} className="filter drop-shadow-lg" />
+                              </div>
+                              <h2 className="mt-8 text-xs font-black tracking-[1em] uppercase opacity-70">Academy Excellence Scroll</h2>
+                              <div className="h-px w-64 mx-auto mt-4 opacity-30" style={{ background: 'linear-gradient(to right, transparent, var(--primary), transparent)' }} />
                            </div>
-                           <h4 className="text-sm font-black tracking-[0.6em] uppercase text-amber-800">Certificate of Excellence</h4>
-                           <p className="text-slate-400 italic text-lg opacity-80">This official scroll hereby recognizes the scholarly grit of</p>
-                        </div>
 
-                        {/* Main Subject Section */}
-                        <div className="flex-1 flex flex-col items-center justify-center space-y-8 w-full">
-                           <div className="relative group">
-                              <h1 className="text-8xl font-black tracking-tighter uppercase italic text-slate-900 border-b-4 border-amber-600/10 pb-4 px-12">
+                           {/* Student Name */}
+                           <div className="flex-1 flex flex-col items-center justify-center w-full">
+                              <p className="font-black italic tracking-[0.3em] text-[10px] mb-4 opacity-50">Official Recognition of Scholarly Grit</p>
+                              <h1 className="text-8xl font-black tracking-tighter italic leading-tight drop-shadow-2xl" style={{ color: 'var(--text)' }}>
                                  {student?.full_name}
                               </h1>
-                              <div className="absolute -top-6 -right-6">
-                                 <motion.div animate={{ rotate: 360 }} transition={{ duration: 20, repeat: Infinity, ease: 'linear' }}>
-                                    <Star size={40} className="text-amber-400 fill-amber-400 opacity-20" />
-                                 </motion.div>
+                              <div className="h-2 w-32 mt-6 rounded-full" style={{ background: 'var(--primary)' }} />
+                              
+                              <div className="mt-12 space-y-2">
+                                 <p className="text-lg font-bold opacity-40 italic tracking-tight">Distinguished Vanguard of</p>
+                                 <h3 className="text-6xl font-black tracking-tighter italic drop-shadow-xl" style={{ color: 'var(--primary)' }}>
+                                    {myGroup?.name}
+                                 </h3>
                               </div>
-                           </div>
-                           
-                           <div className="text-center space-y-2">
-                              <p className="text-xl text-slate-500 italic">Distinguished Member of the Elite Squad</p>
-                              <h3 className="text-4xl font-black text-amber-700 tracking-tight uppercase italic drop-shadow-sm">
-                                 {myGroup?.name}
-                              </h3>
                            </div>
 
-                           <div className="flex items-center gap-12 mt-8">
-                              <div className="text-center">
-                                 <div className="text-3xl font-black text-slate-900 italic transform skew-x-[-10deg]">#{myRank}</div>
-                                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">Battlefield Rank</div>
+                           {/* Metadata Footer */}
+                           <div className="w-full grid grid-cols-3 items-end mt-12">
+                              <div className="text-left space-y-1">
+                                 <div className="font-black text-3xl italic tracking-tighter" style={{ color: 'var(--text)' }}>#{myRank}</div>
+                                 <div className="text-[10px] font-black tracking-widest opacity-40 uppercase">Academy Rank</div>
                               </div>
-                              <div className="h-12 w-px bg-slate-200" />
-                              <div className="text-center">
-                                 <div className="text-3xl font-black text-slate-900 italic transform skew-x-[-10deg]">{mySubmission?.score}</div>
-                                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">Combat Points</div>
-                              </div>
-                           </div>
-                        </div>
 
-                        {/* Footer Section */}
-                        <div className="w-full flex justify-between items-end mt-12 border-t border-slate-100 pt-8">
-                           <div className="flex flex-col items-start gap-1">
-                              <div className="text-slate-900 font-bold text-lg font-serif">
-                                 {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
-                              </div>
-                              <div className="text-[8px] font-black uppercase tracking-widest text-slate-400 border-t border-slate-200 pt-1">Dated at Headquarters</div>
-                           </div>
-
-                           {/* The Premium Seal & Teammate List */}
-                           <div className="flex flex-col items-center gap-4">
-                              <div className="relative flex items-center justify-center">
-                                 <div className="w-32 h-32 rounded-full bg-gradient-to-br from-amber-300 via-amber-500 to-amber-700 p-1 shadow-xl relative z-10 rotate-12">
-                                    <div className="w-full h-full rounded-full bg-white/10 backdrop-blur-sm border-4 border-white/20 flex items-center justify-center p-4">
-                                       <img src={myGroup?.avatar_url || ''} alt="" className="w-full h-full object-contain filter drop-shadow-md" />
+                              <div className="flex flex-col items-center gap-4">
+                                 <div className="relative">
+                                    <div className="w-24 h-24 rounded-full p-1 shadow-2xl border-2" style={{ background: 'var(--input)', borderColor: 'var(--primary)' }}>
+                                       <div className="w-full h-full rounded-full flex items-center justify-center p-3 overflow-hidden">
+                                          <img src={myGroup?.avatar_url || ''} alt="" className="w-full h-full object-contain" crossOrigin="anonymous" />
+                                       </div>
+                                    </div>
+                                    <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 text-white text-[8px] font-black px-4 py-1 rounded-full shadow-lg whitespace-nowrap uppercase tracking-widest" style={{ background: 'var(--primary)' }}>
+                                       Verified Win
                                     </div>
                                  </div>
-                                 <div className="absolute -top-4 -right-4 bg-red-600 text-white text-[8px] font-black px-3 py-1 rounded-full shadow-lg z-20 uppercase tracking-widest -rotate-12 border-2 border-white">
-                                    Certified Win
-                                 </div>
-                                 <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 flex items-start gap-1 opacity-20">
-                                    <div className="w-4 h-12 bg-red-800 rounded-b-sm" />
-                                    <div className="w-4 h-12 bg-red-800 rounded-b-sm" />
-                                 </div>
+                                 {myGroup?.members && myGroup.members.length > 1 && (
+                                    <div className="text-[9px] font-black opacity-40 tracking-tighter text-center max-w-[200px]">
+                                       <span className="opacity-50">SQUAD COHORT:</span><br/>
+                                       {myGroup.members.filter(m => m.student?.id !== student?.id).map(m => m.student?.full_name?.split(' ')[0]).join(' / ')}
+                                    </div>
+                                 )}
                               </div>
-                              {myGroup?.members && myGroup.members.length > 1 && (
-                                 <div className="text-[10px] font-black text-slate-400 uppercase tracking-tighter text-center max-w-[200px]">
-                                    <span className="text-[8px] opacity-60">With Contributions From:</span><br/>
-                                    {myGroup.members.filter(m => m.student?.id !== student?.id).map(m => m.student?.full_name?.split(' ')[0]).join(', ')}
+
+                              <div className="text-right space-y-1">
+                                 <div className="font-black text-3xl italic tracking-tighter" style={{ color: 'var(--text)' }}>
+                                    {mySubmission?.score}
                                  </div>
-                              )}
+                                 <div className="text-[10px] font-black tracking-widest opacity-40 uppercase">Excellence Points</div>
+                              </div>
                            </div>
 
-                           <div className="flex flex-col items-end gap-1">
-                              <div className="text-slate-900 font-black text-lg italic uppercase font-serif tracking-tighter">
-                                 ARENA-{sessionId.slice(-6).toUpperCase()}
-                              </div>
-                              <div className="text-[8px] font-black uppercase tracking-widest text-slate-400 border-t border-slate-200 pt-1">Mission Credentials</div>
+                           {/* ID Block */}
+                           <div className="absolute bottom-6 right-6 opacity-20">
+                              <div className="text-[8px] font-black tracking-[0.3em]" style={{ color: 'var(--text)' }}>ARENA_ID_{sessionId.slice(-8).toUpperCase()}</div>
+                           </div>
+                           <div className="absolute bottom-6 left-6 opacity-20">
+                              <div className="text-[8px] font-black tracking-[0.3em]" style={{ color: 'var(--text)' }}>PEAK_PERFORMANCE_TUTORING_VERIFIED</div>
                            </div>
                         </div>
                      </div>
-
-                     <div className="absolute inset-0 pointer-events-none opacity-[0.03] select-none" style={{ backgroundImage: 'radial-gradient(circle, #000 1px, transparent 1px)', backgroundSize: '24px 24px' }} />
                   </div>
                </div>
-            </div>
 
-            <div className="fixed bottom-12 flex gap-4 w-full max-w-sm px-6">
-                  <Button variant="outline" className="flex-1 h-14 border-white/20 text-white hover:bg-white/10" onClick={() => setShowCertificate(false)}>
+               {/* Action Bar */}
+               <div className="fixed bottom-12 flex gap-4 w-full max-w-sm px-6 z-[110]">
+                  <Button 
+                     variant="outline" 
+                     className="flex-1 h-14 border-white/20 text-white hover:bg-white/10 font-bold" 
+                     style={{ color: '#FFFFFF', borderColor: 'rgba(255,255,255,0.2)' }}
+                     onClick={() => setShowCertificate(false)}
+                  >
                      Escape
                   </Button>
                   <Button 
-                    onClick={downloadCertificate} 
-                    isLoading={isDownloading}
-                    className="flex-1 h-14 bg-amber-500 hover:bg-amber-600 border-0 text-black font-black uppercase tracking-widest"
+                     onClick={downloadCertificate} 
+                     isLoading={isDownloading}
+                     className="flex-1 h-14 bg-amber-400 hover:bg-amber-500 border-0 text-black font-black uppercase tracking-widest shadow-2xl shadow-amber-500/40"
+                     style={{ backgroundColor: '#fbbf24', color: '#000000' }}
                   >
                      <Download size={20} className="mr-2" /> Snapshot
                   </Button>
@@ -382,7 +401,7 @@ export default function StudentTriviaResultsPage() {
          {/* Question Analytics */}
          <div className="space-y-4">
             <h3 className="text-xs font-black uppercase tracking-[0.3em] flex items-center gap-2 text-primary">
-               <CheckCircle2 size={16} /> Mission Analytics
+               <CheckCircle2 size={16} /> Excellence Analytics
             </h3>
             <div className="space-y-3">
                {questions.map((q, i) => {
@@ -426,7 +445,7 @@ export default function StudentTriviaResultsPage() {
             <h3 className="text-xs font-black uppercase tracking-[0.3em] flex items-center gap-2 text-primary">
                <Medal size={16} /> Global Standings
             </h3>
-            <Card className="divide-y divide-[var(--card-border)] overflow-hidden rounded-[2rem] border-2">
+            <Card className="divide-y divide-[var(--card-border)] overflow-hidden rounded-[2rem] border-2" style={{ borderColor: 'var(--card-border)' }}>
                {leaderboard.slice(0, 5).map((entry, idx) => {
                   const isMe = entry.group_id === myGroup?.id
                   return (
@@ -442,7 +461,7 @@ export default function StudentTriviaResultsPage() {
                               {entry.group_name}
                               {isMe && <span className="ml-2 text-[8px] px-2 py-0.5 rounded-full bg-primary text-white font-black uppercase animate-pulse">YOU</span>}
                            </div>
-                           <div className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-widest">{fmtDuration(entry.time_taken_seconds)} combat time</div>
+                           <div className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-widest">{fmtDuration(entry.time_taken_seconds)} response time</div>
                         </div>
                         <div className="text-right">
                            <div className="text-lg font-black italic tracking-tighter text-primary">{entry.score}</div>
@@ -452,8 +471,8 @@ export default function StudentTriviaResultsPage() {
                   )
                })}
             </Card>
-            <Button className="w-full h-14 font-black uppercase tracking-[0.2em]" onClick={() => router.push('/student/trivia')}>
-               Return to Base <ArrowRight size={20} className="ml-2" />
+            <Button className="w-full h-14 font-black uppercase tracking-[0.2em] bg-primary hover:bg-primary-hover shadow-xl shadow-primary/20" onClick={() => router.push('/student/trivia')}>
+               Return to Academy <ArrowRight size={20} className="ml-2" />
             </Button>
          </div>
       </div>
