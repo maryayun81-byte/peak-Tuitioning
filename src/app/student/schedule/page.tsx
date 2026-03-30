@@ -36,6 +36,7 @@ export default function StudentSchedule() {
       .from('timetables')
       .select('*, teacher:teachers(full_name), subject:subjects(name)')
       .eq('class_id', student?.class_id)
+      .or(`tuition_center_id.eq.${student?.tuition_center_id},tuition_center_id.is.null`)
       .order('start_time')
     
     setSchedule(data ?? [])

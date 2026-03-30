@@ -12,7 +12,11 @@ import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
 import { useAuthStore } from '@/stores/authStore'
-import { TriviaImageUploader } from '@/components/trivia/TriviaImageUploader'
+import dynamic from 'next/dynamic'
+const TriviaImageUploader = dynamic(
+  () => import('@/components/trivia/TriviaImageUploader').then(mod => mod.TriviaImageUploader),
+  { ssr: false }
+)
 import RichTextEditor from '@/components/ui/RichTextEditor'
 import { generateId } from '@/lib/utils'
 import toast from 'react-hot-toast'

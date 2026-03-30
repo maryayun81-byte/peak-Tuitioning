@@ -47,6 +47,7 @@ export const StudyPath = ({
   const [width, setWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200)
   const [celebrating, setCelebrating] = useState(false)
   const [selectedDay, setSelectedDay] = useState<any>(null)
+  const [hasAwarded, setHasAwarded] = useState(false) // Local flag to prevent re-running
 
   useEffect(() => {
     const handleResize = () => setWidth(window.innerWidth)
@@ -66,14 +67,30 @@ export const StudyPath = ({
   useEffect(() => {
     const handleAwardRewards = async () => {
       // Awarding rewards is ONLY for students in active mode
-      if (isAllComplete && !celebrating && profile?.id && !readOnly) {
-         setCelebrating(true)
+      if (isAllComplete && !hasAwarded && profile?.id && !readOnly) {
+         setHasAwarded(true)
          
          try {
             const studentId = sessions[0]?.student_id
             if (!studentId) return
 
-            // ── 1. Grant 100 XP ──────────────────────────────────────────────
+            // ── 1. Check if Badge Already Exists ────────────────────────
+            const planId = sessions[0]?.study_plan_id ?? 'general'
+            const { data: existing } = await supabase
+              .from('study_badges')
+              .select('id')
+              .eq('student_id', studentId)
+              .eq('badge_type', 'map_master')
+              .eq('metadata->>plan_id', planId)
+              .maybeSingle()
+
+            // If badge exists, they've already received the rewards
+            if (existing) return
+
+            // Show the modal
+            setCelebrating(true)
+
+            // ── 2. Grant 100 XP ──────────────────────────────────────────────
             const { data: studentRow } = await supabase
               .from('students')
               .select('xp, user_id')
@@ -85,25 +102,14 @@ export const StudyPath = ({
               .update({ xp: (studentRow?.xp || 0) + 100 })
               .eq('id', studentId)
 
-            // ── 2. Award Badge (prevent duplicates) ────────────────────────
-            const planId = sessions[0]?.study_plan_id ?? 'general'
-            const { data: existing } = await supabase
-              .from('study_badges')
-              .select('id')
-              .eq('student_id', studentId)
-              .eq('badge_type', 'map_master')
-              .eq('metadata->plan_id', planId)
-              .maybeSingle()
+            // ── 3. Award Badge ───────────────────────────────────────────────
+            await supabase.from('study_badges').insert({
+              student_id: studentId,
+              badge_type: 'map_master',
+              metadata: { plan_id: planId, plan_name: planName }
+            })
 
-            if (!existing) {
-              await supabase.from('study_badges').insert({
-                student_id: studentId,
-                badge_type: 'map_master',
-                metadata: { plan_id: planId, plan_name: planName }
-              })
-            }
-
-            // ── 3. Notify the Student themselves ─────────────────────────────
+            // ── 4. Notify the Student themselves ─────────────────────────────
             if (studentRow?.user_id) {
               await supabase.from('notifications').insert({
                 user_id: studentRow.user_id,
@@ -113,7 +119,7 @@ export const StudyPath = ({
               })
             }
 
-            // ── 4. Notify linked Parents ───────────────────────────────────
+            // ── 5. Notify linked Parents ───────────────────────────────────
             const { data: links } = await supabase
               .from('parent_student_links')
               .select('parent:parents(user_id)')
@@ -144,7 +150,7 @@ export const StudyPath = ({
     }
 
     handleAwardRewards()
-  }, [isAllComplete, profile?.id, readOnly, celebrating])
+  }, [isAllComplete, profile?.id, readOnly, hasAwarded])
 
   const getDayMotivationalMessage = (idx: number, total: number) => {
      if (idx === 0) return "Day 1: The Adventure Begins! 🌟"

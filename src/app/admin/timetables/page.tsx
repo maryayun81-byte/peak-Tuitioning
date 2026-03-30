@@ -44,6 +44,7 @@ const schema = z.object({
   subject_id:       z.string().uuid({ message: 'Select a subject' }),
   teacher_id:       z.string().uuid({ message: 'Select a teacher' }),
   tuition_event_id: z.string().uuid({ message: 'Select a tuition event' }),
+  tuition_center_id: z.string().optional().nullable(),
   day:              z.string().min(1, 'Select a day'),
   start_time:       z.string().min(1, 'Set a start time'),
   end_time:         z.string().min(1, 'Set an end time'),
@@ -63,6 +64,7 @@ export default function AdminTimetables() {
   const [teachers, setTeachers]         = useState<Teacher[]>([])
   const [curriculums, setCurriculums]   = useState<Curriculum[]>([])
   const [tuitionEvents, setTuitionEvents] = useState<{ id: string; name: string; status: string }[]>([])
+  const [centers, setCenters]             = useState<any[]>([])
   const [assignments, setAssignments]     = useState<TeacherAssignment[]>([])
   const [loading, setLoading]           = useState(true)
   const [addOpen, setAddOpen]           = useState(false)
@@ -82,6 +84,7 @@ export default function AdminTimetables() {
   const [filterCurriculum, setFilterCurriculum] = useState('')
   const [filterClass, setFilterClass]           = useState('')
   const [filterEvent, setFilterEvent]           = useState('')
+  const [filterCenter, setFilterCenter]         = useState('')
   const defaultsApplied = useRef(false)
 
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long' })
@@ -100,9 +103,9 @@ export default function AdminTimetables() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [tRes, cRes, sRes, teRes, evRes, curRes, asRes] = await Promise.all([
+      const [tRes, cRes, sRes, teRes, evRes, curRes, asRes, cenRes] = await Promise.all([
         supabase.from('timetables')
-          .select('*, class:classes(name, curriculum_id), subject:subjects(name), teacher:teachers(full_name)')
+          .select('*, class:classes(name, curriculum_id), subject:subjects(name), teacher:teachers(full_name), center:tuition_centers(name)')
           .order('day').order('start_time'),
         supabase.from('classes').select('*').order('name'),
         supabase.from('subjects').select('*').order('name'),
@@ -110,6 +113,7 @@ export default function AdminTimetables() {
         supabase.from('tuition_events').select('id, name, status').order('name'),
         supabase.from('curriculums').select('*').order('name'),
         supabase.from('teacher_assignments').select('*, teacher:teachers(full_name), class:classes(name), subject:subjects(name)'),
+        supabase.from('tuition_centers').select('*').order('name'),
       ])
       const events   = evRes.data ?? []
       const curList  = curRes.data ?? []
@@ -121,6 +125,7 @@ export default function AdminTimetables() {
       setTuitionEvents(events)
       setCurriculums(curList)
       setAssignments(asRes.data ?? [])
+      setCenters(cenRes.data ?? [])
 
       // Store active event id in ref so form can use it reliably
       const activeEvent = events.find((e: any) => e.status === 'active')
@@ -150,6 +155,7 @@ export default function AdminTimetables() {
     if (filterCurriculum && cls.class?.curriculum_id !== filterCurriculum) return false
     if (filterClass && t.class_id !== filterClass) return false
     if (filterEvent && t.tuition_event_id !== filterEvent) return false
+    if (filterCenter && t.tuition_center_id !== filterCenter) return false
     return true
   })
 
@@ -302,6 +308,7 @@ export default function AdminTimetables() {
     reset({
       class_id: entry.class_id, subject_id: entry.subject_id,
       teacher_id: entry.teacher_id, tuition_event_id: entry.tuition_event_id,
+      tuition_center_id: entry.tuition_center_id || '',
       day: entry.day, start_time: entry.start_time, end_time: entry.end_time,
       room_number: entry.room_number ?? '',
     })
@@ -350,7 +357,7 @@ export default function AdminTimetables() {
           <Filter size={14} className="text-muted" />
           <span className="text-xs font-black uppercase tracking-widest text-muted">Filters</span>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
           <Select value={filterCurriculum} onChange={e => { setFilterCurriculum(e.target.value); setFilterClass('') }}>
             <option value="">All Curriculums</option>
             {curriculums.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -363,13 +370,17 @@ export default function AdminTimetables() {
             <option value="">All Tuition Events</option>
             {tuitionEvents.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
           </Select>
+          <Select value={filterCenter} onChange={e => setFilterCenter(e.target.value)}>
+            <option value="">All Centers</option>
+            {centers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </Select>
         </div>
         <div className="mt-2 flex items-center gap-3">
           <Badge variant="muted">{filtered.length} session{filtered.length !== 1 ? 's' : ''}</Badge>
           <Badge variant="success">{filtered.filter(t => t.status === 'published').length} published</Badge>
           <Badge variant="muted">{filtered.filter(t => t.status === 'draft').length} draft</Badge>
-          {(filterCurriculum || filterClass || filterEvent) && (
-            <button onClick={() => { setFilterCurriculum(''); setFilterClass(''); setFilterEvent('') }}
+          {(filterCurriculum || filterClass || filterEvent || filterCenter) && (
+            <button onClick={() => { setFilterCurriculum(''); setFilterClass(''); setFilterEvent(''); setFilterCenter('') }}
               className="text-xs text-primary underline ml-2">Clear filters</button>
           )}
         </div>
@@ -494,14 +505,20 @@ export default function AdminTimetables() {
                 )}
               </div>
 
-              <Select label="Tuition Event *" error={errors.tuition_event_id?.message} {...register('tuition_event_id')}>
-                <option value="">Select Tuition Event</option>
-                {tuitionEvents.map(e => (
-                  <option key={e.id} value={e.id}>
-                    {e.name}{e.status === 'active' ? ' ✓ Active' : ''}
-                  </option>
-                ))}
-              </Select>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Select label="Tuition Event *" error={errors.tuition_event_id?.message} {...register('tuition_event_id')}>
+                  <option value="">Select Tuition Event</option>
+                  {tuitionEvents.map(e => (
+                    <option key={e.id} value={e.id}>
+                      {e.name}{e.status === 'active' ? ' ✓ Active' : ''}
+                    </option>
+                  ))}
+                </Select>
+                <Select label="Tuition Center" {...register('tuition_center_id')}>
+                  <option value="">All Centers (Default)</option>
+                  {centers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </Select>
+              </div>
 
               <div className="grid grid-cols-3 gap-3">
                 <Select label="Day *" error={errors.day?.message} {...register('day')}>
@@ -606,6 +623,9 @@ function SessionBlock({ entry, teachers: _teachers, onEdit, onDelete, onSetStatu
         </div>
         <div className="flex items-center gap-1 text-[10px] truncate" style={{ color: 'var(--text-muted)' }}>
           <School size={10} className="shrink-0" /><span className="truncate">{(entry as any).class?.name}</span>
+          {(entry as any).center?.name && (
+            <><span className="mx-1 opacity-40">•</span><span className="truncate">{(entry as any).center.name}</span></>
+          )}
         </div>
         {entry.room_number && (
           <div className="flex items-center gap-1 text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>

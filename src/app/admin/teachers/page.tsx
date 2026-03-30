@@ -40,9 +40,11 @@ export default function AdminTeachers() {
   // Assignment Modal States
   const [assignOpen, setAssignOpen] = useState(false)
   const [assigning, setAssigning] = useState(false)
+  const [centers, setCenters] = useState<any[]>([])
   const [assignForm, setAssignForm] = useState({
     class_id: '',
     subject_id: '',
+    tuition_center_id: '',
     is_class_teacher: false
   })
 
@@ -61,24 +63,26 @@ export default function AdminTeachers() {
   const loadData = async () => {
     setLoading(true)
     try {
-      const [tRes, cRes, clRes, sRes] = await Promise.all([
+      const [tRes, cRes, clRes, sRes, cenRes] = await Promise.all([
         supabase
           .from('teachers')
           .select(`
             *,
             teacher_teaching_map(curriculum:curriculums(name), class:classes(name), subject:subjects(name)),
-            teacher_assignments(id, class:classes(name, id), subject:subjects(name, id), is_class_teacher)
+            teacher_assignments(id, class:classes(name, id), subject:subjects(name, id), center:tuition_centers(name, id), is_class_teacher)
           `)
           .order('full_name'),
         supabase.from('curriculums').select('*').order('name'),
         supabase.from('classes').select('*, curriculum:curriculums(name)').order('level'),
         supabase.from('subjects').select('*').order('name'),
+        supabase.from('tuition_centers').select('*').order('name'),
       ])
 
       setTeachers(tRes.data ?? [])
       setCurriculums(cRes.data ?? [])
       setClasses(clRes.data ?? [])
       setSubjects(sRes.data ?? [])
+      setCenters(cenRes.data ?? [])
     } catch (e) {
       console.error('Failed to load teachers and metadata:', e)
       toast.error('Failed to load data.')
@@ -134,12 +138,13 @@ export default function AdminTeachers() {
         teacher_id: selected.id,
         class_id: assignForm.class_id,
         subject_id: assignForm.subject_id,
+        tuition_center_id: assignForm.tuition_center_id || null,
         is_class_teacher: assignForm.is_class_teacher
       });
       if (error) throw error;
       toast.success('Teacher assigned successfully!');
       setAssignOpen(false);
-      setAssignForm({ class_id: '', subject_id: '', is_class_teacher: false });
+      setAssignForm({ class_id: '', subject_id: '', tuition_center_id: '', is_class_teacher: false });
       loadData();
     } catch (e: any) {
       toast.error(e.message || 'Assignment failed');
@@ -338,7 +343,7 @@ export default function AdminTeachers() {
                     <div key={assignment.id} className="flex items-center justify-between p-3 rounded-xl border border-[var(--card-border)] hover:bg-[var(--input)] transition-all group">
                       <div>
                         <div className="text-sm font-bold">{assignment.class?.name}</div>
-                        <div className="text-xs opacity-60">{assignment.subject?.name} {assignment.is_class_teacher && '• Class Teacher'}</div>
+                        <div className="text-xs opacity-60">{assignment.subject?.name} {assignment.center?.name ? `• ${assignment.center.name}` : ''} {assignment.is_class_teacher && '• Class Teacher'}</div>
                       </div>
                       <button 
                          onClick={(e) => { e.stopPropagation(); removeAssignment(assignment.id); }}
@@ -398,6 +403,15 @@ export default function AdminTeachers() {
               </div>
             )
           })()}
+
+          <Select
+            label="Tuition Center"
+            value={assignForm.tuition_center_id}
+            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setAssignForm({ ...assignForm, tuition_center_id: e.target.value })}
+          >
+            <option value="">All Centers (Default)</option>
+            {centers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </Select>
 
           <Select
             label="Select Class"

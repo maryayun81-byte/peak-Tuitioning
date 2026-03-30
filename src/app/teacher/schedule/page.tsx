@@ -29,7 +29,7 @@ export default function TeacherSchedule() {
     try {
       const { data } = await supabase
         .from('timetables')
-        .select('*, class:classes(name), subject:subjects(name)')
+        .select('*, class:classes(name), subject:subjects(name), center:tuition_centers(name)')
         .eq('teacher_id', teacher?.id)
         .order('start_time')
       
@@ -89,6 +89,11 @@ export default function TeacherSchedule() {
                             <h3 className="font-bold text-lg leading-tight" style={{ color: 'var(--text)' }}>{item.subject?.name}</h3>
                             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2">
                                <span className="flex items-center gap-1.5 text-[10px] font-bold" style={{ color: 'var(--text-muted)' }}><Users size={12} className="text-primary" /> {item.class?.name}</span>
+                               {item.center?.name && (
+                                 <span className="flex items-center gap-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-[var(--input)] text-[var(--text)]">
+                                   <MapPin size={10} className="text-emerald-500" /> {item.center.name}
+                                 </span>
+                               )}
                                <span className="flex items-center gap-1.5 text-[10px] font-bold" style={{ color: 'var(--text-muted)' }}><MapPin size={12} className="text-secondary" /> Room {item.room_number || 'TBA'}</span>
                                <span className="flex items-center gap-1.5 text-[10px] font-bold" style={{ color: 'var(--text-muted)' }}><Clock size={12} className="text-amber-500" /> {item.start_time} - {item.end_time}</span>
                             </div>

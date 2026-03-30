@@ -43,6 +43,7 @@ export default function StudentTriviaPage() {
         .select('*, subject:subjects(name)')
         .eq('status', 'published')
         .contains('class_ids', [student!.class_id])
+        .or(`tuition_center_id.eq.${student!.tuition_center_id},tuition_center_id.is.null`)
         .order('created_at', { ascending: false })
 
       if (!sessions?.length) { setTrivias([]); setLoading(false); return }

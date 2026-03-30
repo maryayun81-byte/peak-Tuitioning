@@ -76,10 +76,7 @@ function RegisterForm() {
           return
         }
 
-        if (data.used_at) {
-          setKeyStatus('invalid')
-          setKeyMsg('This key has already been used')
-        } else if (new Date(data.expires_at) < new Date()) {
+        if (new Date(data.expires_at) < new Date()) {
           setKeyStatus('invalid')
           setKeyMsg('This key has expired')
         } else {
@@ -101,7 +98,22 @@ function RegisterForm() {
     try {
       // 0. Validate Teacher Key if applicable
       if (selectedRole === 'teacher') {
-        if (keyStatus !== 'valid') {
+        let isActuallyValid = keyStatus === 'valid';
+        
+        // If debounced async state isn't valid yet, check synchronously against DB to prevent race condition
+        if (!isActuallyValid && data.registration_key) {
+          const { data: dbKey, error: dbErr } = await supabase
+            .from('teacher_registration_keys')
+            .select('*')
+            .eq('key', data.registration_key.toUpperCase())
+            .single()
+            
+          if (!dbErr && dbKey && new Date(dbKey.expires_at) >= new Date()) {
+            isActuallyValid = true
+          }
+        }
+        
+        if (!isActuallyValid) {
            toast.error(keyMsg || 'Valid Registration Key is required')
            return
         }
@@ -140,20 +152,13 @@ function RegisterForm() {
           email: data.email,
           phone: data.phone || null,
           onboarded: false,
-        }, { onConflict: 'email' })
+        }, { onConflict: 'user_id' })
         if (e2) { 
           console.error('Teacher profile creation error:', e2)
           toast.error('Account created but profile setup failed: ' + e2.message)
           return 
         }
 
-        // Mark key as used
-        if (data.registration_key) {
-          await supabase
-            .from('teacher_registration_keys')
-            .update({ used_at: new Date().toISOString(), used_by_user_id: userId })
-            .eq('key', data.registration_key.toUpperCase())
-        }
       } else if (selectedRole === 'parent') {
         const parentCode = generateParentCode()
         const securityPin = Math.floor(1000 + Math.random() * 9000).toString()

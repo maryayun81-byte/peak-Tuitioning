@@ -95,7 +95,7 @@ export default function AdminSettings() {
     setKeyLoading(true)
     try {
       const keyStr = Math.random().toString(36).substring(2, 10).toUpperCase()
-      const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString()
+      const expiresAt = new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString()
       
       const { data, error } = await supabase
         .from('teacher_registration_keys')
@@ -270,13 +270,13 @@ export default function AdminSettings() {
                <div className="space-y-1">
                   <h3 className="font-bold" style={{ color: 'var(--text)' }}>Registration Security</h3>
                   <p className="text-xs max-w-md" style={{ color: 'var(--text-muted)' }}>
-                     Enhance security by requiring a one-time key for teacher registration. 
-                     Generated keys last for 5 minutes and expire immediately after one use.
+                     Enhance security by requiring a key for teacher registration. 
+                     Generated keys last for 7 hours and can be used by multiple teachers.
                   </p>
                </div>
                
                <div className="flex flex-col items-center gap-4">
-                  {activeKey && new Date(activeKey.expires_at) > new Date() && !activeKey.used_at ? (
+                  {activeKey && new Date(activeKey.expires_at) > new Date() ? (
                     <div className="flex flex-col items-center gap-2">
                       <div className="flex items-center gap-3 p-4 bg-primary/5 border-2 border-primary/20 rounded-2xl">
                         <span className="text-2xl font-black tracking-widest font-mono text-primary">{activeKey.key}</span>

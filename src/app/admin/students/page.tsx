@@ -23,6 +23,7 @@ const studentSchema = z.object({
   full_name: z.string().min(2),
   class_id: z.string().uuid(),
   curriculum_id: z.string().uuid(),
+  tuition_center_id: z.string().optional().nullable(),
 })
 type StudentForm = z.infer<typeof studentSchema>
 
@@ -31,6 +32,7 @@ export default function AdminStudents() {
   const [students, setStudents] = useState<Student[]>([])
   const [classes, setClasses] = useState<Class[]>([])
   const [curriculums, setCurriculums] = useState<Curriculum[]>([])
+  const [centers, setCenters] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [addOpen, setAddOpen] = useState(false)
@@ -65,7 +67,8 @@ export default function AdminStudents() {
           .select(`
             *,
             class:classes(id, name),
-            curriculum:curriculums(id, name)
+            curriculum:curriculums(id, name),
+            center:tuition_centers(id, name)
           `)
           .order('created_at', { ascending: false })
       console.log('Students fetched:', sRes)
@@ -78,6 +81,9 @@ export default function AdminStudents() {
       const curRes = await supabase.from('curriculums').select('*').order('name')
       console.log('Curriculums fetched:', curRes)
       
+      console.log('Fetching centers...')
+      const cenRes = await supabase.from('tuition_centers').select('*').order('name')
+
       if (sRes.error) {
         console.error('Students fetch error:', sRes.error)
         toast.error('DB Error: ' + sRes.error.message)
@@ -86,6 +92,7 @@ export default function AdminStudents() {
       setStudents(sRes.data ?? [])
       setClasses(cRes.data ?? [])
       setCurriculums(curRes.data ?? [])
+      setCenters(cenRes.data ?? [])
       console.log(`Loaded ${sRes.data?.length ?? 0} students.`)
       console.timeEnd('StudentsLoad')
     } catch (error) {
@@ -173,6 +180,7 @@ export default function AdminStudents() {
         full_name: data.full_name,
         class_id: data.class_id,
         curriculum_id: data.curriculum_id,
+        tuition_center_id: data.tuition_center_id || null,
         admission_number: finalAdmissionNumber,
         temp_password: tempPwd,
         onboarded: false,
@@ -357,6 +365,10 @@ export default function AdminStudents() {
             <option value="">Select class</option>
             {filteredClasses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </Select>
+          <Select label="Tuition Center" {...register('tuition_center_id')}>
+            <option value="">All Centers (Default)</option>
+            {centers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </Select>
           <div className="p-3 rounded-xl text-sm" style={{ background: 'rgba(79,140,255,0.1)', color: '#4F8CFF' }}>
             💡 Admission number and temporary password will be auto-generated. Share these with the student to log in.
           </div>
@@ -384,6 +396,7 @@ export default function AdminStudents() {
               { label: 'Admission Number', value: selected.admission_number },
               { label: 'Class', value: (selected.class as any)?.name ?? '—' },
               { label: 'Curriculum', value: (selected.curriculum as any)?.name ?? '—' },
+              { label: 'Tuition Center', value: (selected as any).center?.name ?? '—' },
               { label: 'Account Status', value: selected.user_id ? '✅ Registered' : '⏳ Pending Registration' },
               { label: 'Onboarded', value: selected.onboarded ? '✅ Yes' : '❌ No' },
               { label: 'Temp Password', value: selected.temp_password ?? '—' },

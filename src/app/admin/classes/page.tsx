@@ -19,6 +19,7 @@ const schema = z.object({
   name: z.string().min(1),
   curriculum_id: z.string().uuid(),
   level: z.number().min(1).default(1),
+  tuition_center_id: z.string().optional().nullable(),
 })
 type FormData = z.infer<typeof schema>
 
@@ -26,10 +27,12 @@ export default function AdminClasses() {
   const supabase = getSupabaseBrowserClient()
   const [classes, setClasses] = useState<Class[]>([])
   const [curriculums, setCurriculums] = useState<Curriculum[]>([])
+  const [centers, setCenters] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [addOpen, setAddOpen] = useState(false)
   const [editing, setEditing] = useState<Class | null>(null)
   const [filterCurriculum, setFilterCurriculum] = useState('')
+  const [filterCenter, setFilterCenter] = useState('')
 
   const { register, handleSubmit, reset, setValue, formState: { errors } } = useForm<FormData>({ resolver: zodResolver(schema) })
 
@@ -38,12 +41,14 @@ export default function AdminClasses() {
   const load = async () => {
     setLoading(true)
     try {
-      const [cRes, curRes] = await Promise.all([
-        supabase.from('classes').select('*, curriculum:curriculums(*)').order('level').order('name'),
+      const [cRes, curRes, cenRes] = await Promise.all([
+        supabase.from('classes').select('*, curriculum:curriculums(*), center:tuition_centers(*)').order('level').order('name'),
         supabase.from('curriculums').select('*').order('name'),
+        supabase.from('tuition_centers').select('*').order('name'),
       ])
       setClasses(cRes.data ?? [])
       setCurriculums(curRes.data ?? [])
+      setCenters(cenRes.data ?? [])
     } catch (e: any) {
       console.error(e)
       toast.error('Failed to load data')
@@ -52,10 +57,14 @@ export default function AdminClasses() {
     }
   }
 
-  const filtered = filterCurriculum ? classes.filter(c => c.curriculum_id === filterCurriculum) : classes
+  const filtered = classes.filter(c => {
+    const matchesCurriculum = filterCurriculum ? c.curriculum_id === filterCurriculum : true
+    const matchesCenter = filterCenter ? (c as any).tuition_center_id === filterCenter : true
+    return matchesCurriculum && matchesCenter
+  })
 
   const onSubmit = async (data: FormData) => {
-    const payload = { name: data.name, curriculum_id: data.curriculum_id, level: data.level }
+    const payload = { name: data.name, curriculum_id: data.curriculum_id, level: data.level, tuition_center_id: data.tuition_center_id || null }
     const { error } = editing
       ? await supabase.from('classes').update(payload).eq('id', editing.id)
       : await supabase.from('classes').insert(payload)
@@ -88,10 +97,16 @@ export default function AdminClasses() {
         <Button onClick={() => { reset(); setEditing(null); setAddOpen(true) }}><Plus size={16} /> Add Class</Button>
       </div>
 
-      <Select value={filterCurriculum} onChange={e => setFilterCurriculum(e.target.value)}>
-        <option value="">All Curricula</option>
-        {curriculums.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-      </Select>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Select value={filterCurriculum} onChange={e => setFilterCurriculum(e.target.value)}>
+          <option value="">All Curricula</option>
+          {curriculums.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </Select>
+        <Select value={filterCenter} onChange={e => setFilterCenter(e.target.value)}>
+          <option value="">All Centers</option>
+          {centers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </Select>
+      </div>
 
       {loading ? <SkeletonList count={5} /> : (
         <div className="space-y-6">
@@ -102,7 +117,7 @@ export default function AdminClasses() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr style={{ borderBottom: '1px solid var(--card-border)' }}>
-                      {['Class Name', 'Level', 'Curriculum', 'Actions'].map(h => (
+                      {['Class Name', 'Level', 'Curriculum', 'Center', 'Actions'].map(h => (
                         <th key={h} className="text-left px-5 py-3 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>{h}</th>
                       ))}
                     </tr>
@@ -113,9 +128,10 @@ export default function AdminClasses() {
                         <td className="px-5 py-3 font-semibold" style={{ color: 'var(--text)' }}>{c.name}</td>
                         <td className="px-5 py-3"><Badge variant="muted">Level {c.level}</Badge></td>
                         <td className="px-5 py-3" style={{ color: 'var(--text-muted)' }}>{(c.curriculum as any)?.name}</td>
+                        <td className="px-5 py-3" style={{ color: 'var(--text-muted)' }}>{(c as any).center?.name || 'All Centers'}</td>
                         <td className="px-5 py-3">
                           <div className="flex gap-2">
-                            <button onClick={() => { setEditing(c); setValue('name', c.name); setValue('curriculum_id', c.curriculum_id); setValue('level', c.level); setAddOpen(true) }} className="p-1.5 rounded-lg" style={{ background: 'var(--input)', color: 'var(--text-muted)' }}><Edit size={14} /></button>
+                            <button onClick={() => { setEditing(c); setValue('name', c.name); setValue('curriculum_id', c.curriculum_id); setValue('level', c.level); setValue('tuition_center_id', (c as any).tuition_center_id || ''); setAddOpen(true) }} className="p-1.5 rounded-lg" style={{ background: 'var(--input)', color: 'var(--text-muted)' }}><Edit size={14} /></button>
                             <button onClick={() => del(c.id)} className="p-1.5 rounded-lg" style={{ background: 'rgba(239,68,68,0.1)', color: '#EF4444' }}><Trash2 size={14} /></button>
                           </div>
                         </td>
@@ -135,6 +151,10 @@ export default function AdminClasses() {
           <Select label="Curriculum" error={errors.curriculum_id?.message} {...register('curriculum_id')}>
             <option value="">Select curriculum</option>
             {curriculums.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </Select>
+          <Select label="Tuition Center" {...register('tuition_center_id')}>
+            <option value="">All Centers (Default)</option>
+            {centers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </Select>
           <Input label="Class Name" placeholder="e.g. Form 1, Grade 7" error={errors.name?.message} {...register('name')} />
           <Input label="Level" type="number" placeholder="1" {...register('level', { valueAsNumber: true })} />

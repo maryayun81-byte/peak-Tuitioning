@@ -51,14 +51,16 @@ export default function StudentQuizzes() {
           .select('id, title, created_at, audience, class_id')
           .eq('audience', 'all_classes')
           .eq('is_published', true)
-          .or(`publish_at.is.null,publish_at.lte.${new Date().toISOString()}`),
+          .or(`publish_at.is.null,publish_at.lte.${new Date().toISOString()}`)
+          .or(`tuition_center_id.eq.${student.tuition_center_id},tuition_center_id.is.null`),
         student.class_id ? supabase
           .from('quizzes')
           .select('id, title, created_at, audience, class_id')
           .in('audience', ['class', 'class_subject'])
           .eq('class_id', student.class_id)
           .eq('is_published', true)
-          .or(`publish_at.is.null,publish_at.lte.${new Date().toISOString()}`) : Promise.resolve({ data: [], error: null }),
+          .or(`publish_at.is.null,publish_at.lte.${new Date().toISOString()}`)
+          .or(`tuition_center_id.eq.${student.tuition_center_id},tuition_center_id.is.null`) : Promise.resolve({ data: [], error: null }),
         supabase
           .from('quiz_attempts')
           .select('*')

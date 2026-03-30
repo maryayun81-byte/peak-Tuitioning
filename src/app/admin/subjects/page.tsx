@@ -21,6 +21,7 @@ const schema = z.object({
   code: z.string().min(1),
   curriculum_id: z.string().uuid(),
   category: z.string().optional(),
+  tuition_center_id: z.string().optional().nullable(),
 })
 type FormData = z.infer<typeof schema>
 
@@ -28,11 +29,13 @@ export default function AdminSubjects() {
   const supabase = getSupabaseBrowserClient()
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [curriculums, setCurriculums] = useState<Curriculum[]>([])
+  const [centers, setCenters] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [addOpen, setAddOpen] = useState(false)
   const [editing, setEditing] = useState<Subject | null>(null)
   const [search, setSearch] = useState('')
   const [filterCurriculum, setFilterCurriculum] = useState('')
+  const [filterCenter, setFilterCenter] = useState('')
 
   const { register, handleSubmit, reset, setValue, formState: { errors } } = useForm<FormData>({ resolver: zodResolver(schema) })
 
@@ -41,16 +44,18 @@ export default function AdminSubjects() {
   const load = async () => {
     setLoading(true)
     try {
-      const [sRes, curRes] = await withTimeout(
+      const [sRes, curRes, cenRes] = await withTimeout(
         Promise.all([
-          supabase.from('subjects').select('*, curriculum:curriculums(*)').order('name'),
+          supabase.from('subjects').select('*, curriculum:curriculums(*), center:tuition_centers(*)').order('name'),
           supabase.from('curriculums').select('*').order('name'),
+          supabase.from('tuition_centers').select('*').order('name')
         ]),
         5000,
         'Subjects & Curriculums load'
       )
       setSubjects(sRes.data ?? [])
       setCurriculums(curRes.data ?? [])
+      setCenters(cenRes.data ?? [])
     } catch (e) {
       console.error('Failed to load subjects and curriculums:', e)
       toast.error('The database request is taking longer than expected. Please try refreshing or check your connection.')
@@ -63,13 +68,15 @@ export default function AdminSubjects() {
     const q = search.toLowerCase()
     const matchesSearch = s.name.toLowerCase().includes(q) || s.code.toLowerCase().includes(q)
     const matchesCurriculum = filterCurriculum ? s.curriculum_id === filterCurriculum : true
-    return matchesSearch && matchesCurriculum
+    const matchesCenter = filterCenter ? (s as any).tuition_center_id === filterCenter : true
+    return matchesSearch && matchesCurriculum && matchesCenter
   })
 
   const onSubmit = async (data: FormData) => {
+    const payload = { ...data, tuition_center_id: data.tuition_center_id || null }
     const { error } = editing
-      ? await supabase.from('subjects').update(data).eq('id', editing.id)
-      : await supabase.from('subjects').insert(data)
+      ? await supabase.from('subjects').update(payload).eq('id', editing.id)
+      : await supabase.from('subjects').insert(payload)
     if (error) { toast.error(error.message); return }
     toast.success(editing ? 'Subject updated!' : 'Subject created!')
     reset(); setEditing(null); setAddOpen(false); load()
@@ -91,11 +98,15 @@ export default function AdminSubjects() {
         <Button onClick={() => { reset(); setEditing(null); setAddOpen(true) }}><Plus size={16} /> Add Subject</Button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Input placeholder="Search by name or code…" leftIcon={<Search size={16} />} value={search} onChange={e => setSearch(e.target.value)} />
         <Select value={filterCurriculum} onChange={e => setFilterCurriculum(e.target.value)}>
           <option value="">All Curricula</option>
           {curriculums.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </Select>
+        <Select value={filterCenter} onChange={e => setFilterCenter(e.target.value)}>
+          <option value="">All Centers</option>
+          {centers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
         </Select>
       </div>
 
@@ -105,7 +116,7 @@ export default function AdminSubjects() {
             <table className="w-full text-sm">
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--card-border)' }}>
-                  {['Subject Name', 'Code', 'Category', 'Curriculum', 'Actions'].map(h => (
+                  {['Subject Name', 'Code', 'Category', 'Curriculum', 'Center', 'Actions'].map(h => (
                     <th key={h} className="text-left px-5 py-3 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>{h}</th>
                   ))}
                 </tr>
@@ -124,9 +135,10 @@ export default function AdminSubjects() {
                     <td className="px-5 py-3"><code className="text-xs px-2 py-0.5 rounded-lg font-mono" style={{ background: 'var(--input)', color: 'var(--text)' }}>{s.code}</code></td>
                     <td className="px-5 py-3" style={{ color: 'var(--text-muted)' }}>{s.category ?? '—'}</td>
                     <td className="px-5 py-3" style={{ color: 'var(--text-muted)' }}>{(s as any).curriculum?.name}</td>
+                    <td className="px-5 py-3" style={{ color: 'var(--text-muted)' }}>{(s as any).center?.name || 'All Centers'}</td>
                     <td className="px-5 py-3">
                       <div className="flex gap-2">
-                        <button onClick={() => { setEditing(s); setValue('name', s.name); setValue('code', s.code); setValue('curriculum_id', s.curriculum_id); setValue('category', s.category ?? ''); setAddOpen(true) }} className="p-1.5 rounded-lg" style={{ background: 'var(--input)', color: 'var(--text-muted)' }}><Edit size={14} /></button>
+                        <button onClick={() => { setEditing(s); setValue('name', s.name); setValue('code', s.code); setValue('curriculum_id', s.curriculum_id); setValue('category', s.category ?? ''); setValue('tuition_center_id', (s as any).tuition_center_id || ''); setAddOpen(true) }} className="p-1.5 rounded-lg" style={{ background: 'var(--input)', color: 'var(--text-muted)' }}><Edit size={14} /></button>
                         <button onClick={() => del(s.id)} className="p-1.5 rounded-lg" style={{ background: 'rgba(239,68,68,0.1)', color: '#EF4444' }}><Trash2 size={14} /></button>
                       </div>
                     </td>
@@ -144,6 +156,10 @@ export default function AdminSubjects() {
           <Select label="Curriculum" error={errors.curriculum_id?.message} {...register('curriculum_id')}>
             <option value="">Select curriculum</option>
             {curriculums.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </Select>
+          <Select label="Tuition Center" {...register('tuition_center_id')}>
+            <option value="">All Centers (Default)</option>
+            {centers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </Select>
           <Input label="Subject Name" placeholder="e.g. Mathematics" error={errors.name?.message} {...register('name')} />
           <Input label="Subject Code" placeholder="e.g. MATH-01" error={errors.code?.message} {...register('code')} />

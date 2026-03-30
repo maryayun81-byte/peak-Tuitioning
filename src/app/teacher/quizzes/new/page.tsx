@@ -40,6 +40,7 @@ export default function QuizCreator() {
   const [allAssignments, setAllAssignments] = useState<any[]>([])
   const [classes, setClasses] = useState<Class[]>([])
   const [subjects, setSubjects] = useState<Subject[]>([])
+  const [centers, setCenters] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
 
   const [form, setForm] = useState({
@@ -47,6 +48,7 @@ export default function QuizCreator() {
     description: '',
     class_id: '',
     subject_id: '',
+    tuition_center_id: '',
     time_limit: 15,
     passing_score: 70,
     max_attempts: 1,
@@ -108,6 +110,9 @@ export default function QuizCreator() {
     )).map(s => JSON.parse(s as string))
 
     setClasses(uniqueClasses)
+
+    const { data: centersData } = await supabase.from('tuition_centers').select('id, name').order('name')
+    setCenters(centersData || [])
   }
 
   // Update subjects when class changes
@@ -188,6 +193,7 @@ export default function QuizCreator() {
       total_marks: questions.reduce((sum, q) => sum + q.marks, 0),
       questions: questions,
       teacher_id: currentTeacherId,
+      tuition_center_id: restForm.tuition_center_id || null,
       is_published: true, // Always publish upon save
       publish_at: form.publish_at || null, 
     }).select().single()
@@ -373,6 +379,11 @@ export default function QuizCreator() {
                 <Select label="Subject" value={form.subject_id} onChange={e => setForm({...form, subject_id: e.target.value})}>
                    <option value="">Select Subject</option>
                    {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </Select>
+
+                <Select label="Tuition Center" value={form.tuition_center_id} onChange={e => setForm({...form, tuition_center_id: e.target.value})}>
+                   <option value="">All Centers (Default)</option>
+                   {centers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </Select>
 
                 <div className="grid grid-cols-2 gap-4">

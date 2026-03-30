@@ -9,7 +9,11 @@ import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
 import { useAuthStore } from '@/stores/authStore'
-import { TriviaImageUploader } from '@/components/trivia/TriviaImageUploader'
+import dynamic from 'next/dynamic'
+const TriviaImageUploader = dynamic(
+  () => import('@/components/trivia/TriviaImageUploader').then(mod => mod.TriviaImageUploader),
+  { ssr: false }
+)
 import RichTextEditor from '@/components/ui/RichTextEditor'
 import { generateId } from '@/lib/utils'
 import toast from 'react-hot-toast'
@@ -54,6 +58,7 @@ export default function CreateTriviaPage() {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [subjectId, setSubjectId] = useState('')
+  const [centerId, setCenterId] = useState('')
   const [classIds, setClassIds] = useState<string[]>([])
 
   // Step 2 — questions
@@ -63,6 +68,7 @@ export default function CreateTriviaPage() {
   // Data
   const [myClasses, setMyClasses] = useState<{ id: string; name: string }[]>([])
   const [mySubjects, setMySubjects] = useState<{ id: string; name: string; class_id: string }[]>([])
+  const [centers, setCenters] = useState<any[]>([])
 
   useEffect(() => { if (teacher?.id) loadData() }, [teacher?.id])
 
@@ -77,6 +83,9 @@ export default function CreateTriviaPage() {
     const subjects = (data ?? []).map((a: any) => a.subject).filter(Boolean).filter((s: any, i: number, arr: any[]) => arr.findIndex(x => x.id === s.id) === i)
     setMyClasses(classes)
     setMySubjects(subjects)
+
+    const { data: centersData } = await supabase.from('tuition_centers').select('id, name').order('name')
+    setCenters(centersData || [])
   }
 
   // ── Question helpers ──────────────────────────────────────────
@@ -124,6 +133,7 @@ export default function CreateTriviaPage() {
         description: description.trim() || null,
         subject_id: subjectId || null,
         class_ids: classIds,
+        tuition_center_id: centerId || null,
         status: publish ? 'published' : 'draft',
       })
       .select()
@@ -208,10 +218,16 @@ export default function CreateTriviaPage() {
                   {myClasses.length === 0 && <p className="text-xs text-[var(--text-muted)]">No classes assigned</p>}
                 </div>
               </div>
-              <Select label="Subject (optional)" value={subjectId} onChange={e => setSubjectId(e.target.value)}>
-                <option value="">Any Subject</option>
-                {mySubjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </Select>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Select label="Subject (optional)" value={subjectId} onChange={e => setSubjectId(e.target.value)}>
+                  <option value="">Any Subject</option>
+                  {mySubjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </Select>
+                <Select label="Tuition Center" value={centerId} onChange={e => setCenterId(e.target.value)}>
+                  <option value="">All Centers (Default)</option>
+                  {centers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </Select>
+              </div>
             </Card>
 
             <div className="flex justify-end">
