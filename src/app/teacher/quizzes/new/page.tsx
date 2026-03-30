@@ -24,9 +24,9 @@ interface Question {
   text: string
   type: QuestionType
   options: string[]
-  correct_answer: string // for MCQ and T/F
-  correct_answers: string[] // for Multiple Choice and Short Answer
-  keywords: string[] // for Short Answer Keyword matching
+  correct_answer: string
+  correct_answers: string[]
+  keywords: string[]
   grading_method: GradingMethod
   marks: number
   explanation?: string
@@ -87,29 +87,49 @@ export default function QuizCreator() {
 
     if (!currentTeacherId) return
 
-    const { data: mapData, error } = await supabase
-      .from('teacher_teaching_map')
-      .select(`
-        class_id,
-        subject_id,
-        classes (id, name),
-        subjects (id, name, class_id)
-      `)
+    // Fetch from teacher_assignments (the real assignment table)
+    const { data: assignData } = await supabase
+      .from('teacher_assignments')
+      .select('class_id, subject_id, class:classes(id, name), subject:subjects(id, name, class_id)')
       .eq('teacher_id', currentTeacherId)
 
-    if (error) {
-      toast.error('Failed to load assignments')
-      return
+    const assignments = assignData ?? []
+
+    // Build unique class list
+    const classMap = new Map<string, any>()
+    assignments.forEach((a: any) => {
+      if (!a.class_id) return
+      if (!classMap.has(a.class_id)) {
+        const cObj = Array.isArray(a.class) ? a.class[0] : a.class
+        classMap.set(a.class_id, { id: a.class_id, name: cObj?.name ?? 'Unknown Class' })
+      }
+    })
+
+    // Normalize to flat list for subject filtering
+    const normalized = assignments.map((a: any) => ({
+      class_id: a.class_id,
+      subject_id: a.subject_id,
+      classes: Array.isArray(a.class) ? a.class[0] : a.class,
+      subjects: Array.isArray(a.subject) ? a.subject[0] : a.subject,
+    }))
+    setAllAssignments(normalized)
+
+    // Fallback to teaching map if no formal assignments
+    if (classMap.size === 0) {
+      const { data: mapData } = await supabase
+        .from('teacher_teaching_map')
+        .select('class_id, subject_id, classes(id, name), subjects(id, name, class_id)')
+        .eq('teacher_id', currentTeacherId)
+      ;(mapData || []).forEach((m: any) => {
+        if (m.class_id && !classMap.has(m.class_id)) {
+          const cObj = Array.isArray(m.classes) ? m.classes[0] : m.classes
+          classMap.set(m.class_id, { id: m.class_id, name: cObj?.name ?? 'Unknown Class' })
+        }
+      })
+      setAllAssignments(mapData || [])
     }
 
-    setAllAssignments(mapData || [])
-
-    const uniqueClasses = Array.from(new Set((mapData || [])
-      .map(m => JSON.stringify(m.classes))
-      .filter(Boolean)
-    )).map(s => JSON.parse(s as string))
-
-    setClasses(uniqueClasses)
+    setClasses(Array.from(classMap.values()) as Class[])
 
     const { data: centersData } = await supabase.from('tuition_centers').select('id, name').order('name')
     setCenters(centersData || [])
@@ -119,8 +139,8 @@ export default function QuizCreator() {
   useEffect(() => {
     if (form.class_id) {
       const filteredSubjects = allAssignments
-        .filter(m => m.class_id === form.class_id)
-        .map(m => m.subjects)
+        .filter((m: any) => m.class_id === form.class_id)
+        .map((m: any) => m.subjects)
         .filter(Boolean)
       setSubjects(filteredSubjects)
     } else {
@@ -157,7 +177,6 @@ export default function QuizCreator() {
       return
     }
     
-    // Validate questions
     const isValid = questions.every(q => {
       if (!q.text) return false
       if (q.type === 'multiple_choice') return q.correct_answer && q.options.every(o => o)
@@ -174,7 +193,6 @@ export default function QuizCreator() {
     setLoading(true)
     const { passing_score, ...restForm } = form
 
-    // Resolve Teacher ID
     let currentTeacherId = teacher?.id
     if (!currentTeacherId && profile) {
       const { data: tData } = await supabase.from('teachers').select('id').eq('user_id', profile.id).single()
@@ -194,7 +212,7 @@ export default function QuizCreator() {
       questions: questions,
       teacher_id: currentTeacherId,
       tuition_center_id: restForm.tuition_center_id || null,
-      is_published: true, // Always publish upon save
+      is_published: true,
       publish_at: form.publish_at || null, 
     }).select().single()
 
@@ -216,7 +234,7 @@ export default function QuizCreator() {
          </div>
          <div className="flex gap-2">
             <Button variant="secondary" onClick={() => router.back()}>Cancel</Button>
-            <Button onClick={saveQuiz} isLoading={loading}><Send size={16} className="mr-2" /> Save & Publish</Button>
+            <Button onClick={saveQuiz} isLoading={loading}><Send size={16} className="mr-2" /> Save &amp; Publish</Button>
          </div>
       </div>
 
@@ -260,7 +278,6 @@ export default function QuizCreator() {
                           </div>
                        </div>
 
-                       {/* MCQ / Multiple Answer */}
                        {(q.type === 'multiple_choice' || q.type === 'multiple_answer') && (
                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pl-11">
                             {q.options.map((opt, oIdx) => (
@@ -277,7 +294,7 @@ export default function QuizCreator() {
                                         updateQuestion(q.id, 'correct_answer', opt)
                                       } else {
                                         const newCorrect = q.correct_answers.includes(opt)
-                                          ? q.correct_answers.filter(a => a !== opt)
+                                          ? q.correct_answers.filter((a: string) => a !== opt)
                                           : [...q.correct_answers, opt]
                                         updateQuestion(q.id, 'correct_answers', newCorrect)
                                       }
@@ -292,11 +309,10 @@ export default function QuizCreator() {
                                       const oldVal = newOpts[oIdx];
                                       newOpts[oIdx] = e.target.value;
                                       updateQuestion(q.id, 'options', newOpts);
-                                      
                                       if (q.type === 'multiple_choice' && q.correct_answer === oldVal) {
                                         updateQuestion(q.id, 'correct_answer', e.target.value);
                                       } else if (q.type === 'multiple_answer' && q.correct_answers.includes(oldVal)) {
-                                        updateQuestion(q.id, 'correct_answers', q.correct_answers.map(a => a === oldVal ? e.target.value : a));
+                                        updateQuestion(q.id, 'correct_answers', q.correct_answers.map((a: string) => a === oldVal ? e.target.value : a));
                                       }
                                    }}
                                  />
@@ -305,7 +321,6 @@ export default function QuizCreator() {
                          </div>
                        )}
 
-                       {/* True/False */}
                        {q.type === 'true_false' && (
                          <div className="flex gap-4 pl-11">
                             {['True', 'False'].map(opt => (
@@ -320,7 +335,6 @@ export default function QuizCreator() {
                          </div>
                        )}
 
-                       {/* Short Answer */}
                        {q.type === 'short_answer' && (
                          <div className="space-y-4 pl-11">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -335,7 +349,7 @@ export default function QuizCreator() {
                                   value={q.grading_method === 'keyword' ? q.keywords.join(', ') : (q.correct_answers[0] || '')}
                                   onChange={e => {
                                     if (q.grading_method === 'keyword') {
-                                      updateQuestion(q.id, 'keywords', e.target.value.split(',').map(s => s.trim()))
+                                      updateQuestion(q.id, 'keywords', e.target.value.split(',').map((s: string) => s.trim()))
                                     } else {
                                       updateQuestion(q.id, 'correct_answers', [e.target.value])
                                     }
@@ -353,7 +367,7 @@ export default function QuizCreator() {
                 ))}
                
                <Button variant="outline" className="w-full border-dashed py-8" onClick={addQuestion}>
-                  <PlusCircle className="mr-2" /> Add another question
+                  <Plus className="mr-2" /> Add another question
                </Button>
             </div>
          </div>
@@ -370,14 +384,14 @@ export default function QuizCreator() {
                 </Select>
 
                 {form.audience !== 'all_classes' && (
-                  <Select label="Class" value={form.class_id} onChange={e => setForm({...form, class_id: e.target.value})}>
+                  <Select label="Class" value={form.class_id} onChange={e => setForm({...form, class_id: e.target.value, subject_id: ''})}>
                      <option value="">Select Class</option>
                      {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </Select>
                 )}
 
-                <Select label="Subject" value={form.subject_id} onChange={e => setForm({...form, subject_id: e.target.value})}>
-                   <option value="">Select Subject</option>
+                <Select label="Subject" value={form.subject_id} onChange={e => setForm({...form, subject_id: e.target.value})} disabled={!form.class_id}>
+                   <option value="">{form.class_id ? 'Select Subject' : 'Select a class first'}</option>
                    {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </Select>
 
@@ -419,4 +433,3 @@ export default function QuizCreator() {
     </div>
   )
 }
-import { PlusCircle } from 'lucide-react'

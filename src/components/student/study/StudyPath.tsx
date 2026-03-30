@@ -82,10 +82,10 @@ export const StudyPath = ({
               .eq('student_id', studentId)
               .eq('badge_type', 'map_master')
               .eq('metadata->>plan_id', planId)
-              .maybeSingle()
+              .limit(1)
 
             // If badge exists, they've already received the rewards
-            if (existing) return
+            if (existing && existing.length > 0) return
 
             // Show the modal
             setCelebrating(true)
@@ -403,7 +403,7 @@ export const StudyPath = ({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[200] bg-slate-900/40 backdrop-blur-md flex items-end sm:items-center justify-center p-4"
+              className="fixed inset-0 z-[200] bg-black/40 backdrop-blur-md flex items-end sm:items-center justify-center p-4"
               onClick={() => setSelectedDay(null)}
             >
                <motion.div 
@@ -411,12 +411,12 @@ export const StudyPath = ({
                  animate={{ y: 0, scale: 1 }}
                  exit={{ y: 100, scale: 0.9 }}
                  onClick={(e) => e.stopPropagation()}
-                 className="w-full max-w-lg bg-white rounded-[3rem] shadow-2xl overflow-hidden"
+                 className="w-full max-w-lg bg-[var(--card)] rounded-[3rem] shadow-2xl overflow-hidden"
                >
                   <div className="p-8 sm:p-10 space-y-8">
                      <div className="flex items-center justify-between">
                         <div className="space-y-1">
-                           <h3 className="text-2xl font-black tracking-tight text-slate-900 uppercase">
+                           <h3 className="text-2xl font-black tracking-tight uppercase" style={{ color: 'var(--text)' }}>
                               Day {days.findIndex(d => d.date === selectedDay.date) + 1} Missions
                            </h3>
                            <p className="text-[10px] font-black tracking-widest text-primary uppercase">
@@ -425,9 +425,9 @@ export const StudyPath = ({
                         </div>
                         <button 
                           onClick={() => setSelectedDay(null)}
-                          className="p-3 hover:bg-slate-100 rounded-2xl transition-colors"
+                          className="p-3 hover:bg-[var(--input)] rounded-2xl transition-colors"
                         >
-                           <X size={24} className="text-slate-400" />
+                           <X size={24} style={{ color: 'var(--text-muted)' }} />
                         </button>
                      </div>
 
@@ -436,19 +436,19 @@ export const StudyPath = ({
                            <div 
                              key={s.id}
                              className={`p-6 rounded-[2.5rem] border-2 transition-all flex flex-col gap-6 group
-                               ${s.status === 'completed' ? 'bg-emerald-50/50 border-emerald-100' : 'bg-slate-50 border-slate-100 hover:border-primary/30'}
+                               ${s.status === 'completed' ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-[var(--bg)] border-[var(--card-border)] hover:border-primary/30'}
                              `}
                            >
                               <div className="flex items-center justify-between">
                                  <div className="flex items-center gap-5">
                                     <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg transition-transform group-hover:scale-110
-                                       ${s.status === 'completed' ? 'bg-emerald-500 text-white' : 'bg-white text-primary'}
+                                       ${s.status === 'completed' ? 'bg-emerald-500 text-white' : 'bg-[var(--card)] text-primary'}
                                     `}>
                                        {s.status === 'completed' ? <Check size={28} strokeWidth={3} /> : <Play size={24} fill="currentColor" />}
                                     </div>
                                     <div className="space-y-1">
-                                       <p className="text-[10px] font-black tracking-[0.2em] text-slate-400 uppercase leading-none">{s.subject?.name || 'Self-Study'}</p>
-                                       <p className="text-sm font-black text-slate-900 uppercase tracking-tight">{s.start_time} - {s.end_time}</p>
+                                       <p className="text-[10px] font-black tracking-[0.2em] uppercase leading-none" style={{ color: 'var(--text-muted)' }}>{s.subject?.name || 'Self-Study'}</p>
+                                       <p className="text-sm font-black uppercase tracking-tight" style={{ color: 'var(--text)' }}>{s.start_time} - {s.end_time}</p>
                                     </div>
                                  </div>
 
@@ -458,8 +458,8 @@ export const StudyPath = ({
                                       disabled={readOnly}
                                       className={`px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-all flex items-center gap-2
                                         ${readOnly 
-                                          ? 'bg-white/50 text-slate-400 border border-slate-100 shadow-sm' 
-                                          : 'bg-primary text-white shadow-[0_10px_20px_-5px_rgba(var(--primary-rgb),0.4)] hover:shadow-[0_15px_30px_-5px_rgba(var(--primary-rgb),0.6)] hover:translate-x-1'}
+                                          ? 'bg-[var(--input)] text-[var(--text-muted)] border border-[var(--card-border)] shadow-sm' 
+                                          : 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 shadow-xl hover:scale-105'}
                                       `}
                                     >
                                        {readOnly ? (
@@ -467,7 +467,7 @@ export const StudyPath = ({
                                            <span className="text-[8px] font-black uppercase tracking-tighter opacity-70">Ready to Focus</span>
                                            <Lock size={12} className="ml-1 opacity-40" />
                                          </>
-                                       ) : <span className="flex items-center gap-2 text-white">START MISSION <ArrowRight size={14} /></span>}
+                                       ) : <span className="flex items-center gap-2">START MISSION <ArrowRight size={14} /></span>}
                                     </button>
                                  ) : (
                                     <div className="flex items-center gap-2 text-emerald-600 font-extrabold text-[10px] uppercase tracking-widest bg-white/60 px-4 py-2 rounded-xl shadow-sm border border-emerald-100">
@@ -478,19 +478,19 @@ export const StudyPath = ({
 
                               {/* Detailed Telemetry: Goals & Reflections */}
                               {(s.goals?.length > 0 || s.reflections?.length > 0) && (
-                                <div className="pt-6 border-t border-slate-200/50 space-y-6">
+                                <div className="pt-6 border-t border-[var(--card-border)] space-y-6">
                                    {s.goals?.length > 0 && (
                                       <div className="space-y-3">
-                                         <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2">
+                                         <p className="text-[9px] font-black uppercase tracking-[0.2em] flex items-center gap-2" style={{ color: 'var(--text-muted)' }}>
                                             <Star size={10} fill="currentColor" className="text-amber-400" /> Strategic Milestones
                                          </p>
                                          <div className="grid grid-cols-1 gap-2">
                                             {s.goals.map((goal: any) => (
-                                               <div key={goal.id} className="flex items-center gap-3 p-3 rounded-xl bg-white/60 border border-slate-100 shadow-sm">
-                                                  <div className={`w-4 h-4 rounded-md flex items-center justify-center border-2 ${goal.is_completed ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-200'}`}>
+                                               <div key={goal.id} className="flex items-center gap-3 p-3 rounded-xl bg-[var(--card)] border border-[var(--card-border)] shadow-sm">
+                                                  <div className={`w-4 h-4 rounded-md flex items-center justify-center border-2 ${goal.is_completed ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-[var(--card-border)]'}`}>
                                                      {goal.is_completed && <Check size={10} strokeWidth={4} />}
                                                   </div>
-                                                  <p className={`text-[11px] font-bold ${goal.is_completed ? 'line-through opacity-40' : 'text-slate-700'}`}>
+                                                  <p className={`text-[11px] font-bold ${goal.is_completed ? 'line-through opacity-40' : ''}`} style={{ color: 'var(--text)' }}>
                                                      {goal.objective}
                                                   </p>
                                                </div>
@@ -501,11 +501,11 @@ export const StudyPath = ({
 
                                    {s.reflections?.length > 0 && (
                                       <div className="space-y-3">
-                                         <p className="text-[9px] font-black text-indigo-400 uppercase tracking-[0.2em] flex items-center gap-2">
+                                         <p className="text-[9px] font-black text-indigo-500 uppercase tracking-[0.2em] flex items-center gap-2">
                                             <Sparkles size={10} fill="currentColor" /> Session Reflection
                                          </p>
-                                         <div className="p-4 rounded-2xl bg-indigo-50/50 border border-indigo-100 italic">
-                                            <p className="text-xs font-bold text-slate-600 leading-relaxed">
+                                         <div className="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 italic">
+                                            <p className="text-xs font-bold leading-relaxed" style={{ color: 'var(--text)' }}>
                                                "{(s.reflections[0].learned_summary || s.reflections[0].completed_summary)?.substring(0, 150)}..."
                                             </p>
                                          </div>
@@ -518,7 +518,7 @@ export const StudyPath = ({
                       </div>
 
                      <div className="pt-4 text-center">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                        <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
                            {selectedDay.isCompleted ? "Level Cleared! Awesome work. ✅" : readOnly ? "Student is currently working on this level." : "Complete all missions to unlock next level! 🚀"}
                         </p>
                      </div>
@@ -535,12 +535,12 @@ export const StudyPath = ({
                initial={{ opacity: 0 }}
                animate={{ opacity: 1 }}
                exit={{ opacity: 0 }}
-               className="fixed inset-0 pointer-events-none z-[100] flex items-center justify-center p-4 bg-white/40 backdrop-blur-md"
+               className="fixed inset-0 pointer-events-none z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-md"
             >
                <motion.div 
                   initial={{ opacity: 0, scale: 0.5, y: 50 }}
                   animate={{ opacity: 1, scale: 1, y: 0 }}
-                  className="bg-white p-8 sm:p-12 rounded-[3.5rem] shadow-[0_50px_100px_-20px_rgba(0,0,0,0.3)] border-4 border-amber-400 text-center space-y-6 max-w-sm pointer-events-auto"
+                  className="bg-[var(--card)] p-8 sm:p-12 rounded-[3.5rem] shadow-[0_50px_100px_-20px_rgba(0,0,0,0.5)] border-4 border-amber-400 text-center space-y-6 max-w-sm pointer-events-auto"
                >
                   <div className="w-24 h-24 bg-gradient-to-tr from-amber-400 to-orange-500 rounded-full mx-auto flex items-center justify-center text-white shadow-2xl relative">
                      <Star size={48} fill="white" />
@@ -550,13 +550,13 @@ export const StudyPath = ({
                        className="absolute -inset-3 border-2 border-dashed border-amber-400/50 rounded-full"
                      />
                   </div>
-                  <h2 className="text-3xl font-black text-slate-900 tracking-tighter uppercase italic">Roadmap Complete!</h2>
-                  <p className="text-slate-500 font-bold max-w-xs uppercase text-[10px] tracking-widest leading-relaxed">
+                  <h2 className="text-3xl font-black tracking-tighter uppercase italic" style={{ color: 'var(--text)' }}>Roadmap Complete!</h2>
+                  <p className="font-bold max-w-xs uppercase text-[10px] tracking-widest leading-relaxed" style={{ color: 'var(--text-muted)' }}>
                      "Consistency is the foundation of excellence. You have successfully conquered every challenge."
                   </p>
                   <button 
                     onClick={() => setCelebrating(false)} 
-                    className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-xs hover:scale-105 transition-all shadow-xl"
+                    className="w-full py-4 rounded-2xl font-black text-xs hover:scale-105 transition-all shadow-xl bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900"
                   >
                      CONTINUE JOURNEY
                   </button>

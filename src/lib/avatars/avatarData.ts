@@ -7,7 +7,7 @@ export interface AvatarConfig {
   seed: string
   // Avataaars style options
   backgroundColor?: string
-  backgroundType?: 'circle' | 'transparent'
+  backgroundType?: string[]
   top?: string
   hatColor?: string
   hairColor?: string
@@ -49,29 +49,65 @@ export const HAIR_COLORS = [
 ]
 
 export const TOPS = [
-  { name: 'Short Hair', value: 'shortHairShortFlat', emoji: '👦' },
-  { name: 'Short Waved', value: 'shortHairShortWaved', emoji: '💆' },
-  { name: 'Short Dreads', value: 'shortHairDreads01', emoji: '🧔' },
-  { name: 'Short Sides', value: 'shortHairSides', emoji: '🙂' },
-  { name: 'Long Bun', value: 'longHairBun', emoji: '👩' },
-  { name: 'Long Curly', value: 'longHairCurly', emoji: '💁' },
-  { name: 'Long Dreads', value: 'longHairDreads', emoji: '🌀' },
+  // Boys / Short Hair Styles
+  { name: 'Classic Short', value: 'shortHairShortFlat', emoji: '👦' },
+  { name: 'Wavy Short', value: 'shortHairShortWaved', emoji: '💆' },
+  { name: 'Dreads', value: 'shortHairDreads01', emoji: '🔥' },
+  { name: 'Frizz', value: 'shortHairFrizzle', emoji: '⚡' },
+  { name: 'Shaggy', value: 'shortHairShaggyMullet', emoji: '🎸' },
+  { name: 'Short Curly', value: 'shortHairShortCurly', emoji: '🌀' },
+  { name: 'Short Round', value: 'shortHairShortRound', emoji: '🙂' },
+  { name: 'Caesar Cut', value: 'shortHairTheCaesar', emoji: '✂️' },
+  { name: 'Caesar Part', value: 'shortHairTheCaesarAndSidePart', emoji: '💈' },
+  { name: 'Short Sides', value: 'shortHairSides', emoji: '🛹' },
+  
+  // Girls / Long Hair Styles
   { name: 'Long Straight', value: 'longHairStraight', emoji: '💇' },
+  { name: 'Straight Strand', value: 'longHairStraightStrand', emoji: '👧' },
+  { name: 'Straight Layered', value: 'longHairStraight2', emoji: '👩' },
+  { name: 'Shoulder Bob', value: 'longHairBob', emoji: '🌸' },
+  { name: 'Not Too Long', value: 'longHairNotTooLong', emoji: '🎀' },
+  { name: 'Long Curly', value: 'longHairCurly', emoji: '💁' },
+  { name: 'Curly Fro', value: 'longHairFro', emoji: '✨' },
+  { name: 'Big Fro Band', value: 'longHairFroBand', emoji: '🎀' },
+  { name: 'Big Hair', value: 'longHairBigHair', emoji: '☁️' },
+  { name: 'Curvy', value: 'longHairCurvy', emoji: '〰️' },
+  { name: 'Mia Wallace', value: 'longHairMiaWallace', emoji: '🖤' },
+  { name: 'Flower Crown', value: 'longHairFrida', emoji: '🌺' },
+  { name: 'Shaved Sides', value: 'longHairShavedSides', emoji: '🤘' },
+  { name: 'Messy Bun', value: 'longHairBun', emoji: '👱‍♀️' },
+  { name: 'Long Dreads', value: 'longHairDreads', emoji: '🌿' },
+
+  // Headwear & Accessories
   { name: 'Hijab', value: 'hijab', emoji: '🧕' },
-  { name: 'Hat', value: 'hat', emoji: '🎩' },
+  { name: 'Classic Hat', value: 'hat', emoji: '🎩' },
   { name: 'Turban', value: 'turban', emoji: '🌍' },
+  { name: 'Beanie', value: 'winterHat01', emoji: '🏂' },
   { name: 'Winter Hat', value: 'winterHat02', emoji: '🎿' },
-  { name: 'Eyepatch', value: 'eyepatch', emoji: '☠️' },
+  { name: 'Pom Pom', value: 'winterHat03', emoji: '❄️' },
+  { name: 'Bandana', value: 'winterHat04', emoji: '🏴‍☠️' },
+  { name: 'Eyepatch', value: 'eyepatch', emoji: '🏴‍☠️' },
+]
+
+export const FACIAL_HAIR = [
+  { name: 'None', value: 'blank', chance: 0, emoji: '🚫' },
+  { name: 'Light Beard', value: 'beardLight', chance: 100, emoji: '🧔' },
+  { name: 'Majestic', value: 'beardMagestic', chance: 100, emoji: '🧔‍♂️' },
+  { name: 'Medium', value: 'beardMedium', chance: 100, emoji: '🧔' },
+  { name: 'Fancy Mo', value: 'moustaceFancy', chance: 100, emoji: '🥸' },
+  { name: 'Magnum Mo', value: 'moustacheMagnum', chance: 100, emoji: '👨' },
 ]
 
 export const OUTFITS = [
-  { name: 'Hoodie', value: 'hoodie', emoji: '🧥' },
-  { name: 'Shirt Crew', value: 'shirtCrewNeck', emoji: '👕' },
-  { name: 'Shirt V-Neck', value: 'shirtVNeck', emoji: '🎽' },
-  { name: 'Blazer', value: 'blazerAndShirt', emoji: '🧣' },
-  { name: 'Blazer & Sweater', value: 'blazerAndSweater', emoji: '👔' },
-  { name: 'Overall', value: 'graphicShirt', emoji: '🎨' },
-  { name: 'Collarshirt', value: 'shirtScoopNeck', emoji: '🌿' },
+  { name: 'Cozy Hoodie', value: 'hoodie', emoji: '🧥' },
+  { name: 'Graphic Tee', value: 'graphicShirt', emoji: '🎨' },
+  { name: 'Collar Sweater', value: 'collarSweater', emoji: '🧶' },
+  { name: 'Denim Overalls', value: 'overall', emoji: '👖' },
+  { name: 'Crew Neck', value: 'shirtCrewNeck', emoji: '👕' },
+  { name: 'V-Neck', value: 'shirtVNeck', emoji: '🎽' },
+  { name: 'Scoop Neck', value: 'shirtScoopNeck', emoji: '👕' },
+  { name: 'School Blazer', value: 'blazerAndShirt', emoji: '🧣' },
+  { name: 'Preppy Sweater', value: 'blazerAndSweater', emoji: '👔' },
 ]
 
 export const CLOTHING_COLORS = [
@@ -96,19 +132,38 @@ export const EYES_OPTIONS = [
   { name: 'Default', value: 'default', emoji: '👁️' },
   { name: 'Happy', value: 'happy', emoji: '😊' },
   { name: 'Wink', value: 'wink', emoji: '😉' },
-  { name: 'Closed', value: 'closed', emoji: '😌' },
+  { name: 'Wacky', value: 'winkWacky', emoji: '😜' },
+  { name: 'Closed', value: 'close', emoji: '😌' },
+  { name: 'Cry', value: 'cry', emoji: '😢' },
+  { name: 'Dizzy', value: 'dizzy', emoji: '😵' },
+  { name: 'Eye Roll', value: 'eyeRoll', emoji: '🙄' },
   { name: 'Hearts', value: 'hearts', emoji: '😍' },
-  { name: 'Stars', value: 'stars', emoji: '🤩' },
+  { name: 'Side', value: 'side', emoji: '😒' },
   { name: 'Squint', value: 'squint', emoji: '😏' },
   { name: 'Surprised', value: 'surprised', emoji: '😮' },
+]
+
+export const EYEBROWS = [
+  { name: 'Default', value: 'default', emoji: '😐' },
+  { name: 'Natural', value: 'defaultNatural', emoji: '😊' },
+  { name: 'Angry', value: 'angry', emoji: '😠' },
+  { name: 'Flat', value: 'flatNatural', emoji: '😑' },
+  { name: 'Frown', value: 'frownNatural', emoji: '☹️' },
+  { name: 'Excited', value: 'raisedExcited', emoji: '🤩' },
+  { name: 'Sad', value: 'sadConcerned', emoji: '😟' },
+  { name: 'Unibrow', value: 'unibrowNatural', emoji: '🤨' },
+  { name: 'Up Down', value: 'upDown', emoji: '🤨' },
 ]
 
 export const MOUTHS = [
   { name: 'Smile', value: 'smile', emoji: '😄' },
   { name: 'Big Smile', value: 'twinkle', emoji: '😁' },
+  { name: 'Smirk', value: 'smirk', emoji: '😏' },
   { name: 'Tongue', value: 'tongue', emoji: '😛' },
   { name: 'Serious', value: 'serious', emoji: '😐' },
   { name: 'Eating', value: 'eating', emoji: '😋' },
+  { name: 'Concerned', value: 'concerned', emoji: '😟' },
+  { name: 'Sad', value: 'sad', emoji: '😢' },
   { name: 'Disbelief', value: 'disbelief', emoji: '😦' },
   { name: 'Scream Open', value: 'screamOpen', emoji: '😱' },
   { name: 'Grimace', value: 'grimace', emoji: '😬' },
@@ -117,11 +172,12 @@ export const MOUTHS = [
 
 export const ACCESSORIES = [
   { name: 'None', value: 'blank', chance: 0 },
-  { name: 'Glasses', value: 'prescription01', chance: 100 },
+  { name: 'Smart Glasses', value: 'prescription01', chance: 100 },
   { name: 'Round Glasses', value: 'prescription02', chance: 100 },
-  { name: 'Kurt', value: 'kurt', chance: 100 },
-  { name: 'Sunglasses', value: 'sunglasses', chance: 100 },
+  { name: 'Retro Frames', value: 'kurt', chance: 100 },
+  { name: 'Cool Shades', value: 'sunglasses', chance: 100 },
   { name: 'Wayfarers', value: 'wayfarers', chance: 100 },
+  { name: 'Round Shades', value: 'round', chance: 100 },
 ]
 
 export const BACKGROUND_COLORS = [
@@ -142,7 +198,7 @@ export const BACKGROUND_COLORS = [
 export const getDefaultConfig = (): AvatarConfig => ({
   seed: Math.random().toString(36).slice(2, 10),
   backgroundColor: 'b6e3f4',
-  backgroundType: 'circle',
+  backgroundType: ['solid'],
   top: 'shortHairShortFlat',
   hairColor: 'brown',
   skin: 'light',
@@ -167,7 +223,7 @@ export const getRandomConfig = (): AvatarConfig => {
   return {
     seed: Math.random().toString(36).slice(2, 10),
     backgroundColor: bgColor.hex,
-    backgroundType: 'circle',
+    backgroundType: ['solid'],
     top: pick(TOPS),
     hairColor: pick(HAIR_COLORS),
     skin: pick(SKIN_TONES),
@@ -191,7 +247,9 @@ export const buildAvatarUrl = (config: AvatarConfig): string => {
   const params = new URLSearchParams()
   params.set('seed', config.seed)
   if (config.backgroundColor) params.set('backgroundColor', config.backgroundColor)
-  if (config.backgroundType) params.set('backgroundType', config.backgroundType)
+  if (config.backgroundType && Array.isArray(config.backgroundType)) {
+      config.backgroundType.forEach(t => params.append('backgroundType', t))
+  }
   if (config.top) params.set('top', config.top)
   if (config.hairColor) params.set('hairColor', config.hairColor)
   if (config.skin) params.set('skinColor', config.skin)

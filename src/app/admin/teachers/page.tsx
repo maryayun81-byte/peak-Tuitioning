@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Plus, Search, Eye, UserCheck, BookOpen, School, Trash2 } from 'lucide-react'
+import { Plus, Search,Star, Eye, UserCheck, BookOpen, School, Trash2 } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
@@ -31,21 +31,33 @@ export default function AdminTeachers() {
   const [selected, setSelected] = useState<any>(null)
   const [viewOpen, setViewOpen] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [teacherToDelete, setTeacherToDelete] = useState<any>(null)
   const [creating, setCreating] = useState(false)
   const [curriculums, setCurriculums] = useState<any[]>([])
   const [classes, setClasses] = useState<Class[]>([])
   const [subjects, setSubjects] = useState<Subject[]>([])
+  const [centers, setCenters] = useState<any[]>([])
+  
+  const [filterClass, setFilterClass] = useState('')
+  const [filterSubject, setFilterSubject] = useState('')
+  const [filterCenter, setFilterCenter] = useState('')
+  
   const [page, setPage] = useState(1)
   
   // Assignment Modal States
   const [assignOpen, setAssignOpen] = useState(false)
+  const [assignClassTeacherOpen, setAssignClassTeacherOpen] = useState(false)
   const [assigning, setAssigning] = useState(false)
-  const [centers, setCenters] = useState<any[]>([])
   const [assignForm, setAssignForm] = useState({
     class_id: '',
     subject_id: '',
     tuition_center_id: '',
     is_class_teacher: false
+  })
+  const [assignClassTeacherForm, setAssignClassTeacherForm] = useState({
+    class_id: '',
+    tuition_center_id: ''
   })
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<TeacherForm>({
@@ -60,29 +72,35 @@ export default function AdminTeachers() {
     return () => clearTimeout(timer)
   }, [])
 
+  const fetchAuxData = async () => {
+    const [curRes, classRes, subRes, centerRes] = await Promise.all([
+      supabase.from('curriculums').select('*').order('name'),
+      supabase.from('classes').select('*').order('name'),
+      supabase.from('subjects').select('*').order('name'),
+      supabase.from('tuition_centers').select('*').order('name')
+    ])
+    if (curRes.data) setCurriculums(curRes.data)
+    if (classRes.data) setClasses(classRes.data)
+    if (subRes.data) setSubjects(subRes.data)
+    if (centerRes.data) setCenters(centerRes.data)
+  }
+
   const loadData = async () => {
     setLoading(true)
     try {
-      const [tRes, cRes, clRes, sRes, cenRes] = await Promise.all([
+      const [tRes] = await Promise.all([
         supabase
           .from('teachers')
           .select(`
             *,
             teacher_teaching_map(curriculum:curriculums(name), class:classes(name), subject:subjects(name)),
-            teacher_assignments(id, class:classes(name, id), subject:subjects(name, id), center:tuition_centers(name, id), is_class_teacher)
+            teacher_assignments(id, class_id, subject_id, tuition_center_id, class:classes(name, id), subject:subjects(name, id), center:tuition_centers(name, id), is_class_teacher)
           `)
           .order('full_name'),
-        supabase.from('curriculums').select('*').order('name'),
-        supabase.from('classes').select('*, curriculum:curriculums(name)').order('level'),
-        supabase.from('subjects').select('*').order('name'),
-        supabase.from('tuition_centers').select('*').order('name'),
+        fetchAuxData()
       ])
 
       setTeachers(tRes.data ?? [])
-      setCurriculums(cRes.data ?? [])
-      setClasses(clRes.data ?? [])
-      setSubjects(sRes.data ?? [])
-      setCenters(cenRes.data ?? [])
     } catch (e) {
       console.error('Failed to load teachers and metadata:', e)
       toast.error('Failed to load data.')
@@ -96,9 +114,6 @@ export default function AdminTeachers() {
     try {
       const tempPwd = generateTempPassword()
       
-      // Note: We are creating the teacher record. 
-      // If user_id is NOT NULL in the DB, this will fail.
-      // We may need to update the schema to make user_id nullable for invitation flow.
       const { error } = await supabase.from('teachers').insert({
         full_name: data.full_name,
         email: data.email,
@@ -129,7 +144,7 @@ export default function AdminTeachers() {
 
   const handleAssign = async () => {
     if (!selected || !assignForm.class_id || !assignForm.subject_id) {
-      toast.error('Please select both class and subject');
+      toast.error('Please select a subject');
       return;
     }
     setAssigning(true);
@@ -139,7 +154,7 @@ export default function AdminTeachers() {
         class_id: assignForm.class_id,
         subject_id: assignForm.subject_id,
         tuition_center_id: assignForm.tuition_center_id || null,
-        is_class_teacher: assignForm.is_class_teacher
+        is_class_teacher: false
       });
       if (error) throw error;
       toast.success('Teacher assigned successfully!');
@@ -153,6 +168,43 @@ export default function AdminTeachers() {
     }
   };
 
+  const handleAssignClassTeacher = async () => {
+    if (!selected || !assignClassTeacherForm.class_id) {
+      toast.error('Please select a class');
+      return;
+    }
+    setAssigning(true);
+    try {
+      const { error } = await supabase.from('teacher_assignments').insert({
+        teacher_id: selected.id,
+        class_id: assignClassTeacherForm.class_id,
+        subject_id: null,
+        tuition_center_id: assignClassTeacherForm.tuition_center_id || null,
+        is_class_teacher: true
+      });
+      if (error) throw error;
+      toast.success('Assigned as Class Teacher successfully!');
+      setAssignClassTeacherOpen(false);
+      setAssignClassTeacherForm({ class_id: '', tuition_center_id: '' });
+      loadData();
+    } catch (e: any) {
+      toast.error(e.message || 'Assignment failed');
+    } finally {
+      setAssigning(false);
+    }
+  };
+
+  const toggleClassTeacher = async (id: string, currentStatus: boolean) => {
+    try {
+      const { error } = await supabase.from('teacher_assignments').update({ is_class_teacher: !currentStatus }).eq('id', id);
+      if (error) throw error;
+      toast.success(!currentStatus ? 'Promoted to Class Teacher' : 'Class Teacher status removed');
+      loadData();
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+  };
+
   const removeAssignment = async (id: string) => {
     if (!confirm('Are you sure you want to remove this assignment?')) return;
     try {
@@ -160,28 +212,90 @@ export default function AdminTeachers() {
       if (error) throw error;
       toast.success('Assignment removed');
       loadData();
+      setViewOpen(false); // Close modal to refresh data cleanly
     } catch (e: any) {
       toast.error(e.message);
     }
   };
 
-  const filtered = teachers.filter((t: any) =>
-    t.full_name.toLowerCase().includes(search.toLowerCase()) ||
-    t.email.toLowerCase().includes(search.toLowerCase())
-  )
+  const deleteTeacher = async () => {
+    if (!teacherToDelete) return;
+    try {
+      const { error } = await supabase.from('teachers').delete().eq('id', teacherToDelete.id);
+      if (error) throw error;
+      toast.success('Teacher deleted successfully');
+      setDeleteOpen(false);
+      setTeacherToDelete(null);
+      loadData();
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to delete teacher');
+    }
+  };
+
+  const filtered = teachers.filter((t: any) => {
+    const matchesSearch = t.full_name.toLowerCase().includes(search.toLowerCase()) || t.email.toLowerCase().includes(search.toLowerCase())
+    const matchesClass = filterClass ? t.teacher_assignments?.some((a:any) => a.class_id === filterClass) : true
+    const matchesSubject = filterSubject ? t.teacher_assignments?.some((a:any) => a.subject_id === filterSubject) : true
+    const matchesCenter = filterCenter ? t.teacher_assignments?.some((a:any) => a.tuition_center_id === filterCenter) : true
+    return matchesSearch && matchesClass && matchesSubject && matchesCenter
+  })
   const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-black" style={{ color: 'var(--text)' }}>Teachers</h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>{filtered.length} teachers registered</p>
+          <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>{filtered.length} teachers matching criteria</p>
         </div>
-        <Button onClick={() => setAddOpen(true)}>
+        <Button onClick={() => setAddOpen(true)} className="whitespace-nowrap">
           <Plus size={16} /> Add Teacher
         </Button>
+      </div>
+
+      <div className="flex flex-col md:flex-row flex-wrap gap-3">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-50" />
+          <input
+            type="text"
+            placeholder="Search by name or email..."
+            className="w-full pl-9 pr-4 py-2.5 rounded-xl border-none outline-none font-medium h-full"
+            style={{ background: 'var(--input)', color: 'var(--text)' }}
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+          />
+        </div>
+        
+        <select 
+          className="px-4 py-2.5 rounded-xl border-none outline-none font-medium text-sm sm:w-auto w-full" 
+          style={{ background: 'var(--input)', color: 'var(--text)' }}
+          value={filterClass} 
+          onChange={e => { setFilterClass(e.target.value); setPage(1); }}
+        >
+          <option value="">All Classes</option>
+          {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+
+        <select 
+          className="px-4 py-2.5 rounded-xl border-none outline-none font-medium text-sm sm:w-auto w-full" 
+          style={{ background: 'var(--input)', color: 'var(--text)' }}
+          value={filterSubject} 
+          onChange={e => { setFilterSubject(e.target.value); setPage(1); }}
+        >
+          <option value="">All Subjects</option>
+          {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+
+        <select 
+          className="px-4 py-2.5 rounded-xl border-none outline-none font-medium text-sm sm:w-auto w-full" 
+          style={{ background: 'var(--input)', color: 'var(--text)' }}
+          value={filterCenter} 
+          onChange={e => { setFilterCenter(e.target.value); setPage(1); }}
+        >
+          <option value="">All Centers</option>
+          {centers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
       </div>
 
       {/* Stats */}
@@ -192,19 +306,11 @@ export default function AdminTeachers() {
         <StatCard title="Class Teachers" value={teachers.filter(t => (t as any).teacher_assignments?.some((a: any) => a.is_class_teacher)).length} icon={<UserCheck size={20} />} />
       </div>
 
-      <Input
-        placeholder="Search by name or email…"
-        leftIcon={<Search size={16} />}
-        value={search}
-        onChange={e => { setSearch(e.target.value); setPage(1) }}
-      />
-
       {loading ? <SkeletonList count={6} /> : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {paginated.map((teacher, i) => {
             const t = teacher as any
             const mappings: any[] = t.teacher_teaching_map ?? []
-            // Deduplicate using Set
             const curricula = [...new Set(mappings.map((m: any) => m.curriculum?.name).filter(Boolean))]
             const prefClasses = [...new Set(mappings.map((m: any) => m.class?.name).filter(Boolean))]
             const prefSubjects = [...new Set(mappings.map((m: any) => m.subject?.name).filter(Boolean))]
@@ -232,7 +338,9 @@ export default function AdminTeachers() {
                         </div>
                         <div>
                           <div className="font-black text-lg" style={{ color: 'var(--text)' }}>{teacher.full_name}</div>
-                          <div className="text-sm opacity-60" style={{ color: 'var(--text)' }}>{teacher.email}</div>
+                          <div className="text-sm opacity-60 flex items-center gap-2" style={{ color: 'var(--text)' }}>
+                             <span>{teacher.phone || teacher.email}</span>
+                          </div>
                         </div>
                       </div>
                       <Badge variant={teacher.onboarded ? 'success' : 'warning'} className="mt-1">
@@ -252,21 +360,18 @@ export default function AdminTeachers() {
                     </div>
 
                     <div className="mt-5 space-y-3">
-                      {/* Admin-assigned classes */}
                       {assignedClasses.length > 0 && (
                         <div className="flex flex-wrap gap-1.5">
                           {assignedClasses.slice(0, 3).map((c: string) => <Badge key={c} variant="primary">{c}</Badge>)}
                           {assignedClasses.length > 3 && <Badge variant="muted">+{assignedClasses.length - 3}</Badge>}
                         </div>
                       )}
-                      {/* Preferred subjects from onboarding */}
                       {prefSubjects.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 opacity-80">
                           {prefSubjects.slice(0, 3).map((s: string) => <Badge key={s} variant="info">{s}</Badge>)}
                           {prefSubjects.length > 3 && <Badge variant="muted">+{prefSubjects.length - 3}</Badge>}
                         </div>
                       )}
-                      {/* Preferred curricula */}
                       {curricula.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 opacity-60">
                           {curricula.map((c: string) => <Badge key={c} variant="muted">{c}</Badge>)}
@@ -279,7 +384,15 @@ export default function AdminTeachers() {
                     <div className="flex items-center gap-1.5">
                       <Eye size={14} /> View Profile
                     </div>
-                    <span>Added {formatDate(teacher.created_at)}</span>
+                    <div className="flex items-center gap-3">
+                       <span>{formatDate(teacher.created_at)}</span>
+                       <button
+                         onClick={(e) => { e.stopPropagation(); setTeacherToDelete(t); setDeleteOpen(true); }}
+                         className="p-1.5 rounded bg-red-50 text-red-500 hover:bg-red-100 transition-colors"
+                       >
+                         <Trash2 size={14} />
+                       </button>
+                    </div>
                   </div>
                 </Card>
               </motion.div>
@@ -290,10 +403,18 @@ export default function AdminTeachers() {
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-3">
-          <Button variant="secondary" size="sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>Prev</Button>
-          <span className="text-sm" style={{ color: 'var(--text-muted)' }}>{page} / {totalPages}</span>
-          <Button variant="secondary" size="sm" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>Next</Button>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between mt-8 p-4 bg-[var(--card)] rounded-xl border border-[var(--card-border)] gap-4">
+          <span className="text-sm font-medium text-center sm:text-left" style={{ color: 'var(--text-muted)' }}>
+            Showing page <span style={{ color: 'var(--text)' }}>{page}</span> of <span style={{ color: 'var(--text)' }}>{totalPages}</span>
+          </span>
+          <div className="flex gap-2 justify-center sm:justify-end w-full sm:w-auto">
+            <Button variant="secondary" size="sm" className="flex-1 sm:flex-none" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
+              Previous
+            </Button>
+            <Button variant="secondary" size="sm" className="flex-1 sm:flex-none" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>
+              Next
+            </Button>
+          </div>
         </div>
       )}
 
@@ -332,9 +453,14 @@ export default function AdminTeachers() {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-black uppercase tracking-wider opacity-60">Assignments</h3>
-                <Button size="sm" onClick={() => { setViewOpen(false); setAssignOpen(true); }} className="h-8 text-xs">
-                  <Plus size={14} className="mr-1" /> Assign New
-                </Button>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="secondary" onClick={() => { setViewOpen(false); setAssignClassTeacherOpen(true); }} className="h-8 text-xs bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 border-none">
+                    <Star size={14} className="mr-1" /> Assign Class Teacher
+                  </Button>
+                  <Button size="sm" onClick={() => { setViewOpen(false); setAssignOpen(true); }} className="h-8 text-xs">
+                    <Plus size={14} className="mr-1" /> Assign New
+                  </Button>
+                </div>
               </div>
 
               {selected.teacher_assignments?.length > 0 ? (
@@ -342,15 +468,30 @@ export default function AdminTeachers() {
                   {selected.teacher_assignments.map((assignment: any) => (
                     <div key={assignment.id} className="flex items-center justify-between p-3 rounded-xl border border-[var(--card-border)] hover:bg-[var(--input)] transition-all group">
                       <div>
-                        <div className="text-sm font-bold">{assignment.class?.name}</div>
-                        <div className="text-xs opacity-60">{assignment.subject?.name} {assignment.center?.name ? `• ${assignment.center.name}` : ''} {assignment.is_class_teacher && '• Class Teacher'}</div>
+                        <div className="text-sm font-bold flex items-center gap-2">
+                           {assignment.class?.name}
+                           {assignment.is_class_teacher && <span className="text-[10px] uppercase font-black tracking-widest text-amber-500 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">Class Teacher</span>}
+                        </div>
+                        <div className="text-xs opacity-60">
+                           {assignment.subject?.name || 'No Specific Subject'} {assignment.center?.name ? `• ${assignment.center.name}` : ''}
+                        </div>
                       </div>
-                      <button 
-                         onClick={(e) => { e.stopPropagation(); removeAssignment(assignment.id); }}
-                         className="p-2 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-50 text-red-500 transition-all"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                      <div className="flex items-center gap-1">
+                         <button 
+                            onClick={(e) => { e.stopPropagation(); toggleClassTeacher(assignment.id, assignment.is_class_teacher); }}
+                            className={`p-2 rounded-lg transition-all ${assignment.is_class_teacher ? 'text-amber-500 hover:bg-amber-100' : 'text-slate-300 hover:text-amber-500 hover:bg-amber-50'} opacity-100`}
+                            title={assignment.is_class_teacher ? "Remove Class Teacher Status" : "Make Class Teacher"}
+                         >
+                            <Star size={16} fill={assignment.is_class_teacher ? "currentColor" : "none"} />
+                         </button>
+                         <button 
+                            onClick={(e) => { e.stopPropagation(); removeAssignment(assignment.id); }}
+                            className="p-2 rounded-lg opacity-100 hover:bg-red-50 text-red-500 transition-all"
+                            title="Remove completely"
+                         >
+                           <Trash2 size={16} />
+                         </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -451,23 +592,46 @@ export default function AdminTeachers() {
             </div>
           )}
 
-          <label className="flex items-center gap-3 p-4 rounded-2xl border border-[var(--card-border)] bg-[var(--input)] cursor-pointer">
-            <input
-              type="checkbox"
-              className="w-5 h-5 rounded-md border-2 border-primary accent-primary"
-              checked={assignForm.is_class_teacher}
-              onChange={e => setAssignForm({ ...assignForm, is_class_teacher: e.target.checked })}
-            />
-            <div>
-              <div className="text-sm font-black">Designate as Class Teacher</div>
-              <div className="text-xs opacity-60">Allows this teacher to manage the entire class progress</div>
-            </div>
-          </label>
-
           <div className="flex gap-3 justify-end pt-2">
             <Button variant="secondary" onClick={() => setAssignOpen(false)}>Cancel</Button>
             <Button onClick={handleAssign} isLoading={assigning} disabled={!assignForm.subject_id}>
               Assign Teacher
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Assign Class Teacher Explicit Modal */}
+      <Modal isOpen={assignClassTeacherOpen} onClose={() => setAssignClassTeacherOpen(false)} title={`Assign ${selected?.full_name} as Class Teacher`} size="sm">
+        <div className="space-y-5">
+          <Select
+            label="Tuition Center"
+            value={assignClassTeacherForm.tuition_center_id}
+            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setAssignClassTeacherForm({ ...assignClassTeacherForm, tuition_center_id: e.target.value })}
+          >
+            <option value="">All Centers (Default)</option>
+            {centers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </Select>
+
+          <Select
+            label="Select Class"
+            value={assignClassTeacherForm.class_id}
+            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setAssignClassTeacherForm({ ...assignClassTeacherForm, class_id: e.target.value })}
+          >
+            <option value="">Choose a class...</option>
+            {classes.map((c: any) => (
+              <option key={c.id} value={c.id}>{c.curriculum?.name ? `${c.curriculum.name} — ` : ''}{c.name}</option>
+            ))}
+          </Select>
+          
+          <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 text-xs">
+            <Star size={14} className="inline mr-1" /> This will give the teacher administrative oversight for the chosen class.
+          </div>
+
+          <div className="flex gap-3 justify-end pt-2">
+            <Button variant="secondary" onClick={() => setAssignClassTeacherOpen(false)}>Cancel</Button>
+            <Button onClick={handleAssignClassTeacher} isLoading={assigning} disabled={!assignClassTeacherForm.class_id} className="bg-amber-500 hover:bg-amber-600 text-white border-none">
+              Assign Role
             </Button>
           </div>
         </div>
@@ -504,6 +668,24 @@ export default function AdminTeachers() {
           </div>
         </form>
       </Modal>
+
+      {/* Delete Teacher Modal */}
+      {deleteOpen && (
+         <Modal isOpen={deleteOpen} onClose={() => { setDeleteOpen(false); setTeacherToDelete(null); }} title="Delete Teacher" size="sm">
+            <div className="space-y-4">
+               <p className="text-sm" style={{ color: 'var(--text)' }}>
+                 Are you sure you want to delete <strong>{teacherToDelete?.full_name}</strong>? This action cannot be undone and will remove all their assignments and access.
+               </p>
+               <div className="flex gap-3 justify-end pt-2">
+                 <Button variant="secondary" onClick={() => { setDeleteOpen(false); setTeacherToDelete(null); }}>Cancel</Button>
+                 <Button onClick={deleteTeacher} className="bg-red-500 hover:bg-red-600 text-white border-none shadow-xl shadow-red-500/20">
+                   Delete Teacher
+                 </Button>
+               </div>
+            </div>
+         </Modal>
+      )}
+
     </div>
   )
 }

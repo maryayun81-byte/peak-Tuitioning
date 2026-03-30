@@ -83,19 +83,33 @@ export default function StudentAssignments() {
       const from = (currentPage - 1) * pageSize
       const to = from + pageSize - 1
 
+      // Build the query filtering by subject, class, tuition center and published status
+      let assignQuery = supabase
+        .from('assignments')
+        .select('*, subject:subjects(name), teacher:teachers(full_name)', { count: 'exact' })
+        .in('subject_id', subjectIds)
+        .eq('status', 'published')
+        .order('created_at', { ascending: false })
+        .range(from, to)
+
+      // Filter by tuition center: show assignments for the student's center OR center-agnostic ones
+      if (student.tuition_center_id) {
+        assignQuery = assignQuery.or(`tuition_center_id.eq.${student.tuition_center_id},tuition_center_id.is.null`)
+      }
+
+      // Filter by class if student has one
+      if (student.class_id) {
+        assignQuery = assignQuery.eq('class_id', student.class_id)
+      }
+
       const [aRes, sRes] = await Promise.all([
-        supabase
-          .from('assignments')
-          .select('*, subject:subjects(name), teacher:teachers(full_name)', { count: 'exact' })
-          .in('subject_id', subjectIds)
-          .eq('status', 'published')
-          .order('created_at', { ascending: false })
-          .range(from, to),
+        assignQuery,
         supabase
           .from('submissions')
           .select('*')
           .eq('student_id', student.id)
       ])
+
       
       setAssignments(aRes.data ?? [])
       setTotalCount(aRes.count || 0)

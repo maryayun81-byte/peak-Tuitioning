@@ -12,8 +12,10 @@ import {
   OUTFITS,
   CLOTHING_COLORS,
   EYES_OPTIONS,
+  EYEBROWS,
   MOUTHS,
   ACCESSORIES,
+  FACIAL_HAIR,
   BACKGROUND_COLORS,
   getDefaultConfig,
   getRandomConfig,
@@ -27,7 +29,7 @@ interface AvatarStudioProps {
   isLoading?: boolean
 }
 
-type TabId = 'skin' | 'hair' | 'top' | 'outfit' | 'eyes' | 'mouth' | 'extras' | 'bg'
+type TabId = 'skin' | 'hair' | 'top' | 'outfit' | 'eyes' | 'eyebrows' | 'mouth' | 'beard' | 'extras' | 'bg'
 
 const TABS: { id: TabId; label: string; emoji: string }[] = [
   { id: 'skin', label: 'Skin', emoji: '🎨' },
@@ -35,7 +37,9 @@ const TABS: { id: TabId; label: string; emoji: string }[] = [
   { id: 'top', label: 'Style', emoji: '✂️' },
   { id: 'outfit', label: 'Outfit', emoji: '👗' },
   { id: 'eyes', label: 'Eyes', emoji: '👁️' },
+  { id: 'eyebrows', label: 'Brows', emoji: '🤨' },
   { id: 'mouth', label: 'Mouth', emoji: '😁' },
+  { id: 'beard', label: 'Beard', emoji: '🧔' },
   { id: 'extras', label: 'Extras', emoji: '🕶️' },
   { id: 'bg', label: 'BG', emoji: '🌈' },
 ]
@@ -318,6 +322,30 @@ export const AvatarStudio = ({ initialConfig, onSave, isLoading }: AvatarStudioP
                 </div>
               )}
 
+              {/* EYEBROWS */}
+              {activeTab === 'eyebrows' && (
+                <div className="space-y-4">
+                  <p className="text-xs font-black tracking-widest uppercase" style={{ color: 'var(--text-muted)' }}>Eyebrow Style</p>
+                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-3">
+                    {EYEBROWS.map(e => (
+                      <button
+                        key={e.value}
+                        onClick={() => update('eyebrow', e.value)}
+                        className={`
+                          p-3 rounded-2xl border-2 transition-all text-center
+                          ${config.eyebrow === e.value
+                            ? 'border-primary bg-primary/10 scale-105 shadow-md'
+                            : 'border-[var(--card-border)] bg-[var(--input)] hover:border-primary/30 hover:scale-105'}
+                        `}
+                      >
+                        <span className="text-2xl block mb-1">{e.emoji}</span>
+                        <span className="text-[10px] font-black uppercase tracking-wide leading-tight" style={{ color: config.eyebrow === e.value ? 'var(--primary)' : 'var(--text-muted)' }}>{e.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* MOUTH */}
               {activeTab === 'mouth' && (
                 <div className="space-y-4">
@@ -336,6 +364,33 @@ export const AvatarStudio = ({ initialConfig, onSave, isLoading }: AvatarStudioP
                       >
                         <span className="text-2xl block mb-1">{m.emoji}</span>
                         <span className="text-[10px] font-black uppercase tracking-wide leading-tight" style={{ color: config.mouth === m.value ? 'var(--primary)' : 'var(--text-muted)' }}>{m.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* BEARD / FACIAL HAIR */}
+              {activeTab === 'beard' && (
+                <div className="space-y-4">
+                  <p className="text-xs font-black tracking-widest uppercase" style={{ color: 'var(--text-muted)' }}>Facial Hair</p>
+                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-3">
+                    {FACIAL_HAIR.map(f => (
+                      <button
+                        key={f.value}
+                        onClick={() => {
+                          update('facialHairType', f.value)
+                          update('facialHairChance', f.chance)
+                        }}
+                        className={`
+                          p-3 rounded-2xl border-2 transition-all text-center
+                          ${config.facialHairType === f.value
+                            ? 'border-primary bg-primary/10 scale-105 shadow-md'
+                            : 'border-[var(--card-border)] bg-[var(--input)] hover:border-primary/30 hover:scale-105'}
+                        `}
+                      >
+                        <span className="text-2xl block mb-1">{f.emoji}</span>
+                        <span className="text-[10px] font-black uppercase tracking-wide leading-tight" style={{ color: config.facialHairType === f.value ? 'var(--primary)' : 'var(--text-muted)' }}>{f.name}</span>
                       </button>
                     ))}
                   </div>

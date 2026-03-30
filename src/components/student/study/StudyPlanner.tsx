@@ -222,7 +222,7 @@ export const StudyPlanner = ({ onComplete }: StudyPlannerProps) => {
   }
 
   return (
-    <div className="max-w-4xl mx-auto py-8">
+    <div className="max-w-4xl mx-auto py-8 px-4 sm:px-6">
       <AnimatePresence mode="wait">
         {step === 1 && (
           <motion.div key="step1" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}>
@@ -285,9 +285,9 @@ export const StudyPlanner = ({ onComplete }: StudyPlannerProps) => {
 
                 <div className="space-y-6">
                    {plannedSessions.filter(s => s.day === days[currentDayIndex]).map((s, idx) => (
-                      <Card key={s.id} className="p-6 sm:p-10 relative group border border-dashed border-primary/20 hover:border-primary/50 transition-all rounded-[3rem] bg-[var(--card)] overflow-visible">
-                         <button onClick={() => removeSession(s.id)} className="absolute -top-4 -right-4 w-12 h-12 bg-rose-500 text-white shadow-xl rounded-2xl flex items-center justify-center hover:scale-110 transition-all z-20">
-                            <Trash2 size={24} />
+                      <Card key={s.id} className="p-5 sm:p-10 relative group border border-dashed border-primary/20 hover:border-primary/50 transition-all rounded-[2rem] sm:rounded-[3rem] bg-[var(--card)] overflow-visible">
+                         <button onClick={() => removeSession(s.id)} className="absolute -top-3 -right-3 sm:-top-4 sm:-right-4 w-10 h-10 sm:w-12 sm:h-12 bg-rose-500 text-white shadow-xl rounded-xl sm:rounded-2xl flex items-center justify-center hover:scale-110 transition-all z-20">
+                            <Trash2 size={20} className="sm:w-6 sm:h-6" />
                          </button>
                          
                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
@@ -299,7 +299,7 @@ export const StudyPlanner = ({ onComplete }: StudyPlannerProps) => {
                             <Input label="Duration (min)" type="number" value={s.duration} onChange={e => updateSession(s.id, { duration: parseInt(e.target.value) })} className="h-14 font-bold rounded-2xl" />
                          </div>
 
-                         <div className="p-8 rounded-[2.5rem] bg-primary/5 border border-primary/10 relative overflow-hidden group/goal">
+                         <div className="p-4 sm:p-8 rounded-2xl sm:rounded-[2.5rem] bg-primary/5 border border-primary/10 relative overflow-hidden group/goal">
                             <div className="absolute top-0 right-0 p-8 opacity-5">
                                <Sparkles size={64} className="text-primary group-hover/goal:scale-125 transition-transform duration-700" />
                             </div>
@@ -307,7 +307,7 @@ export const StudyPlanner = ({ onComplete }: StudyPlannerProps) => {
                                <PenTool size={16} /> Mission Blueprint
                             </h3>
                             
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-8">
                                <Input label="The Objective" placeholder="What are you conquering?" value={s.goals.objective} onChange={e => updateSession(s.id, { goals: { ...s.goals, objective: e.target.value } })} className="bg-white/50" />
                                <Input label="The Strategy" placeholder="How will you win?" value={s.goals.action} onChange={e => updateSession(s.id, { goals: { ...s.goals, action: e.target.value } })} className="bg-white/50" />
                                <Input label="The Outcome" placeholder="Proof of victory?" value={s.goals.outcome} onChange={e => updateSession(s.id, { goals: { ...s.goals, outcome: e.target.value } })} className="bg-white/50" />
@@ -327,10 +327,10 @@ export const StudyPlanner = ({ onComplete }: StudyPlannerProps) => {
                    </Button>
                 </div>
 
-                <div className="flex justify-between items-center pt-12 gap-6">
-                   <Button variant="secondary" className="px-10 rounded-full h-16 font-bold" onClick={() => setStep(1)}><ChevronLeft size={20} className="mr-2" /> Back</Button>
-                   <Button className="flex-1 rounded-full font-black shadow-2xl shadow-primary/20 bg-slate-900 h-20 text-white uppercase tracking-[0.2em]" onClick={() => setStep(3)}>
-                      Analyze Roadmap <ChevronRight className="ml-3" size={20} />
+                <div className="flex flex-col-reverse sm:flex-row justify-between items-center pt-12 gap-4 sm:gap-6">
+                   <Button variant="secondary" className="w-full sm:w-auto px-10 rounded-full h-14 sm:h-16 font-bold" onClick={() => setStep(1)}><ChevronLeft size={20} className="mr-2" /> Back</Button>
+                   <Button className="w-full sm:flex-1 rounded-full font-black shadow-2xl shadow-primary/20 bg-slate-900 h-16 sm:h-20 text-white text-sm sm:text-base uppercase tracking-[0.2em]" onClick={() => setStep(3)}>
+                      Analyze Roadmap <ChevronRight className="ml-3 inline" size={20} />
                    </Button>
                 </div>
              </div>
@@ -348,29 +348,29 @@ export const StudyPlanner = ({ onComplete }: StudyPlannerProps) => {
                    <p className="text-sm text-[var(--text-muted)] font-bold uppercase tracking-widest opacity-50">{plannedSessions.length} Sequential Missions planned</p>
                 </div>
 
-                <div className="grid grid-cols-1 gap-4 max-h-[400px] overflow-y-auto pr-4 custom-scrollbar">
+                <div className="grid grid-cols-1 gap-4 max-h-[400px] overflow-y-auto pr-2 sm:pr-4 custom-scrollbar">
                    {plannedSessions.sort((a,b) => a.day.localeCompare(b.day)).map(s => (
-                      <div key={s.id} className="p-6 rounded-[2rem] bg-[var(--input)] flex items-center justify-between border border-transparent hover:border-primary/20 transition-all">
-                         <div className="flex items-center gap-6">
-                            <div className="w-14 h-14 rounded-2xl bg-primary/10 flex flex-col items-center justify-center text-primary">
+                      <div key={s.id} className="p-4 sm:p-6 rounded-[2rem] bg-[var(--input)] flex flex-col sm:flex-row sm:items-center justify-between gap-4 sm:gap-0 border border-transparent hover:border-primary/20 transition-all">
+                         <div className="flex items-center gap-4 sm:gap-6">
+                            <div className="min-w-[56px] h-14 rounded-2xl bg-primary/10 flex flex-col items-center justify-center text-primary">
                                <span className="text-lg font-black">{new Date(s.day).getDate()}</span>
                                <span className="text-[8px] font-black uppercase">{new Date(s.day).toLocaleDateString(undefined, { month: 'short' })}</span>
                             </div>
-                            <div>
-                               <div className="font-black text-sm uppercase tracking-tight">
+                            <div className="min-w-0 flex-1">
+                               <div className="font-black text-xs sm:text-sm uppercase tracking-tight truncate">
                                   {subjects.find(sub => sub.id === s.subject_id)?.name || 'Focus Session'}
                                </div>
-                               <div className="text-[10px] font-bold opacity-40 uppercase tracking-widest">{s.start_time} • {s.duration} Minutes</div>
+                               <div className="text-[10px] font-bold opacity-40 uppercase tracking-widest">{s.start_time} • {s.duration} Min</div>
                             </div>
                          </div>
-                         <Badge className="bg-emerald-500/10 text-emerald-600 border-none px-4 py-2 rounded-xl text-[10px] uppercase font-black tracking-widest">Encoded</Badge>
+                         <Badge className="bg-emerald-500/10 text-emerald-600 border-none px-4 py-2 rounded-xl text-[10px] uppercase font-black tracking-widest self-start sm:self-auto">Encoded</Badge>
                       </div>
                    ))}
                 </div>
 
                 <div className="flex flex-col gap-4">
-                   <Button size="lg" className="w-full rounded-2xl h-20 font-black text-lg bg-emerald-500 shadow-2xl shadow-emerald-500/30 hover:bg-emerald-600 border-none text-white uppercase tracking-[0.2em]" onClick={saveAllSessions} disabled={plannedSessions.length === 0}>
-                      Deploy Roadmap <Check className="ml-3" size={24} strokeWidth={3} />
+                   <Button size="lg" className="w-full rounded-2xl h-16 sm:h-20 font-black text-sm sm:text-lg bg-emerald-500 shadow-2xl shadow-emerald-500/30 hover:bg-emerald-600 border-none text-white uppercase tracking-[0.2em]" onClick={saveAllSessions} disabled={plannedSessions.length === 0}>
+                      Deploy Roadmap <Check className="ml-3 inline" size={24} strokeWidth={3} />
                    </Button>
                    <Button variant="secondary" className="w-full h-14 rounded-2xl font-bold uppercase tracking-widest" onClick={() => setStep(2)}>Adjust Parameters</Button>
                 </div>

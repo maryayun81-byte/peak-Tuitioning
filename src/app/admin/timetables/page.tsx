@@ -326,6 +326,20 @@ export default function AdminTimetables() {
     ? classes.filter(c => (c as any).curriculum_id === filterCurriculum)
     : classes
 
+  // Derive curriculum_id from the class selected in the form
+  const selectedFormClass = watchClassId ? classes.find(c => c.id === watchClassId) : null
+  const formCurriculumId = (selectedFormClass as any)?.curriculum_id
+
+  // Filter subjects to only those for the selected class's curriculum
+  const filteredFormSubjects = formCurriculumId
+    ? subjects.filter(s => {
+        const s_ = s as any
+        // Include if directly assigned to this class, or if curriculum-level (no class_id) matching curriculum
+        return s_.class_id === watchClassId ||
+          (!s_.class_id && s_.curriculum_id === formCurriculumId)
+      })
+    : subjects
+
   return (
     <div className="p-4 md:p-6 space-y-6">
       {/* Header */}
@@ -481,8 +495,8 @@ export default function AdminTimetables() {
                   {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </Select>
                 <Select label="Subject *" error={errors.subject_id?.message} {...register('subject_id')}>
-                  <option value="">Select Subject</option>
-                  {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  <option value="">{watchClassId ? 'Select Subject' : 'Select a class first'}</option>
+                  {filteredFormSubjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </Select>
               </div>
 

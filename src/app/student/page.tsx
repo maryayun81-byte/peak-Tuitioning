@@ -376,7 +376,14 @@ export default function StudentDashboard() {
                <Link href="/student/assignments" className="text-xs font-bold text-primary hover:underline">View All Quests</Link>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-               {activeQuests.map((q, i) => (
+               {activeQuests.length === 0 ? (
+                  <div className="col-span-full p-8 text-center rounded-3xl border-2 border-dashed border-[var(--card-border)] bg-[var(--card)]/50">
+                     <Target size={40} className="mx-auto text-muted opacity-30 mb-3" />
+                     <h3 className="text-sm font-bold opacity-70" style={{ color: 'var(--text)' }}>No Active Quests</h3>
+                     <p className="text-xs opacity-50 mt-1" style={{ color: 'var(--text-muted)' }}>You're all caught up! Take a break or start a Focus session.</p>
+                  </div>
+               ) : (
+                 activeQuests.map((q, i) => (
                  <motion.div key={q.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}>
                     <Card className="p-5 flex flex-col h-full border-none shadow-xl shadow-slate-900/10 hover:shadow-primary/5 transition-all">
                        <div className="flex justify-between items-start mb-4">
@@ -397,7 +404,8 @@ export default function StudentDashboard() {
                        </div>
                     </Card>
                  </motion.div>
-               ))}
+                 ))
+               )}
             </div>
          </div>
 

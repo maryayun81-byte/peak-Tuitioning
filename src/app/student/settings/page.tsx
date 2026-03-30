@@ -6,7 +6,7 @@ import {
   User, Bell, Shield, Palette, 
   Mail, Phone, Save, Camera, 
   MapPin, Rocket, Star, Heart,
-  Sparkles, Zap, Flame, LogOut
+  Sparkles, Zap, Flame, LogOut, X
 } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Card, Badge } from '@/components/ui/Card'
@@ -21,6 +21,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { Avatar } from '@/components/ui/Avatar'
 import { AvatarStudio } from '@/components/student/settings/AvatarStudio'
 import { AvatarConfig } from '@/lib/avatars/avatarData'
+import { updateOwnPassword } from '@/app/actions/student'
 import toast from 'react-hot-toast'
 
 export default function StudentSettings() {
@@ -36,8 +37,58 @@ export default function StudentSettings() {
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [savingPassword, setSavingPassword] = useState(false)
+  const [mySubjects, setMySubjects] = useState<any[]>([])
+  const [allSubjects, setAllSubjects] = useState<any[]>([])
+  const [loadingSubjects, setLoadingSubjects] = useState(false)
   
   const { preferences, updatePreference } = useNotificationStore()
+
+  useEffect(() => {
+    if (student?.id) {
+       loadSubjects()
+    }
+  }, [student?.id])
+
+  const loadSubjects = async () => {
+     setLoadingSubjects(true)
+     try {
+       const [myRes, allRes] = await Promise.all([
+          supabase.from('student_subjects').select('id, subject:subjects(id, name)').eq('student_id', student.id!),
+          supabase.from('subjects').select('id, name').order('name')
+       ])
+       if (myRes.data) setMySubjects(myRes.data)
+       if (allRes.data) setAllSubjects(allRes.data)
+     } catch (e) {
+        console.error(e)
+     } finally {
+        setLoadingSubjects(false)
+     }
+  }
+
+  const addSubject = async (subjectId: string) => {
+     if (!subjectId || !student?.id) return
+     if (mySubjects.some(s => s.subject?.id === subjectId)) return toast.error('Already added!')
+     
+     try {
+        const { error } = await supabase.from('student_subjects').insert({ student_id: student.id, subject_id: subjectId })
+        if (error) throw error
+        toast.success('+1 Subject Added!')
+        loadSubjects()
+     } catch (err: any) {
+        toast.error('Failed to add subject')
+     }
+  }
+
+  const removeSubject = async (ssId: string) => {
+     try {
+        await supabase.from('student_subjects').delete().eq('id', ssId)
+        toast.success('Subject removed')
+        loadSubjects()
+     } catch (e) {
+        toast.error('Failed to remove subject')
+     }
+  }
+
   
   const handleTogglePing = (key: keyof NotificationPreferences) => {
      if (typeof preferences[key] !== 'boolean') return
@@ -92,9 +143,9 @@ export default function StudentSettings() {
     
     setSavingPassword(true)
     try {
-      const { error } = await supabase.auth.updateUser({ password: newPassword })
-      if (error) {
-        toast.error(error.message)
+      const res = await updateOwnPassword(newPassword)
+      if (!res.success) {
+        toast.error(res.error || 'Update failed')
       } else {
         toast.success('Access code updated and encrypted! 🔒')
         setNewPassword('')
@@ -218,8 +269,30 @@ export default function StudentSettings() {
                           <Input label="Email" value={profile?.email} disabled placeholder="Your email" />
                           <Input label="Admission No." value={student?.admission_number} disabled placeholder="Admission #" />
                           <Input label="Learning Group" value={(student as any)?.class?.name || 'Class Assigned'} disabled />
+                          <Input label="School Name" value={student?.school_name || 'Not Set'} disabled placeholder="Your School" />
                        </div>
                        
+                       <section className="pt-6 border-t border-[var(--card-border)]">
+                          <h4 className="text-xs font-black uppercase tracking-widest text-muted mb-4">Enrolled Subjects</h4>
+                          <div className="flex flex-wrap gap-2 mb-4">
+                             {loadingSubjects ? <span className="text-sm opacity-50">Loading fields...</span> : mySubjects.map(ss => (
+                                <Badge key={ss.id} variant="primary" className="flex items-center gap-2 py-2 px-3 text-xs shadow-md">
+                                   {ss.subject?.name}
+                                   <button onClick={() => removeSubject(ss.id)} className="opacity-50 hover:opacity-100 text-white transition-opacity"><X size={12} /></button>
+                                </Badge>
+                             ))}
+                             {!loadingSubjects && mySubjects.length === 0 && <span className="text-sm opacity-50">No subjects selected yet.</span>}
+                          </div>
+                          <div className="flex gap-2 max-w-sm">
+                             <Select onChange={(e) => { addSubject(e.target.value); e.target.value = '' }}>
+                                <option value="">+ Add a subject to your curriculum...</option>
+                                {allSubjects.filter(s => !mySubjects.some(ms => ms.subject?.id === s.id)).map(s => (
+                                   <option key={s.id} value={s.id}>{s.name}</option>
+                                ))}
+                             </Select>
+                          </div>
+                       </section>
+
                        <section className="pt-6 border-t border-[var(--card-border)]">
                           <h4 className="text-xs font-black uppercase tracking-widest text-muted mb-4">Personal Motto</h4>
                           <Textarea placeholder="What motivates you every day?" className="rounded-2xl" />

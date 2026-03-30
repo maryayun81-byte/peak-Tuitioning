@@ -72,57 +72,71 @@ export default function NewWorksheetPage() {
       return
     }
 
-    // Fetch teacher's assigned subjects and classes from teaching map
-    const [mapRes, tRes] = await Promise.all([
+    // Fetch from teacher_assignments (the real assignment table)
+    const [assignRes, tRes] = await Promise.all([
       supabase
-        .from('teacher_teaching_map')
+        .from('teacher_assignments')
         .select(`
           class_id,
           subject_id,
-          classes (id, name),
-          subjects (id, name, class_id)
+          tuition_center_id,
+          class:classes(id, name),
+          subject:subjects(id, name, class_id)
         `)
         .eq('teacher_id', currentTeacherId),
       supabase.from('worksheet_templates_v3').select('*').order('created_at', { ascending: false })
     ])
 
-    if (mapRes.error) {
-      console.error('[NewAssignment] Map fetch error:', mapRes.error)
-      toast.error('Failed to load your assigned subjects')
-      return
+    if (assignRes.error) {
+      console.error('[NewAssignment] Assignment fetch error:', assignRes.error)
     }
 
-    // Extract unique classes from the map
+    const assignments = assignRes.data || []
+
+    // Build unique class list
     const classMap = new Map<string, any>()
-    ;(mapRes.data || []).forEach(m => {
-      if (!m.class_id) return
-      if (!classMap.has(m.class_id)) {
-        let name = 'Unknown Class'
-        const cObj = Array.isArray(m.classes) ? m.classes[0] : m.classes
-        if (cObj && cObj.name) name = cObj.name
-        classMap.set(m.class_id, { id: m.class_id, name })
+    assignments.forEach(a => {
+      if (!a.class_id) return
+      if (!classMap.has(a.class_id)) {
+        const cObj = Array.isArray(a.class) ? a.class[0] : a.class
+        classMap.set(a.class_id, { id: a.class_id, name: cObj?.name ?? 'Unknown Class' })
       }
     })
-    const mappedClasses = Array.from(classMap.values())
 
-    // Extract unique subjects from the map
+    // Build unique subject list (grouped by class)
     const subjectMap = new Map<string, any>()
-    ;(mapRes.data || []).forEach(m => {
-      if (!m.subject_id) return
-      // Create a unique key per class AND subject so subjects are duplicated per class if needed
-      const key = `${m.class_id}_${m.subject_id}`
+    assignments.forEach(a => {
+      if (!a.subject_id || !a.class_id) return
+      const key = `${a.class_id}_${a.subject_id}`
       if (!subjectMap.has(key)) {
-        let name = 'Unknown Subject'
-        const sObj = Array.isArray(m.subjects) ? m.subjects[0] : m.subjects
-        // Handle name if properly queried
-        if (sObj && sObj.name) name = sObj.name
-        subjectMap.set(key, { id: m.subject_id, name, class_id: m.class_id })
+        const sObj = Array.isArray(a.subject) ? a.subject[0] : a.subject
+        subjectMap.set(key, { id: a.subject_id, name: sObj?.name ?? 'Unknown Subject', class_id: a.class_id })
       }
     })
-    const mappedSubjects = Array.from(subjectMap.values())
 
-    setClasses(mappedClasses)
-    setSubjects(mappedSubjects)
+    // If no formal assignments, fall back to teaching map (onboarding preferences)
+    if (classMap.size === 0) {
+      const { data: mapData } = await supabase
+        .from('teacher_teaching_map')
+        .select('class_id, subject_id, classes(id, name), subjects(id, name, class_id)')
+        .eq('teacher_id', currentTeacherId)
+      ;(mapData || []).forEach((m: any) => {
+        if (m.class_id && !classMap.has(m.class_id)) {
+          const cObj = Array.isArray(m.classes) ? m.classes[0] : m.classes
+          classMap.set(m.class_id, { id: m.class_id, name: cObj?.name ?? 'Unknown Class' })
+        }
+        if (m.subject_id) {
+          const key = `${m.class_id}_${m.subject_id}`
+          if (!subjectMap.has(key)) {
+            const sObj = Array.isArray(m.subjects) ? m.subjects[0] : m.subjects
+            subjectMap.set(key, { id: m.subject_id, name: sObj?.name ?? 'Unknown Subject', class_id: m.class_id })
+          }
+        }
+      })
+    }
+
+    setClasses(Array.from(classMap.values()))
+    setSubjects(Array.from(subjectMap.values()))
     setTemplates(tRes.data ?? [])
   }
 
@@ -216,33 +230,63 @@ export default function NewWorksheetPage() {
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <Button
-            size="sm"
-            variant="outline"
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* Templates — icon only on mobile */}
+          <button
             onClick={() => setTemplatesOpen(true)}
-            className="flex"
+            className="w-8 h-8 sm:w-auto sm:h-auto sm:px-3 sm:py-1.5 rounded-xl flex items-center justify-center gap-1.5 text-xs font-semibold transition-all"
+            style={{ background: 'var(--input)', color: 'var(--text-muted)' }}
+            title="Templates"
           >
-            <LayoutTemplate size={14} /> <span className="hidden sm:inline ml-1.5">Templates</span>
-          </Button>
+            <LayoutTemplate size={14} />
+            <span className="hidden sm:inline">Templates</span>
+          </button>
+
+          {/* Toggle Preview Panel — desktop only */}
           <button
             onClick={() => setShowPreviewPanel(p => !p)}
-            className="hidden md:flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all"
+            className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all"
             style={{ background: showPreviewPanel ? 'var(--primary-dim)' : 'var(--input)', color: showPreviewPanel ? 'var(--primary)' : 'var(--text-muted)' }}
           >
             {showPreviewPanel ? <EyeOff size={14} /> : <Eye size={14} />}
-            {showPreviewPanel ? 'Hide Preview' : 'Show Preview'}
+            {showPreviewPanel ? 'Hide' : 'Preview'}
           </button>
-          <Button size="sm" variant="secondary" onClick={() => setPreviewOpen(true)}>
-            <Eye size={14} /> <span className="hidden sm:inline">Preview</span>
-          </Button>
-          <Button size="sm" variant="secondary" isLoading={saving} onClick={() => save('draft')}>
-            <Save size={14} /> <span className="hidden sm:inline">Draft</span>
-          </Button>
-          <Button size="sm" isLoading={saving} onClick={() => save('published')}>
-            <Send size={14} /> <span className="hidden sm:inline">Publish</span>
-          </Button>
+
+          {/* Preview modal — icon only on mobile */}
+          <button
+            onClick={() => setPreviewOpen(true)}
+            className="w-8 h-8 sm:w-auto sm:h-auto sm:px-3 sm:py-1.5 rounded-xl flex items-center justify-center gap-1.5 text-xs font-semibold transition-all md:hidden"
+            style={{ background: 'var(--input)', color: 'var(--text-muted)' }}
+            title="Preview"
+          >
+            <Eye size={14} />
+          </button>
+
+          {/* Save Draft */}
+          <button
+            onClick={() => save('draft')}
+            disabled={saving}
+            className="w-8 h-8 sm:w-auto sm:h-auto sm:px-3 sm:py-1.5 rounded-xl flex items-center justify-center gap-1.5 text-xs font-semibold transition-all border"
+            style={{ background: 'var(--card)', color: 'var(--text-muted)', borderColor: 'var(--card-border)' }}
+            title="Save Draft"
+          >
+            <Save size={14} />
+            <span className="hidden sm:inline">Draft</span>
+          </button>
+
+          {/* Publish */}
+          <button
+            onClick={() => save('published')}
+            disabled={saving}
+            className="h-8 px-3 sm:px-4 rounded-xl flex items-center justify-center gap-1.5 text-xs font-black transition-all text-white"
+            style={{ background: 'var(--primary)' }}
+            title="Publish"
+          >
+            <Send size={14} />
+            <span className="hidden sm:inline">Publish</span>
+          </button>
         </div>
+
       </div>
 
       {/* Body */}

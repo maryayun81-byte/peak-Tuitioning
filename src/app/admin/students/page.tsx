@@ -33,6 +33,11 @@ export default function AdminStudents() {
   const [classes, setClasses] = useState<Class[]>([])
   const [curriculums, setCurriculums] = useState<Curriculum[]>([])
   const [centers, setCenters] = useState<any[]>([])
+  
+  const [filterClass, setFilterClass] = useState('')
+  const [filterCurriculum, setFilterCurriculum] = useState('')
+  const [filterCenter, setFilterCenter] = useState('')
+  
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [addOpen, setAddOpen] = useState(false)
@@ -46,7 +51,7 @@ export default function AdminStudents() {
     resolver: zodResolver(studentSchema),
   })
 
-  const curriculumId = watch('curriculum_id')
+  const watchCurriculum = watch('curriculum_id')
 
   useEffect(() => { 
     loadData()
@@ -68,7 +73,8 @@ export default function AdminStudents() {
             *,
             class:classes(id, name),
             curriculum:curriculums(id, name),
-            center:tuition_centers(id, name)
+            center:tuition_centers(id, name),
+            student_subjects(subject:subjects(name))
           `)
           .order('created_at', { ascending: false })
       console.log('Students fetched:', sRes)
@@ -103,16 +109,18 @@ export default function AdminStudents() {
     }
   }
 
-  const filteredStudents = students.filter(s =>
-    s.full_name?.toLowerCase().includes(search.toLowerCase()) ||
-    s.admission_number?.toLowerCase().includes(search.toLowerCase())
-  )
-
+  const filteredStudents = students.filter(s => {
+    const matchesSearch = s.full_name.toLowerCase().includes(search.toLowerCase()) || (s.admission_number || '').toLowerCase().includes(search.toLowerCase())
+    const matchesClass = filterClass ? s.class_id === filterClass : true
+    const matchesCurr = filterCurriculum ? s.curriculum_id === filterCurriculum : true
+    const matchesCenter = filterCenter ? s.tuition_center_id === filterCenter : true
+    return matchesSearch && matchesClass && matchesCurr && matchesCenter
+  })
   const paginatedStudents = filteredStudents.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
-  const totalPages = Math.ceil(filteredStudents.length / PAGE_SIZE)
+  const totalPages = Math.max(1, Math.ceil(filteredStudents.length / PAGE_SIZE))
 
-  const filteredClasses = curriculumId
-    ? classes.filter(c => c.curriculum_id === curriculumId)
+  const filteredClasses = curriculums.length > 0 
+    ? classes.filter(c => c.curriculum_id === watchCurriculum)
     : classes
 
   const onSubmit = async (data: StudentForm) => {
@@ -216,30 +224,59 @@ export default function AdminStudents() {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-black" style={{ color: 'var(--text)' }}>Students</h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
-            {filteredStudents.length} students enrolled
-          </p>
+          <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>{filteredStudents.length} students matching criteria</p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="secondary" onClick={loadData} disabled={loading}>
-            Refresh
-          </Button>
-          <Button onClick={() => setAddOpen(true)}>
-            <Plus size={16} /> Add Student
-          </Button>
-        </div>
+        <Button onClick={() => setAddOpen(true)} className="whitespace-nowrap">
+          <Plus size={16} /> Add Student
+        </Button>
       </div>
 
-      {/* Search */}
-      <Input
-        placeholder="Search by name or admission number…"
-        leftIcon={<Search size={16} />}
-        value={search}
-        onChange={e => { setSearch(e.target.value); setPage(1) }}
-      />
+      <div className="flex flex-col md:flex-row flex-wrap gap-3">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-50" />
+          <input
+            type="text"
+            placeholder="Search name or admission no..."
+            className="w-full pl-9 pr-4 py-2.5 rounded-xl border-none outline-none font-medium h-full"
+            style={{ background: 'var(--input)', color: 'var(--text)' }}
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+          />
+        </div>
+        
+        <select 
+          className="px-4 py-2.5 rounded-xl border-none outline-none font-medium text-sm sm:w-auto w-full" 
+          style={{ background: 'var(--input)', color: 'var(--text)' }}
+          value={filterCurriculum} 
+          onChange={e => { setFilterCurriculum(e.target.value); setPage(1); }}
+        >
+          <option value="">All Curriculums</option>
+          {curriculums.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+
+        <select 
+          className="px-4 py-2.5 rounded-xl border-none outline-none font-medium text-sm sm:w-auto w-full" 
+          style={{ background: 'var(--input)', color: 'var(--text)' }}
+          value={filterClass} 
+          onChange={e => { setFilterClass(e.target.value); setPage(1); }}
+        >
+          <option value="">All Classes</option>
+          {classes.filter(c => !filterCurriculum || c.curriculum_id === filterCurriculum).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+
+        <select 
+          className="px-4 py-2.5 rounded-xl border-none outline-none font-medium text-sm sm:w-auto w-full" 
+          style={{ background: 'var(--input)', color: 'var(--text)' }}
+          value={filterCenter} 
+          onChange={e => { setFilterCenter(e.target.value); setPage(1); }}
+        >
+          <option value="">All Centers</option>
+          {centers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+      </div>
 
       {/* Grid view of Students */}
       {loading ? (
@@ -307,10 +344,19 @@ export default function AdminStudents() {
                                    <p className="text-sm font-medium truncate" style={{ color: 'var(--text)' }}>{(student.class as any)?.name ?? '—'}</p>
                                 </div>
                                 <div className="p-3 rounded-xl border border-[var(--card-border)] bg-[var(--card)]">
-                                   <p className="text-[10px] uppercase font-bold mb-1" style={{ color: 'var(--text-muted)' }}>Curriculum</p>
-                                   <p className="text-sm font-medium truncate" style={{ color: 'var(--text)' }}>{(student.curriculum as any)?.name ?? '—'}</p>
+                                   <p className="text-[10px] uppercase font-bold mb-1" style={{ color: 'var(--text-muted)' }}>School</p>
+                                   <p className="text-sm font-medium truncate" style={{ color: 'var(--text)' }}>{student.school_name || 'Not Set'}</p>
                                 </div>
                              </div>
+
+                             {/* Subjects List */}
+                             {(student as any).student_subjects?.length > 0 && (
+                                <div className="mt-3 flex flex-wrap gap-1">
+                                  {(student as any).student_subjects.map((ss: any, idx: number) => (
+                                    <Badge key={idx} variant="info" className="text-[10px]">{ss.subject?.name}</Badge>
+                                  ))}
+                                </div>
+                             )}
                           </div>
 
                           <div className="flex gap-2">
@@ -336,15 +382,15 @@ export default function AdminStudents() {
            )}
 
            {totalPages > 1 && (
-             <div className="flex items-center justify-between mt-8 p-4 bg-[var(--card)] rounded-xl border border-[var(--card-border)]">
-                <span className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>
+             <div className="flex flex-col sm:flex-row sm:items-center justify-between mt-8 p-4 bg-[var(--card)] rounded-xl border border-[var(--card-border)] gap-4">
+                <span className="text-sm font-medium text-center sm:text-left" style={{ color: 'var(--text-muted)' }}>
                    Showing page <span style={{ color: 'var(--text)' }}>{page}</span> of <span style={{ color: 'var(--text)' }}>{totalPages}</span>
                 </span>
-                <div className="flex gap-2">
-                   <Button variant="secondary" size="sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
+                <div className="flex gap-2 justify-center sm:justify-end w-full sm:w-auto">
+                   <Button variant="secondary" size="sm" className="flex-1 sm:flex-none" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
                       Previous
                    </Button>
-                   <Button variant="secondary" size="sm" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>
+                   <Button variant="secondary" size="sm" className="flex-1 sm:flex-none" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>
                       Next
                    </Button>
                 </div>

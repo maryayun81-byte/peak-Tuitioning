@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { motion } from 'framer-motion'
 import {
   LayoutDashboard, BookOpen, FileText, BrainCircuit,
@@ -61,6 +61,7 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
 
   const { signOut } = useAuth()
   const router = useRouter()
+  const pathname = usePathname()
 
   useEffect(() => {
     if (!isLoading && !profile) router.push('/auth/login?role=student')
@@ -69,10 +70,10 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
     }
 
     // Redirect to onboarding if not completed
-    if (!isLoading && student && !student.onboarded && typeof window !== 'undefined' && window.location.pathname !== '/student/onboarding') {
+    if (!isLoading && student && !student.onboarded && typeof window !== 'undefined' && pathname !== '/student/onboarding') {
       router.push('/student/onboarding')
     }
-  }, [profile, student, isLoading, router])
+  }, [profile, student, isLoading, router, pathname])
 
 
   // Only block the UI if we are truly loading the first time (no persisted profile)
@@ -80,21 +81,26 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
     return <SplashScreen done={false} role="student" />
   }
 
+  const isPendingOnboarding = student && !student.onboarded && pathname === '/student/onboarding'
+
   return (
     <div className="min-h-screen bg-[var(--bg)]">
-      <Sidebar
-        items={NAV_ITEMS}
-        bottomItems={[
-          { label: 'Sign Out', href: '#', icon: <LogOut size={18} />, onClick: () => signOut() },
-        ]}
-        logo={LogoComponent}
-        role="student"
-      />
+      {!isPendingOnboarding && (
+         <Sidebar
+           items={NAV_ITEMS}
+           bottomItems={[
+             { label: 'Sign Out', href: '#', icon: <LogOut size={18} />, onClick: () => signOut() },
+           ]}
+           logo={LogoComponent}
+           role="student"
+         />
+      )}
 
-      <main className="min-h-screen transition-all duration-300 pb-20 md:pb-0">
+      <main className={`min-h-screen transition-all duration-300 pb-20 md:pb-0 ${!isPendingOnboarding ? 'md:ml-[260px]' : ''}`}>
         {/* Modern Header for Students (XP & Levels) */}
+        {!isPendingOnboarding && (
           <header
-            className="sticky top-0 z-40 px-6 py-4 flex items-center justify-between border-b border-[var(--card-border)] md:ml-[260px]"
+            className="sticky top-0 z-40 px-6 py-4 flex items-center justify-between border-b border-[var(--card-border)] bg-transparent"
             style={{ background: 'rgba(var(--card-rgb), 0.8)', backdropFilter: 'blur(12px)' }}
           >
              {(() => {
@@ -135,9 +141,9 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
               )
            })()}
         </header>
+        )}
 
-
-        <div className="md:ml-[260px]">
+        <div className={!isPendingOnboarding ? "md:px-2" : ""}>
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
             {children}
           </motion.div>
@@ -145,12 +151,14 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
         <LevelUpManager />
       </main>
 
-      <BottomNav 
-        items={MOBILE_BOTTOM} 
-        moreItems={MOBILE_MORE.map(item => 
-          item.label === 'Sign Out' ? { ...item, onClick: signOut } : item
-        )} 
-      />
+      {!isPendingOnboarding && (
+        <BottomNav 
+          items={MOBILE_BOTTOM} 
+          moreItems={MOBILE_MORE.map(item => 
+            item.label === 'Sign Out' ? { ...item, onClick: signOut } : item
+          )} 
+        />
+      )}
     </div>
   )
 }
