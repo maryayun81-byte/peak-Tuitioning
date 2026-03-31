@@ -13,47 +13,42 @@ export function AuthHandler() {
   const { setLoading, reset } = useAuthStore()
 
   useEffect(() => {
-    // 1. Initial Session Check — only on mount
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    // 1. Initial State Check (Single session check)
+    // We rely on the event listener for INITIAL_SESSION, but we also do one manual check
+    // to kick off loading for pre-existing persistent sessions.
+    
+    let isInitialized = false
+
+    const handleInitialSession = async (session: any) => {
+      if (isInitialized) return
+      isInitialized = true
+      
       if (session?.user) {
-        // If profile is already in store (persisted), skip the loading state
         const existingProfile = useAuthStore.getState().profile
-        if (!existingProfile) {
-          loadUserData(session.user.id)
-        } else {
-          // Silently refresh in the background without showing a loader
-          loadUserData(session.user.id, true)
-        }
+        // Silent refresh if profile exists, otherwise full load
+        await loadUserData(session.user.id, !!existingProfile)
       } else {
         setLoading(false)
       }
-    })
+    }
 
     // 2. Auth State Change Listener (SINGLETON)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log(`[Global Auth] Event: ${event}`, !!session)
       
       switch (event) {
+        case 'INITIAL_SESSION':
+          await handleInitialSession(session)
+          break
         case 'SIGNED_IN':
-          // Only full re-load for explicit sign-in
           if (session?.user) {
             await loadUserData(session.user.id, false)
           }
           break
         case 'TOKEN_REFRESHED':
         case 'USER_UPDATED':
-          // These are routine events — never block the UI, update silently
           if (session?.user) {
             await loadUserData(session.user.id, true)
-          }
-          break
-        case 'INITIAL_SESSION':
-          // INITIAL_SESSION fires on every page load — only block if we have no profile
-          if (session?.user) {
-            const hasProfile = !!useAuthStore.getState().profile
-            await loadUserData(session.user.id, hasProfile) // silent if we have a profile
-          } else {
-            setLoading(false)
           }
           break
         case 'SIGNED_OUT':
@@ -63,6 +58,15 @@ export function AuthHandler() {
           break
       }
     })
+
+    // Fallback: If INITIAL_SESSION doesn't fire (e.g. library behavior change), 
+    // manually check session after a short tick
+    setTimeout(async () => {
+      if (!isInitialized) {
+        const { data: { session } } = await supabase.auth.getSession()
+        await handleInitialSession(session)
+      }
+    }, 500)
 
     return () => subscription.unsubscribe()
   }, [supabase, loadUserData, reset, router, setLoading])

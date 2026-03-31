@@ -30,6 +30,7 @@ export default function NewWorksheetPage() {
   const [title, setTitle] = useState('')
   const [classId, setClassId] = useState('')
   const [subjectId, setSubjectId] = useState('')
+  const [centerId, setCenterId] = useState('')
   const [dueDate, setDueDate] = useState('')
   const [passage, setPassage] = useState('')
   const [passageType, setPassageType] = useState<'none' | 'passage' | 'poem' | 'diagram'>('none')
@@ -52,8 +53,8 @@ export default function NewWorksheetPage() {
   const [templatesOpen, setTemplatesOpen] = useState(false)
   const [templates, setTemplates] = useState<any[]>([])
   const [saving, setSaving] = useState(false)
-  const [classes, setClasses] = useState<{ id: string; name: string }[]>([])
-  const [subjects, setSubjects] = useState<{ id: string; name: string; class_id: string }[]>([])
+  const [rawAssignments, setRawAssignments] = useState<any[]>([])
+  const [centers, setCenters] = useState<{ id: string; name: string }[]>([])
 
   useEffect(() => { loadMeta() }, [])
 
@@ -73,7 +74,7 @@ export default function NewWorksheetPage() {
     }
 
     // Fetch from teacher_assignments (the real assignment table)
-    const [assignRes, tRes] = await Promise.all([
+    const [assignRes, tRes, centersRes] = await Promise.all([
       supabase
         .from('teacher_assignments')
         .select(`
@@ -84,63 +85,67 @@ export default function NewWorksheetPage() {
           subject:subjects(id, name, class_id)
         `)
         .eq('teacher_id', currentTeacherId),
-      supabase.from('worksheet_templates_v3').select('*').order('created_at', { ascending: false })
+      supabase.from('worksheet_templates_v3').select('*').order('created_at', { ascending: false }),
+      supabase.from('tuition_centers').select('id, name').order('name')
     ])
 
     if (assignRes.error) {
       console.error('[NewAssignment] Assignment fetch error:', assignRes.error)
     }
 
-    const assignments = assignRes.data || []
-
-    // Build unique class list
-    const classMap = new Map<string, any>()
-    assignments.forEach(a => {
-      if (!a.class_id) return
-      if (!classMap.has(a.class_id)) {
-        const cObj = Array.isArray(a.class) ? a.class[0] : a.class
-        classMap.set(a.class_id, { id: a.class_id, name: cObj?.name ?? 'Unknown Class' })
-      }
-    })
-
-    // Build unique subject list (grouped by class)
-    const subjectMap = new Map<string, any>()
-    assignments.forEach(a => {
-      if (!a.subject_id || !a.class_id) return
-      const key = `${a.class_id}_${a.subject_id}`
-      if (!subjectMap.has(key)) {
-        const sObj = Array.isArray(a.subject) ? a.subject[0] : a.subject
-        subjectMap.set(key, { id: a.subject_id, name: sObj?.name ?? 'Unknown Subject', class_id: a.class_id })
-      }
-    })
+    let assignments = assignRes.data || []
 
     // If no formal assignments, fall back to teaching map (onboarding preferences)
-    if (classMap.size === 0) {
+    if (assignments.length === 0) {
       const { data: mapData } = await supabase
         .from('teacher_teaching_map')
         .select('class_id, subject_id, classes(id, name), subjects(id, name, class_id)')
         .eq('teacher_id', currentTeacherId)
-      ;(mapData || []).forEach((m: any) => {
-        if (m.class_id && !classMap.has(m.class_id)) {
-          const cObj = Array.isArray(m.classes) ? m.classes[0] : m.classes
-          classMap.set(m.class_id, { id: m.class_id, name: cObj?.name ?? 'Unknown Class' })
-        }
-        if (m.subject_id) {
-          const key = `${m.class_id}_${m.subject_id}`
-          if (!subjectMap.has(key)) {
-            const sObj = Array.isArray(m.subjects) ? m.subjects[0] : m.subjects
-            subjectMap.set(key, { id: m.subject_id, name: sObj?.name ?? 'Unknown Subject', class_id: m.class_id })
-          }
-        }
-      })
+      
+      assignments = (mapData || []).map((m: any) => ({
+        class_id: m.class_id,
+        subject_id: m.subject_id,
+        tuition_center_id: null,
+        class: m.classes,
+        subject: m.subjects
+      }))
     }
 
-    setClasses(Array.from(classMap.values()))
-    setSubjects(Array.from(subjectMap.values()))
+    setRawAssignments(assignments)
     setTemplates(tRes.data ?? [])
+    setCenters(centersRes.data ?? [])
   }
 
-  const filteredSubjects = subjects.filter(s => s.class_id === classId)
+  // Derive available options based on hierarchy
+  const availableCenterIds = Array.from(new Set(rawAssignments.map(a => a.tuition_center_id)))
+  const availableCenters = centers.filter(c => availableCenterIds.includes(c.id))
+  // We represent "null" tuition center explicitly as empty string in state
+  const hasGlobalAssignments = availableCenterIds.includes(null)
+
+  const centerAssignments = rawAssignments.filter(a => (a.tuition_center_id || '') === centerId)
+
+  const derivedClasses = Array.from(
+    new Map(
+      centerAssignments
+        .filter(a => a.class_id && a.class)
+        .map(a => {
+          const cObj = Array.isArray(a.class) ? a.class[0] : a.class
+          return [a.class_id, { id: a.class_id, name: cObj?.name ?? 'Unknown Class' }]
+        })
+    ).values()
+  )
+
+  const classAssignments = centerAssignments.filter(a => a.class_id === classId)
+  const derivedSubjects = Array.from(
+    new Map(
+      classAssignments
+        .filter(a => a.subject_id && a.subject)
+        .map(a => {
+          const sObj = Array.isArray(a.subject) ? a.subject[0] : a.subject
+          return [a.subject_id, { id: a.subject_id, name: sObj?.name ?? 'Unknown Subject', class_id: a.class_id }]
+        })
+    ).values()
+  )
 
   const totalMarks = useMemo(
     () => blocks.reduce((sum, b) => sum + (b.marks || 0), 0),
@@ -178,6 +183,7 @@ export default function NewWorksheetPage() {
       title,
       class_id: classId,
       subject_id: subjectId,
+      tuition_center_id: centerId || null,
       due_date: dueDate || null,
       status,
       teacher_id: teacher?.id,
@@ -207,8 +213,8 @@ export default function NewWorksheetPage() {
     setSaving(false)
   }
 
-  const selectedClass = classes.find(c => c.id === classId)
-  const selectedSubject = subjects.find(s => s.id === subjectId)
+  const selectedClass = derivedClasses.find(c => c.id === classId)
+  const selectedSubject = derivedSubjects.find(s => s.id === subjectId)
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg)' }}>
@@ -303,14 +309,19 @@ export default function NewWorksheetPage() {
               value={title}
               onChange={e => setTitle(e.target.value)}
             />
-            <div className="grid grid-cols-2 gap-3">
-              <Select label="Class" value={classId} onChange={e => { setClassId(e.target.value); setSubjectId('') }}>
-                <option value="">Select Class</option>
-                {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+              <Select label="Tuition Center/Scope *" value={centerId} onChange={e => { setCenterId(e.target.value); setClassId(''); setSubjectId('') }}>
+                <option value="">Select Center Scope</option>
+                {hasGlobalAssignments && <option value="">Global / Unassigned Center</option>}
+                {availableCenters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </Select>
-              <Select label="Subject" value={subjectId} onChange={e => setSubjectId(e.target.value)} disabled={!classId}>
+              <Select label="Class *" value={classId} onChange={e => { setClassId(e.target.value); setSubjectId('') }} disabled={!centerId && !hasGlobalAssignments}>
+                <option value="">Select Class</option>
+                {derivedClasses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </Select>
+              <Select label="Subject *" value={subjectId} onChange={e => setSubjectId(e.target.value)} disabled={!classId}>
                 <option value="">Select Subject</option>
-                {filteredSubjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                {derivedSubjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </Select>
             </div>
             <div className="grid grid-cols-2 gap-3">

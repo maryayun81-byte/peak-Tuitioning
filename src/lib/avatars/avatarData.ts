@@ -263,5 +263,5 @@ export const buildAvatarUrl = (config: AvatarConfig): string => {
   if (config.facialHairType && config.facialHairType !== 'blank') params.set('facialHairType', config.facialHairType)
   if (config.facialHairChance !== undefined) params.set('facialHairChance', String(config.facialHairChance))
   
-  return `https://api.dicebear.com/9.x/avataaars/svg?${params.toString()}`
+  return `https://api.dicebear.com/7.x/avataaars/svg?${params.toString()}`
 }

@@ -2,8 +2,7 @@
 
 import React, { useState, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Dice5, Save, RotateCcw, Check, ChevronLeft, ChevronRight } from 'lucide-react'
-import Image from 'next/image'
+import { Dice5, Save, RotateCcw, Check, ChevronLeft, ChevronRight, ImageOff } from 'lucide-react'
 import {
   AvatarConfig,
   SKIN_TONES,
@@ -29,9 +28,25 @@ interface AvatarStudioProps {
   isLoading?: boolean
 }
 
+type Gender = 'male' | 'female'
 type TabId = 'skin' | 'hair' | 'top' | 'outfit' | 'eyes' | 'eyebrows' | 'mouth' | 'beard' | 'extras' | 'bg'
 
-const TABS: { id: TabId; label: string; emoji: string }[] = [
+// Female long-hair + headwear tops
+const FEMALE_TOP_VALUES = new Set([
+  'longHairStraight', 'longHairStraightStrand', 'longHairStraight2',
+  'longHairBob', 'longHairNotTooLong', 'longHairCurly', 'longHairFro',
+  'longHairFroBand', 'longHairBigHair', 'longHairCurvy', 'longHairMiaWallace',
+  'longHairFrida', 'longHairShavedSides', 'longHairBun', 'longHairDreads',
+  'hijab', 'hat', 'turban', 'winterHat01', 'winterHat02', 'winterHat03', 'winterHat04', 'eyepatch',
+])
+
+// Determine gender from the saved top value
+const detectGender = (top?: string): Gender => {
+  if (!top) return 'male'
+  return FEMALE_TOP_VALUES.has(top) ? 'female' : 'male'
+}
+
+const MALE_TABS: { id: TabId; label: string; emoji: string }[] = [
   { id: 'skin', label: 'Skin', emoji: '🎨' },
   { id: 'hair', label: 'Hair', emoji: '💇' },
   { id: 'top', label: 'Style', emoji: '✂️' },
@@ -44,6 +59,8 @@ const TABS: { id: TabId; label: string; emoji: string }[] = [
   { id: 'bg', label: 'BG', emoji: '🌈' },
 ]
 
+const FEMALE_TABS: { id: TabId; label: string; emoji: string }[] = MALE_TABS.filter(t => t.id !== 'beard')
+
 export const AvatarStudio = ({ initialConfig, onSave, isLoading }: AvatarStudioProps) => {
   const [config, setConfig] = useState<AvatarConfig>(() => {
     if (!initialConfig) return getDefaultConfig()
@@ -55,16 +72,59 @@ export const AvatarStudio = ({ initialConfig, onSave, isLoading }: AvatarStudioP
     }
   })
 
+  const [gender, setGender] = useState<Gender>(() => {
+    if (!initialConfig) return 'male'
+    try {
+      const parsed = typeof initialConfig === 'string' ? JSON.parse(initialConfig) : initialConfig
+      return detectGender(parsed?.top)
+    } catch {
+      return 'male'
+    }
+  })
+
+  const TABS = gender === 'female' ? FEMALE_TABS : MALE_TABS
   const [activeTab, setActiveTab] = useState<TabId>('skin')
   const [saved, setSaved] = useState(false)
+  const [imgError, setImgError] = useState(false)
 
   const update = useCallback((key: keyof AvatarConfig, value: any) => {
     setConfig(prev => ({ ...prev, [key]: value }))
   }, [])
 
-  const handleRandomize = useCallback(() => {
-    setConfig(getRandomConfig())
+  const switchGender = useCallback((g: Gender) => {
+    setGender(g)
+    // Apply gender-appropriate default hairstyle if current top doesn't suit gender
+    if (g === 'female') {
+      setConfig(prev => ({
+        ...prev,
+        top: FEMALE_TOP_VALUES.has(prev.top ?? '') ? prev.top : 'longHairStraight',
+        facialHairType: 'blank',
+        facialHairChance: 0,
+      }))
+      // If on beard tab, go back to skin
+      setActiveTab(prev => prev === 'beard' ? 'skin' : prev)
+    } else {
+      setConfig(prev => ({
+        ...prev,
+        top: !FEMALE_TOP_VALUES.has(prev.top ?? '') ? prev.top : 'shortHairShortFlat',
+      }))
+    }
   }, [])
+
+  const handleRandomize = useCallback(() => {
+    const rand = getRandomConfig()
+    // Respect current gender when randomizing
+    if (gender === 'female') {
+      const femaleTops = TOPS.filter(t => FEMALE_TOP_VALUES.has(t.value))
+      const randTop = femaleTops[Math.floor(Math.random() * femaleTops.length)]
+      setConfig({ ...rand, top: randTop.value, facialHairType: 'blank', facialHairChance: 0 })
+    } else {
+      const maleTops = TOPS.filter(t => !FEMALE_TOP_VALUES.has(t.value))
+      const randTop = maleTops[Math.floor(Math.random() * maleTops.length)]
+      setConfig({ ...rand, top: randTop.value })
+    }
+    setImgError(false)
+  }, [gender])
 
   const handleSave = useCallback(async () => {
     await onSave(config)
@@ -74,16 +134,44 @@ export const AvatarStudio = ({ initialConfig, onSave, isLoading }: AvatarStudioP
 
   const avatarUrl = useMemo(() => buildAvatarUrl(config), [config])
 
-  // Tab navigation
+  // Tab navigation (skip beard if female)
   const currentTabIdx = TABS.findIndex(t => t.id === activeTab)
-  const goNext = () => setActiveTab(TABS[Math.min(currentTabIdx + 1, TABS.length - 1)].id)
-  const goPrev = () => setActiveTab(TABS[Math.max(currentTabIdx - 1, 0)].id)
+  const safeTabIdx = currentTabIdx === -1 ? 0 : currentTabIdx
+  const goNext = () => setActiveTab(TABS[Math.min(safeTabIdx + 1, TABS.length - 1)].id)
+  const goPrev = () => setActiveTab(TABS[Math.max(safeTabIdx - 1, 0)].id)
+
+  // Filtered tops based on gender
+  const visibleTops = useMemo(() => {
+    if (gender === 'female') return TOPS.filter(t => FEMALE_TOP_VALUES.has(t.value))
+    return TOPS.filter(t => !FEMALE_TOP_VALUES.has(t.value))
+  }, [gender])
 
   return (
     <div className="w-full flex flex-col gap-6">
+      {/* ── GENDER TOGGLE ── */}
+      <div className="flex items-center justify-center gap-3">
+        <span className="text-xs font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+          Avatar Style:
+        </span>
+        <div className="flex gap-1 p-1 rounded-2xl border border-[var(--card-border)]" style={{ background: 'var(--input)' }}>
+          {(['male', 'female'] as Gender[]).map(g => (
+            <button
+              key={g}
+              onClick={() => switchGender(g)}
+              className={`px-5 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
+                gender === g
+                  ? 'bg-primary text-white shadow-lg shadow-primary/20'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text)]'
+              }`}
+            >
+              {g === 'male' ? '👦 Male' : '👧 Female'}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* ── PREVIEW ── */}
       <div className="flex flex-col items-center gap-4">
-        {/* Avatar bubble */}
         <motion.div
           key={avatarUrl}
           initial={{ scale: 0.85, opacity: 0 }}
@@ -97,11 +185,20 @@ export const AvatarStudio = ({ initialConfig, onSave, isLoading }: AvatarStudioP
             transition={{ duration: 3, repeat: Infinity }}
             className="absolute inset-0 rounded-full bg-primary/20 blur-xl"
           />
-          <img
-            src={avatarUrl}
-            alt="Your avatar"
-            className="relative z-10 w-full h-full rounded-full border-4 border-white shadow-2xl shadow-primary/20 bg-slate-100"
-          />
+          {imgError ? (
+            <div className="relative z-10 w-full h-full rounded-full border-4 border-white shadow-2xl shadow-primary/20 bg-slate-100 flex flex-col items-center justify-center gap-2">
+              <ImageOff size={28} className="opacity-30" />
+              <span className="text-[10px] font-bold text-muted px-3 text-center">Preview unavailable — will show after saving</span>
+            </div>
+          ) : (
+            <img
+              src={avatarUrl}
+              alt="Your avatar"
+              className="relative z-10 w-full h-full rounded-full border-4 border-white shadow-2xl shadow-primary/20 bg-slate-100"
+              onError={() => setImgError(true)}
+              onLoad={() => setImgError(false)}
+            />
+          )}
         </motion.div>
 
         {/* Quick action buttons */}
@@ -118,7 +215,11 @@ export const AvatarStudio = ({ initialConfig, onSave, isLoading }: AvatarStudioP
 
           <motion.button
             whileTap={{ scale: 0.9 }}
-            onClick={() => setConfig(getDefaultConfig())}
+            onClick={() => {
+              const def = getDefaultConfig()
+              setConfig(gender === 'female' ? { ...def, top: 'longHairStraight', facialHairType: 'blank', facialHairChance: 0 } : def)
+              setImgError(false)
+            }}
             className="flex items-center gap-2 px-4 py-2.5 bg-slate-50 border border-slate-100 text-slate-500 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-slate-100 transition-all"
           >
             <RotateCcw size={14} />
@@ -155,7 +256,7 @@ export const AvatarStudio = ({ initialConfig, onSave, isLoading }: AvatarStudioP
         <div className="p-4 sm:p-6">
           <AnimatePresence mode="wait">
             <motion.div
-              key={activeTab}
+              key={activeTab + gender}
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
@@ -167,7 +268,6 @@ export const AvatarStudio = ({ initialConfig, onSave, isLoading }: AvatarStudioP
                   <p className="text-xs font-black tracking-widest uppercase" style={{ color: 'var(--text-muted)' }}>Choose your skin tone</p>
                   <div className="grid grid-cols-4 sm:grid-cols-7 gap-3">
                     {SKIN_TONES.map(sk => {
-                      // visual color map
                       const colorMap: Record<string, string> = {
                         pale: '#FFDBAC', light: '#EDB88B', yellow: '#F1C27D',
                         tan: '#C68642', brown: '#8D5524', darkBrown: '#5A3825', black: '#2D1B0E'
@@ -223,12 +323,14 @@ export const AvatarStudio = ({ initialConfig, onSave, isLoading }: AvatarStudioP
                 </div>
               )}
 
-              {/* TOP / HAIRSTYLE */}
+              {/* TOP / HAIRSTYLE — filtered by gender */}
               {activeTab === 'top' && (
                 <div className="space-y-4">
-                  <p className="text-xs font-black tracking-widest uppercase" style={{ color: 'var(--text-muted)' }}>Hairstyle & head gear</p>
+                  <p className="text-xs font-black tracking-widest uppercase" style={{ color: 'var(--text-muted)' }}>
+                    {gender === 'female' ? 'Girl hairstyles & headwear' : 'Boy hairstyles & headwear'}
+                  </p>
                   <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
-                    {TOPS.map(t => (
+                    {visibleTops.map(t => (
                       <button
                         key={t.value}
                         onClick={() => update('top', t.value)}
@@ -370,8 +472,8 @@ export const AvatarStudio = ({ initialConfig, onSave, isLoading }: AvatarStudioP
                 </div>
               )}
 
-              {/* BEARD / FACIAL HAIR */}
-              {activeTab === 'beard' && (
+              {/* BEARD — male only */}
+              {activeTab === 'beard' && gender === 'male' && (
                 <div className="space-y-4">
                   <p className="text-xs font-black tracking-widest uppercase" style={{ color: 'var(--text-muted)' }}>Facial Hair</p>
                   <div className="grid grid-cols-3 sm:grid-cols-5 gap-3">
@@ -417,7 +519,7 @@ export const AvatarStudio = ({ initialConfig, onSave, isLoading }: AvatarStudioP
                         `}
                       >
                         <span className="text-2xl block mb-1">
-                          {a.value === 'blank' ? '🚫' : a.value.includes('sun') ? '😎' : a.value.includes('kurt') ? '🤓' : '🕶️'}
+                          {a.value === 'blank' ? '🚫' : a.value.includes('sun') || a.value === 'wayfarers' || a.value === 'round' ? '😎' : a.value === 'kurt' ? '🤓' : '🕶️'}
                         </span>
                         <span className="text-[10px] font-black uppercase tracking-wide" style={{ color: config.accessories === a.value ? 'var(--primary)' : 'var(--text-muted)' }}>{a.name}</span>
                       </button>
@@ -459,18 +561,18 @@ export const AvatarStudio = ({ initialConfig, onSave, isLoading }: AvatarStudioP
           <div className="flex items-center justify-between mt-6 pt-4 border-t border-[var(--card-border)]">
             <button
               onClick={goPrev}
-              disabled={currentTabIdx === 0}
+              disabled={safeTabIdx === 0}
               className="flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-widest transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-[var(--input)]"
               style={{ color: 'var(--text-muted)' }}
             >
               <ChevronLeft size={16} /> Prev
             </button>
             <span className="text-[10px] font-black tracking-widest uppercase" style={{ color: 'var(--text-muted)' }}>
-              {currentTabIdx + 1} / {TABS.length}
+              {safeTabIdx + 1} / {TABS.length}
             </span>
             <button
               onClick={goNext}
-              disabled={currentTabIdx === TABS.length - 1}
+              disabled={safeTabIdx === TABS.length - 1}
               className="flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-widest transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-[var(--input)]"
               style={{ color: 'var(--primary)' }}
             >

@@ -32,6 +32,8 @@ export default function TeacherOnboarding() {
   
   const [step, setStep] = useState<Step>('welcome')
   const [loading, setLoading] = useState(false)
+  const [loadingBase, setLoadingBase] = useState(false)
+  const [baseError, setBaseError] = useState<string | null>(null)
 
   // Data from DB
   const [dbCurriculums, setDbCurriculums] = useState<Curriculum[]>([])
@@ -51,14 +53,33 @@ export default function TeacherOnboarding() {
   }, [])
 
   const loadBaseData = async () => {
-    const [currRes, subRes, classRes] = await Promise.all([
-      supabase.from('curriculums').select('*').order('name'),
-      supabase.from('subjects').select('*').order('name'),
-      supabase.from('classes').select('*').order('name'),
-    ])
-    if (currRes.data) setDbCurriculums(currRes.data)
-    if (subRes.data) setDbSubjects(subRes.data)
-    if (classRes.data) setDbClasses(classRes.data)
+    setLoadingBase(true)
+    setBaseError(null)
+    try {
+      const [currRes, subRes, classRes] = await Promise.all([
+        supabase.from('curriculums').select('*').order('name'),
+        supabase.from('subjects').select('*').order('name'),
+        supabase.from('classes').select('*').order('name'),
+      ])
+      
+      if (currRes.error) throw currRes.error
+      if (subRes.error) throw subRes.error
+      if (classRes.error) throw classRes.error
+
+      setDbCurriculums(currRes.data || [])
+      setDbSubjects(subRes.data || [])
+      setDbClasses(classRes.data || [])
+
+      if (!currRes.data || currRes.data.length === 0) {
+        console.warn('No curriculums found in database')
+      }
+    } catch (err: any) {
+      console.error('Failed to load onboarding metadata:', err)
+      setBaseError(err.message || 'Failed to sync with server')
+      toast.error('Sync Error: Could not load teaching metadata')
+    } finally {
+      setLoadingBase(false)
+    }
   }
 
   const handleSkip = async () => {
@@ -347,34 +368,55 @@ export default function TeacherOnboarding() {
               </div>
 
               <div className="grid grid-cols-1 gap-4 mb-10">
-                {dbCurriculums.map(cur => (
-                  <button
-                    key={cur.id}
-                    onClick={() => toggleCurriculum(cur.id)}
-                    className={cn(
-                      "flex items-center justify-between p-6 rounded-2xl transition-all duration-300 border-2 text-left group",
-                      selectedCurriculums.includes(cur.id)
-                        ? "bg-primary/10 border-primary shadow-lg shadow-primary/5"
-                        : "bg-white/5 border-transparent hover:bg-white/10"
-                    )}
-                  >
-                    <div className="flex items-center gap-4">
-                      <div className={cn(
-                        "w-12 h-12 rounded-xl flex items-center justify-center transition-colors",
-                        selectedCurriculums.includes(cur.id) ? "bg-primary text-white" : "bg-white/10 text-white/40"
-                      )}>
-                        <BookOpen size={24} />
+                {loadingBase ? (
+                   <div className="py-20 flex flex-col items-center justify-center space-y-4">
+                      <div className="w-12 h-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
+                      <p className="text-white/40 font-bold uppercase tracking-widest text-xs">Syncing Curriculums...</p>
+                   </div>
+                ) : baseError ? (
+                   <div className="py-12 bg-rose-500/5 border border-rose-500/20 rounded-3xl text-center space-y-4">
+                      <p className="text-rose-400 font-medium">Something went wrong while fetching data.</p>
+                      <Button variant="outline" size="sm" onClick={loadBaseData}>Try Again</Button>
+                   </div>
+                ) : dbCurriculums.length === 0 ? (
+                   <div className="py-20 text-center space-y-4 bg-white/5 rounded-3xl border border-white/10">
+                      <Layers className="mx-auto text-white/20" size={48} />
+                      <div className="space-y-1">
+                        <p className="text-white/60 font-bold">No curriculums available yet.</p>
+                        <p className="text-white/30 text-sm max-w-xs mx-auto">This usually means the platform is still being set up by the administrator.</p>
                       </div>
-                      <span className="text-xl font-bold">{cur.name}</span>
-                    </div>
-                    <div className={cn(
-                      "w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all",
-                      selectedCurriculums.includes(cur.id) ? "bg-primary border-primary" : "border-white/10"
-                    )}>
-                      {selectedCurriculums.includes(cur.id) && <Check size={14} strokeWidth={3} />}
-                    </div>
-                  </button>
-                ))}
+                      <Button variant="ghost" size="sm" onClick={loadBaseData} className="text-primary hover:text-primary hover:bg-primary/10">Check Again</Button>
+                   </div>
+                ) : (
+                  dbCurriculums.map(cur => (
+                    <button
+                      key={cur.id}
+                      onClick={() => toggleCurriculum(cur.id)}
+                      className={cn(
+                        "flex items-center justify-between p-6 rounded-2xl transition-all duration-300 border-2 text-left group",
+                        selectedCurriculums.includes(cur.id)
+                          ? "bg-primary/10 border-primary shadow-lg shadow-primary/5"
+                          : "bg-white/5 border-transparent hover:bg-white/10"
+                      )}
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className={cn(
+                          "w-12 h-12 rounded-xl flex items-center justify-center transition-colors",
+                          selectedCurriculums.includes(cur.id) ? "bg-primary text-white" : "bg-white/10 text-white/40"
+                        )}>
+                          <BookOpen size={24} />
+                        </div>
+                        <span className="text-xl font-bold">{cur.name}</span>
+                      </div>
+                      <div className={cn(
+                        "w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all",
+                        selectedCurriculums.includes(cur.id) ? "bg-primary border-primary" : "border-white/10"
+                      )}>
+                        {selectedCurriculums.includes(cur.id) && <Check size={14} strokeWidth={3} />}
+                      </div>
+                    </button>
+                  ))
+                )}
               </div>
 
               <div className="mt-auto flex gap-4">

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Calendar, UserCircle, DoorOpen, Clock, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Calendar, UserCircle, DoorOpen, Clock, MapPin } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Card, Badge } from '@/components/ui/Card'
 import { useAuthStore } from '@/stores/authStore'
@@ -29,6 +29,7 @@ interface TimetableEntry {
   subject?: { name: string }
   teacher?: { full_name: string }
   class?: { name: string }
+  center?: { name: string }
 }
 
 interface Props {
@@ -72,7 +73,7 @@ export function TimetableWidget({ role }: Props) {
     // Only sessions where this teacher is assigned
     const { data } = await supabase
       .from('timetables')
-      .select('*, subject:subjects(name), class:classes(name)')
+      .select('*, subject:subjects(name), class:classes(name), center:tuition_centers(name)')
       .eq('teacher_id', tData.id)
       .eq('status', 'published')
       .order('day').order('start_time')
@@ -167,6 +168,13 @@ export function TimetableWidget({ role }: Props) {
                     </span>
                   )}
                 </div>
+                {role === 'teacher' && s.center?.name && (
+                  <div className="mt-1.5">
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: 'var(--primary)', color: 'white', opacity: 0.85 }}>
+                      <MapPin size={9} />{s.center.name}
+                    </span>
+                  </div>
+                )}
               </div>
             </motion.div>
           ))}

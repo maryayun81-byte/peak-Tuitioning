@@ -174,10 +174,12 @@ export default function AdminTimetables() {
     )
     const classConflict = existing.find(t =>
       t.class_id === data.class_id &&
+      // If either session spans all centers (null) OR they share the same explicit center, it's a conflict
+      (!t.tuition_center_id || !data.tuition_center_id || t.tuition_center_id === data.tuition_center_id) &&
       timesOverlap(data.start_time, data.end_time, t.start_time, t.end_time)
     )
     if (classConflict)
-      conflicts.push(`This class already has a session at ${classConflict.start_time}–${classConflict.end_time}`)
+      conflicts.push(`This class already has a session perfectly at ${classConflict.start_time}–${classConflict.end_time} in this center`)
     const teacherConflict = existing.find(t =>
       t.teacher_id === data.teacher_id &&
       timesOverlap(data.start_time, data.end_time, t.start_time, t.end_time)

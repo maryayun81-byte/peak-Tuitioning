@@ -221,7 +221,7 @@ export default function StudentSettings() {
          </div>
 
          {/* Content Area */}
-         <div className="flex-1">
+         <div className="flex-1 min-w-0">
             <Card className="p-8 border-none shadow-2xl relative overflow-hidden">
                <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full -mr-32 -mt-32 blur-3xl pointer-events-none" />
                

@@ -16,6 +16,8 @@ import {
   LineChart, Line, AreaChart, Area
 } from 'recharts'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
+import { exportTimetableToPDF } from '@/lib/export/timetableExport'
+import { AttendancePDF } from '@/components/teacher/AttendancePDF'
 import { Card, Badge } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Select, Input } from '@/components/ui/Input'
@@ -238,6 +240,7 @@ export default function TeacherAttendance() {
       student_id: studentId,
       tuition_event_id: selectedEventId,
       class_id: selectedClassId,
+      teacher_id: teacher?.id,
       date: selectedDate,
       week_number: selectedWeekNum,
       status: data.status,
@@ -245,7 +248,7 @@ export default function TeacherAttendance() {
     }))
 
     const { error } = await supabase.from('attendance').upsert(items, {
-      onConflict: 'student_id,tuition_event_id,date,class_id',
+      onConflict: 'student_id,tuition_event_id,date',
     })
 
     if (error) {
@@ -900,6 +903,7 @@ function AnalyticsCard({ label, value, icon, subValue, trend, color }: any) {
 
 function StudentAnalyticsModal({ studentId, onClose, allAttendance, weeks, studentName }: any) {
   const [selectedWeekNum, setSelectedWeekNum] = useState(1)
+  const [generatingPdf, setGeneratingPdf] = useState(false)
   const currentWeekNum = useMemo(() => {
     const today = new Date().toISOString().split('T')[0]
     return weeks.find((w: any) => {
@@ -923,10 +927,35 @@ function StudentAnalyticsModal({ studentId, onClose, allAttendance, weeks, stude
     return { attended, missed, excused, avg: calculateAttendancePercentage(attended, weekAttendance.length || 0) }
   }, [weekAttendance])
 
+  const allTimeAttendance = useMemo(() => {
+    return allAttendance.filter((a: any) => a.student_id === studentId)
+  }, [allAttendance, studentId])
+
+  const allTimeStats = useMemo(() => {
+    const attended = allTimeAttendance.filter((a: any) => a.status === 'present').length
+    const missed = allTimeAttendance.filter((a: any) => a.status === 'absent').length
+    const excused = allTimeAttendance.filter((a: any) => a.status === 'excused').length
+    const late = allTimeAttendance.filter((a: any) => a.status === 'late').length
+    return { attended, missed, excused, late, avg: calculateAttendancePercentage(attended, allTimeAttendance.length || 0) }
+  }, [allTimeAttendance])
+
+  const handleDownloadPDF = async () => {
+    setGeneratingPdf(true)
+    try {
+      await new Promise(r => setTimeout(r, 800)) // ensure render
+      await exportTimetableToPDF('attendance-pdf-content', `${studentName.replace(/\s+/g, '_')}_Attendance.pdf`)
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setGeneratingPdf(false)
+    }
+  }
+
   return (
     <Modal isOpen={!!studentId} onClose={onClose} title="Student Performance Deep-Dive" size="xl">
        <div className="space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 rounded-3xl bg-[var(--input)] border border-[var(--card-border)]">
+          <div id={`pdf-content-${studentId}`} className="space-y-6 p-4 -m-4 rounded-xl" style={{ background: 'var(--card)' }}>
+             <div className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 rounded-3xl bg-[var(--input)] border border-[var(--card-border)]">
              <div className="flex items-center gap-3 flex-1 min-w-0">
                 <div className="w-12 h-12 rounded-2xl bg-primary flex items-center justify-center text-white font-black text-xl shadow-lg shadow-primary/20 shrink-0">
                    {studentName ? studentName[0] : '?'}
@@ -993,12 +1022,24 @@ function StudentAnalyticsModal({ studentId, onClose, allAttendance, weeks, stude
                 </Card>
              </>
           )}
+          </div>
 
           <div className="flex gap-3 pt-4">
              <Button variant="secondary" className="flex-1 rounded-2xl font-black uppercase text-[10px]" onClick={onClose}>Close Intelligence</Button>
-             <Button className="flex-1 rounded-2xl font-black uppercase text-[10px]">Generate Full PDF Report</Button>
+             <Button className="flex-1 rounded-2xl font-black uppercase text-[10px]" onClick={handleDownloadPDF} isLoading={generatingPdf}>
+               {generatingPdf ? 'Building PDF...' : 'Generate Full PDF Report'}
+             </Button>
           </div>
-       </div>
+        </div>
+
+        {!!studentId && (
+          <AttendancePDF 
+            studentName={studentName}
+            overallPercentage={allTimeStats.avg}
+            stats={{ attended: allTimeStats.attended, missed: allTimeStats.missed, excused: allTimeStats.excused, late: allTimeStats.late }}
+            history={allTimeAttendance.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())}
+          />
+        )}
     </Modal>
     )
 }
