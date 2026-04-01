@@ -82,6 +82,8 @@ export default function StudentTriviaAttemptPage() {
   const audioCtxRef = useRef<AudioContext | null>(null)
   const activeOscsRef = useRef<OscillatorNode[]>([])
 
+  const activeClonesRef = useRef<HTMLAudioElement[]>([])
+
   const silenceOscillators = useCallback(() => {
     activeOscsRef.current.forEach(osc => {
       try { 
@@ -90,6 +92,16 @@ export default function StudentTriviaAttemptPage() {
       } catch (e) {}
     })
     activeOscsRef.current = []
+    
+    // Also silence all active clones
+    activeClonesRef.current.forEach(audio => {
+      try {
+        audio.pause()
+        audio.src = ''
+        audio.load()
+      } catch (e) {}
+    })
+    activeClonesRef.current = []
   }, [])
 
   useEffect(() => {
@@ -112,7 +124,7 @@ export default function StudentTriviaAttemptPage() {
       if (bgMusicRef.current) {
         bgMusicRef.current.pause()
         bgMusicRef.current.src = ''
-        bgMusicRef.current.load() // Force unload
+        bgMusicRef.current.load() 
       }
       
       Object.values(audioRefs.current).forEach(a => {
@@ -126,7 +138,6 @@ export default function StudentTriviaAttemptPage() {
       if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
         audioCtxRef.current.close().catch(e => console.warn('Audio context close deferred', e))
       }
-      console.log('Arena soundscapes decommissioned.')
     }
   }, [silenceOscillators])
 
@@ -211,6 +222,13 @@ export default function StudentTriviaAttemptPage() {
       if (audio && key !== 'TICK' && key !== 'BUZZER') {
         const clone = audio.cloneNode() as HTMLAudioElement
         clone.volume = volume
+        activeClonesRef.current.push(clone)
+        
+        // Remove from tracking when done
+        clone.onended = () => {
+          activeClonesRef.current = activeClonesRef.current.filter(c => c !== clone)
+        }
+        
         clone.play().catch(() => {})
       }
     } catch (e) {

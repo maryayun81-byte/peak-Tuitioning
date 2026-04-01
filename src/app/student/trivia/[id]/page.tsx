@@ -39,48 +39,48 @@ interface Group {
 // Categorised for a diverse, inclusive experience
 
 const MASCULINE_AVATARS = [
-  { url: 'https://api.dicebear.com/7.x/adventurer/svg?seed=Titan&flip=false', label: 'Titan' },
-  { url: 'https://api.dicebear.com/7.x/adventurer/svg?seed=Knight&flip=false', label: 'Knight' },
-  { url: 'https://api.dicebear.com/7.x/adventurer/svg?seed=Ninja&flip=false', label: 'Ninja' },
-  { url: 'https://api.dicebear.com/7.x/adventurer/svg?seed=Storm&flip=false', label: 'Storm' },
-  { url: 'https://api.dicebear.com/7.x/adventurer/svg?seed=Blade&flip=false', label: 'Blade' },
-  { url: 'https://api.dicebear.com/7.x/adventurer/svg?seed=Rex&flip=false', label: 'Rex' },
-  { url: 'https://api.dicebear.com/7.x/adventurer/svg?seed=Ace&flip=false', label: 'Ace' },
-  { url: 'https://api.dicebear.com/7.x/adventurer/svg?seed=Fox&flip=false', label: 'Fox' },
-  { url: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix&facialHairType=BeardLight&hairColor=Black', label: 'Felix' },
-  { url: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Max&facialHairType=MoustacheMagnum', label: 'Max' },
-  { url: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Leo&facialHairType=BeardMedium', label: 'Leo' },
-  { url: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Alex&facialHairType=Blank', label: 'Alex' },
+  { url: 'https://api.dicebear.com/9.x/adventurer/svg?seed=Titan', label: 'Titan' },
+  { url: 'https://api.dicebear.com/9.x/adventurer/svg?seed=Knight', label: 'Knight' },
+  { url: 'https://api.dicebear.com/9.x/adventurer/svg?seed=Ninja', label: 'Ninja' },
+  { url: 'https://api.dicebear.com/9.x/adventurer/svg?seed=Storm', label: 'Storm' },
+  { url: 'https://api.dicebear.com/9.x/adventurer/svg?seed=Blade', label: 'Blade' },
+  { url: 'https://api.dicebear.com/9.x/adventurer/svg?seed=Rex', label: 'Rex' },
+  { url: 'https://api.dicebear.com/9.x/adventurer/svg?seed=Ace', label: 'Ace' },
+  { url: 'https://api.dicebear.com/9.x/adventurer/svg?seed=Fox', label: 'Fox' },
+  { url: 'https://api.dicebear.com/9.x/avataaars/svg?seed=Felix&facialHair[]&hairColor=2c1b18', label: 'Felix' },
+  { url: 'https://api.dicebear.com/9.x/avataaars/svg?seed=Max&facialHair[]', label: 'Max' },
+  { url: 'https://api.dicebear.com/9.x/avataaars/svg?seed=Leo&facialHair[]', label: 'Leo' },
+  { url: 'https://api.dicebear.com/9.x/avataaars/svg?seed=Alex', label: 'Alex' },
 ]
 
 const FEMININE_AVATARS = [
-  { url: 'https://api.dicebear.com/7.x/lorelei/svg?seed=Luna', label: 'Luna' },
-  { url: 'https://api.dicebear.com/7.x/lorelei/svg?seed=Maya', label: 'Maya' },
-  { url: 'https://api.dicebear.com/7.x/lorelei/svg?seed=Sofia', label: 'Sofia' },
-  { url: 'https://api.dicebear.com/7.x/lorelei/svg?seed=Emma', label: 'Emma' },
-  { url: 'https://api.dicebear.com/7.x/lorelei/svg?seed=Aria', label: 'Aria' },
-  { url: 'https://api.dicebear.com/7.x/lorelei/svg?seed=Zara', label: 'Zara' },
-  { url: 'https://api.dicebear.com/7.x/lorelei/svg?seed=Nova', label: 'Nova' },
-  { url: 'https://api.dicebear.com/7.x/lorelei/svg?seed=Cleo', label: 'Cleo' },
-  { url: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Lily&top=LongHairStraight&accessoriesType=Blank', label: 'Lily' },
-  { url: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Rose&top=LongHairBun&accessoriesType=Blank', label: 'Rose' },
-  { url: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Amy&top=LongHairCurly&accessoriesType=Blank', label: 'Amy' },
-  { url: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Grace&top=LongHairStraight2&accessoriesType=Blank', label: 'Grace' },
+  { url: 'https://api.dicebear.com/9.x/lorelei/svg?seed=Luna', label: 'Luna' },
+  { url: 'https://api.dicebear.com/9.x/lorelei/svg?seed=Maya', label: 'Maya' },
+  { url: 'https://api.dicebear.com/9.x/lorelei/svg?seed=Sofia', label: 'Sofia' },
+  { url: 'https://api.dicebear.com/9.x/lorelei/svg?seed=Emma', label: 'Emma' },
+  { url: 'https://api.dicebear.com/9.x/lorelei/svg?seed=Aria', label: 'Aria' },
+  { url: 'https://api.dicebear.com/9.x/lorelei/svg?seed=Zara', label: 'Zara' },
+  { url: 'https://api.dicebear.com/9.x/lorelei/svg?seed=Nova', label: 'Nova' },
+  { url: 'https://api.dicebear.com/9.x/lorelei/svg?seed=Cleo', label: 'Cleo' },
+  { url: 'https://api.dicebear.com/9.x/avataaars/svg?seed=Lily&top=longHair-straight', label: 'Lily' },
+  { url: 'https://api.dicebear.com/9.x/avataaars/svg?seed=Rose&top=longHair-bun', label: 'Rose' },
+  { url: 'https://api.dicebear.com/9.x/avataaars/svg?seed=Amy&top=longHair-curly', label: 'Amy' },
+  { url: 'https://api.dicebear.com/9.x/avataaars/svg?seed=Grace&top=longHair-straight2', label: 'Grace' },
 ]
 
 const UNISEX_AVATARS = [
-  { url: 'https://api.dicebear.com/7.x/bottts/svg?seed=Guardian', label: 'Guardian' },
-  { url: 'https://api.dicebear.com/7.x/bottts/svg?seed=Spark', label: 'Spark' },
-  { url: 'https://api.dicebear.com/7.x/bottts/svg?seed=Core', label: 'Core' },
-  { url: 'https://api.dicebear.com/7.x/bottts/svg?seed=Byte', label: 'Byte' },
-  { url: 'https://api.dicebear.com/7.x/bottts/svg?seed=Vector', label: 'Vector' },
-  { url: 'https://api.dicebear.com/7.x/bottts/svg?seed=Pixel', label: 'Pixel' },
-  { url: 'https://api.dicebear.com/7.x/fun-emoji/svg?seed=Scholar', label: 'Scholar' },
-  { url: 'https://api.dicebear.com/7.x/fun-emoji/svg?seed=Champion', label: 'Champ' },
-  { url: 'https://api.dicebear.com/7.x/fun-emoji/svg?seed=Genius', label: 'Genius' },
-  { url: 'https://api.dicebear.com/7.x/fun-emoji/svg?seed=Blaze', label: 'Blaze' },
-  { url: 'https://api.dicebear.com/7.x/open-peeps/svg?seed=Squad1', label: 'Squad' },
-  { url: 'https://api.dicebear.com/7.x/big-smile/svg?seed=Joy', label: 'Joy' },
+  { url: 'https://api.dicebear.com/9.x/bottts/svg?seed=Guardian', label: 'Guardian' },
+  { url: 'https://api.dicebear.com/9.x/bottts/svg?seed=Spark', label: 'Spark' },
+  { url: 'https://api.dicebear.com/9.x/bottts/svg?seed=Core', label: 'Core' },
+  { url: 'https://api.dicebear.com/9.x/bottts/svg?seed=Byte', label: 'Byte' },
+  { url: 'https://api.dicebear.com/9.x/bottts/svg?seed=Vector', label: 'Vector' },
+  { url: 'https://api.dicebear.com/9.x/bottts/svg?seed=Pixel', label: 'Pixel' },
+  { url: 'https://api.dicebear.com/9.x/fun-emoji/svg?seed=Scholar', label: 'Scholar' },
+  { url: 'https://api.dicebear.com/9.x/fun-emoji/svg?seed=Champion', label: 'Champ' },
+  { url: 'https://api.dicebear.com/9.x/fun-emoji/svg?seed=Genius', label: 'Genius' },
+  { url: 'https://api.dicebear.com/9.x/fun-emoji/svg?seed=Blaze', label: 'Blaze' },
+  { url: 'https://api.dicebear.com/9.x/open-peeps/svg?seed=Squad1', label: 'Squad' },
+  { url: 'https://api.dicebear.com/9.x/big-smile/svg?seed=Joy', label: 'Joy' },
 ]
 
 const AVATAR_TABS = [
@@ -115,9 +115,13 @@ export default function StudentTriviaLobbyPage() {
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([])
   const [availableSquads, setAvailableSquads] = useState<any[]>([])
 
-  useEffect(() => { if (sessionId && student?.id) loadAll() }, [sessionId, student?.id])
+  useEffect(() => {
+    // Correctly load all dependencies for the lobby
+    if (sessionId && student?.id) { loadAll() }
+  }, [sessionId, student?.id])
 
   const loadAll = async () => {
+    // Ensure we are truly in a loading state for UI feedback
     setLoading(true)
     try {
       const [sRes, mRes, subRes, psRes] = await Promise.all([
@@ -138,7 +142,7 @@ export default function StudentTriviaLobbyPage() {
       const mySquad = psRes.data?.squad
       setMyPersistentSquad(mySquad)
 
-      // Find the group for THIS session
+      // Find the group for THIS session - Ensure we only look for groups tied to THIS sessionId
       const membership = (mRes.data ?? []).find((m: any) => m.group?.session_id === sessionId)
       let sessionGroup = membership?.group as any
 
@@ -174,8 +178,10 @@ export default function StudentTriviaLobbyPage() {
       }
     } catch (e) {
       console.error('Failed to load lobby data', e)
+    } finally {
+      // Always end loading state
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   // ── Group Management ─────────────────────────────────────────
@@ -190,7 +196,7 @@ export default function StudentTriviaLobbyPage() {
       .eq('group_id', myGroup.id)
       .eq('student_id', memberId)
     if (error) { toast.error('Failed to remove member'); setLoading(false) }
-    else { toast.success('Member removed'); loadAll() }
+    else { toast.success('Member removed'); await loadAll() }
   }
 
   const handleDisbandGroup = async () => {
@@ -198,20 +204,30 @@ export default function StudentTriviaLobbyPage() {
     if (myGroup.attempt_started_at) { toast.error('Cannot disband once started!'); return }
     if (!confirm('Disband this squad? All members will be removed.')) return
     setLoading(true)
-    // Delete all members first, then the group
-    await supabase.from('trivia_group_members').delete().eq('group_id', myGroup.id)
+    // Delete the group itself, cascade will handle the members
     const { error } = await supabase.from('trivia_groups').delete().eq('id', myGroup.id)
     if (error) { toast.error('Failed to disband squad'); setLoading(false) }
-    else { toast.success('Squad disbanded'); setMyGroup(null); loadAll() }
+    else { toast.success('Squad disbanded'); setMyGroup(null); await loadAll() }
   }
 
   const handleLeaveGroup = async () => {
     if (!myGroup) return
     if (myGroup.attempt_started_at) { toast.error('Cannot leave once mission has started!'); return }
     setLoading(true)
+    
+    const isLeader = myGroup.created_by === student?.id
+    
+    // If the leader leaves, or it's the last person, we delete the group entirely
+    if (isLeader || myGroup.members.length <= 1) {
+      const { error } = await supabase.from('trivia_groups').delete().eq('id', myGroup.id)
+      if (error) { toast.error('Failed to exit group'); setLoading(false) }
+      else { toast.success('Squad disbanded'); setMyGroup(null); await loadAll() }
+      return
+    }
+
     const { error } = await supabase.from('trivia_group_members').delete().eq('group_id', myGroup.id).eq('student_id', student!.id)
     if (error) { toast.error('Failed to leave squad'); setLoading(false) }
-    else { toast.success('Left the squad'); loadAll() }
+    else { toast.success('Left the squad'); await loadAll() }
   }
 
   const handleLeavePersistentSquad = async () => {
@@ -220,7 +236,7 @@ export default function StudentTriviaLobbyPage() {
       setLoading(true)
       const { error } = await supabase.from('squad_members').delete().eq('squad_id', myPersistentSquad.id).eq('student_id', student!.id)
       if (error) { toast.error('Failed to leave squad'); setLoading(false) }
-      else { toast.success('You have left the squad'); setMyPersistentSquad(null); loadAll() }
+      else { toast.success('You have left the squad'); setMyPersistentSquad(null); await loadAll() }
     }
   }
 
@@ -228,7 +244,7 @@ export default function StudentTriviaLobbyPage() {
     setLoading(true)
     const { error } = await supabase.from('trivia_group_members').insert({ group_id: groupId, student_id: student!.id })
     if (error) { toast.error(error.message || 'Failed to join'); setLoading(false) }
-    else { toast.success('Joined squad!'); loadAll() }
+    else { toast.success('Joined squad!'); await loadAll() }
   }
 
   // ── Squad / Group Creation ────────────────────────────────────
@@ -240,9 +256,29 @@ export default function StudentTriviaLobbyPage() {
     if (myPersistentSquad) { toast.error('You are already a member of an Academy Squad.'); setCreatingGroup(false); return }
 
     setLoading(true)
+    setLoading(true)
     try {
-      const { data: existing } = await supabase.from('squads').select('id').eq('class_id', student!.class_id).eq('name', groupName.trim()).maybeSingle()
-      if (existing) { toast.error('Squad name is already taken. Please choose a unique name.'); setLoading(false); return }
+      const { data: existingName } = await supabase.from('squads').select('id').eq('class_id', student!.class_id).eq('name', groupName.trim()).maybeSingle()
+      if (existingName) { 
+        toast.error('Squad name is already taken. Please choose a unique name.')
+        setLoading(false)
+        return 
+      }
+
+      // ── CRITICAL: Check if any invited teammate is already in a squad ──
+      const allCandidateIds = Array.from(new Set([student!.id, ...selectedMemberIds]))
+      const { data: currentMemberships } = await supabase
+        .from('squad_members')
+        .select('student_id, squad:squads(name)')
+        .in('student_id', allCandidateIds)
+
+      if (currentMemberships && currentMemberships.length > 0) {
+        const firstConflict = currentMemberships[0]
+        const { data: conflictedStudent } = await supabase.from('students').select('full_name').eq('id', firstConflict.student_id).single()
+        toast.error(`${conflictedStudent?.full_name || 'A teammate'} is already in another squad (${(firstConflict as any).squad?.name}). They must leave their current squad before joining a new one.`)
+        setLoading(false)
+        return
+      }
 
       const { data: squad, error: sErr } = await supabase.from('squads').insert({
         class_id: student!.class_id,
@@ -264,12 +300,11 @@ export default function StudentTriviaLobbyPage() {
 
       toast.success('Academy Squad Formed!')
       await handleJoinTriviaWithSquad(squad.id, squad.name, squad.avatar_url, [student!.id, ...selectedMemberIds])
-      await loadAll()
     } catch (e: any) {
-      if (e.code === '23505') toast.error('Squad name taken. Please try a different name.')
-      else toast.error('Failed to form squad. Please refresh and try again.')
+      console.error('Squad formation failure:', e)
+      toast.error('Failed to form squad. Please ensure all members are available and try again.')
       setLoading(false)
-      loadAll()
+      await loadAll()
     }
   }
 
@@ -352,7 +387,10 @@ export default function StudentTriviaLobbyPage() {
     }
 
     toast.success('Group created! Good luck!')
-    loadAll()
+    // Explicitly wait before refreshing to prevent '1/3 members' glitch
+    setTimeout(() => {
+      loadAll()
+    }, 500)
   }
 
   const filteredClassmates = availableClassmates.filter(c => c.full_name.toLowerCase().includes(searchQuery.toLowerCase()))

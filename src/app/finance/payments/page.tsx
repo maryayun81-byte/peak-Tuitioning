@@ -121,21 +121,39 @@ export default function PaymentManagement() {
     setWeeks(evWeeks)
     setSelectedWeekIndex(0) 
 
-    // Fetch registrations for this event and center
+    // Fetch ALL registrations for this event to find students
     setLoading(true)
+    console.log('Fetching all event registrations:', { event: selectedEvent.id })
+    
     supabase.from('event_registrations')
       .select('*, class:classes(name), center:tuition_centers(name)')
       .eq('tuition_event_id', selectedEvent.id)
-      .eq('tuition_center_id', selectedCenterId)
       .then(({ data, error }) => {
         if (error) {
           console.error('Fetch registration error:', error)
-          toast.error(`Staff Authorization Issue: ${error.message}`)
+          toast.error(`Data Sync Error: ${error.message}`)
         }
         setRegistrations(data as any ?? [])
         setLoading(false)
       })
-  }, [selectedEvent, selectedCenterId, supabase])
+  }, [selectedEvent, supabase])
+
+  // --- Derived State & Logic ---
+  const filteredByCenter = useMemo(() => {
+    if (!selectedCenterId) return registrations
+    if (selectedCenterId === 'none') return registrations.filter(r => !r.tuition_center_id)
+    return registrations.filter(r => r.tuition_center_id === selectedCenterId)
+  }, [registrations, selectedCenterId])
+
+  const filteredStudents = useMemo(() => {
+    // If we have no matches for the center, but we HAVE registrations for the event,
+    // we fallback to the full list to avoid user frustration, or just filter normally.
+    const source = (filteredByCenter.length === 0 && registrations.length > 0) ? registrations : filteredByCenter
+    
+    return source.filter(r => 
+      !studentSearch || r.student_name.toLowerCase().includes(studentSearch.toLowerCase())
+    ).slice(0, 10)
+  }, [filteredByCenter, registrations, studentSearch])
 
   // Fetches payments for the selected student to calculate arrears
   const loadStudentData = useCallback(async () => {
@@ -143,8 +161,6 @@ export default function PaymentManagement() {
     const { data } = await supabase.from('payments')
       .select('*')
       .eq('tuition_event_id', selectedEvent.id)
-      // We might filter by student_id or name depending on schema
-      // For now we assume student_name match or add student_id logic
       .ilike('student_name', selectedReg.student_name)
     setStudentPayments(data as any ?? [])
   }, [selectedReg, selectedEvent, supabase])
@@ -182,10 +198,6 @@ export default function PaymentManagement() {
       setAmount(next.length * (selectedEvent?.daily_rate ?? 0))
     }
   }
-
-  const filteredStudents = registrations.filter(r => 
-    !studentSearch || r.student_name.toLowerCase().includes(studentSearch.toLowerCase())
-  ).slice(0, 10)
 
   // --- Handlers ---
   const recordPayment = async () => {
@@ -248,6 +260,7 @@ export default function PaymentManagement() {
               onChange={e => setSelectedCenterId(e.target.value)}
               className="text-sm font-black bg-transparent border-none outline-none text-right cursor-pointer text-primary"
             >
+              <option value="none" style={{ color: '#000' }}>Unassigned / Global</option>
               {centers.map(c => <option key={c.id} value={c.id} style={{ color: '#000' }}>{c.name}</option>)}
             </select>
           </div>

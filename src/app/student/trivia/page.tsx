@@ -38,7 +38,7 @@ export default function StudentTriviaPage() {
   const load = async () => {
     setLoading(true)
     try {
-      const { data: sessions } = await supabase
+      const { data: sessions, error: sErr } = await supabase
         .from('trivia_sessions')
         .select('*, subject:subjects(name)')
         .eq('status', 'published')
@@ -46,29 +46,31 @@ export default function StudentTriviaPage() {
         .or(`tuition_center_id.eq.${student!.tuition_center_id},tuition_center_id.is.null`)
         .order('created_at', { ascending: false })
 
-      if (!sessions?.length) { setTrivias([]); setLoading(false); return }
+      if (sErr) throw sErr
+      if (!sessions?.length) { setTrivias([]); return }
 
       const sessionIds = sessions.map(s => s.id)
       
-      const [subsRes, membersRes, allSubsRes] = await Promise.all([
+      const [subsRes, membersRes, allSubsRes, qCountsRes] = await Promise.all([
         supabase.from('trivia_submissions').select('*, group:trivia_groups(id, name, avatar_url, session_id)').in('session_id', sessionIds),
         supabase.from('trivia_group_members').select('group_id, group:trivia_groups(id, name, avatar_url, session_id)').eq('student_id', student!.id),
-        supabase.from('trivia_submissions').select('group_id, session_id, score, time_taken_seconds').in('session_id', sessionIds)
+        supabase.from('trivia_submissions').select('group_id, session_id, score, time_taken_seconds').in('session_id', sessionIds),
+        supabase.from('trivia_questions').select('session_id').in('session_id', sessionIds)
       ])
 
       const mySubs = subsRes.data ?? []
       const myMemberships = membersRes.data ?? []
       const allSubs = allSubsRes.data ?? []
+      const qCounts = qCountsRes.data ?? []
 
-      // Batch fetch question counts for all visible sessions
-      const { data: qCounts } = await supabase
-        .from('trivia_questions')
-        .select('session_id')
-        .in('session_id', sessionIds)
+      // Create maps for O(1) lookup to prevent O(N^2) hangs
+      const qCountMap = qCounts.reduce((acc: any, q) => {
+        acc[q.session_id] = (acc[q.session_id] || 0) + 1
+        return acc
+      }, {})
 
       const enriched = sessions.map(s => {
-        const qCount = qCounts?.filter(q => q.session_id === s.id).length || 0
-
+        const qCount = qCountMap[s.id] || 0
         const membership = myMemberships.find((m: any) => m.group?.session_id === s.id)
         const groupData = membership?.group as any
         const myGroup = groupData ? { id: groupData.id, name: groupData.name, avatar_url: groupData.avatar_url } : null
@@ -94,9 +96,11 @@ export default function StudentTriviaPage() {
 
       setTrivias(enriched)
     } catch (e) {
-      console.error(e)
+      console.error('Lobby load error:', e)
+      toast.error('Arena synchronization stalled. Please refresh.')
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   return (
