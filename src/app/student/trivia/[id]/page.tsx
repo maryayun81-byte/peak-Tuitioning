@@ -311,6 +311,14 @@ export default function StudentTriviaLobbyPage() {
   const handleJoinTriviaWithSquad = async (squadId: string, name: string, avatarUrl: string | null, memberIds: string[]) => {
     setLoading(true)
     try {
+      // ── CRITICAL: Before joining with squad, exit any current session-specific group ──
+      // This prevents the "already in session" error if they had formed a temporary group
+      const { data: currentSessionGroups } = await supabase.from('trivia_groups').select('id').eq('session_id', sessionId)
+      if (currentSessionGroups?.length) {
+        const groupIds = currentSessionGroups.map(g => g.id)
+        await supabase.from('trivia_group_members').delete().eq('student_id', student!.id).in('group_id', groupIds)
+      }
+
       const { data: existingGroup } = await supabase.from('trivia_groups')
         .select('id').eq('session_id', sessionId).eq('squad_id', squadId).maybeSingle()
 
@@ -350,7 +358,7 @@ export default function StudentTriviaLobbyPage() {
       await loadAll()
     } catch (e: any) {
       console.error('Join Arena Failure:', e)
-      toast.error('Failed to join trivia with squad. Please try again.')
+      toast.error(e?.message || 'Failed to join trivia with squad. Please try again.')
       setLoading(false)
     }
   }
