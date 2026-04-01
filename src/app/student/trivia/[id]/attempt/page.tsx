@@ -66,6 +66,9 @@ export default function StudentTriviaAttemptPage() {
   const [maxStreak, setMaxStreak] = useState(0)
   const [showCombo, setShowCombo] = useState(false)
 
+  // Visual Time Warning
+  const [timeIsUp, setTimeIsUp] = useState(false)
+
   // Immersive Features
   const [milestone, setMilestone] = useState<string | null>(null)
   const [shouts, setShouts] = useState<{ id: number; emoji: string; x: number }[]>([])
@@ -81,7 +84,10 @@ export default function StudentTriviaAttemptPage() {
 
   const silenceOscillators = useCallback(() => {
     activeOscsRef.current.forEach(osc => {
-      try { osc.stop() } catch (e) {}
+      try { 
+        osc.disconnect()
+        osc.stop() 
+      } catch (e) {}
     })
     activeOscsRef.current = []
   }, [])
@@ -91,8 +97,6 @@ export default function StudentTriviaAttemptPage() {
     Object.entries(SOUNDS).forEach(([key, url]) => {
       const audio = new Audio(url)
       audio.preload = 'auto'
-      audio.oncanplaythrough = () => console.log(`Audio [${key}] primed.`)
-      audio.onerror = () => console.error(`Audio [${key}] link failure: ${url}`)
       if (key === 'TENSION') {
         audio.loop = true
         bgMusicRef.current = audio
@@ -101,19 +105,30 @@ export default function StudentTriviaAttemptPage() {
     })
 
     return () => {
+      console.log('Arena soundscapes decommissioning...')
       // Hard Cleanup
-      bgMusicRef.current?.pause()
-      if (bgMusicRef.current) bgMusicRef.current.src = ''
+      silenceOscillators()
+      
+      if (bgMusicRef.current) {
+        bgMusicRef.current.pause()
+        bgMusicRef.current.src = ''
+        bgMusicRef.current.load() // Force unload
+      }
+      
       Object.values(audioRefs.current).forEach(a => {
-        a.pause()
-        a.src = ''
+        try {
+          a.pause()
+          a.src = ''
+          a.load()
+        } catch (e) {}
       })
+      
       if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
         audioCtxRef.current.close().catch(e => console.warn('Audio context close deferred', e))
       }
       console.log('Arena soundscapes decommissioned.')
     }
-  }, [])
+  }, [silenceOscillators])
 
   // Manage Background Tension
   useEffect(() => {
@@ -456,15 +471,36 @@ export default function StudentTriviaAttemptPage() {
   // Question Timer Effect
   useEffect(() => {
     if (loading || isSubmitting || !activeQ) return
+    setTimeIsUp(false)
     const timer = setInterval(() => {
       setQuestionTimeLeft(prev => {
         if (prev <= 1) {
           clearInterval(timer)
-          playSound('BUZZER', 1.0)
+          // Visual flash — works regardless of audio setting
+          setTimeIsUp(true)
+          setTimeout(() => setTimeIsUp(false), 800)
+          // Try buzzer sound even in silent mode (emergency alert)
+          try {
+            if (audioCtxRef.current) {
+              const ctx = audioCtxRef.current
+              if (ctx.state === 'suspended') ctx.resume()
+              const osc1 = ctx.createOscillator()
+              const osc2 = ctx.createOscillator()
+              const gain = ctx.createGain()
+              osc1.type = 'sawtooth'; osc2.type = 'square'
+              osc1.frequency.setValueAtTime(120, ctx.currentTime)
+              osc2.frequency.setValueAtTime(125, ctx.currentTime)
+              gain.gain.setValueAtTime(0.6, ctx.currentTime)
+              gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4)
+              osc1.connect(gain); osc2.connect(gain); gain.connect(ctx.destination)
+              osc1.start(); osc2.start()
+              osc1.stop(ctx.currentTime + 0.4); osc2.stop(ctx.currentTime + 0.4)
+            }
+          } catch (e) {}
           handleNext(true)
           return 0
         }
-        // Tick sound in final 10 seconds, increasing frequency
+        // Tick sound in final 10 seconds
         if (prev <= 11 && prev > 1) {
           playSound('TICK', 0.2 + (11 - prev) * 0.05)
         }
@@ -497,8 +533,10 @@ export default function StudentTriviaAttemptPage() {
   const qTimerPct = (questionTimeLeft / (activeQ?.time_seconds || 30)) * 100
   const subjectName = session.subject?.name?.toLowerCase() || ''
 
+  const isCriticalTime = questionTimeLeft <= 5 && !loading && !isSubmitting && !!activeQ
+
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[var(--bg)] pb-20 select-none">
+    <div className={`relative min-h-screen overflow-hidden pb-20 select-none transition-colors duration-300 ${isCriticalTime ? 'bg-red-950/30' : 'bg-[var(--bg)]'}`}>
       
       {/* Audio Unlock Overlay */}
       <AnimatePresence>
@@ -535,11 +573,37 @@ export default function StudentTriviaAttemptPage() {
         )}
       </AnimatePresence>
 
-      {/* Subject-Themed Background Arena */}
+      {/* Subject-Themed Background Arena + Critical Time Flash */}
       <div className="fixed inset-0 pointer-events-none z-0">
-        <div className={`absolute inset-0 opacity-10 ${subjectName.includes('science') ? 'bg-emerald-500' : subjectName.includes('math') ? 'bg-blue-500' : 'bg-primary'}`} />
+        <div className={`absolute inset-0 opacity-10 transition-colors duration-300 ${isCriticalTime ? 'bg-red-600' : subjectName.includes('science') ? 'bg-emerald-500' : subjectName.includes('math') ? 'bg-blue-500' : 'bg-primary'}`} />
         <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: 'radial-gradient(var(--text-muted) 1px, transparent 0)', backgroundSize: '40px 40px' }} />
+        {/* Critical time pulse vignette */}
+        {isCriticalTime && (
+          <div className="absolute inset-0 animate-pulse" style={{ background: 'radial-gradient(ellipse at center, transparent 40%, rgba(220,38,38,0.25) 100%)' }} />
+        )}
       </div>
+
+      {/* TIME'S UP Visual Flash */}
+      <AnimatePresence>
+        {timeIsUp && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[300] flex items-center justify-center pointer-events-none"
+            style={{ background: 'rgba(220,38,38,0.85)' }}
+          >
+            <motion.div
+              initial={{ scale: 0.5, opacity: 0 }}
+              animate={{ scale: 1.2, opacity: 1 }}
+              exit={{ scale: 1.5, opacity: 0 }}
+              className="text-white font-black text-6xl md:text-8xl tracking-tighter uppercase italic drop-shadow-2xl"
+            >
+              ⏱ TIME'S UP!
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Floating Shouts */}
       <div className="fixed inset-0 pointer-events-none z-50">
@@ -631,7 +695,7 @@ export default function StudentTriviaAttemptPage() {
                className="space-y-6"
             >
                {/* Question Card */}
-               <Card className={`p-5 md:p-8 relative overflow-hidden transition-all duration-500 border-2 ${isGoldQ ? 'border-amber-400 ring-8 ring-amber-400/10 bg-amber-400/5' : streak >= 3 ? 'border-primary ring-8 ring-primary/5' : 'border-[var(--card-border)] shadow-xl'}`}>
+               <Card className={`p-5 md:p-8 relative overflow-hidden transition-all duration-300 border-2 ${isCriticalTime ? 'border-red-500 ring-8 ring-red-500/20 bg-red-500/5 animate-pulse' : isGoldQ ? 'border-amber-400 ring-8 ring-amber-400/10 bg-amber-400/5' : streak >= 3 ? 'border-primary ring-8 ring-primary/5' : 'border-[var(--card-border)] shadow-xl'}`}>
                   
                   <div className="absolute top-4 right-4 flex items-center gap-3">
                      {isGoldQ && (

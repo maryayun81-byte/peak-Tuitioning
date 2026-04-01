@@ -1,5 +1,6 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
@@ -50,6 +51,13 @@ export default function RichTextEditor({ value, onChange, placeholder }: EditorP
       },
     },
   })
+
+  // Keep editor in sync with external value changes (critical for multi-question forms)
+  useEffect(() => {
+    if (editor && value !== editor.getHTML()) {
+      editor.commands.setContent(value)
+    }
+  }, [value, editor])
 
   if (!editor) return null
 

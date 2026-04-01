@@ -223,3 +223,47 @@ export function getCurrentWeekNumber(
   }
   return 1
 }
+
+/**
+ * Calculates payment statistics for a student in a specific week.
+ */
+export function calculateWeeklyStats(
+  week: EventWeek,
+  studentPayments: any[],
+  dailyRate: number
+) {
+  const activeDates = week.activeDates
+  const totalDue = activeDates.length * (dailyRate || 500)
+  
+  const allPaidDates = new Set<string>()
+  studentPayments?.forEach(p => {
+    if (p.paid_dates) {
+      const dates = String(p.paid_dates).split(',').map(d => d.trim())
+      dates.forEach(d => allPaidDates.add(d))
+    }
+  })
+
+  // Which days in this specific week are covered by some payment?
+  const paidDatesInWeek = activeDates.filter(d => allPaidDates.has(d))
+  const unpaidDatesInWeek = activeDates.filter(d => !allPaidDates.has(d))
+  const totalPaid = paidDatesInWeek.length * (dailyRate || 500)
+  const arrears = Math.max(0, totalDue - totalPaid)
+
+  return {
+    totalDue,
+    totalPaid,
+    arrears,
+    paidDates: paidDatesInWeek,
+    unpaidDates: unpaidDatesInWeek,
+    isFullyPaid: arrears <= 0 && activeDates.length > 0,
+    isPartiallyPaid: arrears > 0 && paidDatesInWeek.length > 0,
+    isUnpaid: paidDatesInWeek.length === 0 && activeDates.length > 0
+  }
+}
+
+export function getArrearsStatus(arrears: number, totalDue: number) {
+  if (totalDue === 0) return { label: 'No Billing', color: '#6B7280', variant: 'muted' }
+  if (arrears <= 0) return { label: 'Fully Paid', color: '#10B981', variant: 'success' }
+  if (arrears < totalDue) return { label: 'Partial', color: '#F59E0B', variant: 'warning' }
+  return { label: 'Unpaid', color: '#EF4444', variant: 'danger' }
+}

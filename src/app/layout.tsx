@@ -42,7 +42,7 @@ export default function RootLayout({
           href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=DM+Sans:wght@300;400;500;600;700&display=swap"
           rel="stylesheet"
         />
-        {process.env.NODE_ENV === 'development' && (
+        {process.env.NODE_ENV === 'development' ? (
           <script
             dangerouslySetInnerHTML={{
               __html: `
@@ -52,6 +52,24 @@ export default function RootLayout({
                       registration.unregister();
                     }
                   });
+                }
+              `,
+            }}
+          />
+        ) : (
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `
+                if ('serviceWorker' in navigator) {
+                  if (!localStorage.getItem('ppt_pwa_patch_v1')) {
+                    navigator.serviceWorker.getRegistrations().then(function(registrations) {
+                      for(let registration of registrations) {
+                        registration.unregister();
+                      }
+                      localStorage.setItem('ppt_pwa_patch_v1', 'true');
+                      window.location.reload();
+                    });
+                  }
                 }
               `,
             }}

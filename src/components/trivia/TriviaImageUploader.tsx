@@ -13,16 +13,17 @@ interface Props {
   imageUrl: string | null
   onImageChange: (url: string | null) => void
   disabled?: boolean
+  sessionImages?: string[] // URLs of images already uploaded in this session
 }
 
 type DrawElement = 
   | { type: 'line', points: number[], color: string, strokeWidth: number }
   | { type: 'text', x: number, y: number, text: string, color: string }
 
-export function TriviaImageUploader({ imageUrl, onImageChange, disabled }: Props) {
+export function TriviaImageUploader({ imageUrl, onImageChange, disabled, sessionImages = [] }: Props) {
   const supabase = getSupabaseBrowserClient()
   const [isOpen, setIsOpen] = useState(false)
-  const [tab, setTab] = useState<'upload' | 'draw'>('upload')
+  const [tab, setTab] = useState<'upload' | 'draw' | 'gallery'>('upload')
   const [isUploading, setIsUploading] = useState(false)
 
   // Drawing state
@@ -66,19 +67,23 @@ export function TriviaImageUploader({ imageUrl, onImageChange, disabled }: Props
     const ext = file.name.split('.').pop() || 'png'
     const filename = `trivia/${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`
     
-    const { error } = await supabase.storage.from('avatars').upload(filename, file)
-    
-    if (error) {
-      toast.error('Upload failed. ' + error.message)
+    try {
+      const { error } = await supabase.storage.from('avatars').upload(filename, file)
+      
+      if (error) {
+        toast.error('Upload failed. ' + error.message)
+        return
+      }
+      
+      const url = supabase.storage.from('avatars').getPublicUrl(filename).data.publicUrl
+      onImageChange(url)
+      setIsOpen(false)
+      toast.success('Visual attached successfully!')
+    } catch (e: any) {
+      toast.error('Upload crashed: ' + (e.message || 'Unknown error'))
+    } finally {
       setIsUploading(false)
-      return
     }
-    
-    const url = supabase.storage.from('avatars').getPublicUrl(filename).data.publicUrl
-    onImageChange(url)
-    setIsOpen(false)
-    setIsUploading(false)
-    toast.success('Visual attached successfully!')
   }
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -205,6 +210,11 @@ export function TriviaImageUploader({ imageUrl, onImageChange, disabled }: Props
                    <button onClick={() => setTab('draw')} className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${tab === 'draw' ? 'bg-[var(--bg)] text-primary shadow-sm' : 'text-[var(--text-muted)] hover:text-[var(--text)]'}`}>
                      <PenTool size={14} className="inline mr-2" /> Draw Diagram
                    </button>
+                   {sessionImages.length > 0 && (
+                     <button onClick={() => setTab('gallery')} className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${tab === 'gallery' ? 'bg-[var(--bg)] text-primary shadow-sm' : 'text-[var(--text-muted)] hover:text-[var(--text)]'}`}>
+                       <ImageIcon size={14} className="inline mr-2" /> Library
+                     </button>
+                   )}
                  </div>
                  <button onClick={() => setIsOpen(false)} disabled={isUploading} className="text-[var(--text-muted)] hover:text-red-500 transition-colors">
                    <X size={24} />
@@ -224,6 +234,40 @@ export function TriviaImageUploader({ imageUrl, onImageChange, disabled }: Props
                      <p className="text-sm text-[var(--text-muted)] text-center mt-2 max-w-sm">JPEGs, PNGs up to 5MB. For PDFs, please use your device's snipping tool and upload the screenshot.</p>
                      
                      <div className="mt-8 bg-[var(--text)] text-[var(--bg)] hover:bg-[var(--text-muted)] font-black uppercase tracking-widest px-8 py-3 rounded-full text-sm transition-all pointer-events-none">Browse Files</div>
+                   </div>
+                 )}
+
+                 {tab === 'gallery' && (
+                   <div className="space-y-4 h-full flex flex-col">
+                     <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-black uppercase tracking-widest opacity-40">Session Library</h3>
+                        <span className="text-[10px] font-bold py-1 px-2 rounded-lg bg-primary/10 text-primary uppercase">Recent Images</span>
+                     </div>
+                     {Array.from(new Set(sessionImages)).length === 0 ? (
+                       <div className="flex-1 flex flex-col items-center justify-center opacity-40 text-center space-y-2">
+                          <ImageIcon size={40} />
+                          <p className="text-xs font-bold uppercase">No images uploaded yet in this session</p>
+                       </div>
+                     ) : (
+                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 overflow-y-auto pr-2 pb-4">
+                         {Array.from(new Set(sessionImages)).map((url, idx) => (
+                           <div 
+                             key={idx} 
+                             onClick={() => { onImageChange(url); setIsOpen(false); }}
+                             className={`group relative aspect-video rounded-2xl border-2 overflow-hidden bg-[var(--input)] cursor-pointer transition-all hover:scale-[1.03] active:scale-95 ${imageUrl === url ? 'border-primary ring-4 ring-primary/10' : 'border-[var(--card-border)] hover:border-primary/50'}`}
+                           >
+                              <img src={url} alt="Gallery item" className="w-full h-full object-contain" />
+                              {imageUrl === url && (
+                                <div className="absolute inset-0 bg-primary/10 flex items-center justify-center">
+                                   <div className="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center shadow-lg">
+                                     <Check size={18} />
+                                   </div>
+                                </div>
+                              )}
+                           </div>
+                         ))}
+                       </div>
+                     )}
                    </div>
                  )}
 

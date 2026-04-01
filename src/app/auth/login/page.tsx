@@ -7,7 +7,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import Link from 'next/link'
-import { GraduationCap, Mail, Lock, Eye, EyeOff, Shield, UserCheck, Users, ArrowLeft } from 'lucide-react'
+import { GraduationCap, Mail, Lock, Eye, EyeOff, Shield, UserCheck, Users, ArrowLeft, DollarSign } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/Button'
@@ -24,6 +24,7 @@ const ROLE_CONFIG = {
   teacher: { label: 'Teacher', icon: <UserCheck size={20} />, color: '#0EA5E9', desc: 'Teach & mentor' },
   student: { label: 'Student', icon: <GraduationCap size={20} />, color: '#10B981', desc: 'Learn & grow' },
   parent: { label: 'Parent', icon: <Users size={20} />, color: '#F59E0B', desc: 'Stay informed' },
+  finance: { label: 'Finance', icon: <DollarSign size={20} />, color: '#D97706', desc: 'Manage finances' },
 }
 
 function LoginForm() {
@@ -136,7 +137,7 @@ function LoginForm() {
           </div>
 
           {/* Role tabs */}
-          <div className="grid grid-cols-4 gap-2 mb-6 p-1 rounded-xl" style={{ background: 'var(--input)' }}>
+          <div className="grid grid-cols-5 gap-1.5 mb-6 p-1 rounded-xl" style={{ background: 'var(--input)' }}>
             {(Object.keys(ROLE_CONFIG) as (keyof typeof ROLE_CONFIG)[]).map((role) => (
               <Link
                 key={role}

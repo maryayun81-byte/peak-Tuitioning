@@ -141,23 +141,23 @@ export function WorksheetCanvas() {
         </div>
 
         {/* Right actions */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
           <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black" style={{ background: 'rgba(99,102,241,0.12)', color: '#6366F1' }}>
             {totalMarks} <span className="font-normal opacity-70">marks</span>
           </div>
-          <Button variant="outline" size="sm" onClick={handleExportPDF} className="flex">
-            <Download size={13} className="mr-1.5" /> Export PDF
+          <Button variant="outline" size="sm" onClick={handleExportPDF} className="flex px-2.5 sm:px-3">
+            <Download size={14} className="sm:mr-1.5" /> <span className="hidden sm:inline">Export PDF</span>
           </Button>
-          <Button variant="secondary" size="sm" onClick={() => setPreviewOpen(true)} className="flex">
-            <Eye size={13} className="mr-1.5" /> Preview
+          <Button variant="secondary" size="sm" onClick={() => setPreviewOpen(true)} className="flex px-2.5 sm:px-3">
+            <Eye size={14} className="sm:mr-1.5" /> <span className="hidden sm:inline">Preview</span>
           </Button>
-          <Button size="sm" onClick={handleSave} disabled={isSaving}>
+          <Button size="sm" onClick={handleSave} disabled={isSaving} className="flex px-2.5 sm:px-3">
             {isSaving ? (
-              <Loader2 size={13} className="mr-1.5 animate-spin" />
+              <Loader2 size={14} className="sm:mr-1.5 animate-spin" />
             ) : (
-              <Save size={13} className="mr-1.5" />
+              <Save size={14} className="sm:mr-1.5" />
             )}
-            {isSaving ? 'Saving...' : 'Save'}
+            <span className="hidden sm:inline">{isSaving ? 'Saving...' : 'Save'}</span>
           </Button>
         </div>
       </div>

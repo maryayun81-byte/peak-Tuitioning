@@ -5,11 +5,12 @@ import { useParams, useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import {
   ArrowLeft, Check, Send, MessageSquare, Star,
-  ChevronLeft, ChevronRight, User, BookOpen, CheckCircle2
+  ChevronLeft, ChevronRight, User, BookOpen, CheckCircle2, 
+  BarChart3, Users, AlertCircle, Clock
 } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
-import { Card } from '@/components/ui/Card'
+import { Card, Badge } from '@/components/ui/Card'
 import { Modal } from '@/components/ui/Modal'
 import { useAuthStore } from '@/stores/authStore'
 import { QuestionRenderer } from '@/components/worksheet/QuestionRenderer'
@@ -37,9 +38,11 @@ export default function WorksheetGraderPage() {
   const [saving, setSaving] = useState(false)
   const [returning, setReturning] = useState(false)
   const [confirmReturn, setConfirmReturn] = useState(false)
+  const [renderingPdf, setRenderingPdf] = useState(false)
+  const [activeTab, setActiveTab] = useState<'marking' | 'progress'>('marking')
+  const [classStatus, setClassStatus] = useState<any[]>([])
   const [activeBlockId, setActiveBlockId] = useState<string | null>(null)
   const [pageImages, setPageImages] = useState<string[]>([])
-  const [renderingPdf, setRenderingPdf] = useState(false)
 
   useEffect(() => { loadSubmission() }, [submissionId])
 
@@ -67,6 +70,39 @@ export default function WorksheetGraderPage() {
     setAssignment(a)
     const ws: WorksheetBlock[] = a?.worksheet ?? []
     setBlocks(ws)
+
+    // Load Class Progress Data
+    let studentsQuery = supabase.from('students')
+      .select('id, full_name, admission_number')
+      .eq('tuition_center_id', a.tuition_center_id)
+
+    if (a.audience === 'selected_students' && a.selected_student_ids?.length > 0) {
+      studentsQuery = studentsQuery.in('id', a.selected_student_ids)
+    } else {
+      studentsQuery = studentsQuery.eq('class_id', a.class_id)
+    }
+
+    const [studentsRes, subsRes] = await Promise.all([
+      studentsQuery,
+      supabase.from('submissions')
+        .select('id, student_id, status, marks')
+        .eq('assignment_id', a.id)
+    ])
+
+    const students = studentsRes.data ?? []
+    const allSubs = subsRes.data ?? []
+
+    const statusMap = students.map(st => {
+      const sub = allSubs.find(s => s.student_id === st.id)
+      return {
+        ...st,
+        submissionId: sub?.id,
+        status: sub?.status || 'missing',
+        marks: sub?.marks
+      }
+    }).sort((a, b) => a.full_name.localeCompare(b.full_name))
+    
+    setClassStatus(statusMap)
 
 // ... existing mark initialization ...
     const saved = sub.question_marks ?? {}
@@ -188,7 +224,7 @@ export default function WorksheetGraderPage() {
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg)' }}>
       {/* Top bar */}
       <div className="sticky top-0 z-30 flex items-center gap-3 px-4 md:px-6 py-3" style={{ background: 'var(--card)', borderBottom: '1px solid var(--card-border)' }}>
-        <Link href="/teacher/marking">
+        <Link href={assignment?.id ? `/teacher/assignments/${assignment.id}/progress` : '/teacher/marking'}>
           <button className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'var(--input)', color: 'var(--text-muted)' }}>
             <ArrowLeft size={16} />
           </button>
@@ -211,8 +247,114 @@ export default function WorksheetGraderPage() {
         </Button>
       </div>
 
+      {/* Tabs */}
+      <div className="flex border-b border-[var(--card-border)] bg-[var(--card)] px-4 overflow-x-auto no-scrollbar">
+        <button 
+          onClick={() => setActiveTab('marking')}
+          className={`px-6 py-3 text-xs font-black uppercase tracking-widest transition-all border-b-2 ${activeTab === 'marking' ? 'border-primary text-primary' : 'border-transparent text-muted'}`}
+        >
+          Marking View
+        </button>
+        <button 
+          onClick={() => setActiveTab('progress')}
+          className={`px-6 py-3 text-xs font-black uppercase tracking-widest transition-all border-b-2 ${activeTab === 'progress' ? 'border-primary text-primary' : 'border-transparent text-muted'}`}
+        >
+          Class Progress ({classStatus.filter(s => s.status !== 'missing').length}/{classStatus.length})
+        </button>
+      </div>
+
       {/* Body */}
-      {isDocumentAssignment ? (
+      {activeTab === 'progress' ? (
+          /* CLASS PROGRESS VIEW */
+          <div className="flex-1 overflow-y-auto p-4 md:p-8">
+             <div className="max-w-5xl mx-auto space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                   <Card className="p-4 flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+                         <CheckCircle2 size={20} />
+                      </div>
+                      <div>
+                         <div className="text-lg font-black">{classStatus.filter(s => s.status === 'marked' || s.status === 'returned').length}</div>
+                         <div className="text-[10px] uppercase font-bold text-muted">Graded</div>
+                      </div>
+                   </Card>
+                   <Card className="p-4 flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-2xl bg-amber-500/10 flex items-center justify-center text-amber-500">
+                         <Clock size={20} />
+                      </div>
+                      <div>
+                         <div className="text-lg font-black">{classStatus.filter(s => s.status === 'submitted').length}</div>
+                         <div className="text-[10px] uppercase font-bold text-muted">Pending</div>
+                      </div>
+                   </Card>
+                   <Card className="p-4 flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-2xl bg-rose-500/10 flex items-center justify-center text-rose-500">
+                         <AlertCircle size={20} />
+                      </div>
+                      <div>
+                         <div className="text-lg font-black">{classStatus.filter(s => s.status === 'missing').length}</div>
+                         <div className="text-[10px] uppercase font-bold text-muted">Missing</div>
+                      </div>
+                   </Card>
+                </div>
+
+                <Card className="overflow-hidden border-none shadow-xl">
+                   <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                         <thead>
+                            <tr className="bg-slate-50 border-b border-slate-100">
+                               <th className="text-left px-6 py-4 text-xs font-black uppercase tracking-widest text-slate-400">Student</th>
+                               <th className="text-left px-6 py-4 text-xs font-black uppercase tracking-widest text-slate-400">Status</th>
+                               <th className="text-left px-6 py-4 text-xs font-black uppercase tracking-widest text-slate-400">Score</th>
+                               <th className="text-right px-6 py-4 text-xs font-black uppercase tracking-widest text-slate-400">Action</th>
+                            </tr>
+                         </thead>
+                         <tbody className="divide-y divide-slate-50">
+                            {classStatus.map((s) => (
+                               <tr key={s.id} className={`hover:bg-slate-50 transition-colors ${s.id === submission?.student_id ? 'bg-primary/5' : ''}`}>
+                                  <td className="px-6 py-4">
+                                     <div className="flex items-center gap-3">
+                                        <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center font-bold text-[10px] text-slate-500">
+                                           {s.full_name[0]}
+                                        </div>
+                                        <div>
+                                           <div className="font-bold text-slate-700">{s.full_name}</div>
+                                           <div className="text-[10px] text-slate-400">{s.admission_number}</div>
+                                        </div>
+                                     </div>
+                                  </td>
+                                  <td className="px-6 py-4">
+                                     {s.status === 'missing' ? (
+                                        <Badge variant="muted" className="bg-rose-50 text-rose-500 border-rose-100">Missing</Badge>
+                                     ) : s.status === 'submitted' ? (
+                                        <Badge variant="warning" className="animate-pulse">Needs Marking</Badge>
+                                     ) : (
+                                        <Badge variant="success">Graded</Badge>
+                                     )}
+                                  </td>
+                                  <td className="px-6 py-4 font-bold text-slate-600">
+                                     {s.marks !== undefined && s.marks !== null ? `${s.marks} / ${assignment?.total_marks || assignment?.max_marks}` : '—'}
+                                  </td>
+                                  <td className="px-6 py-4 text-right">
+                                     {s.submissionId ? (
+                                        <Link href={`/teacher/marking/${s.submissionId}`}>
+                                           <Button size="sm" variant={s.id === submission?.student_id ? 'primary' : 'secondary'}>
+                                              {s.id === submission?.student_id ? 'Viewing' : 'Mark'}
+                                           </Button>
+                                        </Link>
+                                     ) : (
+                                        <span className="text-[10px] font-bold text-slate-300">No Submission</span>
+                                     )}
+                                  </td>
+                               </tr>
+                            ))}
+                         </tbody>
+                      </table>
+                   </div>
+                </Card>
+             </div>
+          </div>
+       ) : isDocumentAssignment ? (
          /* DOCUMENT MARKING VIEW */
          <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
             {/* Left: Interactive Canvas */}

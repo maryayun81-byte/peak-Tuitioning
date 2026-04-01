@@ -40,15 +40,16 @@ const STATUS_CONFIG = {
 } as const
 
 const schema = z.object({
-  class_id:         z.string().uuid({ message: 'Select a class' }),
-  subject_id:       z.string().uuid({ message: 'Select a subject' }),
-  teacher_id:       z.string().uuid({ message: 'Select a teacher' }),
-  tuition_event_id: z.string().uuid({ message: 'Select a tuition event' }),
+  class_id:         z.string().optional().nullable(),
+  subject_id:       z.string().optional().nullable(),
+  teacher_id:       z.string().optional().nullable(),
+  tuition_event_id: z.string().min(1, 'Select a tuition event'),
   tuition_center_id: z.string().optional().nullable(),
   day:              z.string().min(1, 'Select a day'),
   start_time:       z.string().min(1, 'Set a start time'),
   end_time:         z.string().min(1, 'Set an end time'),
   room_number:      z.string().optional(),
+  session_type:     z.string().min(1, 'Select a session type'),
 })
 type FormData = z.infer<typeof schema>
 
@@ -99,6 +100,9 @@ export default function AdminTimetables() {
   const watchTeacherId = watch('teacher_id')
   const watchStart     = watch('start_time')
   const watchEnd       = watch('end_time')
+  const watchType      = watch('session_type')
+  const watchEventId   = watch('tuition_event_id')
+  const watchCenterId  = watch('tuition_center_id')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -191,8 +195,18 @@ export default function AdminTimetables() {
     return conflicts
   }
 
-  const inlineConflicts = watchDay && watchClassId && watchTeacherId && watchStart && watchEnd
-    ? getConflicts({ class_id: watchClassId, subject_id: '', teacher_id: watchTeacherId, tuition_event_id: '', day: watchDay, start_time: watchStart, end_time: watchEnd })
+  const inlineConflicts = watchDay && watchClassId && watchType && watchStart && watchEnd
+    ? getConflicts({ 
+        class_id: watchClassId, 
+        subject_id: watchSubjectId || '', 
+        teacher_id: watchTeacherId || '', 
+        tuition_event_id: watchEventId || '', 
+        day: watchDay, 
+        start_time: watchStart, 
+        end_time: watchEnd,
+        session_type: watchType,
+        tuition_center_id: watchCenterId || null
+      })
     : []
 
   const roster = watchClassId
@@ -209,9 +223,15 @@ export default function AdminTimetables() {
       if (c.length > 0) { c.forEach(msg => toast.error(msg, { duration: 5000, icon: '⚠️' })); return }
     }
     setSaving(true)
-    const payload = { ...data, status: 'draft' }
+    const payload = { 
+      ...data, 
+      status: 'draft',
+      // If NOT a class, nullify subject and teacher
+      subject_id: data.session_type === 'class' ? data.subject_id : null,
+      teacher_id: data.session_type === 'class' ? data.teacher_id : null
+    }
     const { error } = editing
-      ? await supabase.from('timetables').update(data).eq('id', editing.id)
+      ? await supabase.from('timetables').update(payload).eq('id', editing.id)
       : await supabase.from('timetables').insert(payload)
     setSaving(false)
     if (error) { toast.error(error.message); return }
@@ -313,13 +333,14 @@ export default function AdminTimetables() {
       tuition_center_id: entry.tuition_center_id || '',
       day: entry.day, start_time: entry.start_time, end_time: entry.end_time,
       room_number: entry.room_number ?? '',
+      session_type: (entry as any).session_type || 'class',
     })
     setAddOpen(true)
   }
 
   const openAdd = () => {
     // Reset the form and immediately inject the active tuition event from the ref
-    reset({ tuition_event_id: activeEventIdRef.current ?? '' })
+    reset({ tuition_event_id: activeEventIdRef.current ?? '', session_type: 'class' })
     setEditing(null)
     setAddOpen(true)
   }
@@ -491,35 +512,55 @@ export default function AdminTimetables() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* Form Fields */}
             <div className="md:col-span-2 space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Select label="Class *" error={errors.class_id?.message} {...register('class_id')}>
-                  <option value="">Select Class</option>
-                  {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </Select>
-                <Select label="Subject *" error={errors.subject_id?.message} {...register('subject_id')}>
-                  <option value="">{watchClassId ? 'Select Subject' : 'Select a class first'}</option>
-                  {filteredFormSubjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Select label="Teacher *" error={errors.teacher_id?.message} {...register('teacher_id')}>
-                  <option value="">Select Teacher</option>
-                  {teachers.map(t => <option key={t.id} value={t.id}>{t.full_name}</option>)}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <Select label="Session Type *" error={errors.session_type?.message} {...register('session_type')}>
+                  <option value="class">Class Session</option>
+                  <option value="break">Break</option>
+                  <option value="prep">Prep Period</option>
+                  <option value="duty">Duty/Other</option>
                 </Select>
                 
-                {suggestedAssignment && (
-                  <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}
-                    className="flex items-center justify-between p-2 rounded-xl bg-primary/10 border border-primary/20">
-                    <div className="flex items-center gap-2">
-                      <div className="p-1 rounded-full bg-primary text-white"><CheckCircle2 size={12} /></div>
-                      <span className="text-[10px] font-bold text-primary">Suggested: {(suggestedAssignment as any).teacher?.full_name}</span>
-                    </div>
-                    <button type="button" onClick={() => setValue('teacher_id', suggestedAssignment.teacher_id)}
-                      className="text-[10px] font-black text-primary hover:underline px-2">Use Suggested</button>
-                  </motion.div>
+                {watchType === 'class' && (
+                  <>
+                    <Select label="Class *" error={errors.class_id?.message} {...register('class_id')}>
+                      <option value="">Select Class</option>
+                      {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </Select>
+                    <Select label="Subject *" error={errors.subject_id?.message} {...register('subject_id')}>
+                      <option value="">{watchClassId ? 'Select Subject' : 'Select a class first'}</option>
+                      {filteredFormSubjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </Select>
+                  </>
+                )}
+                
+                {watchType !== 'class' && (
+                  <Select label="Class Context (Optional)" {...register('class_id')}>
+                    <option value="">No specific class</option>
+                    {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </Select>
                 )}
               </div>
+
+              {watchType === 'class' && (
+                <div className="space-y-2">
+                  <Select label="Teacher *" error={errors.teacher_id?.message} {...register('teacher_id')}>
+                    <option value="">Select Teacher</option>
+                    {teachers.map(t => <option key={t.id} value={t.id}>{t.full_name}</option>)}
+                  </Select>
+                  
+                  {suggestedAssignment && (
+                    <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}
+                      className="flex items-center justify-between p-2 rounded-xl bg-primary/10 border border-primary/20">
+                      <div className="flex items-center gap-2">
+                        <div className="p-1 rounded-full bg-primary text-white"><CheckCircle2 size={12} /></div>
+                        <span className="text-[10px] font-bold text-primary">Suggested: {(suggestedAssignment as any).teacher?.full_name}</span>
+                      </div>
+                      <button type="button" onClick={() => setValue('teacher_id', suggestedAssignment.teacher_id)}
+                        className="text-[10px] font-black text-primary hover:underline px-2">Use Suggested</button>
+                    </motion.div>
+                  )}
+                </div>
+              )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Select label="Tuition Event *" error={errors.tuition_event_id?.message} {...register('tuition_event_id')}>
@@ -632,15 +673,15 @@ function SessionBlock({ entry, teachers: _teachers, onEdit, onDelete, onSetStatu
 
       <div className="flex-1 min-w-0">
         <h4 className="font-black text-sm truncate" style={{ color: 'var(--text)' }}>
-          {(entry as any).subject?.name}
+          {(entry as any).session_type === 'class' ? (entry as any).subject?.name : (entry as any).session_type?.toUpperCase()}
         </h4>
         <div className="flex items-center gap-1 text-[10px] mt-0.5 truncate" style={{ color: 'var(--text-muted)' }}>
-          <UserCircle size={10} className="shrink-0" /><span className="truncate">{(entry as any).teacher?.full_name}</span>
+          <UserCircle size={10} className="shrink-0" /><span className="truncate">{(entry as any).teacher?.full_name || 'No Teacher'}</span>
         </div>
         <div className="flex items-center gap-1 text-[10px] truncate" style={{ color: 'var(--text-muted)' }}>
-          <School size={10} className="shrink-0" /><span className="truncate">{(entry as any).class?.name}</span>
+          <School size={10} className="shrink-0" /><span className="truncate">{(entry as any).class?.name || 'School Wide'}</span>
           {(entry as any).center?.name && (
-            <><span className="mx-1 opacity-40">•</span><span className="truncate">{(entry as any).center.name}</span></>
+            <><span className="mx-1 opacity-40">•</span><span className="truncate font-black text-primary" title="Tuition Center">{(entry as any).center.name}</span></>
           )}
         </div>
         {entry.room_number && (

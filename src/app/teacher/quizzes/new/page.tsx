@@ -173,7 +173,7 @@ export default function QuizCreator() {
 
   const saveQuiz = async () => {
     if (!form.title || !form.class_id || !form.subject_id) {
-      toast.error('Please fill in metadata')
+      toast.error('Please fill in title, class, and subject')
       return
     }
     
@@ -191,39 +191,56 @@ export default function QuizCreator() {
     }
 
     setLoading(true)
-    const { passing_score, ...restForm } = form
 
+    // Resolve teacher ID at save time to avoid race conditions with auth store hydration
     let currentTeacherId = teacher?.id
-    if (!currentTeacherId && profile) {
+    if (!currentTeacherId && profile?.id) {
       const { data: tData } = await supabase.from('teachers').select('id').eq('user_id', profile.id).single()
       currentTeacherId = tData?.id
     }
 
     if (!currentTeacherId) {
-      toast.error('Teacher profile not found. Please try again or re-login.')
+      toast.error('Teacher profile not found. Please re-login and try again.')
       setLoading(false)
       return
     }
     
-    const { data: quiz, error } = await supabase.from('quizzes').insert({
-      ...restForm,
-      pass_mark_percentage: passing_score,
-      total_marks: questions.reduce((sum, q) => sum + q.marks, 0),
+    // Build the quiz payload — all columns now exist via migration 20260402_extend_quizzes_assignments.sql
+    const quizPayload: Record<string, any> = {
+      title: form.title,
+      description: form.instructions || null,
+      class_id: form.class_id,
+      subject_id: form.subject_id,
       questions: questions,
-      teacher_id: currentTeacherId,
-      tuition_center_id: restForm.tuition_center_id || null,
+      duration_minutes: form.time_limit || null,
+      total_marks: questions.reduce((sum, q) => sum + q.marks, 0),
+      pass_mark_percentage: form.passing_score,
+      max_attempts: form.max_attempts,
+      retake_delay_minutes: form.retake_delay_minutes,
+      audience: form.audience,
+      instructions: form.instructions || null,
+      publish_at: form.publish_at || null,
       is_published: true,
-      publish_at: form.publish_at || null, 
-    }).select().single()
+      teacher_id: currentTeacherId,
+      tuition_center_id: form.tuition_center_id || null,
+    }
+
+    const { data: quiz, error } = await supabase
+      .from('quizzes')
+      .insert(quizPayload)
+      .select()
+      .single()
 
     if (error) {
-      toast.error(error.message)
+      console.error('[Quiz Save Error]', error)
+      toast.error('Failed to create quiz: ' + error.message)
     } else {
       toast.success('Quiz created successfully!')
       router.push('/teacher/quizzes')
     }
     setLoading(false)
   }
+
 
   return (
     <div className="p-6 max-w-5xl mx-auto pb-32">

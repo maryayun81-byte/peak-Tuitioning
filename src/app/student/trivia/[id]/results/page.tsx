@@ -215,8 +215,8 @@ export default function StudentTriviaResultsPage() {
                   transition={{ duration: 0.5, repeat: Infinity, repeatDelay: 4 }}
                   className="w-24 h-24 rounded-[2rem] bg-[var(--card)] border-4 border-[var(--primary)] flex items-center justify-center p-3 shadow-2xl shadow-[var(--primary)]/30 relative mb-4"
                >
-                   <img src={myGroup?.avatar_url || 'https://api.dicebear.com/7.x/bottts/svg?seed=Winner'} alt="" className="w-full h-full object-contain" />
-                   <div className="absolute -bottom-2 bg-[var(--primary)] text-[var(--bg)] px-4 py-1 rounded-full text-[10px] font-black shadow-lg border-2 border-[var(--card)] uppercase italic">Elite #1</div>
+                    <img src={myGroup?.avatar_url || 'https://api.dicebear.com/7.x/bottts/svg?seed=Winner'} alt="" className="w-full h-full object-contain" />
+                    <div className="absolute -bottom-2 bg-[var(--primary)] text-[var(--bg)] px-4 py-1 rounded-full text-[10px] font-black shadow-lg border-2 border-[var(--card)] uppercase italic">Elite #1</div>
                </motion.div>
             ) : (
                <div className="w-24 h-24 rounded-[2rem] bg-[var(--input)] border-2 border-[var(--card-border)] flex items-center justify-center p-4 mb-4 shadow-xl">
@@ -268,7 +268,6 @@ export default function StudentTriviaResultsPage() {
       </motion.div>
 
       {/* Certificate Modal */}
-      {/* Certificate Modal */}
       <AnimatePresence>
          {showCertificate && (
             <motion.div 
@@ -279,26 +278,15 @@ export default function StudentTriviaResultsPage() {
             >
                <div className="w-full flex justify-center overflow-hidden">
                   <div className="origin-top scale-[0.35] sm:scale-[0.55] md:scale-[0.75] lg:scale-90 transition-transform duration-500">
-                     {/* Theme-Aware Premium Certificate */}
                      <div id="victory-certificate" className="w-[1000px] aspect-[1.414/1] p-[2px] relative shadow-2xl shrink-0 overflow-hidden font-sans uppercase rounded-sm" style={{ background: 'var(--card-border)' }}>
-                        
-                        {/* Dynamic Background with Theme Accents */}
                         <div className="absolute inset-0" style={{ background: 'var(--bg)' }} />
                         <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundImage: 'radial-gradient(var(--primary) 1px, transparent 0)', backgroundSize: '32px 32px' }} />
-                        
-                        {/* Metallic Theme Border */}
                         <div className="absolute inset-4 border-[1px]" style={{ borderColor: 'var(--primary)', opacity: 0.3 }} />
                         <div className="absolute inset-8 border-[4px]" style={{ borderColor: 'var(--primary)', opacity: 0.1 }} />
                         <div className="absolute inset-0 bg-gradient-to-br from-transparent via-primary/5 to-transparent pointer-events-none" />
-
-                        {/* Main Content Area */}
                         <div className="absolute inset-4 flex flex-col items-center p-16 text-center" style={{ color: 'var(--text)' }}>
-                           
-                           {/* Decorative Glass Elements */}
                            <div className="absolute top-0 left-0 w-32 h-32 opacity-20" style={{ background: 'radial-gradient(circle at 0 0, var(--primary), transparent 70%)' }} />
                            <div className="absolute bottom-0 right-0 w-32 h-32 opacity-20" style={{ background: 'radial-gradient(circle at 100% 100%, var(--primary), transparent 70%)' }} />
-
-                           {/* Top Badge Section */}
                            <div className="mb-10 relative">
                               <motion.div animate={{ rotate: 360 }} transition={{ duration: 40, repeat: Infinity, ease: 'linear' }} className="absolute -inset-10 opacity-10">
                                  <div className="w-40 h-40 border-2 border-dashed rounded-full" style={{ borderColor: 'var(--primary)' }} />
@@ -309,15 +297,12 @@ export default function StudentTriviaResultsPage() {
                               <h2 className="mt-8 text-xs font-black tracking-[1em] uppercase opacity-70">Academy Excellence Scroll</h2>
                               <div className="h-px w-64 mx-auto mt-4 opacity-30" style={{ background: 'linear-gradient(to right, transparent, var(--primary), transparent)' }} />
                            </div>
-
-                           {/* Student Name */}
                            <div className="flex-1 flex flex-col items-center justify-center w-full">
                               <p className="font-black italic tracking-[0.3em] text-[10px] mb-4 opacity-50">Official Recognition of Scholarly Grit</p>
                               <h1 className="text-8xl font-black tracking-tighter italic leading-tight drop-shadow-2xl" style={{ color: 'var(--text)' }}>
                                  {student?.full_name}
                               </h1>
                               <div className="h-2 w-32 mt-6 rounded-full" style={{ background: 'var(--primary)' }} />
-                              
                               <div className="mt-12 space-y-2">
                                  <p className="text-lg font-bold opacity-40 italic tracking-tight">Distinguished Vanguard of</p>
                                  <h3 className="text-6xl font-black tracking-tighter italic drop-shadow-xl" style={{ color: 'var(--primary)' }}>
@@ -325,14 +310,11 @@ export default function StudentTriviaResultsPage() {
                                  </h3>
                               </div>
                            </div>
-
-                           {/* Metadata Footer */}
                            <div className="w-full grid grid-cols-3 items-end mt-12">
                               <div className="text-left space-y-1">
                                  <div className="font-black text-3xl italic tracking-tighter" style={{ color: 'var(--text)' }}>#{myRank}</div>
                                  <div className="text-[10px] font-black tracking-widest opacity-40 uppercase">Academy Rank</div>
                               </div>
-
                               <div className="flex flex-col items-center gap-4">
                                  <div className="relative">
                                     <div className="w-24 h-24 rounded-full p-1 shadow-2xl border-2" style={{ background: 'var(--input)', borderColor: 'var(--primary)' }}>
@@ -351,7 +333,6 @@ export default function StudentTriviaResultsPage() {
                                     </div>
                                  )}
                               </div>
-
                               <div className="text-right space-y-1">
                                  <div className="font-black text-3xl italic tracking-tighter" style={{ color: 'var(--text)' }}>
                                     {mySubmission?.score}
@@ -359,8 +340,6 @@ export default function StudentTriviaResultsPage() {
                                  <div className="text-[10px] font-black tracking-widest opacity-40 uppercase">Excellence Points</div>
                               </div>
                            </div>
-
-                           {/* ID Block */}
                            <div className="absolute bottom-6 right-6 opacity-20">
                               <div className="text-[8px] font-black tracking-[0.3em]" style={{ color: 'var(--text)' }}>ARENA_ID_{sessionId.slice(-8).toUpperCase()}</div>
                            </div>
@@ -371,23 +350,9 @@ export default function StudentTriviaResultsPage() {
                      </div>
                   </div>
                </div>
-
-               {/* Action Bar */}
                <div className="fixed bottom-12 flex gap-4 w-full max-w-sm px-6 z-[110]">
-                  <Button 
-                     variant="outline" 
-                     className="flex-1 h-14 border-white/20 text-white hover:bg-white/10 font-bold" 
-                     style={{ color: '#FFFFFF', borderColor: 'rgba(255,255,255,0.2)' }}
-                     onClick={() => setShowCertificate(false)}
-                  >
-                     Escape
-                  </Button>
-                  <Button 
-                     onClick={downloadCertificate} 
-                     isLoading={isDownloading}
-                     className="flex-1 h-14 bg-amber-400 hover:bg-amber-500 border-0 text-black font-black uppercase tracking-widest shadow-2xl shadow-amber-500/40"
-                     style={{ backgroundColor: '#fbbf24', color: '#000000' }}
-                  >
+                  <Button variant="outline" className="flex-1 h-14 border-white/20 text-white hover:bg-white/10 font-bold" onClick={() => setShowCertificate(false)}>Escape</Button>
+                  <Button onClick={downloadCertificate} isLoading={isDownloading} className="flex-1 h-14 bg-amber-400 hover:bg-amber-500 border-0 text-black font-black uppercase tracking-widest shadow-2xl shadow-amber-500/40">
                      <Download size={20} className="mr-2" /> Snapshot
                   </Button>
                </div>
@@ -397,8 +362,6 @@ export default function StudentTriviaResultsPage() {
 
       {/* Review & Rankings */}
       <div className="space-y-8 relative z-10">
-         
-         {/* Question Analytics */}
          <div className="space-y-4">
             <h3 className="text-xs font-black uppercase tracking-[0.3em] flex items-center gap-2 text-primary">
                <CheckCircle2 size={16} /> Excellence Analytics
@@ -418,7 +381,7 @@ export default function StudentTriviaResultsPage() {
                               {i + 1}
                            </div>
                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-black leading-tight uppercase tracking-tighter mb-2" style={{ color: 'var(--text)' }}>{q.text}</p>
+                              <div className="text-sm font-black leading-tight uppercase tracking-tighter mb-2" style={{ color: 'var(--text)' }} dangerouslySetInnerHTML={{ __html: q.text }} />
                               <div className="flex flex-wrap items-center gap-3">
                                  {isTimedOut ? (
                                     <span className="text-[10px] bg-amber-500/20 text-amber-600 px-2 py-1 rounded-lg font-black uppercase flex items-center gap-1"><Timer size={12} /> TIMEOUT</span>

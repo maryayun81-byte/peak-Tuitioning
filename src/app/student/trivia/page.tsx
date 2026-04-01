@@ -60,8 +60,14 @@ export default function StudentTriviaPage() {
       const myMemberships = membersRes.data ?? []
       const allSubs = allSubsRes.data ?? []
 
-      const enriched = await Promise.all(sessions.map(async s => {
-        const { count: qCount } = await supabase.from('trivia_questions').select('id', { count: 'exact', head: true }).eq('session_id', s.id)
+      // Batch fetch question counts for all visible sessions
+      const { data: qCounts } = await supabase
+        .from('trivia_questions')
+        .select('session_id')
+        .in('session_id', sessionIds)
+
+      const enriched = sessions.map(s => {
+        const qCount = qCounts?.filter(q => q.session_id === s.id).length || 0
 
         const membership = myMemberships.find((m: any) => m.group?.session_id === s.id)
         const groupData = membership?.group as any
@@ -78,13 +84,13 @@ export default function StudentTriviaPage() {
 
         return {
           ...s,
-          _questionCount: qCount ?? 0,
+          _questionCount: qCount,
           _myGroup: myGroup,
           _mySubmission: mySub ? { score: mySub.score, total_questions: mySub.total_questions } : null,
           _myRank: (myRank !== null && myRank > 0) ? myRank : null,
           _totalGroups: sessionSubs.length,
         }
-      }))
+      })
 
       setTrivias(enriched)
     } catch (e) {

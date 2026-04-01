@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { 
   ClipboardCheck, Clock, CheckCircle2, 
@@ -18,9 +19,12 @@ import { formatDate } from '@/lib/utils'
 import Link from 'next/link'
 import type { Submission } from '@/types/database'
 
-export default function TeacherMarkingQueue() {
+function MarkingQueueContent() {
   const supabase = getSupabaseBrowserClient()
-  const { profile } = useAuthStore()
+  const { profile, teacher } = useAuthStore()
+  
+  const searchParams = useSearchParams()
+  const assignmentId = searchParams.get('assignment_id')
   
   const [loading, setLoading] = useState(true)
   const [submissions, setSubmissions] = useState<any[]>([])
@@ -32,18 +36,47 @@ export default function TeacherMarkingQueue() {
   }, [profile])
 
   const loadQueue = async () => {
+    if (!teacher) return
     setLoading(true)
     try {
-      const { data } = await supabase
+      let query = supabase
         .from('submissions')
-        .select('*, student:students(full_name, admission_number), assignment:assignments(title, max_marks)')
-        .order('submitted_at', { ascending: true })
+        .select(`
+          *,
+          student:students(full_name, admission_number),
+          assignment:assignments!inner(title, max_marks, teacher_id)
+        `)
+        .eq('assignment.teacher_id', teacher.id)
+      
+      if (assignmentId) {
+        query = query.eq('assignment_id', assignmentId)
+      }
+
+      const { data } = await query.order('submitted_at', { ascending: true })
       
       setSubmissions(data ?? [])
     } finally {
       setLoading(false)
     }
   }
+
+  const stats = useMemo(() => {
+    const marked = submissions.filter(s => s.status === 'marked' || s.status === 'returned')
+    const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000)
+    const markedTodayCount = marked.filter(s => s.marked_at && new Date(s.marked_at) > last24h).length
+    
+    const scores = marked.filter(s => s.marks !== null && s.assignment?.max_marks > 0)
+    const avgScore = scores.length > 0 
+      ? Math.round(scores.reduce((acc, s) => acc + (s.marks / s.assignment.max_marks), 0) / scores.length * 100)
+      : 0
+
+    return {
+      pending: submissions.filter(s => s.status === 'submitted').length,
+      markedToday: markedTodayCount,
+      total: submissions.length,
+      avgScore
+    }
+  }, [submissions])
 
   // Safety timeout
   useEffect(() => {
@@ -70,10 +103,10 @@ export default function TeacherMarkingQueue() {
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-         <StatCard title="Pending" value={submissions.filter(s => s.status === 'submitted').length} icon={<Clock size={20} />} change="Urgent" changeType="down" />
-         <StatCard title="Marked Today" value="8" icon={<CheckCircle2 size={20} />} change="+2" changeType="up" />
-         <StatCard title="Total Submissions" value={submissions.length} icon={<FileText size={20} />} />
-         <StatCard title="Avg. Score" value="82%" icon={<AlertCircle size={20} />} />
+         <StatCard title="Pending" value={stats.pending} icon={<Clock size={20} />} change={stats.pending > 5 ? "Urgent" : ""} changeType="down" />
+         <StatCard title="Marked Today" value={stats.markedToday} icon={<CheckCircle2 size={20} />} change="Last 24h" changeType="up" />
+         <StatCard title="Total Submissions" value={stats.total} icon={<FileText size={20} />} />
+         <StatCard title="Avg. Score" value={`${stats.avgScore}%`} icon={<AlertCircle size={20} />} />
       </div>
 
       <div className="flex flex-col md:flex-row gap-4">
@@ -139,3 +172,29 @@ export default function TeacherMarkingQueue() {
     </div>
   )
 }
+
+export default function TeacherMarkingQueue() {
+  return (
+    <Suspense fallback={
+      <div className="p-6">
+        <div className="animate-pulse flex space-x-4">
+          <div className="flex-1 space-y-6 py-1">
+            <div className="h-6 bg-[var(--input)] rounded w-1/4"></div>
+            <div className="space-y-3">
+              <div className="grid grid-cols-4 gap-4">
+                <div className="h-24 bg-[var(--input)] rounded"></div>
+                <div className="h-24 bg-[var(--input)] rounded"></div>
+                <div className="h-24 bg-[var(--input)] rounded"></div>
+                <div className="h-24 bg-[var(--input)] rounded"></div>
+              </div>
+              <div className="h-64 bg-[var(--input)] rounded"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    }>
+      <MarkingQueueContent />
+    </Suspense>
+  )
+}
+

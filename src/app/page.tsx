@@ -6,7 +6,7 @@ import Link from 'next/link'
 import {
   GraduationCap, Users, UserCheck,
   ChevronRight, Shield, CheckCircle,
-  Sparkles, Pointer, Globe, ArrowUpRight
+  Sparkles, Pointer, Globe, ArrowUpRight, DollarSign
 } from 'lucide-react'
 import { SplashScreen } from '@/components/SplashScreen'
 import { InstallPWAButton } from '@/components/InstallPWAButton'
@@ -199,11 +199,23 @@ function PortalSection() {
       features: ['Total Analytics', 'Signatures', 'System Config'],
       delay: 0.9
     },
+    {
+      role: 'finance',
+      label: 'Finance',
+      icon: <DollarSign size={36} strokeWidth={1.5} />,
+      desc: 'Multi-center financial command center. Generate weekly PDF reports, ledgers, and balance sheets.',
+      gradient: 'from-amber-400 to-yellow-600',
+      glow: 'shadow-amber-500/20',
+      border: 'border-amber-500/30',
+      bgColor: 'bg-amber-500/5',
+      features: ['Weekly PDF Reports', 'Balance Sheet', 'General Ledger'],
+      delay: 1.0
+    },
   ]
 
   return (
     <div className="w-full relative z-20">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 xl:gap-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 xl:gap-6">
         {portals.map((p, i) => (
           <Link href={`/auth/login?role=${p.role}`} key={p.role} className="block group outline-none">
              <motion.div

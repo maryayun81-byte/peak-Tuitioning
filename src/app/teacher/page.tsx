@@ -58,7 +58,7 @@ export default function TeacherDashboard() {
       const today = new Date().toLocaleDateString('en-US', { weekday: 'long' })
       const [sRes, tRes, aRes, subRes, nRes] = await Promise.all([
         supabase.from('students').select('count', { count: 'exact' }),
-        supabase.from('timetables').select('count', { count: 'exact' }).eq('teacher_id', teacher.id).ilike('day', today),
+        supabase.from('timetables').select('count', { count: 'exact' }).eq('teacher_id', teacher.id).ilike('day', today).eq('status', 'published'),
         supabase.from('assignments').select('*, class:classes(name)').eq('teacher_id', teacher.id).order('created_at', { ascending: false }).limit(3),
         supabase.from('submissions').select('id', { count: 'exact' }).eq('status', 'submitted'),
         supabase.from('notifications').select('*').eq('user_id', profile.id).order('created_at', { ascending: false }).limit(3)

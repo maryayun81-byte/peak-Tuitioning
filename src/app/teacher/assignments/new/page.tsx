@@ -175,10 +175,23 @@ export default function NewWorksheetPage() {
     if (!title.trim()) { toast.error('Please enter a worksheet title'); return }
     if (!classId) { toast.error('Please select a class'); return }
     if (!subjectId) { toast.error('Please select a subject'); return }
-    // Allow empty blocks if a document is uploaded
     if (blocks.length === 0 && !attachmentUrl) { toast.error('Add at least one question or upload a document'); return }
 
     setSaving(true)
+
+    // Always resolve teacher ID at save time to avoid race conditions
+    let currentTeacherId = teacher?.id
+    if (!currentTeacherId && profile?.id) {
+      const { data: tData } = await supabase.from('teachers').select('id').eq('user_id', profile.id).single()
+      currentTeacherId = tData?.id
+    }
+
+    if (!currentTeacherId) {
+      toast.error('Teacher profile not found. Please re-login and try again.')
+      setSaving(false)
+      return
+    }
+
     const { error } = await supabase.from('assignments').insert({
       title,
       class_id: classId,
@@ -186,8 +199,7 @@ export default function NewWorksheetPage() {
       tuition_center_id: centerId || null,
       due_date: dueDate || null,
       status,
-      teacher_id: teacher?.id,
-      // Worksheet fields stored in JSONB
+      teacher_id: currentTeacherId,
       worksheet: blocks,
       passage: passage || null,
       passage_type: passageType,
@@ -196,15 +208,14 @@ export default function NewWorksheetPage() {
       show_timer: showTimer,
       time_limit: showTimer ? timeLimit : null,
       max_marks: totalMarks,
-      // Document upload fields
       attachment_url: attachmentUrl || null,
       response_mode: attachmentUrl ? responseMode : 'blocks',
-      // Required fields
-      content: JSON.stringify(blocks), // backward compat
+      content: JSON.stringify(blocks),
       audience: 'class',
     })
 
     if (error) {
+      console.error('[Save Assignment Error]', error)
       toast.error('Failed to save: ' + error.message)
     } else {
       toast.success(status === 'published' ? '🎉 Worksheet published!' : '✅ Draft saved!')
@@ -212,6 +223,7 @@ export default function NewWorksheetPage() {
     }
     setSaving(false)
   }
+
 
   const selectedClass = derivedClasses.find(c => c.id === classId)
   const selectedSubject = derivedSubjects.find(s => s.id === subjectId)

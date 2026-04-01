@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Plus, Search, FileText, Clock, Users, ChevronRight, MoreVertical, Trash2, Edit, ExternalLink } from 'lucide-react'
+import { Plus, Search, FileText, Clock, Users, ChevronRight, MoreVertical, Trash2, Edit, ExternalLink, ClipboardCheck } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Card, Badge, StatCard } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -22,6 +22,7 @@ export default function TeacherAssignments() {
   
   const [loading, setLoading] = useState(true)
   const [assignments, setAssignments] = useState<any[]>([])
+  const [submissionsCount, setSubmissionsCount] = useState(0)
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
   
@@ -39,18 +40,63 @@ export default function TeacherAssignments() {
   }, [teacher?.id])
 
   const loadAssignments = async () => {
+    if (!teacher?.id) return
     setLoading(true)
     try {
-      const { data } = await supabase
+      // 1. Fetch assignments
+      const { data: assignmentsData } = await supabase
         .from('assignments')
         .select('*, class:classes(name), subject:subjects(name)')
-        .eq('teacher_id', teacher?.id)
+        .eq('teacher_id', teacher.id)
         .order('created_at', { ascending: false })
       
-      const sortedData = (data ?? []).sort((a, b) => 
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      )
-      setAssignments(sortedData)
+      const assignmentsList = assignmentsData ?? []
+
+      // 2. Fetch total submissions count for the dashboard stat (Needs Marking only)
+      const { count: totalPendingSubmissions } = await supabase
+        .from('submissions')
+        .select('id, assignment:assignments!inner(id)', { count: 'exact', head: true })
+        .eq('assignment.teacher_id', teacher.id)
+        .eq('status', 'submitted')
+
+      setSubmissionsCount(totalPendingSubmissions || 0)
+
+      // 3. Fetch submission counts per assignment
+      const { data: countsData } = await supabase
+        .from('submissions')
+        .select('assignment_id, count:count()')
+        .in('assignment_id', assignmentsList.map(a => a.id))
+        .csv() // Trick to get counts group by if select count() isn't enough; actually Supabase JS has better ways
+
+      // Actually, easier to just fetch counts for each assignment in the same query or separate
+      // Let's use a more robust way to get student counts too
+      
+      const enrichedAssignments = await Promise.all(assignmentsList.map(async (a) => {
+        // Count actual submissions
+        const { count: subCount } = await supabase
+          .from('submissions')
+          .select('*', { count: 'exact', head: true })
+          .eq('assignment_id', a.id)
+          .neq('status', 'not_started') // Only those who actually started/submitted
+        
+        // Count total expected students
+        let expectedCount = 0
+        if (a.audience === 'selected_students') {
+           expectedCount = a.selected_student_ids?.length || 0
+        } else {
+           const { count: stCount } = await supabase.from('students')
+             .select('*', { count: 'exact', head: true })
+             .eq('class_id', a.class_id)
+             .eq('tuition_center_id', a.tuition_center_id)
+           expectedCount = stCount || 0
+        }
+
+        return { ...a, submission_count: subCount || 0, expected_count: expectedCount }
+      }))
+
+      setAssignments(enrichedAssignments)
+    } catch (err) {
+      console.error('Error loading assignments:', err)
     } finally {
       setLoading(false)
     }
@@ -127,7 +173,7 @@ export default function TeacherAssignments() {
          <StatCard title="Total Issued" value={assignments.length} icon={<FileText size={20} />} />
          <StatCard title="Published" value={assignments.filter(a => a.status === 'published').length} icon={<Users size={20} />} />
          <StatCard title="Drafts" value={assignments.filter(a => a.status === 'draft').length} icon={<Clock size={20} />} />
-         <StatCard title="Submissions" value="142" icon={<Plus size={20} />} /> 
+         <StatCard title="Submissions" value={submissionsCount} icon={<ClipboardCheck size={20} />} change={submissionsCount > 0 ? "Pending Marking" : ""} changeType="up" /> 
       </div>
 
       <div className="flex flex-col md:flex-row gap-4">
@@ -173,18 +219,28 @@ export default function TeacherAssignments() {
                           <Badge variant={a.status === 'published' ? 'success' : a.status === 'draft' ? 'warning' : 'danger'}>
                               {a.status}
                           </Badge>
-                          <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>Due: {formatDate(a.due_date, 'short')}</span>
+                          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-100/50">
+                             <Users size={12} className="text-slate-400" />
+                             <span className="text-[10px] font-bold" style={{ color: 'var(--text)' }}>
+                                {a.submission_count} / {a.expected_count}
+                             </span>
+                          </div>
                         </div>
                         <div className="flex gap-2">
-                          <Link href={`/teacher/marking?assignment_id=${a.id}`} className="flex-1">
-                              <Button size="sm" variant="secondary" className="w-full">Mark Submissions</Button>
+                          <Link href={`/teacher/assignments/${a.id}/progress`} className="flex-1">
+                              <Button size="sm" variant="secondary" className="w-full">View Progress</Button>
                           </Link>
-                          {a.worksheet && (
-                              <Link href={`/teacher/assignments/${a.id}/analytics`} className="flex-1">
-                                <Button size="sm" variant="ghost" className="w-full">Analytics</Button>
-                              </Link>
+                          {a.status === 'published' && (
+                             <Link href={`/teacher/marking?assignment_id=${a.id}`} className="flex-1">
+                                <Button size="sm" variant="primary" className="w-full">Mark All</Button>
+                             </Link>
                           )}
                         </div>
+                        {a.worksheet && (
+                            <Link href={`/teacher/assignments/${a.id}/analytics`} className="w-full">
+                              <Button size="sm" variant="ghost" className="w-full">Learning Analytics</Button>
+                            </Link>
+                        )}
                     </div>
                   </Card>
               </motion.div>

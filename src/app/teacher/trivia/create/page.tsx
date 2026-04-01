@@ -48,7 +48,7 @@ const STEP_LABELS = ['Configure', 'Questions', 'Review']
 
 export default function CreateTriviaPage() {
   const supabase = getSupabaseBrowserClient()
-  const { teacher } = useAuthStore()
+  const { profile, teacher } = useAuthStore()
   const router = useRouter()
 
   const [step, setStep] = useState(0)
@@ -109,6 +109,22 @@ export default function CreateTriviaPage() {
     setActiveQIdx(Math.max(0, activeQIdx - 1))
   }
 
+  const duplicateQuestion = (idx: number) => {
+    const q = questions[idx]
+    const duplicated: Question = {
+      ...JSON.parse(JSON.stringify(q)),
+      id: generateId(),
+      options: q.options.map(o => ({ ...o, id: generateId() }))
+    }
+    setQuestions(qs => {
+      const next = [...qs]
+      next.splice(idx + 1, 0, duplicated)
+      return next
+    })
+    setActiveQIdx(idx + 1)
+    toast.success('Question duplicated!')
+  }
+
   // ── Validation ────────────────────────────────────────────────
   const step0Valid = title.trim() && classIds.length > 0
   const step1Valid = questions.every(q =>
@@ -118,17 +134,26 @@ export default function CreateTriviaPage() {
     q.options.find(o => o.id === q.correct_option_id)?.text.trim()
   )
 
-  // ── Submit ────────────────────────────────────────────────────
   const handleSave = async (publish = false) => {
-    if (!teacher?.id) {
-       toast.error('Authentication error. Please reload.')
-       return
-    }
     setSaving(true)
+
+    // Always resolve a fresh teacher ID at submit time to avoid race conditions
+    let currentTeacherId = teacher?.id
+    if (!currentTeacherId && profile?.id) {
+      const { data: tData } = await supabase.from('teachers').select('id').eq('user_id', profile.id).single()
+      currentTeacherId = tData?.id
+    }
+
+    if (!currentTeacherId) {
+      toast.error('Teacher profile not found. Please reload the page and try again.')
+      setSaving(false)
+      return
+    }
+
     const { data: session, error: sErr } = await supabase
       .from('trivia_sessions')
       .insert({
-        teacher_id: teacher.id,
+        teacher_id: currentTeacherId,
         title: title.trim(),
         description: description.trim() || null,
         subject_id: subjectId || null,
@@ -139,7 +164,12 @@ export default function CreateTriviaPage() {
       .select()
       .single()
 
-    if (sErr || !session) { toast.error('Failed to save trivia'); setSaving(false); return }
+    if (sErr || !session) {
+      console.error('[Trivia Save Error]', sErr)
+      toast.error('Failed to save trivia: ' + (sErr?.message ?? 'Unknown error. Check console.'))
+      setSaving(false)
+      return
+    }
 
     const qPayload = questions.map((q, i) => ({
       session_id: session.id,
@@ -153,11 +183,17 @@ export default function CreateTriviaPage() {
     }))
 
     const { error: qErr } = await supabase.from('trivia_questions').insert(qPayload)
-    if (qErr) { toast.error('Failed to save questions'); setSaving(false); return }
+    if (qErr) {
+      console.error('[Trivia Questions Save Error]', qErr)
+      toast.error('Failed to save questions: ' + qErr.message)
+      setSaving(false)
+      return
+    }
 
     toast.success(publish ? '🚀 Trivia published!' : 'Trivia saved as draft')
     router.push(`/teacher/trivia/${session.id}`)
   }
+
 
   const activeQ = questions[activeQIdx]
 
@@ -270,9 +306,18 @@ export default function CreateTriviaPage() {
                   <Card className="p-5 space-y-4">
                     <div className="flex items-center justify-between">
                       <h3 className="font-black text-sm" style={{ color: 'var(--text)' }}>Question {activeQIdx + 1}</h3>
-                      <button onClick={() => removeQuestion(activeQIdx)} className="text-red-400 hover:text-red-500 transition-colors">
-                        <Trash2 size={16} />
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button 
+                          onClick={() => duplicateQuestion(activeQIdx)} 
+                          title="Duplicate Question"
+                          className="p-1 px-2 rounded-lg bg-[var(--input)] text-[var(--text-muted)] hover:text-primary transition-all text-[10px] font-black uppercase flex items-center gap-1"
+                        >
+                          Copy
+                        </button>
+                        <button onClick={() => removeQuestion(activeQIdx)} className="text-red-400 hover:text-red-500 transition-colors px-1">
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     </div>
 
                     <div className="mb-4">
@@ -290,6 +335,7 @@ export default function CreateTriviaPage() {
                          imageUrl={activeQ.image_url || null}
                          onImageChange={(url: string | null) => updateQ(activeQIdx, { image_url: url || '' })}
                          disabled={saving}
+                         sessionImages={questions.map(q => q.image_url).filter(Boolean)}
                        />
                     </div>
 
