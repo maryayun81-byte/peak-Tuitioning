@@ -7,6 +7,7 @@ import {
   Trophy, Clock, Users, BookOpen, ChevronRight,
   CheckCircle2, Lock, Zap, Medal, BarChart3, Star
 } from 'lucide-react'
+import { toast } from 'react-hot-toast'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
