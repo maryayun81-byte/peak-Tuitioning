@@ -84,10 +84,16 @@ export default function TeacherAssignments() {
         if (a.audience === 'selected_students') {
            expectedCount = a.selected_student_ids?.length || 0
         } else {
-           const { count: stCount } = await supabase.from('students')
-             .select('*', { count: 'exact', head: true })
+           let stQuery = supabase.from('students')
+             .select('*, student_subjects!inner(subject_id)', { count: 'exact', head: true })
              .eq('class_id', a.class_id)
-             .eq('tuition_center_id', a.tuition_center_id)
+             .eq('student_subjects.subject_id', a.subject_id)
+           
+           if (a.tuition_center_id) {
+             stQuery = stQuery.eq('tuition_center_id', a.tuition_center_id)
+           }
+
+           const { count: stCount } = await stQuery
            expectedCount = stCount || 0
         }
 

@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, X, FileText, Image, Loader2 } from 'lucide-react'
+import { Upload, X, FileText, Image } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import toast from 'react-hot-toast'
 
@@ -10,10 +10,19 @@ interface FileUploadZoneProps {
   value: string | null           // current URL
   onChange: (url: string | null) => void
   disabled?: boolean
+  bucket?: string
+  accept?: Record<string, string[]>
 }
 
-export function FileUploadZone({ value, onChange, disabled }: FileUploadZoneProps) {
+export function FileUploadZone({ 
+  value, 
+  onChange, 
+  disabled, 
+  bucket = 'assignment-uploads',
+  accept
+}: FileUploadZoneProps) {
   const [uploading, setUploading] = useState(false)
+  const [progress, setProgress] = useState(0)
   const supabase = getSupabaseBrowserClient()
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
@@ -21,46 +30,61 @@ export function FileUploadZone({ value, onChange, disabled }: FileUploadZoneProp
     if (!file) return
 
     setUploading(true)
+    setProgress(0)
     console.log('[FileUpload] Starting upload for:', file.name, file.type, file.size)
-    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Upload timed out (30s)')), 30000))
-    
+
+    // Simulate progress since Supabase uses fetch (no real upload progress events)
+    // Speed is proportional to file size — bigger file = slower ticks
+    const tickMs = Math.min(200, Math.max(80, file.size / 100000))
+    let simProgress = 0
+    const interval = setInterval(() => {
+      setProgress(prev => {
+        // Fast ramp to 70%, then slow crawl to 92% — never reaches 100 until real done
+        const increment = prev < 30 ? 8 : prev < 60 ? 4 : prev < 80 ? 2 : prev < 92 ? 0.5 : 0
+        simProgress = Math.min(92, prev + increment)
+        return simProgress
+      })
+    }, tickMs)
+
     try {
       const ext = file.name.split('.').pop()
       const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
       console.log('[FileUpload] Generated filename:', filename)
-      
-      const uploadPromise = supabase.storage
-        .from('assignment-uploads')
+
+      const { data, error } = await supabase.storage
+        .from(bucket)
         .upload(filename, file, { contentType: file.type, upsert: false })
 
-      const { data, error }: any = await Promise.race([uploadPromise, timeoutPromise])
+      clearInterval(interval)
 
       if (error) {
         console.error('[FileUpload] Supabase upload error:', error)
+        setProgress(0)
         throw error
       }
 
+      // Snap to 100% on success
+      setProgress(100)
       console.log('[FileUpload] Upload success, data:', data)
 
-      const { data: urlData } = supabase.storage
-        .from('assignment-uploads')
-        .getPublicUrl(data.path)
-
+      const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(data.path)
       console.log('[FileUpload] Public URL generated:', urlData.publicUrl)
 
       onChange(urlData.publicUrl)
       toast.success('File uploaded!')
     } catch (err: any) {
+      clearInterval(interval)
       console.error('[FileUpload] Catch block error:', err)
-      toast.error('Upload failed: ' + err.message + '. Check if your Supabase bucket "assignment-uploads" exists and is PUBLIC.')
+      toast.error('Upload failed: ' + err.message + `. Check if your Supabase bucket "${bucket}" exists and is PUBLIC.`)
     } finally {
       setUploading(false)
+      setProgress(0)
     }
-  }, [supabase, onChange])
+  }, [supabase, onChange, bucket])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: {
+    accept: accept || {
       'application/pdf': ['.pdf'],
       'image/png': ['.png'],
       'image/jpeg': ['.jpg', '.jpeg'],
@@ -106,7 +130,7 @@ export function FileUploadZone({ value, onChange, disabled }: FileUploadZoneProp
             {/* Image preview */}
             <img src={value} alt="Uploaded document"
               className="w-full max-h-64 object-contain rounded-xl"
-              style={{ background: '#f8fafc' }} />
+              style={{ background: 'var(--input)' }} />
             {!disabled && (
               <button onClick={remove}
                 className="absolute top-2 right-2 w-8 h-8 rounded-full flex items-center justify-center shadow-lg"
@@ -131,11 +155,37 @@ export function FileUploadZone({ value, onChange, disabled }: FileUploadZoneProp
     >
       <input {...getInputProps()} />
       {uploading ? (
-        <div className="flex flex-col items-center gap-3">
-          <Loader2 size={32} className="animate-spin" style={{ color: 'var(--primary)' }} />
-          <p className="text-sm font-semibold" style={{ color: 'var(--text-muted)' }}>
-            Uploading...
-          </p>
+        <div className="flex flex-col items-center gap-4 py-2">
+          {/* Animated upload icon */}
+          <div className="relative w-12 h-12 flex items-center justify-center">
+            <div
+              className="absolute inset-0 rounded-2xl opacity-20 animate-pulse"
+              style={{ background: 'var(--primary)' }}
+            />
+            <Upload size={22} style={{ color: 'var(--primary)' }} className="animate-bounce" />
+          </div>
+
+          <div className="w-full space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-bold" style={{ color: 'var(--text)' }}>Uploading…</span>
+              <span className="font-black tabular-nums" style={{ color: 'var(--primary)' }}>{Math.round(progress)}%</span>
+            </div>
+
+            {/* Progress bar track */}
+            <div className="w-full h-2 rounded-full overflow-hidden" style={{ background: 'var(--card-border)' }}>
+              <div
+                className="h-full rounded-full transition-all duration-300 ease-out"
+                style={{
+                  width: `${progress}%`,
+                  background: 'linear-gradient(90deg, var(--primary), color-mix(in sRGB, var(--primary) 80%, white 20%))',
+                }}
+              />
+            </div>
+
+            <p className="text-[10px] text-center" style={{ color: 'var(--text-muted)' }}>
+              {progress < 30 ? 'Starting upload…' : progress < 70 ? 'Uploading file…' : progress < 95 ? 'Almost there…' : 'Finalising…'}
+            </p>
+          </div>
         </div>
       ) : (
         <div className="flex flex-col items-center gap-3">

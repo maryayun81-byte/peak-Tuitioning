@@ -73,7 +73,10 @@ export default function TeacherSchedule() {
       // 1. Get Teacher Assignments and their existing personal sessions to derive (class, center) context
       const [assignmentsRes, sessionsRes] = await Promise.all([
         supabase.from('teacher_assignments').select('class_id').eq('teacher_id', teacher.id),
-        supabase.from('timetables').select('class_id, tuition_center_id').eq('teacher_id', teacher.id)
+        supabase
+          .from('timetables')
+          .select('class_id, tuition_center_id, class:classes(name), center:tuition_centers(name)')
+          .eq('teacher_id', teacher.id)
       ])
       
       const classIds = assignmentsRes.data?.map(a => a.class_id) || []
@@ -109,7 +112,12 @@ export default function TeacherSchedule() {
         if (teacherContexts.length === 0) {
           const uniqueContexts = centerContexts.reduce((acc: any, curr: any) => {
             const key = `${curr.class_id}|${curr.tuition_center_id}`
-            if (!acc[key]) acc[key] = { cls: curr.class_id, cen: curr.tuition_center_id }
+            if (!acc[key]) acc[key] = { 
+              cls: curr.class_id, 
+              cen: curr.tuition_center_id,
+              clsName: curr.class?.name || 'Unknown Class',
+              cenName: curr.center?.name || 'Unknown Center'
+            }
             return acc
           }, {})
           setTeacherContexts(Object.values(uniqueContexts))
@@ -204,37 +212,37 @@ export default function TeacherSchedule() {
             <h1 className="text-3xl font-black tracking-tight" style={{ color: 'var(--text)' }}>Faculty Schedule</h1>
             <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>Coordinate and manage your teaching commitments</p>
          </div>
-         <div className="flex items-center gap-3">
-            <div className="flex bg-[var(--input)] p-1 rounded-2xl border border-[var(--card-border)]">
+          <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+            <div className="flex bg-[var(--input)] p-1 rounded-2xl border border-[var(--card-border)] w-full sm:w-auto">
               <button 
                 onClick={() => setViewMode('personal')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${viewMode === 'personal' ? 'bg-primary text-white shadow-lg' : 'text-muted hover:text-primary'}`}
+                className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${viewMode === 'personal' ? 'bg-primary text-white shadow-lg' : 'text-muted hover:text-primary'}`}
               >
                 <UserCircle size={14} /> My Sessions
               </button>
               <button 
                 onClick={() => setViewMode('classes')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${viewMode === 'classes' ? 'bg-primary text-white shadow-lg' : 'text-muted hover:text-primary'}`}
+                className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${viewMode === 'classes' ? 'bg-primary text-white shadow-lg' : 'text-muted hover:text-primary'}`}
               >
                 <Users size={14} /> Class Timetables
               </button>
             </div>
             {viewMode === 'classes' && teacherContexts.length > 0 && (
                <select 
-                 className="bg-[var(--input)] border border-[var(--card-border)] text-xs font-bold text-primary p-2.5 rounded-xl outline-none ring-2 ring-primary/20 cursor-pointer"
+                 className="flex-1 sm:flex-none bg-[var(--input)] border border-[var(--card-border)] text-[11px] font-bold text-primary p-2.5 rounded-xl outline-none ring-2 ring-primary/20 cursor-pointer min-w-0 max-w-full"
                  value={selectedClassContext}
                  onChange={(e) => setSelectedClassContext(e.target.value)}
                  style={{ color: 'var(--text)' }}
                >
                  <option value="all">All Assigned Classes</option>
-                 {teacherContexts.map((ctx, idx) => {
-                    const clsName = schedule.find(s => s.class_id === ctx.cls)?.class?.name || 'Unknown Class'
-                    const cenName = schedule.find(s => s.tuition_center_id === ctx.cen)?.center?.name || 'Unknown Center'
-                    return <option key={idx} value={`${ctx.cls}|${ctx.cen}`}>{clsName} - {cenName}</option>
-                 })}
+                 {teacherContexts.map((ctx, idx) => (
+                    <option key={idx} value={`${ctx.cls}|${ctx.cen}`}>
+                      {ctx.clsName} - {ctx.cenName}
+                    </option>
+                 ))}
                </select>
             )}
-         </div>
+          </div>
       </div>
 
       {/* Swaps Inbox */}

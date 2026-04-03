@@ -52,15 +52,26 @@ export default function AssignmentProgressPage() {
       }
       setAssignment(assignmentData)
 
-      // 2. Determine Audience & Fetch Students
-      let studentsQuery = supabase.from('students')
-        .select('id, full_name, admission_number, email')
-        .eq('tuition_center_id', assignmentData.tuition_center_id)
+      // 2. Determine Audience & Fetch Students with Subject Filter
+      // We only want students in this class/center who are actually taking this subject
+      let studentsQuery = supabase
+        .from('students')
+        .select(`
+          id, 
+          full_name, 
+          admission_number, 
+          email,
+          student_subjects!inner(subject_id)
+        `)
+        .eq('class_id', assignmentData.class_id)
+        .eq('student_subjects.subject_id', assignmentData.subject_id)
+
+      if (assignmentData.tuition_center_id) {
+        studentsQuery = studentsQuery.eq('tuition_center_id', assignmentData.tuition_center_id)
+      }
 
       if (assignmentData.audience === 'selected_students' && assignmentData.selected_student_ids?.length > 0) {
         studentsQuery = studentsQuery.in('id', assignmentData.selected_student_ids)
-      } else {
-        studentsQuery = studentsQuery.eq('class_id', assignmentData.class_id)
       }
 
       const { data: students, error: sError } = await studentsQuery
@@ -136,9 +147,12 @@ export default function AssignmentProgressPage() {
             </Link>
             <div>
                <h1 className="text-2xl font-black flex items-center gap-2" style={{ color: 'var(--text)' }}>
-                  {assignment?.title}
-                  <Badge variant="primary" className="ml-2">Progress</Badge>
-               </h1>
+                   {assignment?.title}
+                   <Badge variant="primary" className="ml-2">Progress</Badge>
+                   <span className="ml-2 text-sm font-black px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">
+                     {(stats.graded + stats.pending)} / {stats.total} Submitted
+                   </span>
+                </h1>
                <div className="flex items-center gap-3 mt-1 text-sm text-slate-500 font-medium">
                   <span className="flex items-center gap-1.5"><Users size={14} /> {assignment?.class?.name}</span>
                   <span>•</span>

@@ -56,7 +56,28 @@ export default function NewWorksheetPage() {
   const [rawAssignments, setRawAssignments] = useState<any[]>([])
   const [centers, setCenters] = useState<{ id: string; name: string }[]>([])
 
+  // Audience selection
+  const [audience, setAudience] = useState<'curriculum_center' | 'class' | 'students'>('class')
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([])
+  const [audienceCenterFilter, setAudienceCenterFilter] = useState('')
+  const [audienceClassFilter, setAudienceClassFilter] = useState('')
+  const [audienceStudents, setAudienceStudents] = useState<any[]>([])
+
   useEffect(() => { loadMeta() }, [])
+
+  // Load students when audience class filter changes
+  useEffect(() => {
+    if (audience !== 'students' || !audienceClassFilter) {
+      setAudienceStudents([])
+      return
+    }
+    supabase
+      .from('students')
+      .select('id, full_name')
+      .eq('class_id', audienceClassFilter)
+      .limit(100)
+      .then(({ data }) => setAudienceStudents(data || []))
+  }, [audience, audienceClassFilter])
 
   const loadMeta = async () => {
     if (!profile?.id) return
@@ -211,7 +232,8 @@ export default function NewWorksheetPage() {
       attachment_url: attachmentUrl || null,
       response_mode: attachmentUrl ? responseMode : 'blocks',
       content: JSON.stringify(blocks),
-      audience: 'class',
+      audience: audience === 'students' ? 'selected_students' : 'class',
+      selected_student_ids: audience === 'students' ? selectedStudentIds : [],
     })
 
     if (error) {
@@ -347,6 +369,121 @@ export default function NewWorksheetPage() {
                   />
                 )}
               </div>
+            </div>
+
+            {/* ── Audience Selection ── */}
+            <div className="p-4 rounded-2xl space-y-4" style={{ background: 'var(--input)', border: '1px solid var(--card-border)' }}>
+              <label className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'var(--primary)' }}>
+                Target Audience
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {([
+                  { value: 'class',              label: 'Entire Class' },
+                  { value: 'curriculum_center',  label: 'All in Center' },
+                  { value: 'students',           label: 'Specific Students' },
+                ] as const).map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => {
+                      setAudience(opt.value)
+                      setSelectedStudentIds([])
+                      setAudienceCenterFilter('')
+                      setAudienceClassFilter('')
+                    }}
+                    className="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all"
+                    style={{
+                      background: audience === opt.value ? 'var(--primary)' : 'var(--card)',
+                      color: audience === opt.value ? 'white' : 'var(--text-muted)',
+                      borderColor: audience === opt.value ? 'var(--primary)' : 'var(--card-border)',
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+
+              {audience === 'curriculum_center' && (
+                <div className="space-y-2">
+                  <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                    Sent to <strong>all students</strong> in the chosen center across every class.
+                  </p>
+                  <Select
+                    label="Target Tuition Center"
+                    value={audienceCenterFilter}
+                    onChange={e => setAudienceCenterFilter(e.target.value)}
+                  >
+                    <option value="">All My Centers (Broadcast)</option>
+                    {centers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </Select>
+                </div>
+              )}
+
+              {audience === 'students' && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <Select
+                      label="Filter by Center"
+                      value={audienceCenterFilter}
+                      onChange={e => { setAudienceCenterFilter(e.target.value); setAudienceClassFilter('') }}
+                    >
+                      <option value="">All Centers</option>
+                      {centers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </Select>
+                    <Select
+                      label="Filter by Class"
+                      value={audienceClassFilter}
+                      onChange={e => setAudienceClassFilter(e.target.value)}
+                    >
+                      <option value="">Select a Class</option>
+                      {derivedClasses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] font-bold" style={{ color: 'var(--text-muted)' }}>Select Students</label>
+                      <span className="text-[10px] font-black" style={{ color: 'var(--primary)' }}>
+                        {selectedStudentIds.length} selected
+                      </span>
+                    </div>
+                    <div
+                      className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto p-3 rounded-xl border"
+                      style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}
+                    >
+                      {audienceStudents.map(s => (
+                        <label
+                          key={s.id}
+                          className="flex items-center gap-2 px-3 py-1.5 rounded-lg border cursor-pointer transition-all hover:bg-primary/5"
+                          style={{ borderColor: 'var(--card-border)' }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedStudentIds.includes(s.id)}
+                            onChange={e => {
+                              const next = e.target.checked
+                                ? [...selectedStudentIds, s.id]
+                                : selectedStudentIds.filter(id => id !== s.id)
+                              setSelectedStudentIds(next)
+                            }}
+                          />
+                          <span className="text-[10px] font-bold truncate" style={{ color: 'var(--text)' }}>
+                            {s.full_name}
+                          </span>
+                        </label>
+                      ))}
+                      {audienceStudents.length === 0 && (
+                        <div className="col-span-full py-8 text-center text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                          {audienceClassFilter ? 'No students found' : 'Select a class to load students'}
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                      💡 Switch filters to add students from different classes — selections are preserved.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Passage toggle */}

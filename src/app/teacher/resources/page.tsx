@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { 
   Plus, Search, File, FileText, Image, 
@@ -13,17 +13,17 @@ import { Button } from '@/components/ui/Button'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import { SkeletonList } from '@/components/ui/Skeleton'
+import { FileUploadZone } from '@/components/worksheet/FileUploadZone'
 import { useAuthStore } from '@/stores/authStore'
 import { formatDate } from '@/lib/utils'
 import toast from 'react-hot-toast'
-import type { Resource, Subject } from '@/types/database'
+import type { Resource } from '@/types/database'
 
 export default function TeacherResources() {
   const supabase = getSupabaseBrowserClient()
   const { profile, teacher } = useAuthStore()
   
   const [resources, setResources] = useState<any[]>([])
-  const [subjects, setSubjects] = useState<Subject[]>([])
   const [loading, setLoading] = useState(true)
   const [addOpen, setAddOpen] = useState(false)
   const [search, setSearch] = useState('')
@@ -34,11 +34,50 @@ export default function TeacherResources() {
     description: '',
     type: 'pdf' as 'video' | 'pdf' | 'image' | 'link' | 'document',
     url: '',
+    attachment_url: '',
+    video_url: '',
     subject_id: '',
+    tuition_center_id: '' as string | null,
     chapter: 'General',
     is_practice: false,
+    audience: 'class' as 'public' | 'class' | 'broadcast' | 'students',
+    class_ids: [] as string[],
+    student_ids: [] as string[],
     is_public: true,
   })
+
+  // All teacher data loaded once upfront
+  const [allCenters, setAllCenters] = useState<any[]>([])
+  const [allSubjects, setAllSubjects] = useState<any[]>([])
+  const [allClasses, setAllClasses] = useState<any[]>([])
+  const [rawAssignments, setRawAssignments] = useState<any[]>([]) // {tuition_center_id, subject_id, class_id}
+  const [centerStudents, setCenterStudents] = useState<any[]>([])
+
+  // UI filter selections
+  const [selCenter, setSelCenter] = useState('')
+  const [selClass, setSelClass] = useState('')
+
+  // Derive visible classes by looking at what the teacher is actually assigned to teach in the selected center
+  const visibleClasses = useMemo(() => {
+    if (!selCenter) return allClasses
+    const assignedClassIds = new Set(
+      rawAssignments
+        .filter(a => (a.tuition_center_id || '') === selCenter)
+        .map(a => a.class_id)
+    )
+    return allClasses.filter(c => assignedClassIds.has(c.id))
+  }, [allClasses, rawAssignments, selCenter])
+
+  // Derive visible subjects: if a center is selected, only show subjects assigned in that center
+  const visibleSubjects = useMemo(() => {
+    if (!selCenter) return allSubjects
+    const assignedSubjectIds = new Set(
+      rawAssignments
+        .filter(a => (a.tuition_center_id || '') === selCenter)
+        .map(a => a.subject_id)
+    )
+    return allSubjects.filter(s => assignedSubjectIds.has(s.id))
+  }, [allSubjects, rawAssignments, selCenter])
 
   useEffect(() => {
     if (teacher?.id) loadData()
@@ -47,16 +86,63 @@ export default function TeacherResources() {
   const loadData = async () => {
     setLoading(true)
     try {
-      const [rRes, sRes] = await Promise.all([
-        supabase.from('resources').select('*, subject:subjects(name)').eq('teacher_id', teacher?.id).order('created_at', { ascending: false }),
-        supabase.from('subjects').select('*').order('name'),
+      // 1. Fetch this teacher's resources
+      const { data: rData } = await supabase
+        .from('resources')
+        .select('*, subject:subjects(name)')
+        .eq('teacher_id', teacher?.id)
+        .order('created_at', { ascending: false })
+      setResources(rData ?? [])
+
+      // 2. Get all assignment rows for this teacher (source of truth for what they teach)
+      const { data: aData } = await supabase
+        .from('teacher_assignments')
+        .select('tuition_center_id, subject_id, class_id')
+        .eq('teacher_id', teacher?.id)
+
+      const assignments = aData || []
+      setRawAssignments(assignments)
+
+      const centerIds = Array.from(new Set(assignments.map((a: any) => a.tuition_center_id).filter(Boolean)))
+      const subjectIds = Array.from(new Set(assignments.map((a: any) => a.subject_id).filter(Boolean)))
+      const classIds   = Array.from(new Set(assignments.map((a: any) => a.class_id).filter(Boolean)))
+
+      // 3. Fetch the actual records for those IDs.
+      //    Always use specific IDs if available so we only show what the teacher teaches.
+      //    Fall back to full list only if assignments table is completely empty.
+      const [cRes, sRes, clRes] = await Promise.all([
+        centerIds.length > 0
+          ? supabase.from('tuition_centers').select('id, name').in('id', centerIds).order('name')
+          : supabase.from('tuition_centers').select('id, name').order('name').limit(50),
+        subjectIds.length > 0
+          ? supabase.from('subjects').select('id, name, tuition_center_id').in('id', subjectIds).order('name')
+          : supabase.from('subjects').select('id, name, tuition_center_id').order('name').limit(100),
+        classIds.length > 0
+          ? supabase.from('classes').select('id, name, tuition_center_id').in('id', classIds).order('name')
+          : supabase.from('classes').select('id, name, tuition_center_id').order('name').limit(100),
       ])
-      setResources(rRes.data ?? [])
-      setSubjects(sRes.data ?? [])
+
+      setAllCenters(cRes.data || [])
+      setAllSubjects(sRes.data || [])
+      setAllClasses(clRes.data || [])
+    } catch (err) {
+      console.error('[Resources] loadData error:', err)
     } finally {
       setLoading(false)
     }
   }
+
+  // Load students whenever the class filter changes
+  useEffect(() => {
+    if (!selClass) { setCenterStudents([]); return }
+    supabase
+      .from('students')
+      .select('id, full_name, class:classes(name)')
+      .eq('class_id', selClass)
+      .limit(100)
+      .then(({ data }) => setCenterStudents(data || []))
+  }, [selClass])
+
 
   // Safety timeout
   useEffect(() => {
@@ -67,14 +153,52 @@ export default function TeacherResources() {
   }, [loading])
 
   const handleUpload = async () => {
-    if (!newResource.title || !newResource.url || !newResource.subject_id) {
-       toast.error('Fill in all fields')
+    if (!newResource.title) {
+       toast.error('Please enter a title')
        return
     }
-    const { error } = await supabase.from('resources').insert({
-       ...newResource,
-       teacher_id: teacher?.id
-    })
+    if (!newResource.url && !newResource.attachment_url && !newResource.video_url) {
+       toast.error('Please upload a file or provide a URL')
+       return
+    }
+    if (!newResource.subject_id) {
+       toast.error('Please select a subject')
+       return
+    }
+    if (newResource.audience === 'class' && !newResource.class_ids[0]) {
+       toast.error('Please select a target class')
+       return
+    }
+    if (newResource.audience === 'students' && newResource.student_ids.length === 0) {
+       toast.error('Please select at least one student')
+       return
+    }
+
+    // Build the final DB row — strip form-only fields, map correctly
+    const payload = {
+      title: newResource.title,
+      description: newResource.description,
+      type: newResource.type,
+      url: newResource.url || newResource.attachment_url || newResource.video_url,
+      attachment_url: newResource.attachment_url || null,
+      video_url: newResource.video_url || null,
+      subject_id: newResource.subject_id || null,
+      tuition_center_id: newResource.tuition_center_id || null,
+      chapter: newResource.chapter,
+      is_practice: newResource.is_practice,
+      audience: newResource.audience,
+      // class_id: for 'class' scope only (column is now nullable)
+      class_id: newResource.audience === 'class' ? (newResource.class_ids[0] || null) : null,
+      // class_ids: for broadcast multi-class
+      class_ids: newResource.audience === 'broadcast' ? newResource.class_ids : [],
+      // student_ids: for targeted students
+      student_ids: newResource.audience === 'students' ? newResource.student_ids : [],
+      is_public: newResource.audience === 'public' || newResource.audience === 'broadcast',
+      teacher_id: teacher?.id,
+    }
+
+    const { error } = await supabase.from('resources').insert(payload)
+
     if (error) { toast.error(error.message) }
     else {
        toast.success('Resource added to library!')
@@ -171,43 +295,210 @@ export default function TeacherResources() {
         </div>
       )}
 
-      {/* Add Resource Modal */}
-      <Modal isOpen={addOpen} onClose={() => setAddOpen(false)} title="Add Educational Resource" size="md">
-         <div className="space-y-4">
-            <Input label="Title" placeholder="e.g. Physics Revision Guide" value={newResource.title} onChange={e => setNewResource({...newResource, title: e.target.value})} />
+      {/* Enhanced Add Resource Modal */}
+      <Modal isOpen={addOpen} onClose={() => setAddOpen(false)} title="Upload Educational Resource" size="lg">
+         <div className="space-y-6">
+             <div className="space-y-4">
+                <Input label="Title" placeholder="e.g. Physics Revision Guide" value={newResource.title} onChange={e => setNewResource({...newResource, title: e.target.value})} />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                   <Select
+                     label="Filter by Center (optional)"
+                     value={selCenter}
+                     onChange={e => { setSelCenter(e.target.value); setSelClass('') }}
+                   >
+                     <option value="">All My Centers</option>
+                     {allCenters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                   </Select>
+                   <Select
+                     label="Subject *"
+                     value={newResource.subject_id}
+                     onChange={e => setNewResource({...newResource, subject_id: e.target.value})}
+                   >
+                     <option value="">Select Subject</option>
+                     {visibleSubjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                   </Select>
+                </div>
+             </div>
+
+            <div className="p-4 rounded-2xl bg-primary/5 border border-primary/10 space-y-4">
+                <label className="text-[10px] font-black uppercase tracking-widest text-primary">Sharing Scope (Audience)</label>
+                <div className="flex flex-wrap gap-2">
+                   {['class', 'broadcast', 'students', 'public'].map(scope => (
+                      <button 
+                        key={scope}
+                        onClick={() => {
+                           setNewResource({...newResource, audience: scope as any, class_ids: [], student_ids: []})
+                           setSelCenter('')
+                           setSelClass('')
+                        }}
+                        className="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all"
+                        style={{
+                           background: newResource.audience === scope ? 'var(--primary)' : 'var(--input)',
+                           color: newResource.audience === scope ? 'white' : 'var(--text-muted)',
+                           borderColor: newResource.audience === scope ? 'var(--primary)' : 'var(--card-border)',
+                        }}
+                      >
+                         {scope === 'class' ? 'Single Class' : scope === 'broadcast' ? 'Broadcast' : scope === 'students' ? 'Target Students' : 'Public'}
+                      </button>
+                   ))}
+                </div>
+
+                {newResource.audience === 'broadcast' && (
+                   <div className="space-y-4">
+                      <div className="flex gap-2">
+                         <button 
+                           onClick={() => setNewResource({...newResource, tuition_center_id: null, is_public: true})}
+                           className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase transition-all ${!newResource.tuition_center_id ? 'bg-primary text-white' : 'bg-input text-muted border border-card-border'}`}
+                         >
+                            All Centers
+                         </button>
+                         <button 
+                           onClick={() => setNewResource({...newResource, tuition_center_id: allCenters[0]?.id || '', is_public: false})}
+                           className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase transition-all ${newResource.tuition_center_id ? 'bg-primary text-white' : 'bg-input text-muted border border-card-border'}`}
+                         >
+                            Specific Center
+                         </button>
+                      </div>
+
+                      {newResource.tuition_center_id !== null && (
+                         <Select 
+                           label="Target Center" 
+                           value={newResource.tuition_center_id || ''} 
+                           onChange={e => setNewResource({...newResource, tuition_center_id: e.target.value})}
+                         >
+                            <option value="">Select Center</option>
+                            {allCenters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                         </Select>
+                      )}
+                   </div>
+                )}
+
+                {newResource.audience === 'class' && (
+                   <div className="space-y-2">
+                      <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                        Classes are filtered by the center selected above.
+                      </p>
+                      <Select label="Target Class *" value={newResource.class_ids[0] || ''} onChange={e => setNewResource({...newResource, class_ids: [e.target.value]})}>
+                         <option value="">Select Class</option>
+                         {visibleClasses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </Select>
+                   </div>
+                )}
+
+                {newResource.audience === 'students' && (
+                   <div className="space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                         <Select label="Filter by Center" value={selCenter} onChange={e => { setSelCenter(e.target.value); setSelClass('') }}>
+                            <option value="">All Centers</option>
+                            {allCenters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                         </Select>
+                         <Select label="Filter by Class" value={selClass} onChange={e => setSelClass(e.target.value)}>
+                            <option value="">Select a Class</option>
+                            {visibleClasses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                         </Select>
+                      </div>
+
+                      <div className="space-y-2">
+                         <div className="flex items-center justify-between">
+                            <label className="text-[10px] font-bold" style={{ color: 'var(--text-muted)' }}>Select Students</label>
+                            <div className="text-[10px] font-black text-primary">{newResource.student_ids.length} selected</div>
+                         </div>
+                         <div className="grid grid-cols-2 gap-2 h-40 overflow-y-auto p-3 rounded-xl border no-scrollbar" style={{ background: 'var(--input)', borderColor: 'var(--card-border)' }}>
+                            {centerStudents.map(s => (
+                               <label key={s.id} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border cursor-pointer transition-all hover:bg-primary/5" style={{ borderColor: 'var(--card-border)' }}>
+                                  <input 
+                                    type="checkbox" 
+                                    checked={newResource.student_ids.includes(s.id)}
+                                    onChange={e => {
+                                       const next = e.target.checked 
+                                          ? [...newResource.student_ids, s.id]
+                                          : newResource.student_ids.filter(id => id !== s.id)
+                                       setNewResource({...newResource, student_ids: next})
+                                    }}
+                                  />
+                                  <div className="flex flex-col">
+                                     <span className="text-[10px] font-black" style={{ color: 'var(--text)' }}>{s.full_name}</span>
+                                     <span className="text-[8px] opacity-60" style={{ color: 'var(--text-muted)' }}>{(s.class as any)?.name}</span>
+                                  </div>
+                               </label>
+                            ))}
+                            {centerStudents.length === 0 && (
+                               <div className="col-span-full py-10 text-center text-[10px] opacity-40">Select a class to see students</div>
+                            )}
+                         </div>
+                      </div>
+                   </div>
+                )}
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
                <Select label="Type" value={newResource.type} onChange={e => setNewResource({...newResource, type: e.target.value as any})}>
-                  <option value="pdf">PDF</option>
-                  <option value="document">Word/Doc</option>
+                  <option value="pdf">PDF / Notes</option>
                   <option value="video">Video</option>
                   <option value="image">Image</option>
-                  <option value="link">Link</option>
+                  <option value="link">URL / Link</option>
                </Select>
-               <Select label="Subject" value={newResource.subject_id} onChange={e => setNewResource({...newResource, subject_id: e.target.value})}>
-                  <option value="">Select Subject</option>
-                  {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-               </Select>
+               <Input label="Topic / Chapter" placeholder="e.g. Algebra" value={newResource.chapter} onChange={e => setNewResource({...newResource, chapter: e.target.value})} />
             </div>
-            <div className="grid grid-cols-2 gap-4">
-               <Input label="Chapter / Topic" placeholder="e.g. Algebra" value={newResource.chapter} onChange={e => setNewResource({...newResource, chapter: e.target.value})} />
-               <Input label="File URL" placeholder="Cloud storage link" value={newResource.url} onChange={e => setNewResource({...newResource, url: e.target.value})} />
-            </div>
+
+            {newResource.type === 'video' ? (
+               <div className="space-y-4 p-4 rounded-2xl border" style={{ background: 'var(--input)', borderColor: 'var(--card-border)' }}>
+                  <div className="flex items-center justify-between mb-2">
+                     <span className="text-[10px] font-black uppercase tracking-tighter" style={{ color: 'var(--primary)' }}>Video Source</span>
+                     <div className="flex gap-2">
+                        <button 
+                          onClick={() => setNewResource({...newResource, url: '', video_url: ''})} 
+                          className="text-[8px] px-2 py-1 rounded-md font-bold uppercase transition-all"
+                          style={{
+                             background: !newResource.video_url ? 'var(--primary)' : 'transparent',
+                             color: !newResource.video_url ? 'white' : 'var(--text-muted)',
+                             border: !newResource.video_url ? 'none' : '1px solid var(--card-border)',
+                          }}
+                        >
+                           Upload
+                        </button>
+                        <button 
+                          onClick={() => setNewResource({...newResource, attachment_url: ''})} 
+                          className="text-[8px] px-2 py-1 rounded-md font-bold uppercase transition-all"
+                          style={{
+                             background: (newResource.video_url || newResource.url.includes('youtube')) ? 'var(--primary)' : 'transparent',
+                             color: (newResource.video_url || newResource.url.includes('youtube')) ? 'white' : 'var(--text-muted)',
+                             border: (newResource.video_url || newResource.url.includes('youtube')) ? 'none' : '1px solid var(--card-border)',
+                          }}
+                        >
+                           Link
+                        </button>
+                     </div>
+                  </div>
+                  {(newResource.video_url || newResource.url.includes('youtube')) ? (
+                     <Input placeholder="YouTube, Vimeo, or MP4 URL" value={newResource.video_url} onChange={e => setNewResource({...newResource, video_url: e.target.value, url: e.target.value})} />
+                  ) : (
+                     <FileUploadZone 
+                       bucket="resource-uploads"
+                       value={newResource.attachment_url} 
+                       onChange={url => setNewResource({...newResource, attachment_url: url || '', url: url || ''})} 
+                       accept={{ 'video/*': ['.mp4', '.mov', '.webm'] }}
+                     />
+                  )}
+               </div>
+            ) : newResource.type === 'link' ? (
+               <Input label="URL Link" placeholder="https://..." value={newResource.url} onChange={e => setNewResource({...newResource, url: e.target.value})} />
+            ) : (
+               <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Upload Document</label>
+                  <FileUploadZone 
+                    bucket="resource-uploads"
+                    value={newResource.attachment_url} 
+                    onChange={url => setNewResource({...newResource, attachment_url: url || '', url: url || ''})} 
+                  />
+               </div>
+            )}
+
             <Textarea label="Short Description" placeholder="What is this about?" value={newResource.description} onChange={e => setNewResource({...newResource, description: e.target.value})} />
-            
-            <div className="flex items-center justify-between p-3 rounded-xl bg-[var(--input)] border border-[var(--card-border)]">
-               <div className="flex items-center gap-2">
-                  <input type="checkbox" id="is_practice" checked={newResource.is_practice} onChange={e => setNewResource({...newResource, is_practice: e.target.checked})} className="w-4 h-4 accent-primary" />
-                  <label htmlFor="is_practice" className="text-xs font-bold" style={{ color: 'var(--text)' }}>Practice Assignment</label>
-               </div>
-               <div className="flex items-center gap-2">
-                  <input type="checkbox" id="is_public" checked={newResource.is_public} onChange={e => setNewResource({...newResource, is_public: e.target.checked})} className="w-4 h-4 accent-primary" />
-                  <label htmlFor="is_public" className="text-xs font-bold" style={{ color: 'var(--text)' }}>Publicly Visible</label>
-               </div>
-            </div>
 
             <div className="flex gap-3 justify-end pt-4">
                <Button variant="secondary" onClick={() => setAddOpen(false)}>Cancel</Button>
-               <Button onClick={handleUpload}>Add Resource</Button>
+               <Button onClick={handleUpload}>Create Resource</Button>
             </div>
          </div>
       </Modal>
