@@ -28,6 +28,7 @@ export default function TeacherDashboard() {
     classesToday: 0,
     pendingMarks: 0,
     attendanceRate: 0,
+    breakdown: [] as any[],
   })
   const [pendingAssignments, setPendingAssignments] = useState<any[]>([])
   const [notifications, setNotifications] = useState<any[]>([])
@@ -35,19 +36,22 @@ export default function TeacherDashboard() {
   useEffect(() => {
     let mounted = true
     
-    const timer = setTimeout(() => {
-       if (mounted && loading && !teacher) {
-          setLoading(false)
-       }
-    }, 2000)
+    // Safety timeout — never hang forever
+    const safetyTimer = setTimeout(() => {
+       if (mounted) setLoading(false)
+    }, 8000)
 
     if (profile && teacher) {
-      loadDashboard()
+      loadDashboard().finally(() => clearTimeout(safetyTimer))
+    } else if (!teacher) {
+      // If teacher hasn't loaded yet give it 2s then bail
+      const fallback = setTimeout(() => { if (mounted) setLoading(false) }, 2000)
+      return () => { mounted = false; clearTimeout(safetyTimer); clearTimeout(fallback) }
     }
 
     return () => {
        mounted = false
-       clearTimeout(timer)
+       clearTimeout(safetyTimer)
     }
   }, [profile, teacher])
 
@@ -55,23 +59,67 @@ export default function TeacherDashboard() {
     if (!teacher || !profile) return
     setLoading(true)
     try {
-      const today = new Date().toLocaleDateString('en-US', { weekday: 'long' })
-      const [sRes, tRes, aRes, subRes, nRes] = await Promise.all([
-        supabase.from('students').select('count', { count: 'exact' }),
-        supabase.from('timetables').select('count', { count: 'exact' }).eq('teacher_id', teacher.id).ilike('day', today).eq('status', 'published'),
-        supabase.from('assignments').select('*, class:classes(name)').eq('teacher_id', teacher.id).order('created_at', { ascending: false }).limit(3),
-        supabase.from('submissions').select('id', { count: 'exact' }).eq('status', 'submitted'),
-        supabase.from('notifications').select('*').eq('user_id', profile.id).order('created_at', { ascending: false }).limit(3)
+      const todayStr = new Date().toISOString().split('T')[0]
+
+      // Stage 1: Fetch assignments and events in parallel (needed to derive class IDs)
+      const [mRes, evRes] = await Promise.all([
+        supabase.from('teacher_assignments')
+          .select('class_id, tuition_center_id, class:classes(name), tuition_center:tuition_centers(name)')
+          .eq('teacher_id', teacher.id),
+        supabase.from('tuition_events')
+          .select('id, start_date, end_date')
+          .gte('end_date', todayStr)
+          .order('start_date', { ascending: true })
+          .limit(5),
       ])
 
+      const rawAssignments: any[] = mRes.data || []
+      const classIds = Array.from(new Set(rawAssignments.map(m => m.class_id).filter(Boolean)))
+      const uniqueAssignments = rawAssignments.filter((a: any, idx: number, self: any[]) =>
+        idx === self.findIndex(t => t.class_id === a.class_id && t.tuition_center_id === a.tuition_center_id)
+      )
+
+      // Current event for attendance stats
+      const events = evRes.data || []
+      const currentEvent = events.find(e => todayStr >= e.start_date && todayStr <= e.end_date) || events[0]
+
+      // Stage 2: All remaining queries run in ONE parallel batch
+      const [subRes, nRes, tRes, sRes, aRes, attRes, breakdownRes] = await Promise.all([
+        supabase.from('submissions').select('id', { count: 'exact' }).eq('status', 'submitted'),
+        supabase.from('notifications').select('*').eq('user_id', profile.id).order('created_at', { ascending: false }).limit(3),
+        supabase.from('timetables').select('count', { count: 'exact' }).eq('teacher_id', teacher.id).ilike('day', todayStr),
+        classIds.length > 0
+          ? supabase.from('students').select('id', { count: 'exact' }).in('class_id', classIds)
+          : Promise.resolve({ count: 0 }),
+        supabase.from('assignments').select('*, class:classes(name)').eq('teacher_id', teacher.id).order('created_at', { ascending: false }).limit(3),
+        // Attendance query now runs in parallel (used to be a 3rd sequential waterfall)
+        currentEvent?.id
+          ? supabase.from('attendance').select('status').eq('teacher_id', teacher.id).eq('tuition_event_id', currentEvent.id).limit(500)
+          : Promise.resolve({ data: [] }),
+        // Breakdown: student counts per class — run in parallel too
+        Promise.all(uniqueAssignments.map(async (a) => {
+          const { count } = await supabase.from('students').select('id', { count: 'exact', head: true }).eq('class_id', a.class_id)
+          const cName = Array.isArray(a.class) ? a.class[0]?.name : (a.class as any)?.name
+          const ctName = Array.isArray(a.tuition_center) ? a.tuition_center[0]?.name : (a.tuition_center as any)?.name
+          return { name: cName || 'Unknown', center: ctName || 'N/A', count: count || 0 }
+        }))
+      ])
+
+      // Calculate attendance rate
+      const attendance = (attRes as any).data || []
+      const total = attendance.length
+      const present = attendance.filter((a: any) => a.status === 'present' || a.status === 'late').length
+      const attendanceRate = total > 0 ? Math.round((present / total) * 1000) / 10 : 0
+
       setStats({
-        activeStudents: sRes.count ?? 0,
-        classesToday: tRes.count ?? 0,
-        pendingMarks: subRes.count ?? 0,
-        attendanceRate: 94.2, 
+        activeStudents: (sRes as any).count ?? 0,
+        classesToday: (tRes as any).count ?? 0,
+        pendingMarks: (subRes as any).count ?? 0,
+        attendanceRate,
+        breakdown: breakdownRes as any[]
       })
-      setPendingAssignments(aRes.data ?? [])
-      setNotifications(nRes.data ?? [])
+      setPendingAssignments((aRes as any).data ?? [])
+      setNotifications((nRes as any).data ?? [])
     } catch (err) {
       console.error('Error loading dashboard:', err)
     } finally {
@@ -102,9 +150,22 @@ export default function TeacherDashboard() {
         <TuitionEventBanner />
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-         <StatCard title="Active Students" value={stats.activeStudents} icon={<Users size={20} />} />
+         <StatCard 
+            title="Active Students" 
+            value={stats.activeStudents} 
+            icon={<Users size={20} />} 
+            subValue={
+              <div className="space-y-1 mt-1">
+                 {stats.breakdown.map((b, idx) => (
+                   <div key={idx} className="flex items-center justify-between text-[9px] border-b border-white/5 pb-0.5 last:border-0 last:pb-0">
+                      <span className="truncate opacity-75 font-medium">{b.name} ({b.center})</span>
+                      <span className="font-black text-primary">{b.count}</span>
+                   </div>
+                 ))}
+              </div>
+            }
+         />
          <StatCard title="Classes Today" value={stats.classesToday} icon={<Clock size={20} />} />
          <StatCard title="Pending Review" value={stats.pendingMarks} icon={<AlertCircle size={20} />} change="Urgent" changeType="down" />
          {teacher?.is_class_teacher && (
@@ -125,13 +186,17 @@ export default function TeacherDashboard() {
                   </div>
                   <div className="space-y-3">
                      {pendingAssignments.length > 0 ? pendingAssignments.map(a => (
-                       <div key={a.id} className="flex items-center justify-between p-2 rounded-lg" style={{ background: 'var(--bg)' }}>
-                          <div className="text-xs font-medium truncate pr-2" style={{ color: 'var(--text)' }}>{a.title}</div>
-                          <Badge variant="muted">{a.class?.name}</Badge>
-                       </div>
+                       <Link key={a.id} href={`/teacher/assignments/${a.id}/progress`}>
+                          <div className="flex items-center justify-between p-2 rounded-lg hover:bg-[var(--primary)] hover:text-white transition-all cursor-pointer" style={{ background: 'var(--bg)' }}>
+                             <div className="text-xs font-medium truncate pr-2 uppercase tracking-tighter">{a.title}</div>
+                             <Badge variant="muted" className="shrink-0">{a.class?.name}</Badge>
+                          </div>
+                       </Link>
                      )) : <div className="text-xs italic" style={{ color: 'var(--text-muted)' }}>No active assignments.</div>}
                   </div>
-                  <Button variant="secondary" size="sm" className="mt-auto">View All</Button>
+                  <Link href="/teacher/assignments" className="mt-auto">
+                    <Button variant="secondary" size="sm" className="w-full">View All</Button>
+                  </Link>
                </Card>
 
                <Card className="p-5 flex flex-col gap-4">

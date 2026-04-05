@@ -61,13 +61,27 @@ export default function TeacherAttendance() {
   const [myClasses, setMyClasses] = useState<{ id: string; name: string }[]>([])
   const [students, setStudents] = useState<StudentRecord[]>([])
   const [holidays, setHolidays] = useState<string[]>([]) // ISO dates
-
-  // Filters  
   const [selectedEventId, setSelectedEventId] = useState('')
+  const [selectedCenterId, setSelectedCenterId] = useState('')
   const [selectedClassId, setSelectedClassId] = useState('')
   const [selectedWeekNum, setSelectedWeekNum] = useState(1)
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
   const [search, setSearch] = useState('')
+  const [allAssignments, setAllAssignments] = useState<any[]>([])
+  const [centers, setCenters] = useState<{ id: string; name: string }[]>([])
+
+
+  // Derived classes based on selected center
+  const visibleClasses = useMemo(() => {
+    if (!selectedCenterId) return myClasses
+    return allAssignments
+      .filter(a => a.tuition_center_id === selectedCenterId)
+      .map(a => a.class)
+      .filter(Boolean)
+      .filter((c: any, i: number, arr: any[]) => arr.findIndex(x => x.id === c.id) === i)
+  }, [myClasses, selectedCenterId, allAssignments])
+
+
 
   // Attendance state
   const [attendance, setAttendance] = useState<Record<string, AttendanceEntry>>({})
@@ -98,6 +112,17 @@ export default function TeacherAttendance() {
     if (teacher?.id) loadBaseData()
   }, [teacher?.id])
 
+  // Safety fallback for infinite loading
+  useEffect(() => {
+    if (loading) {
+      const t = setTimeout(() => {
+        setLoading(false)
+        console.warn('TeacherAttendance timeout triggered')
+      }, 8000)
+      return () => clearTimeout(t)
+    }
+  }, [loading])
+
   // Load all attendance for analytics when event/class changes
   useEffect(() => {
     if (selectedEventId && selectedClassId && activeTab === 'analytics') {
@@ -105,14 +130,35 @@ export default function TeacherAttendance() {
     }
   }, [selectedEventId, selectedClassId, activeTab])
 
-  // Attendance reminder (separate effect, runs once)
-  useEffect(() => {
+  const checkReminderStatus = async () => {
     const hours = new Date().getHours()
-    if (hours >= 8 && hours <= 17) {
-      const timer = setTimeout(() => setReminderOpen(true), 4000)
+    if (hours < 10) return
+
+    // Find primary class
+    const primary = allAssignments.find(a => a.is_class_teacher)
+    if (!primary) return
+
+    const today = new Date().toISOString().split('T')[0]
+    const { data } = await supabase
+      .from('attendance')
+      .select('id')
+      .eq('class_id', primary.class_id)
+      .eq('tuition_center_id', primary.tuition_center_id)
+      .eq('date', today)
+      .limit(1)
+
+    if (!data || data.length === 0) {
+      setReminderOpen(true)
+    }
+  }
+
+  useEffect(() => {
+    if (allAssignments.length > 0) {
+      const timer = setTimeout(checkReminderStatus, 4000)
       return () => clearTimeout(timer)
     }
-  }, [])
+  }, [allAssignments])
+
 
   const loadBaseData = async () => {
     setLoading(true)
@@ -122,7 +168,7 @@ export default function TeacherAttendance() {
         supabase.from('tuition_events').select('*').order('created_at', { ascending: false }),
         supabase
           .from('teacher_assignments')
-          .select('class_id, class:classes(id, name)')
+          .select('class_id, tuition_center_id, class:classes(id, name), center:tuition_centers(id, name)')
           .eq('teacher_id', teacher?.id ?? '')
           .eq('is_class_teacher', true),
       ])
@@ -130,34 +176,74 @@ export default function TeacherAttendance() {
       const events = evRes.data ?? []
       setTuitionEvents(events)
 
-      // Unique classes from assignments
-      const classes = (assignRes.data ?? [])
+      const assignments = assignRes.data ?? []
+      setAllAssignments(assignments)
+
+      // Unique centers from assignments
+      const centerList = assignments
+        .map((a: any) => a.center)
+        .filter(Boolean)
+        .filter((c: any, i: number, arr: any[]) => arr.findIndex(x => x.id === c.id) === i)
+      setCenters(centerList)
+
+      // Unique classes
+      const classes = assignments
         .map((a: any) => a.class)
         .filter(Boolean)
         .filter((c: any, i: number, arr: any[]) => arr.findIndex(x => x.id === c.id) === i)
       setMyClasses(classes)
 
-      // Auto-select active event
-      const activeEvent = events.find(e => e.is_active)
-      if (activeEvent) {
-        setSelectedEventId(activeEvent.id)
+      // Auto-select first assignment consistently (center + class from same row)
+      if (assignments.length > 0) {
+        const first = assignments[0]
+        if (first.tuition_center_id) setSelectedCenterId(first.tuition_center_id)
+        if (first.class_id) setSelectedClassId(first.class_id)
+      }
+
+      // Auto-select "Current" event based on date range
+      const today = new Date().toISOString().split('T')[0]
+      let bestEvent = events.find(e => today >= e.start_date && today <= e.end_date)
+      
+      if (!bestEvent) {
+        // Fallback 1: Manual active flag
+        bestEvent = events.find(e => e.is_active)
+      }
+      
+      if (!bestEvent) {
+        // Fallback 2: Closest upcoming event
+        const upcoming = events
+          .filter(e => e.start_date > today)
+          .sort((a, b) => a.start_date.localeCompare(b.start_date))
+        if (upcoming.length > 0) bestEvent = upcoming[0]
+      }
+      
+      if (!bestEvent && events.length > 0) {
+        // Fallback 3: Most recent past event
+        bestEvent = events[0] // Since they are ordered by created_at desc
+      }
+
+      if (bestEvent) {
+        setSelectedEventId(bestEvent.id)
         
         // Parallelize holiday loading and week selection
         const holidayPromise = supabase
           .from('holidays')
           .select('date')
-          .gte('date', activeEvent.start_date)
-          .lte('date', activeEvent.end_date)
+          .gte('date', bestEvent.start_date)
+          .lte('date', bestEvent.end_date)
 
         const { data: hols } = await holidayPromise
-        const holidayDates = (hols ?? []).map(h => h.date)
+        const holidayDates = (hols ?? []).map((h: any) => h.date)
         setHolidays(holidayDates)
 
         // Auto-select current week
-        const safeActiveDays = activeEvent.active_days || []
-        const currentWeek = getCurrentWeekNumber(activeEvent.start_date, activeEvent.end_date, safeActiveDays, holidayDates)
+        const safeActiveDays = bestEvent.active_days || []
+        const currentWeek = getCurrentWeekNumber(bestEvent.start_date, bestEvent.end_date, safeActiveDays, holidayDates)
         setSelectedWeekNum(currentWeek)
       }
+    } catch (e: any) {
+       console.error("loadBaseData completely failed:", e);
+       toast.error("Failed to load attendance data.");
     } finally {
       setLoading(false)
     }
@@ -210,12 +296,14 @@ export default function TeacherAttendance() {
         .from('students')
         .select('id, full_name, admission_number')
         .eq('class_id', selectedClassId)
+        .eq('tuition_center_id', selectedCenterId)
         .order('full_name'),
       supabase
         .from('attendance')
         .select('student_id, status, notes')
         .eq('tuition_event_id', selectedEventId)
         .eq('class_id', selectedClassId)
+        .eq('tuition_center_id', selectedCenterId)
         .eq('date', selectedDate),
     ])
 
@@ -240,6 +328,7 @@ export default function TeacherAttendance() {
       student_id: studentId,
       tuition_event_id: selectedEventId,
       class_id: selectedClassId,
+      tuition_center_id: selectedCenterId,
       teacher_id: teacher?.id,
       date: selectedDate,
       week_number: selectedWeekNum,
@@ -269,6 +358,7 @@ export default function TeacherAttendance() {
       .select('*')
       .eq('tuition_event_id', selectedEventId)
       .eq('class_id', selectedClassId)
+      .eq('tuition_center_id', selectedCenterId)
     setAllAttendance(data ?? [])
     setAnalyticsLoading(false)
   }
@@ -448,18 +538,50 @@ export default function TeacherAttendance() {
         </div>
       )}
 
+      {/* Overdue Warning Banner */}
+      {!alreadyMarked && new Date().getHours() >= 10 && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="p-4 rounded-2xl flex items-center gap-4 bg-red-500/10 border border-red-200"
+        >
+          <div className="w-12 h-12 rounded-xl bg-red-500 flex items-center justify-center text-white shrink-0 shadow-lg shadow-red-500/20">
+             <AlertTriangle size={24} />
+          </div>
+          <div>
+             <h4 className="font-black text-red-600">Register Not Marked!</h4>
+             <p className="text-sm text-red-500/80">Daily attendance must be submitted by 10:00 AM. Please mark the register for your primary class immediately.</p>
+          </div>
+        </motion.div>
+      )}
+
       {/* Filter Bar */}
       <Card className="p-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
           <Select
             value={selectedEventId}
             onChange={e => setSelectedEventId(e.target.value)}
             label="Tuition Event"
           >
             <option value="">Select Event</option>
-            {tuitionEvents.map(e => (
-              <option key={e.id} value={e.id}>{e.name} {e.is_active ? '● Active' : ''}</option>
-            ))}
+            {tuitionEvents.map(e => {
+              const today = new Date().toISOString().split('T')[0]
+              const isCurrent = today >= e.start_date && today <= e.end_date
+              return (
+                <option key={e.id} value={e.id}>
+                  {e.name} {isCurrent ? ' (Current)' : e.is_active ? ' ● Active' : ''}
+                </option>
+              )
+            })}
+          </Select>
+
+          <Select
+            value={selectedCenterId}
+            onChange={e => { setSelectedCenterId(e.target.value); setSelectedClassId('') }}
+            label="Tuition Center"
+          >
+            <option value="">All My Centers</option>
+            {centers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </Select>
 
           <Select
@@ -468,7 +590,7 @@ export default function TeacherAttendance() {
             label="My Class"
           >
             <option value="">Select Class</option>
-            {myClasses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            {visibleClasses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </Select>
 
           <Select

@@ -46,7 +46,6 @@ export function useAuth() {
         
         if (metadataRole && !hasProfile) {
           setProfile({ id: userId, role: metadataRole, full_name: 'User' } as Profile)
-          setLoading(false)
         }
 
         const { data: profileData, error: profileError } = await supabase
@@ -63,10 +62,9 @@ export function useAuth() {
 
         const p = profileData as Profile
         setProfile(p)
-        if (!hasProfile) setLoading(false)
         if (p.theme) setTheme(p.theme as Theme)
 
-        // Background data fetch
+        // Background data fetch (now awaited before finally block sets loading=false)
         const fetchSubData = async () => {
           try {
             if (p.role === 'student') {

@@ -37,9 +37,13 @@ interface Props {
   role: 'student' | 'teacher'
 }
 
+// Module-level cache keyed by "role:id" — survives tab navigation
+const timetableCache = new Map<string, { data: TimetableEntry[]; ts: number }>()
+const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+
 export function TimetableWidget({ role }: Props) {
   const supabase = getSupabaseBrowserClient()
-  const { student, teacher, profile } = useAuthStore()
+  const { student, teacher } = useAuthStore()
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long' })
   const todayIdx = DAYS.indexOf(today)
   const [mobileDay, setMobileDay] = useState(todayIdx >= 0 ? todayIdx : 0)
@@ -49,42 +53,67 @@ export function TimetableWidget({ role }: Props) {
   useEffect(() => {
     if (role === 'student' && student) loadStudentTimetable()
     else if (role === 'teacher' && teacher) loadTeacherTimetable()
-  }, [student, teacher, profile, role])
+  }, [student?.id, teacher?.id, role])
 
   // Safety Timeout: Never let the widget load infinitely
   useEffect(() => {
-    if (loading) {
-      const t = setTimeout(() => setLoading(false), 5000)
-      return () => clearTimeout(t)
-    }
+    if (!loading) return
+    const t = setTimeout(() => setLoading(false), 5000)
+    return () => clearTimeout(t)
   }, [loading])
 
   const loadStudentTimetable = async () => {
     if (!student) return
+
+    const cacheKey = `student:${student.id}`
+    const cached = timetableCache.get(cacheKey)
+    if (cached && Date.now() - cached.ts < CACHE_TTL) {
+      setSessions(cached.data)
+      setLoading(false)
+      return
+    }
+
     setLoading(true)
-    const { data } = await supabase
-      .from('timetables')
-      .select('*, subject:subjects(name), teacher:teachers(full_name), center:tuition_centers(name)')
-      .eq('class_id', student.class_id)
-      .eq('tuition_center_id', student.tuition_center_id)
-      .eq('status', 'published')
-      .order('start_time')
-    setSessions(data ?? [])
-    setLoading(false)
+    try {
+      const { data } = await supabase
+        .from('timetables')
+        .select('*, subject:subjects(name), teacher:teachers(full_name), center:tuition_centers(name)')
+        .eq('class_id', student.class_id)
+        .eq('tuition_center_id', student.tuition_center_id)
+        .eq('status', 'published')
+        .order('start_time')
+
+      const result = data ?? []
+      timetableCache.set(cacheKey, { data: result, ts: Date.now() })
+      setSessions(result)
+    } finally {
+      setLoading(false)
+    }
   }
 
   const loadTeacherTimetable = async () => {
     if (!teacher) return
+
+    const cacheKey = `teacher:${teacher.id}`
+    const cached = timetableCache.get(cacheKey)
+    if (cached && Date.now() - cached.ts < CACHE_TTL) {
+      setSessions(cached.data)
+      setLoading(false)
+      return
+    }
+
     setLoading(true)
     try {
-      // Only sessions where this teacher is assigned
       const { data } = await supabase
         .from('timetables')
         .select('*, subject:subjects(name), class:classes(name), center:tuition_centers(name)')
         .eq('teacher_id', teacher.id)
         .eq('status', 'published')
         .order('day').order('start_time')
-      setSessions(data ?? [])
+
+      const result = data ?? []
+      timetableCache.set(cacheKey, { data: result, ts: Date.now() })
+      setSessions(result)
     } finally {
       setLoading(false)
     }

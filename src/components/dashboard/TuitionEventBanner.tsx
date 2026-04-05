@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Calendar, Clock, ChevronRight, Rocket, AlertTriangle } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
@@ -10,21 +10,49 @@ import { formatDate } from '@/lib/utils'
 import Link from 'next/link'
 import type { TuitionEvent } from '@/types/database'
 
+// Module-level cache so navigating between pages doesn't re-fetch
+let tuitionEventsCache: { data: TuitionEvent[]; ts: number; profileId: string } | null = null
+const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+
 export function TuitionEventBanner() {
   const supabase = getSupabaseBrowserClient()
   const { profile, student } = useAuthStore()
   const [events, setEvents] = useState<TuitionEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [now, setNow] = useState(new Date())
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
+  // Adaptive countdown timer:
+  // - 1 second when any event is upcoming/postponed (actively shows a countdown)
+  // - 60 seconds when events are only active (shows end date, no per-second countdown)
   useEffect(() => {
-    fetchEvents()
-    const interval = setInterval(() => setNow(new Date()), 1000)
-    return () => clearInterval(interval)
-  }, [profile])
+    if (intervalRef.current) clearInterval(intervalRef.current)
 
-  const fetchEvents = async () => {
-    if (!profile) return
+    const hasCountdownEvent = events.some(
+      e => e.status === 'upcoming' || e.status === 'postponed'
+    )
+    const tickRate = hasCountdownEvent ? 1000 : 60_000
+    intervalRef.current = setInterval(() => setNow(new Date()), tickRate)
+
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current)
+    }
+  }, [events])
+
+  // Only re-fetch when profile ID actually changes
+  useEffect(() => {
+    if (!profile?.id) return
+    fetchEvents(profile.id)
+  }, [profile?.id])
+
+  const fetchEvents = async (profileId: string) => {
+    // Serve from cache if fresh for same user
+    if (tuitionEventsCache && tuitionEventsCache.profileId === profileId && Date.now() - tuitionEventsCache.ts < CACHE_TTL) {
+      setEvents(tuitionEventsCache.data)
+      setLoading(false)
+      return
+    }
+
     setLoading(true)
     try {
       const todayStr = new Date().toISOString().split('T')[0]
@@ -38,7 +66,7 @@ export function TuitionEventBanner() {
 
       const filtered = (data as any[] || []).filter(event => {
         if (event.status === 'cancelled') return false
-        if (event.curriculum_id && profile.role === 'student' && student) {
+        if (event.curriculum_id && profile?.role === 'student' && student) {
           if (student.curriculum_id !== event.curriculum_id) return false
         }
         return true
@@ -51,7 +79,9 @@ export function TuitionEventBanner() {
         return event
       }).filter(e => e.status !== 'closed')
 
-      setEvents(filtered)
+      const result = filtered as TuitionEvent[]
+      tuitionEventsCache = { data: result, ts: Date.now(), profileId }
+      setEvents(result)
     } catch (err) {
       console.error('[TuitionEventBanner] Failed to fetch events:', err)
     } finally {
@@ -69,7 +99,7 @@ export function TuitionEventBanner() {
     const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
     const secs = Math.floor((diff % (1000 * 60)) / 1000)
 
-    if (days > 0) return `${days}d ${hours}h ${mins}m ${secs}s`
+    if (days > 0) return `${days}d ${hours}h ${mins}m`
     if (hours > 0) return `${hours}h ${mins}m ${secs}s`
     return `${mins}m ${secs}s`
   }
@@ -84,7 +114,6 @@ export function TuitionEventBanner() {
           const isBannerActive = event.status === 'active'
           const isPostponed = event.status === 'postponed'
           
-          // Determine target date for countdown
           const targetDateStr = isPostponed && event.postponed_to ? event.postponed_to : event.start_date
 
           return (

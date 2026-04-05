@@ -29,10 +29,10 @@ export default function TeacherResources() {
   const [search, setSearch] = useState('')
   const [filterType, setFilterType] = useState('all')
 
-  const [newResource, setNewResource] = useState({
+  const INITIAL_RESOURCE = {
     title: '',
     description: '',
-    type: 'pdf' as 'video' | 'pdf' | 'image' | 'link' | 'document',
+    type: 'file' as 'video' | 'file' | 'note' | 'link' | 'document',
     url: '',
     attachment_url: '',
     video_url: '',
@@ -44,7 +44,9 @@ export default function TeacherResources() {
     class_ids: [] as string[],
     student_ids: [] as string[],
     is_public: true,
-  })
+  }
+
+  const [newResource, setNewResource] = useState(INITIAL_RESOURCE)
 
   // All teacher data loaded once upfront
   const [allCenters, setAllCenters] = useState<any[]>([])
@@ -202,6 +204,7 @@ export default function TeacherResources() {
     if (error) { toast.error(error.message) }
     else {
        toast.success('Resource added to library!')
+       setNewResource(INITIAL_RESOURCE)
        setAddOpen(false)
        loadData()
     }
@@ -220,9 +223,9 @@ export default function TeacherResources() {
   })
 
   const getIcon = (type: string) => {
-     if (type === 'pdf' || type === 'document') return <FileText size={20} className="text-rose-500" />
+     if (type === 'file' || type === 'pdf' || type === 'document') return <FileText size={20} className="text-rose-500" />
      if (type === 'video') return <Video size={20} className="text-blue-500" />
-     if (type === 'image') return <Image size={20} className="text-emerald-500" />
+     if (type === 'note' || type === 'image') return <Image size={20} className="text-emerald-500" />
      return <Globe size={20} className="text-amber-500" />
   }
 
@@ -233,7 +236,7 @@ export default function TeacherResources() {
             <h1 className="text-2xl font-black" style={{ color: 'var(--text)' }}>Resource Library</h1>
             <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>Share learning materials with your students</p>
          </div>
-         <Button onClick={() => setAddOpen(true)}><Plus size={16} className="mr-2" /> Add Resource</Button>
+         <Button onClick={() => { setNewResource(INITIAL_RESOURCE); setAddOpen(true) }}><Plus size={16} className="mr-2" /> Add Resource</Button>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -247,9 +250,9 @@ export default function TeacherResources() {
          <Input placeholder="Search resources..." leftIcon={<Search size={16} />} value={search} onChange={e => setSearch(e.target.value)} />
          <Select value={filterType} onChange={e => setFilterType(e.target.value)} className="w-full md:w-48">
             <option value="all">All Types</option>
-            <option value="pdf">PDF Documents</option>
+            <option value="file">PDF Documents</option>
             <option value="video">Videos</option>
-            <option value="image">Images</option>
+            <option value="note">Notes & Images</option>
             <option value="link">External Links</option>
          </Select>
       </div>
@@ -362,7 +365,7 @@ export default function TeacherResources() {
 
                       {newResource.tuition_center_id !== null && (
                          <Select 
-                           label="Target Center" 
+                           label="Main Center" 
                            value={newResource.tuition_center_id || ''} 
                            onChange={e => setNewResource({...newResource, tuition_center_id: e.target.value})}
                          >
@@ -370,6 +373,59 @@ export default function TeacherResources() {
                             {allCenters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                          </Select>
                       )}
+
+                      <div className="space-y-3">
+                         <div className="flex items-center justify-between">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">Select Target Classes</label>
+                            <div className="text-[9px] font-black text-primary uppercase">{newResource.class_ids.length} classes selected</div>
+                         </div>
+                         
+                         {/* Quick Select by Class Name */}
+                         <div className="flex flex-wrap gap-2 mb-2 p-3 rounded-xl bg-primary/5 border border-primary/10">
+                            <div className="text-[9px] font-bold w-full mb-1 opacity-50 uppercase tracking-widest">Select All Instances Of:</div>
+                            {Array.from(new Set(allClasses.map(c => c.name))).map(name => (
+                               <button 
+                                 key={name}
+                                 onClick={() => {
+                                    const idsWithName = allClasses.filter(c => c.name === name).map(c => c.id)
+                                    const alreadySelected = idsWithName.every(id => newResource.class_ids.includes(id))
+                                    const next = alreadySelected 
+                                       ? newResource.class_ids.filter(id => !idsWithName.includes(id))
+                                       : Array.from(new Set([...newResource.class_ids, ...idsWithName]))
+                                    setNewResource({...newResource, class_ids: next})
+                                 }}
+                                 className={`px-2 py-1 rounded text-[9px] font-bold transition-all ${allClasses.filter(c => c.name === name).every(c => newResource.class_ids.includes(c.id)) ? 'bg-primary text-white' : 'bg-white text-muted border border-card-border'}`}
+                               >
+                                  {name}
+                               </button>
+                            ))}
+                         </div>
+
+                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-2 no-scrollbar">
+                            {allClasses.map(c => (
+                               <label 
+                                 key={c.id} 
+                                 className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-all ${newResource.class_ids.includes(c.id) ? 'bg-primary/10 border-primary' : 'bg-input border-card-border'}`}
+                               >
+                                  <input 
+                                    type="checkbox"
+                                    checked={newResource.class_ids.includes(c.id)}
+                                    onChange={e => {
+                                       const next = e.target.checked 
+                                          ? [...newResource.class_ids, c.id]
+                                          : newResource.class_ids.filter(id => id !== c.id)
+                                       setNewResource({...newResource, class_ids: next})
+                                    }}
+                                    className="accent-primary"
+                                  />
+                                  <div className="flex flex-col">
+                                     <span className="text-[10px] font-black">{c.name}</span>
+                                     <span className="text-[8px] opacity-60">{(allCenters.find(ct => ct.id === c.tuition_center_id)?.name) || 'Unknown Center'}</span>
+                                  </div>
+                               </label>
+                            ))}
+                         </div>
+                      </div>
                    </div>
                 )}
 
@@ -387,7 +443,7 @@ export default function TeacherResources() {
 
                 {newResource.audience === 'students' && (
                    <div className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                          <Select label="Filter by Center" value={selCenter} onChange={e => { setSelCenter(e.target.value); setSelClass('') }}>
                             <option value="">All Centers</option>
                             {allCenters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -403,7 +459,7 @@ export default function TeacherResources() {
                             <label className="text-[10px] font-bold" style={{ color: 'var(--text-muted)' }}>Select Students</label>
                             <div className="text-[10px] font-black text-primary">{newResource.student_ids.length} selected</div>
                          </div>
-                         <div className="grid grid-cols-2 gap-2 h-40 overflow-y-auto p-3 rounded-xl border no-scrollbar" style={{ background: 'var(--input)', borderColor: 'var(--card-border)' }}>
+                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 h-40 overflow-y-auto p-3 rounded-xl border no-scrollbar" style={{ background: 'var(--input)', borderColor: 'var(--card-border)' }}>
                             {centerStudents.map(s => (
                                <label key={s.id} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border cursor-pointer transition-all hover:bg-primary/5" style={{ borderColor: 'var(--card-border)' }}>
                                   <input 
@@ -433,9 +489,9 @@ export default function TeacherResources() {
 
             <div className="grid grid-cols-2 gap-4">
                <Select label="Type" value={newResource.type} onChange={e => setNewResource({...newResource, type: e.target.value as any})}>
-                  <option value="pdf">PDF / Notes</option>
+                  <option value="file">PDF / Document</option>
                   <option value="video">Video</option>
-                  <option value="image">Image</option>
+                  <option value="note">Image / Note</option>
                   <option value="link">URL / Link</option>
                </Select>
                <Input label="Topic / Chapter" placeholder="e.g. Algebra" value={newResource.chapter} onChange={e => setNewResource({...newResource, chapter: e.target.value})} />

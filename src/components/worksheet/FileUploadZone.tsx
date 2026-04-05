@@ -33,19 +33,6 @@ export function FileUploadZone({
     setProgress(0)
     console.log('[FileUpload] Starting upload for:', file.name, file.type, file.size)
 
-    // Simulate progress since Supabase uses fetch (no real upload progress events)
-    // Speed is proportional to file size — bigger file = slower ticks
-    const tickMs = Math.min(200, Math.max(80, file.size / 100000))
-    let simProgress = 0
-    const interval = setInterval(() => {
-      setProgress(prev => {
-        // Fast ramp to 70%, then slow crawl to 92% — never reaches 100 until real done
-        const increment = prev < 30 ? 8 : prev < 60 ? 4 : prev < 80 ? 2 : prev < 92 ? 0.5 : 0
-        simProgress = Math.min(92, prev + increment)
-        return simProgress
-      })
-    }, tickMs)
-
     try {
       const ext = file.name.split('.').pop()
       const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
@@ -53,14 +40,26 @@ export function FileUploadZone({
 
       const { data, error } = await supabase.storage
         .from(bucket)
-        .upload(filename, file, { contentType: file.type, upsert: false })
-
-      clearInterval(interval)
+        .upload(filename, file, { 
+          contentType: file.type, 
+          upsert: false,
+          onUploadProgress: (ev: any) => {
+            if (!ev || !ev.total) {
+              console.log('[FileUpload] Progress: total expected but missing', ev)
+              return
+            }
+            const percent = (ev.loaded / ev.total) * 100
+            // If we're at 100% byte-wise, show 99% 'Finalising' until the promise resolves
+            const nextProgress = Math.min(99, Math.round(percent))
+            if (nextProgress !== progress) {
+              setProgress(nextProgress)
+            }
+          }
+        } as any)
 
       if (error) {
         console.error('[FileUpload] Supabase upload error:', error)
-        setProgress(0)
-        throw error
+        throw new Error(error.message || 'Upload failed')
       }
 
       // Snap to 100% on success
@@ -72,11 +71,15 @@ export function FileUploadZone({
 
       onChange(urlData.publicUrl)
       toast.success('File uploaded!')
+
+      // Wait a bit so user sees 100%, then hide progress
+      setTimeout(() => {
+        setUploading(false)
+        setProgress(0)
+      }, 800)
     } catch (err: any) {
-      clearInterval(interval)
       console.error('[FileUpload] Catch block error:', err)
       toast.error('Upload failed: ' + err.message + `. Check if your Supabase bucket "${bucket}" exists and is PUBLIC.`)
-    } finally {
       setUploading(false)
       setProgress(0)
     }

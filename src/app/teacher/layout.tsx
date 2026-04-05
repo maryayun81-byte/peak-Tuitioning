@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { motion } from 'framer-motion'
 import {
@@ -15,6 +15,8 @@ import { GraduationCap as Logo } from 'lucide-react'
 import { SplashScreen } from '@/components/SplashScreen'
 import { Avatar } from '@/components/ui/Avatar'
 import Link from 'next/link'
+import { getSupabaseBrowserClient } from '@/lib/supabase/client'
+import { TermsEnforcementModal } from '@/components/teacher/TermsEnforcementModal'
 
 import { useNotificationStore } from '@/stores/notificationStore'
 import { useRealtimeNotifications } from '@/hooks/useRealtimeNotifications'
@@ -57,6 +59,34 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
   const router = useRouter()
   const pathname = usePathname()
 
+  const [pendingTerm, setPendingTerm] = useState<any>(null)
+  // Only check terms once per session — not on every layout mount
+  const termsCheckedRef = useRef(false)
+
+  useEffect(() => {
+    if (teacher?.id && !termsCheckedRef.current) {
+      termsCheckedRef.current = true
+      checkTerms()
+    }
+  }, [teacher?.id])
+
+  const checkTerms = async () => {
+    const supabase = getSupabaseBrowserClient()
+    try {
+      const { data } = await supabase
+        .from('document_assignments')
+        .select('*, document:documents(title, content, version)')
+        .eq('teacher_id', teacher!.id)
+        .eq('status', 'pending')
+        .order('assigned_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (data) setPendingTerm(data)
+    } catch (err) {
+      console.warn('[TeacherLayout] checkTerms failed silently:', err)
+    }
+  }
+
   useEffect(() => {
     if (!isLoading && !profile) router.push('/auth/login?role=teacher')
     if (!isLoading && profile?.role && profile.role !== 'teacher') {
@@ -84,9 +114,11 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
   }
 
   return (
-    <div className="min-h-screen" style={{ background: 'var(--bg)' }}>
-      <SplashScreen storageKey="splash-teacher" role="teacher" />
-      <Sidebar
+    <>
+      {pendingTerm && <TermsEnforcementModal assignment={pendingTerm} onSuccess={() => setPendingTerm(null)} />}
+      <div className={`min-h-screen transition-all ${pendingTerm ? 'blur-md pointer-events-none' : ''}`} style={{ background: 'var(--bg)' }}>
+        <SplashScreen storageKey="splash-teacher" role="teacher" />
+        <Sidebar
         items={NAV_ITEMS.filter(item => item.label !== 'Attendance' || teacher?.is_class_teacher)}
         bottomItems={[
           { label: 'Sign Out', href: '#', icon: <LogOut size={18} />, onClick: () => signOut() },
@@ -141,6 +173,7 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
           { label: 'Sign Out', href: '#', icon: <LogOut size={18} />, onClick: signOut }
         ]} 
       />
-    </div>
+      </div>
+    </>
   )
 }

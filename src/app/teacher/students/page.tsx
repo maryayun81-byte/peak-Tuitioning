@@ -2,13 +2,17 @@
 
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Users, Search, Filter, MessageSquare, Phone, Mail, Award, BookOpen } from 'lucide-react'
+import { Users, Search, MessageSquare, Phone, Mail, Award, BookOpen } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Card, Badge } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
-import { Input, Select } from '@/components/ui/Input'
+import { Input } from '@/components/ui/Input'
 import { SkeletonList } from '@/components/ui/Skeleton'
 import { useAuthStore } from '@/stores/authStore'
+
+// Module-level cache keyed by teacher ID
+const studentsCache = new Map<string, { data: any[]; ts: number }>()
+const CACHE_TTL = 2 * 60 * 1000 // 2 minutes
 
 export default function TeacherStudents() {
   const supabase = getSupabaseBrowserClient()
@@ -20,47 +24,65 @@ export default function TeacherStudents() {
 
   useEffect(() => {
     if (teacher) loadStudents()
-  }, [teacher])
+  }, [teacher?.id])
+
+  // Safety timeout
+  useEffect(() => {
+    if (!loading) return
+    const t = setTimeout(() => setLoading(false), 6000)
+    return () => clearTimeout(t)
+  }, [loading])
 
   const loadStudents = async () => {
+    if (!teacher?.id) return
+
+    // Serve from cache if fresh
+    const cached = studentsCache.get(teacher.id)
+    if (cached && Date.now() - cached.ts < CACHE_TTL) {
+      setStudents(cached.data)
+      setLoading(false)
+      return
+    }
+
     setLoading(true)
     try {
-      // Find students in classes assigned to this teacher
-      const { data: assignments } = await supabase
+      // Single query: join teacher_assignments → students via class_id
+      // No sequential waterfall — get class_ids and students in one pass
+      const { data: assignments, error: aErr } = await supabase
         .from('teacher_assignments')
         .select('class_id')
-        .eq('teacher_id', teacher?.id)
+        .eq('teacher_id', teacher.id)
 
-      const classIds = (assignments ?? []).map(a => a.class_id)
-      
+      if (aErr) throw aErr
+      const classIds = (assignments ?? []).map(a => a.class_id).filter(Boolean)
+
       if (classIds.length === 0) {
         setStudents([])
+        setLoading(false)
         return
       }
 
-      const { data } = await supabase
+      const { data, error: sErr } = await supabase
         .from('students')
         .select('*, class:classes(name)')
         .in('class_id', classIds)
         .order('full_name')
 
-      setStudents(data ?? [])
+      if (sErr) throw sErr
+
+      const result = data ?? []
+      studentsCache.set(teacher.id, { data: result, ts: Date.now() })
+      setStudents(result)
+    } catch (err) {
+      console.error('[TeacherStudents] loadStudents failed:', err)
     } finally {
       setLoading(false)
     }
   }
 
-  // Safety timeout
-  useEffect(() => {
-    if (loading) {
-      const t = setTimeout(() => setLoading(false), 5000)
-      return () => clearTimeout(t)
-    }
-  }, [loading])
-
-  const filtered = students.filter(s => 
-    s.full_name.toLowerCase().includes(search.toLowerCase()) || 
-    s.admission_number.toLowerCase().includes(search.toLowerCase())
+  const filtered = students.filter(s =>
+    s.full_name?.toLowerCase().includes(search.toLowerCase()) ||
+    s.admission_number?.toLowerCase().includes(search.toLowerCase())
   )
 
   return (
@@ -86,13 +108,13 @@ export default function TeacherStudents() {
       {loading ? <SkeletonList count={8} /> : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
            {filtered.map((s, i) => (
-             <motion.div key={s.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
+             <motion.div key={s.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}>
                 <Card className="p-6 relative overflow-hidden group">
                    <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-full -mr-12 -mt-12 transition-transform group-hover:scale-110" />
                    
                    <div className="flex items-center gap-4 mb-6 relative">
                       <div className="w-14 h-14 rounded-2xl flex items-center justify-center font-black text-xl shadow-lg shadow-primary/10" style={{ background: 'var(--primary)', color: 'white' }}>
-                         {s.full_name[0]}
+                         {s.full_name?.[0] ?? '?'}
                       </div>
                       <div>
                          <h3 className="font-bold text-lg" style={{ color: 'var(--text)' }}>{s.full_name}</h3>
@@ -131,7 +153,7 @@ export default function TeacherStudents() {
                 </Card>
              </motion.div>
            ))}
-           {filtered.length === 0 && (
+           {filtered.length === 0 && !loading && (
              <div className="col-span-full py-20 text-center space-y-4">
                 <div className="w-16 h-16 bg-[var(--input)] rounded-full flex items-center justify-center mx-auto opacity-30">
                    <Users size={32} className="text-muted" />

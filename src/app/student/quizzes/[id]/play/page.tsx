@@ -14,6 +14,7 @@ import { Card, Badge } from '@/components/ui/Card'
 import { useAuthStore } from '@/stores/authStore'
 import toast from 'react-hot-toast'
 import { gradeQuiz, GradingQuestion } from '@/lib/quiz/grading'
+import { LatexRenderer } from '@/components/ui/LatexRenderer'
 
 export default function QuizPlayer() {
   const { id } = useParams()
@@ -41,7 +42,9 @@ export default function QuizPlayer() {
     if (!data) { toast.error('Quiz not found'); router.push('/student/quizzes'); return }
     
     setQuiz(data)
-    setTimeLeft(data.time_limit * 60)
+    // Fix: duration_minutes is the correct column name from the schema
+    const limit = data.duration_minutes || 0
+    setTimeLeft(limit * 60)
     setLoading(false)
   }
 
@@ -224,8 +227,25 @@ export default function QuizPlayer() {
                  className="space-y-12"
                >
                   <h2 className="text-3xl md:text-4xl font-black text-center leading-tight" style={{ color: 'var(--text)' }}>
-                     {currentQ.text}
+                     <LatexRenderer content={currentQ.text} />
                   </h2>
+
+                  {/* Question Image Support */}
+                  {currentQ.image_url && (
+                    <div className="w-full flex justify-center">
+                       <motion.div 
+                         initial={{ opacity: 0, scale: 0.95 }}
+                         animate={{ opacity: 1, scale: 1 }}
+                         className="relative group max-w-2xl w-full rounded-[2rem] overflow-hidden border-4 border-[var(--card-border)] bg-[var(--card)] shadow-2xl"
+                       >
+                          <img 
+                            src={currentQ.image_url} 
+                            alt="Question illustration" 
+                            className="w-full max-h-[400px] object-contain"
+                          />
+                       </motion.div>
+                    </div>
+                  )}
 
                   <div className="w-full">
                      {(currentQ.type === 'multiple_choice' || currentQ.type === 'multiple_answer') && (
@@ -245,7 +265,7 @@ export default function QuizPlayer() {
                                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-black ${isSelected ? 'bg-primary text-white' : 'bg-[var(--input)] text-muted'}`}>
                                         {String.fromCharCode(65 + i)}
                                      </div>
-                                     <span className="font-bold whitespace-normal" style={{ color: 'var(--text)' }}>{opt}</span>
+                                     <LatexRenderer content={opt} className="font-bold whitespace-normal" style={{ color: 'var(--text)' }} />
                                   </div>
                                </button>
                              )

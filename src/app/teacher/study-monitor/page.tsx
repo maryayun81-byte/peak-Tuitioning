@@ -1,73 +1,174 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
-  Users, Search, Filter, BrainCircuit,
+  Users, Search, BrainCircuit,
   MessageSquare, TrendingUp, Calendar,
-  ChevronRight, Award, Clock
+  Award, Clock, AlertCircle
 } from 'lucide-react'
 import { Card, Badge } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
-import { Input, Select } from '@/components/ui/Input'
+import { Input } from '@/components/ui/Input'
 import { SkeletonDashboard } from '@/components/ui/Skeleton'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/authStore'
 import toast from 'react-hot-toast'
+
+// Module-level cache: keyed by teacherId so it survives tab navigation
+const studentsCache = new Map<string, { data: any[]; ts: number }>()
+const CACHE_TTL = 2 * 60 * 1000 // 2 minutes
 
 export default function TeacherStudyMonitor() {
   const supabase = getSupabaseBrowserClient()
   const { teacher } = useAuthStore()
   
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [students, setStudents] = useState<any[]>([])
   const [search, setSearch] = useState('')
   const [selectedStudent, setSelectedStudent] = useState<any>(null)
   const [studentDetails, setStudentDetails] = useState<any>(null)
+  const [detailsLoading, setDetailsLoading] = useState(false)
+  const safetyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     if (teacher) loadStudents()
   }, [teacher])
 
-  const loadStudents = async () => {
-    setLoading(true)
-    const { data } = await supabase
-      .from('students')
-      .select('*, class:classes(name)')
-      .in('class_id', (await supabase.from('teacher_assignments').select('class_id').eq('teacher_id', teacher?.id)).data?.map(a => a.class_id) || [])
-    
-    // For each student, let's get some aggregate study stats (Mocked for now or semi-real)
-    const studentsWithStats = await Promise.all((data || []).map(async (s) => {
-      const { data: sess } = await supabase
-        .from('study_sessions')
-        .select('*')
-        .eq('student_id', s.id)
-        .eq('status', 'completed')
-      
-      const totalMin = sess?.reduce((acc, curr) => acc + curr.duration_minutes, 0) || 0
-      return { ...s, totalStudyMinutes: totalMin, completedCount: sess?.length || 0 }
-    }))
+  // Safety timeout — never show spinner more than 8 seconds
+  useEffect(() => {
+    if (!loading) return
+    safetyTimerRef.current = setTimeout(() => {
+      console.warn('[StudyMonitor] Safety timeout triggered')
+      setLoading(false)
+    }, 8000)
+    return () => {
+      if (safetyTimerRef.current) clearTimeout(safetyTimerRef.current)
+    }
+  }, [loading])
 
-    setStudents(studentsWithStats)
-    setLoading(false)
+  const loadStudents = async () => {
+    if (!teacher?.id) return
+
+    // Serve from cache if fresh
+    const cached = studentsCache.get(teacher.id)
+    if (cached && Date.now() - cached.ts < CACHE_TTL) {
+      setStudents(cached.data)
+      setLoading(false)
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+
+    try {
+      // Step 1: Get class IDs assigned to this teacher (single query)
+      const { data: assignments, error: aErr } = await supabase
+        .from('teacher_assignments')
+        .select('class_id')
+        .eq('teacher_id', teacher.id)
+
+      if (aErr) throw aErr
+      const classIds = (assignments ?? []).map(a => a.class_id).filter(Boolean)
+
+      if (classIds.length === 0) {
+        setStudents([])
+        setLoading(false)
+        return
+      }
+
+      // Step 2: Fetch students in those classes
+      const { data: studentList, error: sErr } = await supabase
+        .from('students')
+        .select('id, full_name, admission_number, class:classes(name)')
+        .in('class_id', classIds)
+        .order('full_name')
+
+      if (sErr) throw sErr
+
+      const ids = (studentList ?? []).map(s => s.id)
+
+      if (ids.length === 0) {
+        setStudents([])
+        setLoading(false)
+        return
+      }
+
+      // Step 3: Fetch ALL completed study sessions for ALL students in ONE query (no N+1)
+      const { data: allSessions, error: sessErr } = await supabase
+        .from('study_sessions')
+        .select('student_id, duration_minutes')
+        .in('student_id', ids)
+        .eq('status', 'completed')
+
+      if (sessErr) throw sessErr
+
+      // Aggregate in JS — much faster than N round-trips
+      const statsMap = new Map<string, { totalMin: number; count: number }>()
+      for (const sess of allSessions ?? []) {
+        const prev = statsMap.get(sess.student_id) ?? { totalMin: 0, count: 0 }
+        statsMap.set(sess.student_id, {
+          totalMin: prev.totalMin + (sess.duration_minutes || 0),
+          count: prev.count + 1,
+        })
+      }
+
+      const studentsWithStats = (studentList ?? []).map(s => {
+        const agg = statsMap.get(s.id) ?? { totalMin: 0, count: 0 }
+        return { ...s, totalStudyMinutes: agg.totalMin, completedCount: agg.count }
+      })
+
+      studentsCache.set(teacher.id, { data: studentsWithStats, ts: Date.now() })
+      setStudents(studentsWithStats)
+    } catch (err: any) {
+      console.error('[StudyMonitor] loadStudents failed:', err)
+      setError('Failed to load students. Please refresh the page.')
+      toast.error('Could not load study monitor data.')
+    } finally {
+      if (safetyTimerRef.current) clearTimeout(safetyTimerRef.current)
+      setLoading(false)
+    }
   }
 
   const loadStudentDetails = async (studentId: string) => {
-    const { data: sess } = await supabase
-      .from('study_sessions')
-      .select('*, goals:study_goals(*), reflections:study_reflections(*), subject:subjects(name)')
-      .eq('student_id', studentId)
-      .order('date', { ascending: false })
-    
-    setStudentDetails(sess || [])
+    setDetailsLoading(true)
+    setStudentDetails(null)
+    try {
+      const { data: sess, error } = await supabase
+        .from('study_sessions')
+        .select('*, goals:study_goals(*), reflections:study_reflections(*), subject:subjects(name)')
+        .eq('student_id', studentId)
+        .order('date', { ascending: false })
+        .limit(20)
+
+      if (error) throw error
+      setStudentDetails(sess ?? [])
+    } catch (err) {
+      console.error('[StudyMonitor] loadStudentDetails failed:', err)
+      setStudentDetails([])
+    } finally {
+      setDetailsLoading(false)
+    }
   }
 
-  const filteredStudents = students.filter(s => 
-    s.full_name.toLowerCase().includes(search.toLowerCase()) || 
-    s.admission_number.toLowerCase().includes(search.toLowerCase())
+  const filteredStudents = students.filter(s =>
+    s.full_name?.toLowerCase().includes(search.toLowerCase()) ||
+    s.admission_number?.toLowerCase().includes(search.toLowerCase())
   )
 
   if (loading) return <SkeletonDashboard />
+
+  if (error) return (
+    <div className="p-6 py-24 text-center space-y-4">
+      <AlertCircle size={40} className="mx-auto text-red-400 opacity-60" />
+      <div>
+        <h3 className="font-bold text-lg" style={{ color: 'var(--text)' }}>Failed to Load</h3>
+        <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>{error}</p>
+      </div>
+      <Button onClick={() => { setError(null); loadStudents() }}>Try Again</Button>
+    </div>
+  )
 
   return (
     <div className="p-6 space-y-8">
@@ -89,8 +190,14 @@ export default function TeacherStudyMonitor() {
               onChange={e => setSearch(e.target.value)}
               leftIcon={<Search size={16} />}
             />
-            <div className="space-y-2 overflow-y-auto max-h-[600px] pr-2 scrollbar-thin">
-               {filteredStudents.map(s => (
+            {filteredStudents.length === 0 ? (
+              <div className="py-16 text-center space-y-3 opacity-30">
+                <Users size={40} className="mx-auto" />
+                <p className="text-sm font-bold">No students found</p>
+              </div>
+            ) : (
+              <div className="space-y-2 overflow-y-auto max-h-[600px] pr-2 scrollbar-thin">
+                {filteredStudents.map(s => (
                   <button 
                     key={s.id}
                     onClick={() => { setSelectedStudent(s); loadStudentDetails(s.id) }}
@@ -98,7 +205,7 @@ export default function TeacherStudyMonitor() {
                   >
                      <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl bg-[var(--input)] flex items-center justify-center font-bold text-xs uppercase">
-                           {s.full_name[0]}
+                           {s.full_name?.[0] ?? '?'}
                         </div>
                         <div>
                            <div className="text-sm font-bold truncate max-w-[120px]">{s.full_name}</div>
@@ -110,8 +217,9 @@ export default function TeacherStudyMonitor() {
                         <div className="text-[9px] opacity-40">Total Focus</div>
                      </div>
                   </button>
-               ))}
-            </div>
+                ))}
+              </div>
+            )}
          </div>
 
          {/* Monitoring Detail Area */}
@@ -122,7 +230,7 @@ export default function TeacherStudyMonitor() {
                      <Card className="p-8 border-none shadow-2xl bg-gradient-to-br from-primary/5 via-transparent to-transparent flex flex-col md:flex-row md:items-center justify-between gap-6">
                         <div className="flex items-center gap-5">
                            <div className="w-16 h-16 rounded-2xl bg-primary text-white flex items-center justify-center text-2xl font-black border-4 border-white/20 shadow-xl">
-                              {selectedStudent.full_name[0]}
+                              {selectedStudent.full_name?.[0] ?? '?'}
                            </div>
                            <div>
                               <h2 className="text-2xl font-black">{selectedStudent.full_name}</h2>
@@ -135,8 +243,8 @@ export default function TeacherStudyMonitor() {
                               <div className="text-[9px] font-bold opacity-40 uppercase tracking-widest">Sessions</div>
                            </div>
                            <div className="text-center px-4 py-2 rounded-2xl bg-white shadow-sm border border-[var(--card-border)]">
-                              <div className="text-lg font-black text-amber-500">5</div>
-                              <div className="text-[9px] font-bold opacity-40 uppercase tracking-widest">Streak</div>
+                              <div className="text-lg font-black text-amber-500">{Math.floor(selectedStudent.totalStudyMinutes / 60)}h</div>
+                              <div className="text-[9px] font-bold opacity-40 uppercase tracking-widest">Focus</div>
                            </div>
                         </div>
                      </Card>
@@ -146,9 +254,10 @@ export default function TeacherStudyMonitor() {
                            <Clock size={14} /> Recent Study Sessions & Reflections
                         </h3>
                         
-                        {!studentDetails ? (
+                        {detailsLoading ? (
                            <SkeletonDashboard />
-                        ) : studentDetails.length === 0 ? (
+                        ) : studentDetails === null ? null
+                        : studentDetails.length === 0 ? (
                            <div className="py-20 text-center border-2 border-dashed rounded-3xl opacity-20">
                               <BrainCircuit size={48} className="mx-auto mb-4" />
                               <p className="font-bold">No study activity recorded yet.</p>
@@ -175,7 +284,7 @@ export default function TeacherStudyMonitor() {
                               {sess.goals?.[0] && (
                                  <div className="p-4 rounded-2xl bg-[var(--input)] text-xs border border-[var(--card-border)]">
                                     <span className="font-black text-primary uppercase text-[9px] block mb-1">Session Goal</span>
-                                    “{sess.goals[0].objective} using {sess.goals[0].action}”
+                                    "{sess.goals[0].objective} using {sess.goals[0].action}"
                                  </div>
                               )}
 
@@ -185,13 +294,13 @@ export default function TeacherStudyMonitor() {
                                        <span className="text-[9px] font-black uppercase opacity-40 tracking-widest flex items-center gap-1">
                                           <TrendingUp size={10} className="text-success" /> Key Learning
                                        </span>
-                                       <p className="text-xs italic leading-relaxed opacity-80">“{sess.reflections[0].learned_summary}”</p>
+                                       <p className="text-xs italic leading-relaxed opacity-80">"{sess.reflections[0].learned_summary}"</p>
                                     </div>
                                     <div className="space-y-1 text-right">
                                        <span className="text-[9px] font-black uppercase opacity-40 tracking-widest flex items-center gap-1 justify-end">
                                           <MessageSquare size={10} className="text-amber-500" /> Challenges
                                        </span>
-                                       <p className="text-xs italic leading-relaxed opacity-80">“{sess.reflections[0].difficulty_summary}”</p>
+                                       <p className="text-xs italic leading-relaxed opacity-80">"{sess.reflections[0].difficulty_summary}"</p>
                                     </div>
                                  </div>
                               ) : sess.status === 'completed' ? (

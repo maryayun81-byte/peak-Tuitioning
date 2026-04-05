@@ -61,15 +61,7 @@ export default function TeacherAssignments() {
 
       setSubmissionsCount(totalPendingSubmissions || 0)
 
-      // 3. Fetch submission counts per assignment
-      const { data: countsData } = await supabase
-        .from('submissions')
-        .select('assignment_id, count:count()')
-        .in('assignment_id', assignmentsList.map(a => a.id))
-        .csv() // Trick to get counts group by if select count() isn't enough; actually Supabase JS has better ways
-
-      // Actually, easier to just fetch counts for each assignment in the same query or separate
-      // Let's use a more robust way to get student counts too
+      // 3. Enrich assignments with submission and expected student counts
       
       const enrichedAssignments = await Promise.all(assignmentsList.map(async (a) => {
         // Count actual submissions

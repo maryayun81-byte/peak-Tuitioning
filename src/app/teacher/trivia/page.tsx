@@ -47,6 +47,16 @@ export default function TeacherTriviaPage() {
   const [page, setPage] = useState(0)
 
   useEffect(() => {
+    if (loading) {
+      const t = setTimeout(() => {
+        setLoading(false)
+        console.warn('TeacherTrivia timeout triggered')
+      }, 8000)
+      return () => clearTimeout(t)
+    }
+  }, [loading])
+
+  useEffect(() => {
     if (teacher?.id) loadSessions()
   }, [teacher?.id, page])
 
@@ -69,23 +79,28 @@ export default function TeacherTriviaPage() {
 
     setTotalCount(count ?? 0)
 
-    // Load counts in parallel
-    const enriched = await Promise.all((data ?? []).map(async s => {
-      const [qRes, gRes, subRes] = await Promise.all([
-        supabase.from('trivia_questions').select('id', { count: 'exact', head: true }).eq('session_id', s.id),
-        supabase.from('trivia_groups').select('id', { count: 'exact', head: true }).eq('session_id', s.id),
-        supabase.from('trivia_submissions').select('id', { count: 'exact', head: true }).eq('session_id', s.id),
-      ])
-      return {
-        ...s,
-        _questionCount: qRes.count ?? 0,
-        _groupCount: gRes.count ?? 0,
-        _submissionCount: subRes.count ?? 0,
-      }
-    }))
-
-    setSessions(enriched)
-    setLoading(false)
+    try {
+      // Load counts in parallel
+      const enriched = await Promise.all((data ?? []).map(async s => {
+        const [qRes, gRes, subRes] = await Promise.all([
+          supabase.from('trivia_questions').select('id', { count: 'exact', head: true }).eq('session_id', s.id),
+          supabase.from('trivia_groups').select('id', { count: 'exact', head: true }).eq('session_id', s.id),
+          supabase.from('trivia_submissions').select('id', { count: 'exact', head: true }).eq('session_id', s.id),
+        ])
+        return {
+          ...s,
+          _questionCount: qRes.count ?? 0,
+          _groupCount: gRes.count ?? 0,
+          _submissionCount: subRes.count ?? 0,
+        }
+      }))
+      setSessions(enriched)
+    } catch (e: any) {
+      console.error('Trivia sessions enriching failed:', e)
+      toast.error('Failed to load trivia counts')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleDelete = async (id: string, title: string) => {

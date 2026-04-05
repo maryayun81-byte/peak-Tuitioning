@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Calendar, Clock, AlertCircle, ChevronRight, Rocket, Megaphone } from 'lucide-react'
+import { Calendar, Clock, AlertCircle, ChevronRight, Rocket } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/authStore'
 import { Badge } from '@/components/ui/Card'
@@ -10,37 +10,63 @@ import { formatDate } from '@/lib/utils'
 import Link from 'next/link'
 import type { ExamEvent } from '@/types/database'
 
+// Module-level cache so navigating between pages doesn't re-fetch
+let examEventsCache: { data: ExamEvent[]; ts: number; profileId: string } | null = null
+const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+
 export function ExamEventBanner() {
   const supabase = getSupabaseBrowserClient()
-  const { profile, student, teacher } = useAuthStore()
+  const { profile, student } = useAuthStore()
   const [events, setEvents] = useState<ExamEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [now, setNow] = useState(new Date())
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
+  // Adaptive countdown timer:
+  // - 1 second when any event has an active countdown (upcoming status)
+  // - 60 seconds when events are active/running (no second-level countdown displayed)
+  // - 60 seconds when no events loaded yet
   useEffect(() => {
-    fetchEvents()
-    const interval = setInterval(() => setNow(new Date()), 1000)
-    return () => clearInterval(interval)
-  }, [profile])
+    if (intervalRef.current) clearInterval(intervalRef.current)
 
-  const fetchEvents = async () => {
-    if (!profile) return
+    const hasCountdownEvent = events.some(e => e.status === 'upcoming')
+    const tickRate = hasCountdownEvent ? 1000 : 60_000
+    intervalRef.current = setInterval(() => setNow(new Date()), tickRate)
+
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current)
+    }
+  }, [events])
+
+  // Only re-fetch when profile ID actually changes (not on every render)
+  useEffect(() => {
+    if (!profile?.id) return
+    fetchEvents(profile.id)
+  }, [profile?.id])
+
+  const fetchEvents = async (profileId: string) => {
+    // Serve from cache if fresh for same user
+    if (examEventsCache && examEventsCache.profileId === profileId && Date.now() - examEventsCache.ts < CACHE_TTL) {
+      setEvents(examEventsCache.data)
+      setLoading(false)
+      return
+    }
+
     setLoading(true)
     try {
       const todayStr = new Date().toISOString().split('T')[0]
-      let query = supabase
+      const { data, error } = await supabase
         .from('exam_events')
         .select('*, curriculum:curriculums(name)')
         .gte('end_date', todayStr)
         .order('start_date', { ascending: true })
 
-      const { data, error } = await query
       if (error) throw error
 
       const filtered = (data as any[] || []).filter(event => {
         if (event.status === 'cancelled' || event.status === 'generated' || event.status === 'closed') return false
-        if (event.curriculum_id && profile.role === 'student' && student && student.curriculum_id !== event.curriculum_id) return false
-        if (event.target_class_ids && event.target_class_ids.length > 0 && profile.role === 'student' && student && !event.target_class_ids.includes(student.class_id)) return false
+        if (event.curriculum_id && profile?.role === 'student' && student && student.curriculum_id !== event.curriculum_id) return false
+        if (event.target_class_ids && event.target_class_ids.length > 0 && profile?.role === 'student' && student && !event.target_class_ids.includes(student.class_id)) return false
         return true
       }).map(event => {
         if (event.status !== 'postponed' && event.status !== 'cancelled' && event.status !== 'generated') {
@@ -51,7 +77,9 @@ export function ExamEventBanner() {
         return event
       }).filter(e => e.status !== 'closed' && e.status !== 'generated')
 
-      setEvents(filtered as ExamEvent[])
+      const result = filtered as ExamEvent[]
+      examEventsCache = { data: result, ts: Date.now(), profileId }
+      setEvents(result)
     } catch (err) {
       console.error('[ExamEventBanner] Failed to fetch events:', err)
     } finally {
@@ -113,7 +141,7 @@ export function ExamEventBanner() {
                     <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: isBannerActive ? 'var(--primary)' : '#F59E0B' }}>
                       {isBannerActive ? 'EXAM SESSION ACTIVE' : 'UPCOMING EXAM EVENT'}
                     </span>
-                    {event.curriculum && <Badge variant="muted">{event.curriculum.name}</Badge>}
+                    {(event as any).curriculum && <Badge variant="muted">{(event as any).curriculum.name}</Badge>}
                   </div>
                   <h3 className="font-black text-base truncate" style={{ color: 'var(--text)' }}>
                     {event.name}
@@ -150,7 +178,6 @@ export function ExamEventBanner() {
                 </div>
               </div>
               
-              {/* Animated Progress Bar (optional decoration) */}
               {isBannerActive && (
                 <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary/20">
                   <motion.div 

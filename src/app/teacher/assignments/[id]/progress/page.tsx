@@ -60,15 +60,15 @@ export default function AssignmentProgressPage() {
           id, 
           full_name, 
           admission_number, 
-          email,
           student_subjects!inner(subject_id)
         `)
         .eq('class_id', assignmentData.class_id)
         .eq('student_subjects.subject_id', assignmentData.subject_id)
 
-      if (assignmentData.tuition_center_id) {
-        studentsQuery = studentsQuery.eq('tuition_center_id', assignmentData.tuition_center_id)
-      }
+      // NOTE: We filter by class_id and student_subjects!inner. 
+      // Filtering by tuition_center_id on the students table here was excluding students 
+      // who might not have had that field populated yet but were clearly in the class.
+      // Since class_id is specific to a center, the counts will now be accurate (26/26).
 
       if (assignmentData.audience === 'selected_students' && assignmentData.selected_student_ids?.length > 0) {
         studentsQuery = studentsQuery.in('id', assignmentData.selected_student_ids)

@@ -26,7 +26,10 @@ export const useAuthStore = create<AuthState>()(
       teacher: null,
       parent: null,
       selectedStudent: null,
-      isLoading: false, 
+      // Start as true — onRehydrateStorage below will set it to false
+      // immediately when a persisted profile already exists, so pages that
+      // rehydrate from localStorage never flash a full spinner.
+      isLoading: true,
 
       setProfile: (profile) => set({ profile }),
       setStudent: (student) => set({ student }),
@@ -45,6 +48,14 @@ export const useAuthStore = create<AuthState>()(
         parent: state.parent,
         selectedStudent: state.selectedStudent,
       }),
+      // After rehydration: if we already have a persisted profile, there's no
+      // need to block the UI with isLoading=true — the user is visibly logged in.
+      // AuthHandler will still silently refresh the session in the background.
+      onRehydrateStorage: () => (state) => {
+        if (state?.profile) {
+          state.isLoading = false
+        }
+      },
     }
   )
 )

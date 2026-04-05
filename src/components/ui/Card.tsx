@@ -35,13 +35,14 @@ interface StatCardProps {
   title: string
   value: string | number
   icon: React.ReactNode
+  subValue?: string | React.ReactNode
   change?: string
   changeType?: 'up' | 'down' | 'neutral'
   gradient?: string
   className?: string
 }
 
-export function StatCard({ title, value, icon, change, changeType = 'neutral', gradient, className }: StatCardProps) {
+export function StatCard({ title, value, icon, subValue, change, changeType = 'neutral', gradient, className }: StatCardProps) {
   const changeColor = changeType === 'up' ? '#10B981' : changeType === 'down' ? '#EF4444' : 'var(--text-muted)'
 
   return (
@@ -68,6 +69,11 @@ export function StatCard({ title, value, icon, change, changeType = 'neutral', g
       <div className="text-3xl font-bold mb-1" style={{ color: 'var(--text)' }}>
         {value}
       </div>
+      {subValue && (
+        <div className="text-[10px] font-bold mb-2 opacity-70 truncate" style={{ color: 'var(--text-muted)' }}>
+          {subValue}
+        </div>
+      )}
       <div className="text-sm" style={{ color: 'var(--text-muted)' }}>
         {title}
       </div>

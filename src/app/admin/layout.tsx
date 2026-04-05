@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Users, UserCheck, GraduationCap, BookOpen,
   Calendar, CalendarDays, ClipboardList, BarChart3, Bell,
   Settings, LogOut, CreditCard, FileText, BookMarked,
-  TrendingUp, Library, Layers, Award, School, MapPin, DollarSign
+  TrendingUp, Library, Layers, Award, School, MapPin, DollarSign, FileCheck
 } from 'lucide-react'
 import { Sidebar, BottomNav } from '@/components/layout/Sidebar'
 import { useAuthStore } from '@/stores/authStore'
@@ -36,6 +36,7 @@ const NAV_ITEMS = [
   { label: 'Transcripts', href: '/admin/transcripts', icon: <FileText size={18} /> },
   { label: 'Performance', href: '/admin/performance', icon: <TrendingUp size={18} /> },
   { label: 'Schemes of Work', href: '/admin/schemes', icon: <Library size={18} /> },
+  { label: 'Terms & Conditions', href: '/admin/terms', icon: <FileCheck size={18} /> },
   { label: 'Notifications', href: '/admin/notifications', icon: <Bell size={18} /> },
   { label: 'Settings', href: '/admin/settings', icon: <Settings size={18} /> },
 ]

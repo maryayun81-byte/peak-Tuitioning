@@ -61,12 +61,11 @@ function ResourcesContent() {
       const uniqueSubjects = Array.from(new Set((sData || []).map(s => s.subject))).filter(Boolean)
       setSubjects(uniqueSubjects)
 
-      // 2. Fetch Resources with complex audience filtering
-      // Logic: (Class match) OR (Direct student match) OR (Broadcast/Public)
+      // 2. Fetch Resources: rely on RLS for secure filtering, use simplified .or for efficiency
       const { data: rData, error } = await supabase
         .from('resources')
         .select('*, subject:subjects(name), teacher:teachers(full_name)')
-        .or(`class_id.eq.${student.class_id},class_ids.cs.{${student.class_id}},student_ids.cs.{${student.id}},audience.eq.public,audience.eq.broadcast`)
+        .or(`class_id.eq.${student.class_id},class_ids.cs.{${student.class_id}},student_ids.cs.{${student.id}},audience.in.("public","broadcast")`)
         .order('created_at', { ascending: false })
       
       if (error) throw error
@@ -90,7 +89,7 @@ function ResourcesContent() {
       const matchesSubject = selectedSubject === 'all' || r.subject_id === selectedSubject
       
       const matchesType = activeType === 'all' || 
-        (activeType === 'note' && (r.type === 'pdf' || r.type === 'document')) ||
+        (activeType === 'note' && (r.type === 'pdf' || r.type === 'document' || r.type === 'file' || r.type === 'note')) ||
         (activeType === 'video' && r.type === 'video') ||
         (activeType === 'link' && r.type === 'link') ||
         (activeType === 'practice' && r.is_practice)
