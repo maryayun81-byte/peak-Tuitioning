@@ -22,12 +22,17 @@ export default function AdminTermsDashboard() {
 
   const loadDocuments = async () => {
     setLoading(true)
+    // Fetch documents. Join with profiles for creator name.
     const { data: docs, error } = await supabase
       .from('documents')
-      .select('*, admin:admins(full_name)')
+      .select(`
+        *,
+        creator:profiles(full_name)
+      `)
       .order('created_at', { ascending: false })
     
     if (error) {
+      console.error('Supabase Error:', error)
       toast.error('Failed to load documents')
     } else {
       // Fetch assignment counts
@@ -69,13 +74,21 @@ export default function AdminTermsDashboard() {
 
   const deleteDocument = async (id: string, isPublished: boolean) => {
     if (isPublished) {
-      toast.error('Cannot delete a published document.')
-      return
+      const confirm1 = confirm('WARNING: This document is PUBLISHED and has active signatures. Deleting it will PERMANENTLY remove all signature records for all teachers. Are you absolutely sure?')
+      if (!confirm1) return
+      const confirm2 = confirm('Final Confirmation: Type "DELETE" to confirm. (Just kidding, just click OK if you are sure, this is the final warning).')
+      if (!confirm2) return
+    } else {
+      if (!confirm('Delete this draft permanently?')) return
     }
-    if (!confirm('Delete this draft permanently?')) return
     
-    await supabase.from('documents').delete().eq('id', id)
-    loadDocuments()
+    const { error } = await supabase.from('documents').delete().eq('id', id)
+    if (error) {
+      toast.error('Failed to delete: ' + error.message)
+    } else {
+      toast.success('Document deleted')
+      loadDocuments()
+    }
   }
 
   return (
@@ -87,8 +100,8 @@ export default function AdminTermsDashboard() {
           </h1>
           <p className="text-[var(--text-muted)] text-sm mt-1">Manage platform agreements and track teacher signatures.</p>
         </div>
-        <Button onClick={createDocument}>
-          <Plus size={16} className="mr-2" /> New Document
+        <Button onClick={createDocument} className="w-full sm:w-auto shadow-lg shadow-primary/20">
+          <Plus size={16} className="mr-2" /> New Agreement
         </Button>
       </div>
 
@@ -109,47 +122,52 @@ export default function AdminTermsDashboard() {
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }} key={doc.id}>
               <Card className="p-5 flex flex-col sm:flex-row gap-4 justify-between group hover:border-primary/30 transition-all border-2">
                 <div>
-                  <div className="flex items-center gap-3 mb-2">
-                    <h3 className="font-black text-lg">{doc.title}</h3>
-                    <span className={`px-2 py-0.5 rounded-lg text-xs font-bold uppercase tracking-widest ${doc.status === 'published' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-slate-500/10 text-slate-500'}`}>
-                      {doc.status}
-                    </span>
-                    <span className="px-2 py-0.5 rounded-lg text-xs font-bold bg-[var(--input)]">
-                      {doc.version}
-                    </span>
+                  <div className="flex items-center gap-3 mb-2 flex-wrap">
+                    <h3 className="font-black text-lg leading-tight">{doc.title}</h3>
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-widest ${doc.status === 'published' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'bg-slate-500/10 text-slate-400 border border-slate-500/10'}`}>
+                        {doc.status}
+                      </span>
+                      <span className="px-2 py-0.5 rounded-lg text-[10px] font-black bg-[var(--input)] border border-[var(--card-border)] uppercase">
+                        {doc.version}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-4 text-xs font-semibold text-[var(--text-muted)] uppercase tracking-widest">
-                    <span>Updated {formatDate(doc.updated_at, 'short')}</span>
+                  <div className="flex flex-wrap items-center gap-4 text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-widest">
+                    <span>by {doc.creator?.full_name || 'Admin'} • {formatDate(doc.updated_at, 'short')}</span>
                     {doc.status === 'published' && (
-                      <>
+                      <div className="flex items-center gap-3">
                         <span className="flex items-center gap-1 text-emerald-500"><CheckCircle2 size={12}/> {doc._signed} Signed</span>
                         <span className="flex items-center gap-1 text-amber-500"><Clock size={12}/> {doc._pending} Pending</span>
-                      </>
+                      </div>
                     )}
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  {doc.status === 'draft' ? (
-                    <>
-                      <Button variant="secondary" size="sm" onClick={() => router.push(`/admin/terms/builder/${doc.id}`)}>
-                        <Edit3 size={14} className="mr-2" /> Edit Draft
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => deleteDocument(doc.id, false)} className="text-red-500 hover:bg-red-500/10">
-                        <Trash2 size={14} />
-                      </Button>
-                    </>
-                  ) : (
-                    <>
-                      <Button variant="secondary" size="sm" onClick={() => router.push(`/admin/terms/builder/${doc.id}`)}>
-                        <FileText size={14} className="mr-2" /> View Contents
-                      </Button>
-                      <Button size="sm" onClick={() => router.push(`/admin/terms/tracking/${doc.id}`)}>
-                        Tracking <ChevronRight size={14} className="ml-1" />
-                      </Button>
-                    </>
-                  )}
-                </div>
+                  <div className="flex items-center gap-2">
+                    {doc.status === 'draft' ? (
+                      <>
+                        <Button variant="secondary" size="sm" onClick={() => router.push(`/admin/terms/builder/${doc.id}`)}>
+                          <Edit3 size={14} className="mr-2" /> Edit Draft
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => deleteDocument(doc.id, false)} className="text-red-500 hover:bg-red-500/10" title="Delete Draft">
+                          <Trash2 size={14} />
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button variant="secondary" size="sm" onClick={() => router.push(`/admin/terms/builder/${doc.id}`)}>
+                          <FileText size={14} className="mr-2" /> View Contents
+                        </Button>
+                        <Button variant="secondary" size="sm" onClick={() => router.push(`/admin/terms/tracking/${doc.id}`)}>
+                          Tracking <ChevronRight size={14} className="ml-1" />
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => deleteDocument(doc.id, true)} className="text-red-500/60 hover:text-red-500 hover:bg-red-500/10" title="Delete Published Document">
+                          <Trash2 size={14} />
+                        </Button>
+                      </>
+                    )}
+                  </div>
               </Card>
             </motion.div>
           ))}

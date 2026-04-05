@@ -52,7 +52,7 @@ export default function DocumentBuilder({ params }: { params: Promise<{ id: stri
     content: '',
     editorProps: {
       attributes: {
-        class: 'prose prose-sm sm:prose lg:prose-lg xl:prose-xl focus:outline-none min-h-[500px]',
+        class: 'prose dark:prose-invert prose-sm sm:prose lg:prose-lg focus:outline-none min-h-[500px] max-w-none',
       },
     },
     onUpdate: () => { /* can trigger auto-save here */ },
@@ -156,32 +156,32 @@ export default function DocumentBuilder({ params }: { params: Promise<{ id: stri
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)] p-4 md:p-6 lg:p-8">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4 mb-6 sticky top-0 bg-[var(--background)] z-10 pb-4 border-b border-[var(--card-border)]">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="sm" onClick={() => router.push('/admin/terms')} className="px-2">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 sticky top-0 bg-[var(--bg)] z-10 pb-4 border-b border-[var(--card-border)]">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="sm" onClick={() => router.push('/admin/terms')} className="px-2 hover:bg-[var(--input)]">
             <ChevronLeft size={20} />
           </Button>
           <div>
-            <h1 className="text-xl font-black">{title || 'Untitled Document'}</h1>
-            <div className="flex items-center gap-2 mt-1">
-              <span className="text-[10px] font-bold bg-[var(--input)] px-2 py-0.5 rounded-lg">{version}</span>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg uppercase tracking-widest ${isPublished ? 'bg-emerald-500/10 text-emerald-500' : 'bg-slate-500/10 text-slate-500'}`}>
+            <h1 className="text-xl font-black truncate max-w-[200px] sm:max-w-md">{title || 'Untitled Document'}</h1>
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className="text-[9px] font-black bg-[var(--input)] border border-[var(--card-border)] px-1.5 py-0.5 rounded text-[var(--text-muted)] uppercase">{version}</span>
+              <span className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter ${isPublished ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'bg-slate-500/10 text-slate-500 border border-slate-500/10'}`}>
                 {status}
               </span>
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <Button variant="secondary" onClick={() => setPreviewOpen(true)}>
-            <Eye size={16} className="mr-2" /> Preview
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <Button variant="secondary" size="sm" onClick={() => setPreviewOpen(true)} className="flex-1 sm:flex-none">
+            <Eye size={14} className="mr-1.5" /> Preview
           </Button>
-          <Button variant="secondary" onClick={() => handleSave(false)} isLoading={saving}>
-            <Save size={16} className="mr-2" /> Save Draft
+          <Button variant="secondary" size="sm" onClick={() => handleSave(false)} isLoading={saving} className="flex-1 sm:flex-none">
+            <Save size={14} className="mr-1.5" /> Save
           </Button>
           {!isPublished && (
-            <Button onClick={() => handleSave(true)} className="bg-emerald-500 hover:bg-emerald-600 text-white border-0 shadow-emerald-500/20">
-              <Globe size={16} className="mr-2" /> Publish Live
+            <Button size="sm" onClick={() => handleSave(true)} className="flex-1 sm:flex-none bg-emerald-500 hover:bg-emerald-600 text-white border-0 shadow-lg shadow-emerald-500/20">
+              <Globe size={14} className="mr-1.5" /> Publish
             </Button>
           )}
         </div>
@@ -191,21 +191,21 @@ export default function DocumentBuilder({ params }: { params: Promise<{ id: stri
         
         {/* Editor Main Area */}
         <div className="flex-1 flex flex-col h-full overflow-hidden border-2 border-[var(--card-border)] rounded-3xl bg-[var(--card)] shadow-sm">
-          {/* Editor Toolbar */}
-          <div className="flex flex-wrap items-center gap-1 p-3 border-b border-[var(--card-border)] bg-[var(--input)]/50">
-            <Button variant="ghost" size="sm" onClick={() => editor.chain().focus().toggleBold().run()} className={`px-2 ${editor.isActive('bold') ? 'bg-[var(--card)] border' : ''}`}><Bold size={16} /></Button>
-            <Button variant="ghost" size="sm" onClick={() => editor.chain().focus().toggleItalic().run()} className={`px-2 ${editor.isActive('italic') ? 'bg-[var(--card)] border' : ''}`}><Italic size={16} /></Button>
-            <Button variant="ghost" size="sm" onClick={() => editor.chain().focus().toggleUnderline().run()} className={`px-2 ${editor.isActive('underline') ? 'bg-[var(--card)] border' : ''}`}><UnderlineIcon size={16} /></Button>
-            <div className="w-px h-6 bg-[var(--card-border)] mx-1" />
-            <Button variant="ghost" size="sm" onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} className={`px-2 font-black ${editor.isActive('heading', { level: 1 }) ? 'bg-[var(--card)] border' : ''}`}>H1</Button>
-            <Button variant="ghost" size="sm" onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} className={`px-2 font-bold ${editor.isActive('heading', { level: 2 }) ? 'bg-[var(--card)] border' : ''}`}>H2</Button>
-            <div className="w-px h-6 bg-[var(--card-border)] mx-1" />
-            <Button variant="ghost" size="sm" onClick={() => editor.chain().focus().toggleBulletList().run()} className={`px-2 ${editor.isActive('bulletList') ? 'bg-[var(--card)] border' : ''}`}><List size={16} /></Button>
-            <Button variant="ghost" size="sm" onClick={() => editor.chain().focus().toggleOrderedList().run()} className={`px-2 ${editor.isActive('orderedList') ? 'bg-[var(--card)] border' : ''}`}><ListOrdered size={16} /></Button>
-            <Button variant="ghost" size="sm" onClick={() => editor.chain().focus().toggleBlockquote().run()} className={`px-2 ${editor.isActive('blockquote') ? 'bg-[var(--card)] border' : ''}`}><Quote size={16} /></Button>
-            <div className="flex-1" />
-            <Button variant="ghost" size="sm" onClick={() => editor.chain().focus().undo().run()} className="px-2" disabled={!editor.can().undo()}><Undo size={16} /></Button>
-            <Button variant="ghost" size="sm" onClick={() => editor.chain().focus().redo().run()} className="px-2" disabled={!editor.can().redo()}><Redo size={16} /></Button>
+          {/* Editor Toolbar - Scrollable on mobile */}
+          <div className="flex items-center gap-0.5 p-1.5 border-b border-[var(--card-border)] bg-[var(--input)]/50 overflow-x-auto hide-scrollbar shrink-0">
+            <Button variant="ghost" size="sm" onClick={() => editor.chain().focus().toggleBold().run()} className={`h-8 w-8 p-0 shrink-0 ${editor.isActive('bold') ? 'bg-[var(--card)] border border-[var(--card-border)]' : ''}`}><Bold size={14} /></Button>
+            <Button variant="ghost" size="sm" onClick={() => editor.chain().focus().toggleItalic().run()} className={`h-8 w-8 p-0 shrink-0 ${editor.isActive('italic') ? 'bg-[var(--card)] border border-[var(--card-border)]' : ''}`}><Italic size={14} /></Button>
+            <Button variant="ghost" size="sm" onClick={() => editor.chain().focus().toggleUnderline().run()} className={`h-8 w-8 p-0 shrink-0 ${editor.isActive('underline') ? 'bg-[var(--card)] border border-[var(--card-border)]' : ''}`}><UnderlineIcon size={14} /></Button>
+            <div className="w-px h-4 bg-[var(--card-border)] mx-1 shrink-0" />
+            <Button variant="ghost" size="sm" onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} className={`h-8 w-8 p-0 shrink-0 font-black text-xs ${editor.isActive('heading', { level: 1 }) ? 'bg-[var(--card)] border border-[var(--card-border)]' : ''}`}>H1</Button>
+            <Button variant="ghost" size="sm" onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} className={`h-8 w-8 p-0 shrink-0 font-bold text-xs ${editor.isActive('heading', { level: 2 }) ? 'bg-[var(--card)] border border-[var(--card-border)]' : ''}`}>H2</Button>
+            <div className="w-px h-4 bg-[var(--card-border)] mx-1 shrink-0" />
+            <Button variant="ghost" size="sm" onClick={() => editor.chain().focus().toggleBulletList().run()} className={`h-8 w-8 p-0 shrink-0 ${editor.isActive('bulletList') ? 'bg-[var(--card)] border border-[var(--card-border)]' : ''}`}><List size={14} /></Button>
+            <Button variant="ghost" size="sm" onClick={() => editor.chain().focus().toggleOrderedList().run()} className={`h-8 w-8 p-0 shrink-0 ${editor.isActive('orderedList') ? 'bg-[var(--card)] border border-[var(--card-border)]' : ''}`}><ListOrdered size={14} /></Button>
+            <Button variant="ghost" size="sm" onClick={() => editor.chain().focus().toggleBlockquote().run()} className={`h-8 w-8 p-0 shrink-0 ${editor.isActive('blockquote') ? 'bg-[var(--card)] border border-[var(--card-border)]' : ''}`}><Quote size={14} /></Button>
+            <div className="flex-1 min-w-[20px]" />
+            <Button variant="ghost" size="sm" onClick={() => editor.chain().focus().undo().run()} className="h-8 w-8 p-0 shrink-0" disabled={!editor.can().undo()}><Undo size={14} /></Button>
+            <Button variant="ghost" size="sm" onClick={() => editor.chain().focus().redo().run()} className="h-8 w-8 p-0 shrink-0" disabled={!editor.can().redo()}><Redo size={14} /></Button>
           </div>
 
           <div className="flex-1 overflow-y-auto p-8 relative layout-scroll">
@@ -283,8 +283,8 @@ export default function DocumentBuilder({ params }: { params: Promise<{ id: stri
       </div>
 
       <Modal isOpen={previewOpen} onClose={() => setPreviewOpen(false)} title={`Preview: ${title}`} size="xl">
-        <div className="p-8 prose prose-slate max-w-none bg-white text-black min-h-[500px] border">
-          <div dangerouslySetInnerHTML={{ __html: editor.getHTML() }} />
+        <div className="p-4 sm:p-8 md:p-12 min-h-[60vh] overflow-y-auto bg-[var(--bg)] border border-[var(--card-border)] rounded-2xl">
+          <div className="prose dark:prose-invert max-w-none prose-sm sm:prose lg:prose-lg" dangerouslySetInnerHTML={{ __html: editor.getHTML() }} />
         </div>
       </Modal>
     </div>
