@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { 
   Plus, Search, Award, Clock, 
@@ -22,41 +23,30 @@ export default function TeacherQuizzes() {
   const supabase = getSupabaseBrowserClient()
   const { profile, teacher } = useAuthStore()
   
-  const [loading, setLoading] = useState(true)
-  const [quizzes, setQuizzes] = useState<any[]>([])
+  const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
 
-  useEffect(() => {
-    if (teacher?.id) loadQuizzes()
-  }, [teacher?.id])
-
-  const loadQuizzes = async () => {
-    setLoading(true)
-    try {
+  const { data: quizzes = [], isLoading } = useQuery({
+    queryKey: ['teacher-quizzes', teacher?.id],
+    queryFn: async () => {
       const { data } = await supabase
         .from('quizzes')
         .select('*, class:classes(name), subject:subjects(name)')
-        .eq('teacher_id', teacher?.id)
+        .eq('teacher_id', teacher!.id)
         .order('created_at', { ascending: false })
-      
-      setQuizzes(data ?? [])
-    } finally {
-      setLoading(false)
-    }
-  }
+      return data ?? []
+    },
+    enabled: !!teacher?.id,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+  })
 
-  // Safety timeout
-  useEffect(() => {
-    if (loading) {
-      const t = setTimeout(() => setLoading(false), 5000)
-      return () => clearTimeout(t)
-    }
-  }, [loading])
+  const loading = isLoading && quizzes.length === 0
 
   const deleteQuiz = async (id: string) => {
     const { error } = await supabase.from('quizzes').delete().eq('id', id)
     if (error) { toast.error('Check for existing attempts first.') }
-    else { toast.success('Quiz deleted'); loadQuizzes() }
+    else { toast.success('Quiz deleted'); queryClient.invalidateQueries({ queryKey: ['teacher-quizzes', teacher?.id] }) }
   }
 
   const filtered = quizzes.filter(q => 

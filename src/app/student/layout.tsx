@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { motion } from 'framer-motion'
 import {
@@ -15,12 +15,14 @@ import { GraduationCap as Logo } from 'lucide-react'
 import { SplashScreen } from '@/components/SplashScreen'
 import { Avatar } from '@/components/ui/Avatar'
 import { InstallPWAButton } from '@/components/InstallPWAButton'
-import Link from 'next/link'
-
 import { useNotificationStore } from '@/stores/notificationStore'
 import { useRealtimeNotifications } from '@/hooks/useRealtimeNotifications'
 import { LevelUpManager } from '@/components/student/gamification/LevelUpManager'
 import { calculateLevel } from '@/lib/gamification'
+import { getSupabaseBrowserClient } from '@/lib/supabase/client'
+import { PageErrorBoundary } from '@/components/ui/PageErrorBoundary'
+import toast from 'react-hot-toast'
+import Link from 'next/link'
 
 const NAV_ITEMS = [
   { label: 'My Hub', href: '/student', icon: <LayoutDashboard size={18} /> },
@@ -55,13 +57,22 @@ const LogoComponent = (
 )
 
 export default function StudentLayout({ children }: { children: React.ReactNode }) {
-  const { profile, student, isLoading } = useAuthStore()
+  const { profile, student, isLoading, isInitialRevalidationComplete, setStudent } = useAuthStore()
   const { unreadCount } = useNotificationStore()
   useRealtimeNotifications()
 
   const { signOut } = useAuth()
+  const supabase = getSupabaseBrowserClient()
   const router = useRouter()
   const pathname = usePathname()
+
+  // Sticky refs — hold the last non-null profile/student so the portal never goes
+  // blank during a token refresh re-fetch (~every 1 hr) when the store transiently
+  // replaces these values. Auth guards still use the live `profile` / `student`.
+  const stickyProfile = useRef(profile)
+  const stickyStudent = useRef(student)
+  if (profile) stickyProfile.current = profile
+  if (student) stickyStudent.current = student
 
   useEffect(() => {
     if (!isLoading && !profile) router.push('/auth/login?role=student')
@@ -69,23 +80,84 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
       router.push(`/${profile.role}`)
     }
 
-    // Redirect to onboarding if not completed
-    if (!isLoading && student && !student.onboarded && typeof window !== 'undefined' && pathname !== '/student/onboarding') {
+    // Redirect to onboarding ONLY when:
+    // 1. isInitialRevalidationComplete=true (fresh DB data confirmed, not stale localStorage)
+    // 2. student row exists
+    // 3. onboarded is STRICTLY false — null/undefined means the column was never set,
+    //    which we treat as already onboarded to avoid false loops for legacy accounts.
+    // 4. Not already on the onboarding page
+    if (
+      isInitialRevalidationComplete &&
+      student &&
+      student.onboarded === false &&
+      typeof window !== 'undefined' &&
+      pathname !== '/student/onboarding'
+    ) {
       router.push('/student/onboarding')
     }
-  }, [profile, student, isLoading, router, pathname])
+  }, [profile, student, isLoading, isInitialRevalidationComplete, router, pathname])
+
+  // Daily XP Login logic
+  useEffect(() => {
+    if (isLoading || !student?.id) return
+
+    const checkDailyXP = async () => {
+      try {
+        const today = new Date().toISOString().split('T')[0]
+        const lastLoginDate = (student as any).last_login_date
+
+        if (lastLoginDate !== today) {
+          console.log('[DailyXP] Granting login XP for today:', today)
+          
+          const newXP = (student.xp || 0) + 10
+          
+          const { error } = await supabase
+            .from('students')
+            .update({ 
+               xp: newXP, 
+               last_login_date: today 
+            })
+            .eq('id', student.id)
+
+          if (!error) {
+            // Refresh local state to show the new XP immediately
+            setStudent({ ...student, xp: newXP, last_login_date: today })
+            toast.success('🔥 +10 XP for daily login!', {
+              id: 'daily-login-xp',
+              icon: '⚡',
+              duration: 4000
+            })
+          }
+        }
+      } catch (e) {
+        console.error('[DailyXP] Error awarding XP:', e)
+      }
+    }
+
+    checkDailyXP()
+  }, [student?.id, isLoading])
 
 
-  // Only block the UI if we are truly loading the first time (no persisted profile)
+  // ─── RULE 1: Only show full-screen splash on true first-load (no session yet) ───
+  // Once profile is in the store (from localStorage OR fresh fetch), we never go
+  // back to a full-screen spinner — that causes all pages to freeze.
   if (isLoading && !profile) {
     return <SplashScreen done={false} role="student" />
   }
 
-  const isPendingOnboarding = student && !student.onboarded && pathname === '/student/onboarding'
+  // ─── RULE 2: Portal UI visibility ──────────────────────────────────────────────
+  // Use stickyProfile (last non-null value) so the sidebar/header never disappear
+  // during a ~1hr token refresh cycle where the store transiently clears profile.
+  const showPortalUI = !!(profile || stickyProfile.current)
+
+  // ─── RULE 3: Pending onboarding UI blocker ─────────────────────────────────────
+  // Only block portal chrome if we KNOW (via fresh DB data) the student hasn't onboarded.
+  // Strict === false prevents null/undefined onboarded values from triggering this.
+  const isPendingOnboarding = isInitialRevalidationComplete && student != null && student.onboarded === false
 
   return (
     <div className="min-h-screen bg-[var(--bg)]">
-      {!isPendingOnboarding && (
+      {showPortalUI && (
          <Sidebar
            items={NAV_ITEMS}
            bottomItems={[
@@ -96,9 +168,9 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
          />
       )}
 
-      <main className={`min-h-screen transition-all duration-300 pb-20 md:pb-0 ${!isPendingOnboarding ? 'md:ml-[260px]' : ''}`}>
+      <main className={`min-h-screen transition-all duration-300 pb-20 md:pb-0 ${showPortalUI ? 'md:ml-[260px]' : ''}`}>
         {/* Modern Header for Students (XP & Levels) */}
-        {!isPendingOnboarding && (
+        {showPortalUI && (
           <header
             className="sticky top-0 z-40 px-6 py-4 flex items-center justify-between border-b border-[var(--card-border)] bg-transparent"
             style={{ background: 'rgba(var(--card-rgb), 0.8)', backdropFilter: 'blur(12px)' }}
@@ -145,7 +217,9 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
 
         <div className={!isPendingOnboarding ? "md:px-2" : ""}>
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
-            {children}
+            <PageErrorBoundary>
+              {children}
+            </PageErrorBoundary>
           </motion.div>
         </div>
         <LevelUpManager />

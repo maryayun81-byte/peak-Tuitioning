@@ -158,6 +158,16 @@ export function WorksheetPreview({ title, subject, class_name, blocks, passage, 
                         ) : (
                           <span className="italic text-gray-400 text-sm">Question text...</span>
                         )}
+
+                        {block.image_url && (
+                          <div className="mt-4 rounded-xl overflow-hidden border border-gray-100 bg-gray-50 flex items-center justify-center p-2">
+                            <img 
+                              src={block.image_url} 
+                              alt={`Context for question ${qLabel}`}
+                              className="max-w-full max-h-[300px] object-contain rounded-lg shadow-sm"
+                            />
+                          </div>
+                        )}
                       </div>
                     </div>
                     {block.marks > 0 && (

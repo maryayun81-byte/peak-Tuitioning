@@ -68,21 +68,19 @@ export default function StudentOnboarding() {
     
     setLoading(true)
     try {
-      // 1. Submit registered subjects (using upsert to avoid duplicate errors on retry)
-      if (selectedSubjects.length > 0) {
-        const payload = selectedSubjects.map(subId => ({
-          student_id: student.id,
-          subject_id: subId,
-          class_id: student.class_id,
-        }))
-        const { error: subError } = await supabase
-          .from('student_subjects')
-          .upsert(payload, { onConflict: 'student_id,subject_id' })
-        
-        if (subError) throw subError
-      }
+      // 1. Submit registered subjects
+      const payload = selectedSubjects.map(subId => ({
+        student_id: student.id,
+        subject_id: subId,
+        class_id: student.class_id,
+      }))
+      const { error: subError } = await supabase
+        .from('student_subjects')
+        .upsert(payload, { onConflict: 'student_id,subject_id' })
+      
+      if (subError) throw subError
 
-      // 2. Update student profile
+      // 2. Update student profile in DB
       const { data: updatedStudent, error: updateError } = await supabase
         .from('students')
         .update({
@@ -96,7 +94,7 @@ export default function StudentOnboarding() {
       if (updateError) throw updateError
       if (!updatedStudent) throw new Error('Failed to update student profile. Please try again.')
 
-      // Update avatar in profile (optional)
+      // 3. Update avatar in profile (optional)
       if (selectedAvatar) {
         const avatar = AVATARS.find(a => a.id === selectedAvatar)
         if (avatar) {
@@ -104,14 +102,29 @@ export default function StudentOnboarding() {
         }
       }
 
-      // 3. Update local store to prevent re-onboarding
-      setStudent(updatedStudent as any)
+      // 4. CRITICAL: Write onboarded=true to the Zustand store FIRST — before the
+      //    auth.updateUser() call below. This ensures our confirmed value wins the
+      //    race against the USER_UPDATED background re-fetch in AuthHandler, which
+      //    would otherwise overwrite the store with potentially stale DB data.
+      setStudent({ ...updatedStudent, onboarded: true } as any)
       
-      toast.success('Your journey begins! Welcome aboard.')
-      router.push('/student')
+      // 5. Sync to auth metadata (fire-and-forget — don't let a metadata error
+      //    block the user from completing onboarding)
+      supabase.auth.updateUser({ data: { onboarded: true } }).catch((e) => {
+        console.warn('[Onboarding] Auth metadata update failed (non-critical):', e)
+      })
+
+      toast.success('Your journey begins! Welcome to Peak Performance! 🚀')
+      
+      // 6. Short settle delay to let the store propagate before the layout
+      //    guard's useEffect re-runs and sees onboarded=true.
+      await new Promise(resolve => setTimeout(resolve, 300))
+      
+      // Use replace so Back button can't return to onboarding
+      router.replace('/student')
     } catch (e: any) {
       console.error('Onboarding Error:', e)
-      toast.error(e.message || 'Something went wrong')
+      toast.error(e.message || 'Something went wrong. Please try again.')
     } finally {
       setLoading(false)
     }

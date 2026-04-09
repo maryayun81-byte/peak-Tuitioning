@@ -12,9 +12,15 @@ import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Card, Badge } from '@/components/ui/Card'
+import { Modal } from '@/components/ui/Modal'
 import { useAuthStore } from '@/stores/authStore'
 import { FileUploadZone } from '@/components/worksheet/FileUploadZone'
 import { LatexRenderer } from '@/components/ui/LatexRenderer'
+import { useAutoSave } from '@/hooks/useAutoSave'
+import { DraftBanner } from '@/components/ui/DraftBanner'
+import dynamic from 'next/dynamic'
+const AnnotationCanvas = dynamic(() => import('@/components/worksheet/AnnotationCanvas').then(m => m.AnnotationCanvas), { ssr: false })
+import { useMemo } from 'react'
 import toast from 'react-hot-toast'
 import type { Class, Subject } from '@/types/database'
 
@@ -50,6 +56,8 @@ export function QuizForm({ initialData, isEditing = false }: QuizFormProps) {
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [centers, setCenters] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
+  // Per-question illustration draw modal: key = question id
+  const [drawingModalQId, setDrawingModalQId] = useState<string | null>(null)
 
   const [form, setForm] = useState({
     title: initialData?.title || '',
@@ -81,6 +89,18 @@ export function QuizForm({ initialData, isEditing = false }: QuizFormProps) {
         image_url: null
       }
     ]
+  )
+
+  // Draft auto-save
+  const draftData = useMemo(() => ({ form, questions }), [form, questions])
+  const { hasSavedDraft, restore, clear, draftAge } = useAutoSave(
+    isEditing ? `edit_quiz_${initialData?.id}` : 'new_quiz',
+    draftData,
+    (saved) => {
+      setForm(saved.form)
+      setQuestions(saved.questions)
+      toast.success('Draft restored!')
+    }
   )
 
   useEffect(() => {
@@ -240,6 +260,7 @@ export function QuizForm({ initialData, isEditing = false }: QuizFormProps) {
       console.error('[Quiz Save Error]', saveError)
       toast.error('Failed to save quiz: ' + saveError.message)
     } else {
+      clear() // Clear draft on successful save
       toast.success(isEditing ? 'Quiz updated successfully!' : 'Quiz created successfully!')
       router.push('/teacher/quizzes')
     }
@@ -248,6 +269,17 @@ export function QuizForm({ initialData, isEditing = false }: QuizFormProps) {
 
   return (
     <div className="p-6 max-w-7xl mx-auto pb-32">
+       {/* Draft Banner */}
+       {hasSavedDraft && !isEditing && (
+         <div className="mb-6">
+           <DraftBanner
+             label="quiz"
+             draftAge={draftAge}
+             onRestore={restore}
+             onDiscard={() => { clear(); toast('Draft discarded', { icon: '🗑️' }) }}
+           />
+         </div>
+       )}
        {/* Header */}
        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
          <div className="flex items-center gap-3">
@@ -314,18 +346,33 @@ export function QuizForm({ initialData, isEditing = false }: QuizFormProps) {
                           </div>
                        </div>
 
-                       {/* Image Support */}
-                       <div className="pl-11 pr-4">
-                          <div className="flex items-center justify-between mb-2">
-                             <label className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">Question Illustration / Image</label>
-                             {q.image_url && <Button variant="secondary" size="xs" onClick={() => updateQuestion(q.id, 'image_url', null)}>Remove Image</Button>}
-                          </div>
-                          <FileUploadZone 
-                            value={q.image_url || null} 
-                            onChange={(url) => updateQuestion(q.id, 'image_url', url)}
-                            bucket="quiz-media"
-                          />
-                       </div>
+                        {/* Image + Illustration Support */}
+                        <div className="pl-11 pr-4 space-y-3">
+                           <div className="flex items-center justify-between">
+                              <label className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">Question Image / Illustration</label>
+                              <div className="flex items-center gap-2">
+                                 {q.image_url && <Button variant="secondary" size="xs" onClick={() => updateQuestion(q.id, 'image_url', null)}>Remove</Button>}
+                                 <button
+                                   type="button"
+                                   onClick={() => setDrawingModalQId(q.id)}
+                                   className="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border"
+                                   style={{
+                                     background: 'var(--input)',
+                                     borderColor: 'var(--card-border)',
+                                     color: 'var(--text-muted)'
+                                   }}
+                                   title="Draw an illustration"
+                                 >
+                                   ✏️ Draw
+                                 </button>
+                              </div>
+                           </div>
+                           <FileUploadZone 
+                             value={q.image_url || null} 
+                             onChange={(url) => updateQuestion(q.id, 'image_url', url)}
+                             bucket="quiz-media"
+                           />
+                        </div>
 
                        {(q.type === 'multiple_choice' || q.type === 'multiple_answer') && (
                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pl-11">
@@ -501,6 +548,44 @@ export function QuizForm({ initialData, isEditing = false }: QuizFormProps) {
             </Card>
          </div>
       </div>
+
+      {/* Illustration Draw Modal */}
+      {drawingModalQId !== null && (() => {
+        const q = questions.find(x => x.id === drawingModalQId)
+        if (!q) return null
+        return (
+          <Modal
+            isOpen={true}
+            onClose={() => setDrawingModalQId(null)}
+            title={`Draw Illustration — Q${questions.findIndex(x => x.id === drawingModalQId) + 1}`}
+            size="lg"
+          >
+            <div className="space-y-4">
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                Draw diagrams, shapes, or annotations. Click Save to attach as the question image.
+              </p>
+              <div className="rounded-2xl overflow-hidden border" style={{ borderColor: 'var(--card-border)' }}>
+                <AnnotationCanvas
+                  backgroundImageUrl={q.image_url || undefined}
+                  initialJson={undefined}
+                  readOnly={false}
+                  onSave={(json) => {
+                    // Convert the canvas JSON annotation into a data URL via a temporary canvas
+                    // We store the JSON directly in image_url
+                    updateQuestion(q.id, 'image_url', json)
+                    setDrawingModalQId(null)
+                    toast.success('Illustration saved!')
+                  }}
+                  defaultColor="#1e3a8a"
+                />
+              </div>
+              <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                The drawing will be shown to students above the question.
+              </p>
+            </div>
+          </Modal>
+        )
+      })()}
     </div>
   )
 }

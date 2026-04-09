@@ -1,9 +1,12 @@
-import { NextResponse } from 'next/server'
-import type { NextRequest } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
+import { NextResponse, type NextRequest } from 'next/server'
 
 export default async function proxy(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request })
+  let response = NextResponse.next({
+    request: {
+      headers: request.headers,
+    },
+  })
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -13,89 +16,81 @@ export default async function proxy(request: NextRequest) {
         getAll() {
           return request.cookies.getAll()
         },
-        setAll(cookiesToSet: any[]) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
-          )
-          supabaseResponse = NextResponse.next({ request })
+        setAll(cookiesToSet: { name: string; value: string; options: any }[]) {
+          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
+          response = NextResponse.next({
+            request,
+          })
           cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
+            response.cookies.set(name, value, options)
           )
         },
       },
     }
   )
 
-  let user = null;
-  try {
-    const { data } = await supabase.auth.getUser()
-    user = data.user
-  } catch (e) {
-    console.error('Middleware Supabase fetch failed:', e)
+  const { data: { user } } = await supabase.auth.getUser()
+
+  // 1. Root redirect
+  if (request.nextUrl.pathname === '/') {
+    if (user) {
+      const role = user.app_metadata?.role || user.user_metadata?.role || 'student'
+      return NextResponse.redirect(new URL(`/${role}`, request.url))
+    }
+    return NextResponse.next()
   }
 
-  const path = request.nextUrl.pathname
+  // 2. Protect Portal Routes
+  const isAuthPage = request.nextUrl.pathname.startsWith('/auth')
+  const isPortalPage = ['/admin', '/teacher', '/student', '/parent'].some(path => 
+    request.nextUrl.pathname.startsWith(path)
+  )
 
-  // Protected routes
-  const protectedRoutes = ['/admin', '/teacher', '/student', '/parent']
-  const isProtected = protectedRoutes.some(r => path.startsWith(r))
-
-  if (isProtected && !user) {
-    const from = encodeURIComponent(path)
-    return NextResponse.redirect(new URL(`/auth/login?role=parent&from=${from}`, request.url))
+  if (isPortalPage && !user) {
+    return NextResponse.redirect(new URL('/auth/login', request.url))
   }
 
-  // Role-based protection
   if (user) {
-    // 1. Try to get role from metadata (FAST - no DB hit)
-    let role = user.app_metadata?.role || user.user_metadata?.role
-
-    // 2. Fallback to DB only if metadata is missing (diagnostic logging added)
-    if (!role) {
-      try {
-        console.log(`[Middleware] Metadata role missing for ${user.id}, hitting DB...`)
-        const { data } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', user.id)
-          .single()
-        role = data?.role
-        console.log(`[Middleware] DB Role found: ${role}`)
-      } catch (e) {
-        console.error('Middleware profile fetch failed:', e)
-      }
-    } else {
-      console.log(`[Middleware] Using metadata role: ${role}`)
+    const role = user.app_metadata?.role || user.user_metadata?.role || 'student'
+    
+    // Security Breach Fix: Redirect if user tries to access a portal that doesn't match their role
+    if (request.nextUrl.pathname.startsWith('/admin') && role !== 'admin') {
+      return NextResponse.redirect(new URL(`/${role}`, request.url))
+    }
+    if (request.nextUrl.pathname.startsWith('/teacher') && role !== 'teacher') {
+      return NextResponse.redirect(new URL(`/${role}`, request.url))
+    }
+    if (request.nextUrl.pathname.startsWith('/student') && role !== 'student') {
+      return NextResponse.redirect(new URL(`/${role}`, request.url))
     }
 
-    if (role) {
-      if (path.startsWith('/admin') && role !== 'admin') {
-        return NextResponse.redirect(new URL(`/auth/login?role=admin&error=role_mismatch&from=${role}`, request.url))
+    // Onboarding Enforcement for Students
+    if (role === 'student' && !request.nextUrl.pathname.startsWith('/student/onboarding')) {
+      const isOnboarded = user.user_metadata?.onboarded === true
+      if (!isOnboarded) {
+        return NextResponse.redirect(new URL('/student/onboarding', request.url))
       }
-      if (path.startsWith('/teacher') && role !== 'teacher') {
-        return NextResponse.redirect(new URL(`/auth/login?role=teacher&error=role_mismatch&from=${role}`, request.url))
-      }
-      if (path.startsWith('/student') && role !== 'student') {
-        return NextResponse.redirect(new URL(`/auth/login?role=student&error=role_mismatch&from=${role}`, request.url))
-      }
-      if (path.startsWith('/parent') && role !== 'parent') {
-        return NextResponse.redirect(new URL(`/auth/login?role=parent&error=role_mismatch&from=${role}`, request.url))
-      }
-
-      // Redirect logged-in users away from auth pages
-      if (path.startsWith('/auth')) {
-        const from = request.nextUrl.searchParams.get('from')
-        const destination = from ? decodeURIComponent(from) : `/${role}`
-        return NextResponse.redirect(new URL(destination, request.url))
-      }
+    }
+    
+    // Redirect if trying to access auth pages while logged in
+    if (isAuthPage) {
+      return NextResponse.redirect(new URL(`/${role}`, request.url))
     }
   }
 
-  return supabaseResponse
+  return response
 }
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|manifest.json|icon.*|test-connection|.*\\.(?:svg|png|jpg|jpeg|gif|webp|map|mjs|json)$).*)',
+    /*
+     * Match all request paths except for the ones starting with:
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     * - public (public items like logo.png)
+     * - api/auth (auth api routes)
+     */
+    '/((?!_next/static|_next/image|favicon.ico|api/auth|public|logo.png|manifest.json|sw.js).*)',
   ],
 }

@@ -59,7 +59,7 @@ export default function WorksheetAnalyticsPage() {
       const avg = count > 0 ? (totalAwarded / (count * b.marks)) * 100 : 0
       return {
         name: `Q${i + 1}`,
-        full: b.question.slice(0, 30) + '...',
+        full: (b.question || 'Untitled Question').slice(0, 30) + '...',
         average: Math.round(avg),
         marks: b.marks
       }

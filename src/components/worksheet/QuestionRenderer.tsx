@@ -32,7 +32,7 @@ const lightPaperStyle = {
 export function QuestionRenderer({ block, index, answer, onChange, readOnly, showCorrect }: QuestionRendererProps) {
   
   // Helper to render text with KaTeX support
-  const renderTextWithMath = (text: string) => {
+  const renderTextWithMath = (text: string | undefined) => {
     if (!text) return null
     // Split by $ or $$
     const parts = text.split(/(\$\$[\s\S]*?\$\$|\$[\s\S]*?\$)/g)
@@ -61,12 +61,24 @@ export function QuestionRenderer({ block, index, answer, onChange, readOnly, sho
            <DrawIcon size={12} className="text-slate-400" />
            <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Diagram / Illustration</span>
         </div>
-        {/* No fixed height — canvas auto-sizes to its content */}
         <AnnotationCanvas
           key={`diagram-render-${block.id}`}
           backgroundJson={block.diagram_json}
           onSave={() => {}}
           readOnly={true}
+        />
+      </div>
+    )
+  }
+
+  const renderQuestionImage = () => {
+    if (!block.image_url) return null
+    return (
+      <div className="my-4 rounded-2xl overflow-hidden border border-slate-100 bg-white shadow-sm flex items-center justify-center p-2 bg-slate-50/30">
+        <img 
+          src={block.image_url} 
+          alt={`Visual prompt for question ${index}`}
+          className="max-w-full max-h-[400px] object-contain rounded-xl shadow-sm"
         />
       </div>
     )
@@ -431,6 +443,7 @@ export function QuestionRenderer({ block, index, answer, onChange, readOnly, sho
             <div className="text-sm font-medium leading-relaxed break-words overflow-hidden" style={{ color: 'var(--text)' }}>
               {renderTextWithMath(block.question)}
             </div>
+            {renderQuestionImage()}
             {renderTeacherDiagram()}
             {block.topic && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full mt-1 inline-block" style={{ background: 'var(--input)', color: 'var(--text-muted)' }}>{block.topic}</span>}
           </div>

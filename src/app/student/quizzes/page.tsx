@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { 
   SearchIcon, ArrowRight, Trophy, Target, BrainCircuit, Clock, Play, Zap, CheckCircle2
@@ -20,74 +21,67 @@ export default function StudentQuizzes() {
   const supabase = getSupabaseBrowserClient()
   const { student, profile } = useAuthStore()
   
-  const [loading, setLoading] = useState(true)
-  const [quizzes, setQuizzes] = useState<any[]>([])
-  const [attempts, setAttempts] = useState<Record<string, any>>({})
   const [search, setSearch] = useState('')
 
-  useEffect(() => {
-    if (student) loadData()
-  }, [student])
+  const fetchQuizzes = async () => {
+    if (!student) return { quizzes: [], attempts: {} }
 
-  const loadData = async () => {
-    if (!student) return
-    setLoading(true)
-    try {
-      // 1. Fetch student's registered subjects
-      const { data: subData } = await supabase
-        .from('student_subjects')
-        .select('subject_id')
-        .eq('student_id', student.id)
-      
-      const subjectIds = subData?.map(s => s.subject_id) || []
+    const { data: subData } = await supabase
+      .from('student_subjects')
+      .select('subject_id')
+      .eq('student_id', student.id)
+    const subjectIds = subData?.map((s: any) => s.subject_id) || []
 
-      // Debugging logs
-      console.log('Quiz Arena Debug Info:', { studentId: student.id, classId: student.class_id })
+    const [allRes, classRes, aRes] = await Promise.all([
+      supabase.from('quizzes')
+        .select('id, title, created_at, audience, class_id')
+        .eq('audience', 'all_classes')
+        .eq('is_published', true)
+        .or(`publish_at.is.null,publish_at.lte.${new Date().toISOString()}`)
+        .or(`tuition_center_id.eq.${student.tuition_center_id},tuition_center_id.is.null`),
+      student.class_id
+        ? supabase.from('quizzes')
+            .select('id, title, created_at, audience, class_id')
+            .in('audience', ['class', 'class_subject'])
+            .eq('class_id', student.class_id)
+            .eq('is_published', true)
+            .or(`publish_at.is.null,publish_at.lte.${new Date().toISOString()}`)
+            .or(`tuition_center_id.eq.${student.tuition_center_id},tuition_center_id.is.null`)
+        : Promise.resolve({ data: [], error: null }),
+      supabase.from('quiz_attempts').select('*').eq('student_id', student.id)
+    ])
 
-      // 2. Fetch quizzes & attempts
-      const [allRes, classRes, aRes] = await Promise.all([
-        supabase
-          .from('quizzes')
-          .select('id, title, created_at, audience, class_id')
-          .eq('audience', 'all_classes')
-          .eq('is_published', true)
-          .or(`publish_at.is.null,publish_at.lte.${new Date().toISOString()}`)
-          .or(`tuition_center_id.eq.${student.tuition_center_id},tuition_center_id.is.null`),
-        student.class_id ? supabase
-          .from('quizzes')
-          .select('id, title, created_at, audience, class_id')
-          .in('audience', ['class', 'class_subject'])
-          .eq('class_id', student.class_id)
-          .eq('is_published', true)
-          .or(`publish_at.is.null,publish_at.lte.${new Date().toISOString()}`)
-          .or(`tuition_center_id.eq.${student.tuition_center_id},tuition_center_id.is.null`) : Promise.resolve({ data: [], error: null }),
-        supabase
-          .from('quiz_attempts')
-          .select('*')
-          .eq('student_id', student.id)
-      ])
-      
-      const matchedIds = [...(allRes.data || []), ...(classRes.data || [])].map(q => q.id)
-      if (matchedIds.length > 0) {
-         const { data: finalData } = await supabase
-            .from('quizzes')
-            .select('*, subject:subjects(name), teacher:teachers(full_name)')
-            .in('id', matchedIds)
-            .order('created_at', { ascending: false })
-         setQuizzes(finalData || [])
-      } else {
-         setQuizzes([])
-      }
-      const attMap = (aRes.data ?? []).reduce((acc, a) => {
-        if (!acc[a.quiz_id]) acc[a.quiz_id] = []
-        acc[a.quiz_id].push(a)
-        return acc
-      }, {} as Record<string, any[]>)
-      setAttempts(attMap)
-    } finally {
-      setLoading(false)
+    const matchedIds = [...(allRes.data || []), ...(classRes.data || [])].map((q: any) => q.id)
+    let quizzes: any[] = []
+    if (matchedIds.length > 0) {
+      const { data: finalData } = await supabase
+        .from('quizzes')
+        .select('*, subject:subjects(name), teacher:teachers(full_name)')
+        .in('id', matchedIds)
+        .order('created_at', { ascending: false })
+      quizzes = finalData || []
     }
+
+    const attempts = (aRes.data ?? []).reduce((acc: Record<string, any[]>, a: any) => {
+      if (!acc[a.quiz_id]) acc[a.quiz_id] = []
+      acc[a.quiz_id].push(a)
+      return acc
+    }, {})
+
+    return { quizzes, attempts }
   }
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['student-quizzes', student?.id, student?.class_id],
+    queryFn: fetchQuizzes,
+    enabled: !!student?.id,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+  })
+
+  const quizzes = data?.quizzes ?? []
+  const attempts = data?.attempts ?? {}
+  const loading = isLoading && !data
 
   const filtered = quizzes.filter(q => 
     q.title.toLowerCase().includes(search.toLowerCase()) || 

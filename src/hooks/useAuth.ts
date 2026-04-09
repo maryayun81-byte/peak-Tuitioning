@@ -14,10 +14,10 @@ const loadingMap = new Map<string, Promise<void>>()
 export function useAuth() {
   const router = useRouter()
   const supabase = getSupabaseBrowserClient()
-  const { profile, student, teacher, parent, setProfile, setStudent, setTeacher, setParent, setLoading, reset } = useAuthStore()
+  const { profile, student, teacher, parent, setProfile, setStudent, setTeacher, setParent, setLoading, setRevalidationComplete, reset } = useAuthStore()
   const { setTheme } = useThemeStore()
 
-  const loadUserData = useCallback(async (userId: string, isSilent = false) => {
+  const loadUserData = useCallback(async (userId: string, isSilent = false, sessionRole?: string) => {
     // If a load is already in progress for this user, join it instead of starting a new one
     if (loadingMap.has(userId)) {
       console.log(`[useAuth] Joining existing load for ${userId}`)
@@ -39,10 +39,7 @@ export function useAuth() {
       }, 10000) : null
 
       try {
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession()
-        if (sessionError) throw sessionError
-
-        const metadataRole = session?.user?.user_metadata?.role || session?.user?.app_metadata?.role
+        const metadataRole = sessionRole
         
         if (metadataRole && !hasProfile) {
           setProfile({ id: userId, role: metadataRole, full_name: 'User' } as Profile)
@@ -56,7 +53,9 @@ export function useAuth() {
         
         if (profileError || !profileData) {
           if (profileError) console.error('[useAuth] Profile fetch error:', profileError)
-          if (!metadataRole && !hasProfile) reset()
+          // If we have a metadata role but profiles fetch failed, don't reset yet
+          // unless we have no profile at all.
+          if (!sessionRole && !hasProfile) reset()
           return
         }
 
@@ -99,6 +98,7 @@ export function useAuth() {
       } finally {
         if (timeout) clearTimeout(timeout)
         setLoading(false)
+        setRevalidationComplete(true)
         loadingMap.delete(userId)
       }
     })()

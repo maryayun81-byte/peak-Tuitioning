@@ -17,6 +17,7 @@ import { Avatar } from '@/components/ui/Avatar'
 import Link from 'next/link'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { TermsEnforcementModal } from '@/components/teacher/TermsEnforcementModal'
+import { PageErrorBoundary } from '@/components/ui/PageErrorBoundary'
 
 import { useNotificationStore } from '@/stores/notificationStore'
 import { useRealtimeNotifications } from '@/hooks/useRealtimeNotifications'
@@ -52,7 +53,7 @@ const LogoComponent = (
 )
 
 export default function TeacherLayout({ children }: { children: React.ReactNode }) {
-  const { profile, teacher, isLoading, setProfile } = useAuthStore()
+  const { profile, teacher, isLoading, isInitialRevalidationComplete, setProfile } = useAuthStore()
   const { unreadCount } = useNotificationStore()
   useRealtimeNotifications()
   const { signOut } = useAuth()
@@ -100,8 +101,9 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
       return
     }
     // Only redirect to onboarding if BOTH profile and teacher agree the teacher hasn't onboarded
+    // CRITICAL: We wait for isInitialRevalidationComplete to ensure we aren't using stale persisted data
     const teacherHasOnboarded = teacher?.onboarded === true || profile?.has_onboarded === true
-    if (!isLoading && profile && profile.role === 'teacher' && !teacherHasOnboarded && pathname !== '/teacher/onboarding') {
+    if (isInitialRevalidationComplete && profile && profile.role === 'teacher' && !teacherHasOnboarded && pathname !== '/teacher/onboarding') {
        console.log('[TeacherLayout] Redirecting to onboarding...')
        router.push('/teacher/onboarding')
     }
@@ -161,7 +163,9 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
         {/* Main Content */}
         <div className="md:ml-[260px]">
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
-            {children}
+            <PageErrorBoundary>
+              {children}
+            </PageErrorBoundary>
           </motion.div>
         </div>
       </main>

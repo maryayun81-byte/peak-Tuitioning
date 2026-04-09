@@ -20,6 +20,8 @@ import { FileUploadZone } from '@/components/worksheet/FileUploadZone'
 import toast from 'react-hot-toast'
 import type { WorksheetBlock, QuestionType } from '@/types/database'
 import Link from 'next/link'
+import { useAutoSave } from '@/hooks/useAutoSave'
+import { DraftBanner } from '@/components/ui/DraftBanner'
 
 export default function NewWorksheetPage() {
   const router = useRouter()
@@ -44,6 +46,7 @@ export default function NewWorksheetPage() {
   // Document upload state
   const [attachmentUrl, setAttachmentUrl] = useState<string | null>(null)
   const [responseMode, setResponseMode] = useState<'draw' | 'type' | 'both'>('draw')
+  const [isWorkbook, setIsWorkbook] = useState(false)
 
   // UI state
   const [typeSheetOpen, setTypeSheetOpen] = useState(false)
@@ -62,6 +65,34 @@ export default function NewWorksheetPage() {
   const [audienceCenterFilter, setAudienceCenterFilter] = useState('')
   const [audienceClassFilter, setAudienceClassFilter] = useState('')
   const [audienceStudents, setAudienceStudents] = useState<any[]>([])
+
+  // Auto-save integration
+  const formData = useMemo(() => ({
+    title, classId, subjectId, centerId, dueDate, passage, passageType,
+    showTimer, timeLimit, shuffleQ, blocks, attachmentUrl, responseMode,
+    audience, selectedStudentIds, isWorkbook
+  }), [title, classId, subjectId, centerId, dueDate, passage, passageType, showTimer, timeLimit, shuffleQ, blocks, attachmentUrl, responseMode, audience, selectedStudentIds, isWorkbook])
+
+  const { hasSavedDraft, restore, clear, draftAge } = useAutoSave('new_assignment', formData, (saved) => {
+    // This callback is for manual restoration
+    setTitle(saved.title)
+    setClassId(saved.classId)
+    setSubjectId(saved.subjectId)
+    setCenterId(saved.centerId)
+    setDueDate(saved.dueDate)
+    setPassage(saved.passage)
+    setPassageType(saved.passageType)
+    setShowTimer(saved.showTimer)
+    setTimeLimit(saved.timeLimit)
+    setShuffleQ(saved.shuffleQ)
+    setBlocks(saved.blocks)
+    setAttachmentUrl(saved.attachmentUrl)
+    setResponseMode(saved.responseMode)
+    setAudience(saved.audience)
+    setSelectedStudentIds(saved.selectedStudentIds)
+    setIsWorkbook(saved.isWorkbook ?? false)
+    toast.success('Draft restored!')
+  })
 
   useEffect(() => { loadMeta() }, [])
 
@@ -234,6 +265,7 @@ export default function NewWorksheetPage() {
       content: JSON.stringify(blocks),
       audience: audience === 'students' ? 'selected_students' : 'class',
       selected_student_ids: audience === 'students' ? selectedStudentIds : [],
+      is_workbook: isWorkbook,
     })
 
     if (error) {
@@ -241,6 +273,7 @@ export default function NewWorksheetPage() {
       toast.error('Failed to save: ' + error.message)
     } else {
       toast.success(status === 'published' ? '🎉 Worksheet published!' : '✅ Draft saved!')
+      clear() // Clear auto-save draft on successful save
       router.push('/teacher/assignments')
     }
     setSaving(false)
@@ -251,7 +284,7 @@ export default function NewWorksheetPage() {
   const selectedSubject = derivedSubjects.find(s => s.id === subjectId)
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg)' }}>
+    <div className="h-screen flex flex-col" style={{ background: 'var(--bg)' }}>
       {/* Top Bar */}
       <div
         className="sticky top-0 z-30 flex items-center justify-between gap-4 px-4 md:px-6 py-3"
@@ -343,6 +376,40 @@ export default function NewWorksheetPage() {
               value={title}
               onChange={e => setTitle(e.target.value)}
             />
+
+            {/* Draft Restore Notification */}
+            {hasSavedDraft && (
+              <DraftBanner
+                label="assignment"
+                draftAge={draftAge}
+                onRestore={restore}
+                onDiscard={() => { clear(); toast('Draft discarded', { icon: '🗑️' }) }}
+              />
+            )}
+
+            {/* Workbook Mode Toggle */}
+            <div className="p-4 rounded-2xl border-2 transition-all flex items-center justify-between"
+                 style={{ 
+                   borderColor: isWorkbook ? 'var(--primary)' : 'var(--card-border)',
+                   background: isWorkbook ? 'var(--primary-dim)' : 'transparent'
+                 }}>
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isWorkbook ? 'bg-primary text-white' : 'bg-input text-muted'}`}>
+                  <BookOpen size={20} />
+                </div>
+                <div>
+                  <div className="text-sm font-black" style={{ color: 'var(--text)' }}>Physical Workbook Mode</div>
+                  <div className="text-[10px] uppercase font-bold text-muted">Student submits a photo of their book</div>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsWorkbook(!isWorkbook)}
+                className={`w-12 h-6 rounded-full relative transition-colors ${isWorkbook ? 'bg-primary' : 'bg-slate-200'}`}
+              >
+                <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${isWorkbook ? 'left-7' : 'left-1'}`} />
+              </button>
+            </div>
+
             <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
               <Select label="Tuition Center/Scope *" value={centerId} onChange={e => { setCenterId(e.target.value); setClassId(''); setSubjectId('') }}>
                 <option value="">Select Center Scope</option>

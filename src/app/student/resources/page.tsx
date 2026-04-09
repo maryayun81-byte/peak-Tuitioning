@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, Suspense, useMemo } from 'react'
+import { useState, Suspense, useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
   Library, BookOpen, FileText, Video, 
@@ -28,54 +29,35 @@ function ResourcesContent() {
   const searchParams = useSearchParams()
   const initialSubject = searchParams.get('subjectId')
   
-  const [loading, setLoading] = useState(true)
-  const [resources, setResources] = useState<any[]>([])
-  const [subjects, setSubjects] = useState<any[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedSubject, setSelectedSubject] = useState<string>(initialSubject || 'all')
   const [activeType, setActiveType] = useState<ResourceType>('all')
-  
-  // Video Modal State
   const [activeVideo, setActiveVideo] = useState<any>(null)
 
-  useEffect(() => {
-    if (initialSubject) setSelectedSubject(initialSubject)
-  }, [initialSubject])
-
-  useEffect(() => {
-    if (student) {
-      loadInitialData()
-    }
-  }, [student])
-
-  const loadInitialData = async () => {
-    if (!student) return
-    setLoading(true)
-    try {
-      // 1. Fetch Student's Subjects for filtering
-      const { data: sData } = await supabase
-        .from('student_subjects')
-        .select('subject:subjects(*)')
-        .eq('student_id', student.id)
-      
-      const uniqueSubjects = Array.from(new Set((sData || []).map(s => s.subject))).filter(Boolean)
-      setSubjects(uniqueSubjects)
-
-      // 2. Fetch Resources: rely on RLS for secure filtering, use simplified .or for efficiency
-      const { data: rData, error } = await supabase
-        .from('resources')
+  const fetchResources = async () => {
+    if (!student) return { resources: [], subjects: [] }
+    const [sRes, rRes] = await Promise.all([
+      supabase.from('student_subjects').select('subject:subjects(*)').eq('student_id', student.id),
+      supabase.from('resources')
         .select('*, subject:subjects(name), teacher:teachers(full_name)')
         .or(`class_id.eq.${student.class_id},class_ids.cs.{${student.class_id}},student_ids.cs.{${student.id}},audience.in.("public","broadcast")`)
         .order('created_at', { ascending: false })
-      
-      if (error) throw error
-      setResources(rData || [])
-    } catch (err) {
-      console.error('Error loading resources:', err)
-    } finally {
-      setLoading(false)
-    }
+    ])
+    const subjects = Array.from(new Set((sRes.data || []).map((s: any) => s.subject))).filter(Boolean)
+    return { resources: rRes.data || [], subjects }
   }
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['student-resources', student?.id, student?.class_id],
+    queryFn: fetchResources,
+    enabled: !!student?.id,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+  })
+
+  const resources = data?.resources ?? []
+  const subjects = data?.subjects ?? []
+  const loading = isLoading && !data
 
   const filteredResources = useMemo(() => {
     return resources.filter(r => {

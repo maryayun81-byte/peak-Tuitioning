@@ -4,6 +4,7 @@ import { QueryProvider } from '@/providers/QueryProvider'
 import { ThemeProvider } from '@/providers/ThemeProvider'
 import { AuthHandler } from '@/components/AuthHandler'
 import { PWAHandler } from '@/components/PWAHandler'
+import { NavigationProgress } from '@/components/ui/NavigationProgress'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -79,6 +80,7 @@ export default function RootLayout({
       <body>
         <QueryProvider>
           <ThemeProvider>
+            <NavigationProgress />
             <AuthHandler />
             <PWAHandler />
             {children}

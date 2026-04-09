@@ -19,6 +19,7 @@ import { renderPdfToImages } from '@/lib/pdf-renderer'
 import toast from 'react-hot-toast'
 import type { WorksheetBlock, WorksheetAnswers, Student } from '@/types/database'
 import Link from 'next/link'
+import { FileUploadZone } from '@/components/worksheet/FileUploadZone'
 
 const AUTOSAVE_MS = 4000
 
@@ -181,6 +182,13 @@ export default function StudentWorksheetSolver() {
   }
 
   const handleSubmit = async () => {
+    // Workbook guard — must have a photo before submitting
+    if (assignment?.is_workbook && !answers.__workbook_photo__) {
+      toast.error('Please upload a photo of your workbook before submitting.')
+      setConfirmOpen(false)
+      return
+    }
+
     setSubmitting(true)
     setConfirmOpen(false)
     await saveLocally(answers)
@@ -247,23 +255,25 @@ export default function StudentWorksheetSolver() {
     router.push('/student/assignments')
   }
 
-  // Paginate: only real questions (skip section_header, reading_passage)
   const isDocumentAssignment = !!assignment?.attachment_url
+  const isWorkbook = !!assignment?.is_workbook
   const questionBlocks = blocks.filter(b => b.type !== 'section_header' && b.type !== 'reading_passage')
   const passageBlocks = blocks.filter(b => b.type === 'reading_passage')
   const sectionHeaders = blocks.filter(b => b.type === 'section_header')
-  const totalPages = isDocumentAssignment ? 1 : Math.ceil(questionBlocks.length / QUESTIONS_PER_PAGE)
-  const pageBlocks = isDocumentAssignment ? [] : questionBlocks.slice(currentPage * QUESTIONS_PER_PAGE, (currentPage + 1) * QUESTIONS_PER_PAGE)
+  const totalPages = (isDocumentAssignment || isWorkbook) ? 1 : Math.ceil(questionBlocks.length / QUESTIONS_PER_PAGE)
+  const pageBlocks = (isDocumentAssignment || isWorkbook) ? [] : questionBlocks.slice(currentPage * QUESTIONS_PER_PAGE, (currentPage + 1) * QUESTIONS_PER_PAGE)
 
-  const answeredCount = isDocumentAssignment 
-    ? (answers.__annotation__ ? 1 : 0)
-    : questionBlocks.filter(b => {
-        const a = answers[b.id]
-        if (a === null || a === undefined) return false
-        if (typeof a === 'string') return a.trim().length > 0
-        if (Array.isArray(a)) return a.length > 0
-        return false
-      }).length
+  const answeredCount = isWorkbook
+    ? (answers.__workbook_photo__ ? 1 : 0)
+    : isDocumentAssignment
+      ? (answers.__annotation__ ? 1 : 0)
+      : questionBlocks.filter(b => {
+          const a = answers[b.id]
+          if (a === null || a === undefined) return false
+          if (typeof a === 'string') return a.trim().length > 0
+          if (Array.isArray(a)) return a.length > 0
+          return false
+        }).length
 
   // Find the question index in the full list for display
   const getQuestionNumber = (blockId: string) => questionBlocks.findIndex(b => b.id === blockId) + 1
@@ -281,7 +291,7 @@ export default function StudentWorksheetSolver() {
   )
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg)' }}>
+    <div className="h-screen flex flex-col" style={{ background: 'var(--bg)' }}>
       {/* Sticky header */}
       <div className="sticky top-0 z-30 px-4 md:px-6 py-3 flex items-center justify-between gap-3" style={{ background: 'var(--card)', borderBottom: '1px solid var(--card-border)', backdropFilter: 'blur(12px)' }}>
         <div className="flex items-center gap-3">
@@ -458,8 +468,94 @@ export default function StudentWorksheetSolver() {
                })}
             </div>
 
+            {/* Workbook Submission — Photo Upload */}
+            {isWorkbook && !resultMode && (
+               <Card className="p-6 space-y-4 border-2" style={{ background: 'var(--primary-dim)', borderColor: 'var(--primary)', borderStyle: 'dashed' }}>
+                  <div className="flex items-center justify-between">
+                     <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white" style={{ background: 'var(--primary)' }}>
+                           <BookOpen size={20} />
+                        </div>
+                        <div>
+                           <h3 className="text-sm font-black" style={{ color: 'var(--text)' }}>Upload Workbook Photo</h3>
+                           <p className="text-[10px] uppercase font-bold" style={{ color: 'var(--text-muted)' }}>Take a clear photo of your completed work</p>
+                        </div>
+                     </div>
+                     {answers.__workbook_photo__ && (
+                        <button
+                           onClick={() => updateAnswer('__workbook_photo__', null)}
+                           className="text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-xl transition-all"
+                           style={{ background: 'var(--input)', color: 'var(--text-muted)', border: '1px solid var(--card-border)' }}
+                        >
+                           Re-take Photo
+                        </button>
+                     )}
+                  </div>
+
+                  {/* Show preview if uploaded */}
+                  {answers.__workbook_photo__ ? (
+                     <div className="relative rounded-2xl overflow-hidden border-2" style={{ borderColor: 'var(--primary)' }}>
+                        <img
+                           src={answers.__workbook_photo__ as string}
+                           alt="Your workbook"
+                           className="w-full max-h-80 object-contain rounded-xl"
+                           style={{ background: 'var(--input)' }}
+                        />
+                        <div className="absolute bottom-3 left-3 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-white" style={{ background: 'var(--primary)' }}>
+                           ✓ Photo Ready to Submit
+                        </div>
+                     </div>
+                  ) : (
+                     <FileUploadZone
+                        value={null}
+                        onChange={url => updateAnswer('__workbook_photo__', url)}
+                        bucket="assignment-uploads"
+                        captureCamera={true}
+                     />
+                  )}
+               </Card>
+            )}
+
+               {/* Workbook Result Mode — show photo + teacher annotations */}
+               {isWorkbook && resultMode && (
+                  <div className="space-y-4">
+                     <div className="flex items-center gap-3 px-1">
+                        <BookOpen size={16} style={{ color: 'var(--primary)' }} />
+                        <span className="text-xs font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Your Marked Workbook</span>
+                     </div>
+                     {answers.__workbook_photo__ ? (
+                        <Card className="p-0 overflow-hidden border-4 border-white shadow-2xl rounded-[2.5rem] bg-white">
+                           <AnnotationCanvas
+                              backgroundImageUrl={answers.__workbook_photo__ as string}
+                              initialJson={(() => {
+                                 try {
+                                    const ann = typeof returnedSub?.annotations === 'string'
+                                       ? JSON.parse(returnedSub.annotations)
+                                       : (returnedSub?.annotations ?? {})
+                                    return ann['doc_0'] || ann['0'] || undefined
+                                 } catch { return undefined }
+                              })()}
+                              readOnly={true}
+                              onSave={() => {}}
+                              defaultColor="#EF4444"
+                           />
+                        </Card>
+                     ) : (
+                        <Card className="p-8 text-center">
+                           <p className="text-sm" style={{ color: 'var(--text-muted)' }}>No workbook photo found in this submission.</p>
+                        </Card>
+                     )}
+                     {returnedSub?.feedback && (
+                        <Card className="p-5 border-l-4 border-l-primary">
+                           <span className="text-[10px] font-black uppercase tracking-widest text-primary mb-2 block">Teacher Feedback</span>
+                           <p className="text-sm italic leading-relaxed" style={{ color: 'var(--text)' }}>"{returnedSub.feedback}"</p>
+                        </Card>
+                     )}
+                  </div>
+               )}
+
             {/* Main Worksheet Display */}
-            <div className={resultMode || isDocumentAssignment ? 'grid grid-cols-1 gap-6' : 'space-y-4'}>
+            <div className={(resultMode || isDocumentAssignment || isWorkbook) ? 'grid grid-cols-1 gap-6' : 'space-y-4'}>
                {/* Document Assignment View */}
                {isDocumentAssignment && (
                   <div className="space-y-6">
@@ -542,8 +638,8 @@ export default function StudentWorksheetSolver() {
                   </div>
                )}
 
-               {/* Question Side (Traditional Block Assignment) */}
-               {!isDocumentAssignment && (
+               {/* Question Side — Traditional blocks only (no attachment, no workbook) */}
+               {!isDocumentAssignment && !isWorkbook && (
                   <div className="space-y-4">
                      <AnimatePresence mode="wait">
                         <motion.div
@@ -577,7 +673,7 @@ export default function StudentWorksheetSolver() {
                )}
 
                {/* Annotation Side (Result Mode Only - Traditional Blocks) */}
-               {!isDocumentAssignment && resultMode && (
+               {!isDocumentAssignment && !isWorkbook && resultMode && (
                   <div className="space-y-4">
                      <div className="text-xs font-black uppercase tracking-widest text-muted">Teacher Annotations</div>
                      {pageBlocks.map(block => {
@@ -629,21 +725,50 @@ export default function StudentWorksheetSolver() {
       </div>
 
       {/* Confirmation Modal */}
-      <Modal isOpen={confirmOpen} onClose={() => setConfirmOpen(false)} title="Submit Worksheet?" size="sm">
+      <Modal isOpen={confirmOpen} onClose={() => setConfirmOpen(false)} title={isWorkbook ? 'Submit Workbook?' : 'Submit Worksheet?'} size="sm">
         <div className="space-y-4 py-2">
-          <div className="p-4 rounded-2xl text-center" style={{ background: 'var(--input)' }}>
-            <div className="text-3xl font-black" style={{ color: 'var(--primary)' }}>{answeredCount}</div>
-            <div className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>of {questionBlocks.length} questions answered</div>
-          </div>
-          {answeredCount < questionBlocks.length && (
-            <div className="flex items-center gap-2 p-3 rounded-xl" style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)' }}>
-              <AlertCircle size={16} className="text-amber-500 shrink-0" />
-              <p className="text-xs" style={{ color: '#F59E0B' }}>You have {questionBlocks.length - answeredCount} unanswered questions.</p>
-            </div>
+          {isWorkbook ? (
+            // Workbook-specific confirmation
+            <>
+              {answers.__workbook_photo__ ? (
+                <div className="rounded-2xl overflow-hidden border-2" style={{ borderColor: 'var(--primary)' }}>
+                  <img src={answers.__workbook_photo__ as string} alt="Workbook" className="w-full max-h-48 object-contain" style={{ background: 'var(--input)' }} />
+                  <div className="p-3 text-center">
+                    <span className="text-xs font-black text-emerald-500">✓ Workbook photo attached and ready</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 p-4 rounded-2xl" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                  <AlertCircle size={18} className="text-red-500 shrink-0" />
+                  <p className="text-xs font-bold" style={{ color: '#EF4444' }}>No workbook photo uploaded. Please go back and take a photo first.</p>
+                </div>
+              )}
+            </>
+          ) : (
+            // Traditional assignment confirmation
+            <>
+              <div className="p-4 rounded-2xl text-center" style={{ background: 'var(--input)' }}>
+                <div className="text-3xl font-black" style={{ color: 'var(--primary)' }}>{answeredCount}</div>
+                <div className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>of {questionBlocks.length} questions answered</div>
+              </div>
+              {answeredCount < questionBlocks.length && (
+                <div className="flex items-center gap-2 p-3 rounded-xl" style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)' }}>
+                  <AlertCircle size={16} className="text-amber-500 shrink-0" />
+                  <p className="text-xs" style={{ color: '#F59E0B' }}>You have {questionBlocks.length - answeredCount} unanswered questions.</p>
+                </div>
+              )}
+            </>
           )}
           <div className="flex gap-2">
              <Button variant="secondary" className="flex-1" onClick={() => setConfirmOpen(false)}>Review</Button>
-             <Button className="flex-1" onClick={handleSubmit} isLoading={submitting}>Confirm Submit</Button>
+             <Button
+               className="flex-1"
+               onClick={handleSubmit}
+               isLoading={submitting}
+               disabled={isWorkbook && !answers.__workbook_photo__}
+             >
+               {isWorkbook ? '📓 Submit Workbook' : 'Confirm Submit'}
+             </Button>
           </div>
         </div>
       </Modal>

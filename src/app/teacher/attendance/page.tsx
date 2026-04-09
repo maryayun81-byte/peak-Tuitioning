@@ -25,7 +25,7 @@ import { Modal } from '@/components/ui/Modal'
 import { SkeletonList } from '@/components/ui/Skeleton'
 import { useAuthStore } from '@/stores/authStore'
 import toast from 'react-hot-toast'
-import { getEventWeeks, getCurrentWeekNumber, formatDate, calculateAttendancePercentage, type EventWeek } from '@/lib/utils'
+import { getEventWeeks, getCurrentWeekNumber, formatDate, calculateAttendancePercentage, getLocalISODate, type EventWeek } from '@/lib/utils'
 import type { TuitionEvent } from '@/types/database'
 
 const PAGE_SIZE = 15
@@ -65,7 +65,7 @@ export default function TeacherAttendance() {
   const [selectedCenterId, setSelectedCenterId] = useState('')
   const [selectedClassId, setSelectedClassId] = useState('')
   const [selectedWeekNum, setSelectedWeekNum] = useState(1)
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
+  const [selectedDate, setSelectedDate] = useState(getLocalISODate())
   const [search, setSearch] = useState('')
   const [allAssignments, setAllAssignments] = useState<any[]>([])
   const [centers, setCenters] = useState<{ id: string; name: string }[]>([])
@@ -138,7 +138,7 @@ export default function TeacherAttendance() {
     const primary = allAssignments.find(a => a.is_class_teacher)
     if (!primary) return
 
-    const today = new Date().toISOString().split('T')[0]
+    const today = getLocalISODate()
     const { data } = await supabase
       .from('attendance')
       .select('id')
@@ -201,7 +201,7 @@ export default function TeacherAttendance() {
       }
 
       // Auto-select "Current" event based on date range
-      const today = new Date().toISOString().split('T')[0]
+      const today = getLocalISODate()
       let bestEvent = events.find(e => today >= e.start_date && today <= e.end_date)
       
       if (!bestEvent) {
@@ -268,7 +268,7 @@ export default function TeacherAttendance() {
   // Update selected date when week changes
   useEffect(() => {
     if (!selectedWeek) return
-    const today = new Date().toISOString().split('T')[0]
+    const today = getLocalISODate()
     if (selectedWeek.activeDates.includes(today)) {
       setSelectedDate(today)
     } else if (selectedWeek.activeDates.length > 0) {
@@ -324,30 +324,36 @@ export default function TeacherAttendance() {
   const confirmSubmit = async () => {
     setSaving(true)
     setPreviewOpen(false)
-    const items = Object.entries(attendance).map(([studentId, data]) => ({
-      student_id: studentId,
-      tuition_event_id: selectedEventId,
-      class_id: selectedClassId,
-      tuition_center_id: selectedCenterId,
-      teacher_id: teacher?.id,
-      date: selectedDate,
-      week_number: selectedWeekNum,
-      status: data.status,
-      notes: data.notes,
-    }))
+    try {
+      const items = Object.entries(attendance).map(([studentId, data]) => ({
+        student_id: studentId,
+        tuition_event_id: selectedEventId,
+        class_id: selectedClassId,
+        tuition_center_id: selectedCenterId,
+        teacher_id: teacher?.id,
+        date: selectedDate,
+        week_number: selectedWeekNum,
+        status: data.status,
+        notes: data.notes,
+      }))
 
-    const { error } = await supabase.from('attendance').upsert(items, {
-      onConflict: 'student_id,tuition_event_id,date',
-    })
+      const { error } = await supabase.from('attendance').upsert(items, {
+        onConflict: 'student_id,tuition_event_id,date',
+      })
 
-    if (error) {
-      toast.error('Failed to save: ' + error.message)
-    } else {
-      toast.success('✅ Attendance saved successfully!')
-      setAlreadyMarked(true)
+      if (error) {
+        toast.error('Failed to save: ' + error.message)
+      } else {
+        toast.success('✅ Attendance saved successfully!')
+        setAlreadyMarked(true)
+        loadAllAttendance() // Refresh analytics
+      }
+    } catch (e: any) {
+      console.error('Attendance submission error:', e)
+      toast.error('An unexpected error occurred while saving attendance.')
+    } finally {
+      setSaving(false)
     }
-    setSaving(false)
-    loadAllAttendance() // Refresh analytics
   }
 
   const loadAllAttendance = async () => {
@@ -412,7 +418,7 @@ export default function TeacherAttendance() {
     if (allAttendance.length === 0) return { present: 0, absent: 0, late: 0, excused: 0, total: 0 }
     
     // For progress-aware: only count days up to today
-    const today = new Date().toISOString().split('T')[0]
+    const today = getLocalISODate()
     const relevantAttendance = allAttendance.filter(a => a.date <= today)
     
     return {
@@ -565,7 +571,7 @@ export default function TeacherAttendance() {
           >
             <option value="">Select Event</option>
             {tuitionEvents.map(e => {
-              const today = new Date().toISOString().split('T')[0]
+              const today = getLocalISODate()
               const isCurrent = today >= e.start_date && today <= e.end_date
               return (
                 <option key={e.id} value={e.id}>
@@ -665,7 +671,7 @@ export default function TeacherAttendance() {
         <>
       {/* Tab Content */}
       {activeTab === 'mark' ? (
-        selectedEvent && selectedEvent.start_date > new Date().toISOString().split('T')[0] ? (
+        selectedEvent && selectedEvent.start_date > getLocalISODate() ? (
           <div className="py-20 text-center space-y-3">
              <div className="w-16 h-16 rounded-full bg-amber-500/10 flex items-center justify-center mx-auto text-amber-500">
                 <Clock size={32} />

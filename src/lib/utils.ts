@@ -9,6 +9,12 @@ export function generateId(): string {
   return Math.random().toString(36).substring(2, 11) + Date.now().toString(36)
 }
 
+export function getLocalISODate(d: Date = new Date()): string {
+  const offset = d.getTimezoneOffset()
+  const local = new Date(d.getTime() - (offset * 60 * 1000))
+  return local.toISOString().split('T')[0]
+}
+
 export function formatDate(date: string | Date, format: 'short' | 'long' | 'time' | 'relative' = 'short') {
   const d = new Date(date)
   
@@ -165,7 +171,7 @@ export function getEventWeeks(
       day.setDate(day.getDate() + i)
       if (day > end) break
       if (day < start) continue
-      const iso = day.toISOString().split('T')[0]
+      const iso = getLocalISODate(day)
       const dayName = dayNames[day.getDay()]
       if ((activeDays || []).includes(dayName)) {
         if (holidaySet.has(iso)) {
@@ -209,10 +215,10 @@ export function getCurrentWeekNumber(
   holidayDates: string[] = []
 ): number {
   const weeks = getEventWeeks(startDate, endDate, activeDays, holidayDates)
-  const today = new Date().toISOString().split('T')[0]
+  const today = getLocalISODate()
   for (const w of weeks) {
-    const wEnd = w.endDate.toISOString().split('T')[0]
-    const wStart = w.startDate.toISOString().split('T')[0]
+    const wEnd = getLocalISODate(w.endDate)
+    const wStart = getLocalISODate(w.startDate)
     if (today >= wStart && today <= wEnd) return w.weekNumber
   }
   // If today is after event, return last week

@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, X, FileText, Image } from 'lucide-react'
+import { Upload, X, FileText, Image, Film, FileSpreadsheet, Presentation } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import toast from 'react-hot-toast'
 
@@ -12,127 +12,172 @@ interface FileUploadZoneProps {
   disabled?: boolean
   bucket?: string
   accept?: Record<string, string[]>
+  /** Allow Word, Excel, PowerPoint, CSV uploads in addition to PDF/images */
+  acceptDocs?: boolean
+  /** Max file size in MB (default 50) */
+  maxSizeMB?: number
+  /** Hint the OS to open camera on mobile (for workbook photo uploads) */
+  captureCamera?: boolean
 }
+
+// Derive a human-friendly label from a URL or filename
+function getFileLabel(url: string): { label: string; icon: React.ReactNode } {
+  const lower = url.toLowerCase()
+  if (lower.includes('.pdf'))  return { label: 'PDF Document', icon: <FileText size={22} /> }
+  if (lower.includes('.doc'))  return { label: 'Word Document', icon: <FileText size={22} /> }
+  if (lower.includes('.xls') || lower.includes('.csv')) return { label: 'Spreadsheet', icon: <FileSpreadsheet size={22} /> }
+  if (lower.includes('.ppt'))  return { label: 'Presentation', icon: <Presentation size={22} /> }
+  if (lower.match(/\.(mp4|mov|webm|avi)$/)) return { label: 'Video File', icon: <Film size={22} /> }
+  if (lower.match(/\.(png|jpg|jpeg|webp|gif)$/)) return { label: 'Image', icon: <Image size={22} /> }
+  return { label: 'Uploaded File', icon: <FileText size={22} /> }
+}
+
+const isImageUrl = (url: string) => /\.(png|jpg|jpeg|webp|gif)(\?|$)/i.test(url)
 
 export function FileUploadZone({ 
   value, 
   onChange, 
   disabled, 
   bucket = 'assignment-uploads',
-  accept
+  accept,
+  acceptDocs = false,
+  maxSizeMB = 50,
+  captureCamera = false,
 }: FileUploadZoneProps) {
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState(0)
   const supabase = getSupabaseBrowserClient()
+  // Ref to hold the simulated ticker so we can cancel it
+  const tickerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Simulated progress ticker — gives real UX feedback since Supabase JS SDK
+  // does NOT fire onUploadProgress (it's an XHR-only option, the SDK uses fetch).
+  const startTicker = () => {
+    let current = 0
+    tickerRef.current = setInterval(() => {
+      // Asymptotic approach to 90% — slows down as it gets closer
+      current += Math.max(0.5, (90 - current) * 0.07)
+      setProgress(Math.min(90, Math.round(current)))
+    }, 300)
+  }
+
+  const stopTicker = () => {
+    if (tickerRef.current) {
+      clearInterval(tickerRef.current)
+      tickerRef.current = null
+    }
+  }
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     const file = acceptedFiles[0]
     if (!file) return
 
+    // Client-side size validation
+    const fileSizeMB = file.size / (1024 * 1024)
+    if (fileSizeMB > maxSizeMB) {
+      toast.error(`File too large. Maximum size is ${maxSizeMB}MB (your file is ${fileSizeMB.toFixed(1)}MB).`)
+      return
+    }
+
     setUploading(true)
     setProgress(0)
-    console.log('[FileUpload] Starting upload for:', file.name, file.type, file.size)
+    startTicker()
+    console.log('[FileUpload] Starting upload:', file.name, file.type, `${fileSizeMB.toFixed(2)}MB`)
 
     try {
       const ext = file.name.split('.').pop()
       const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
-      console.log('[FileUpload] Generated filename:', filename)
 
       const { data, error } = await supabase.storage
         .from(bucket)
         .upload(filename, file, { 
-          contentType: file.type, 
+          contentType: file.type || 'application/octet-stream',
           upsert: false,
-          onUploadProgress: (ev: any) => {
-            if (!ev || !ev.total) {
-              console.log('[FileUpload] Progress: total expected but missing', ev)
-              return
-            }
-            const percent = (ev.loaded / ev.total) * 100
-            // If we're at 100% byte-wise, show 99% 'Finalising' until the promise resolves
-            const nextProgress = Math.min(99, Math.round(percent))
-            if (nextProgress !== progress) {
-              setProgress(nextProgress)
-            }
-          }
-        } as any)
+        })
+
+      stopTicker()
 
       if (error) {
-        console.error('[FileUpload] Supabase upload error:', error)
+        console.error('[FileUpload] Supabase error:', error)
         throw new Error(error.message || 'Upload failed')
       }
 
       // Snap to 100% on success
       setProgress(100)
-      console.log('[FileUpload] Upload success, data:', data)
+      console.log('[FileUpload] Success:', data.path)
 
       const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(data.path)
-      console.log('[FileUpload] Public URL generated:', urlData.publicUrl)
-
       onChange(urlData.publicUrl)
-      toast.success('File uploaded!')
+      toast.success('File uploaded successfully!')
 
-      // Wait a bit so user sees 100%, then hide progress
+      // Brief pause so user sees 100%, then hide spinner
       setTimeout(() => {
         setUploading(false)
         setProgress(0)
-      }, 800)
+      }, 700)
+
     } catch (err: any) {
-      console.error('[FileUpload] Catch block error:', err)
-      toast.error('Upload failed: ' + err.message + `. Check if your Supabase bucket "${bucket}" exists and is PUBLIC.`)
+      stopTicker()
+      console.error('[FileUpload] Error:', err)
+      toast.error(
+        `Upload failed: ${err.message}. ` +
+        `Ensure the Supabase bucket "${bucket}" exists and is set to PUBLIC.`
+      )
       setUploading(false)
       setProgress(0)
     }
-  }, [supabase, onChange, bucket])
+  }, [supabase, onChange, bucket, maxSizeMB])
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: accept || {
+  // Build the accepted MIME types map
+  const buildAccept = (): Record<string, string[]> => {
+    if (accept) return accept
+    const base: Record<string, string[]> = {
       'application/pdf': ['.pdf'],
       'image/png': ['.png'],
       'image/jpeg': ['.jpg', '.jpeg'],
       'image/webp': ['.webp'],
-    },
+      'image/gif': ['.gif'],
+    }
+    if (acceptDocs) {
+      base['application/msword'] = ['.doc']
+      base['application/vnd.openxmlformats-officedocument.wordprocessingml.document'] = ['.docx']
+      base['application/vnd.ms-excel'] = ['.xls']
+      base['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'] = ['.xlsx']
+      base['application/vnd.ms-powerpoint'] = ['.ppt']
+      base['application/vnd.openxmlformats-officedocument.presentationml.presentation'] = ['.pptx']
+      base['text/csv'] = ['.csv']
+    }
+    return base
+  }
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: buildAccept(),
     maxFiles: 1,
     disabled: disabled || uploading || !!value,
   })
 
+  // Build input props, adding capture="environment" for camera on mobile
+  const inputProps = getInputProps()
+  if (captureCamera) {
+    (inputProps as any).capture = 'environment'
+    ;(inputProps as any).accept = 'image/*'
+  }
+
   const remove = () => onChange(null)
 
-  const isPdf = value?.toLowerCase().includes('.pdf') || value?.toLowerCase().endsWith('pdf')
-
+  // ─── Uploaded State ───────────────────────────────────────────────────────
   if (value) {
+    const { label, icon } = getFileLabel(value)
+    const isImage = isImageUrl(value)
+
     return (
       <div className="relative rounded-2xl overflow-hidden border-2 border-dashed"
         style={{ borderColor: 'var(--primary)', background: 'var(--primary-dim)' }}>
-        {isPdf ? (
-          <div className="flex items-center gap-4 p-4">
-            <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
-              style={{ background: 'var(--primary)', color: 'white' }}>
-              <FileText size={22} />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-black truncate" style={{ color: 'var(--text)' }}>
-                PDF Document attached
-              </div>
-              <a href={value} target="_blank" rel="noreferrer"
-                className="text-xs underline opacity-70"
-                style={{ color: 'var(--primary)' }}>
-                Preview PDF
-              </a>
-            </div>
-            {!disabled && (
-              <button onClick={remove} className="p-2 rounded-xl transition-all hover:bg-red-500/10"
-                style={{ color: '#EF4444' }} title="Remove">
-                <X size={18} />
-              </button>
-            )}
-          </div>
-        ) : (
+        {isImage ? (
           <div className="relative">
-            {/* Image preview */}
-            <img src={value} alt="Uploaded document"
-              className="w-full max-h-64 object-contain rounded-xl"
+            <img src={value} alt="Uploaded file"
+              className="w-full max-h-72 object-contain rounded-xl"
               style={{ background: 'var(--input)' }} />
             {!disabled && (
               <button onClick={remove}
@@ -142,11 +187,35 @@ export function FileUploadZone({
               </button>
             )}
           </div>
+        ) : (
+          <div className="flex items-center gap-4 p-4">
+            <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
+              style={{ background: 'var(--primary)', color: 'white' }}>
+              {icon}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-black truncate" style={{ color: 'var(--text)' }}>
+                {label} attached
+              </div>
+              <a href={value} target="_blank" rel="noreferrer"
+                className="text-xs underline opacity-70"
+                style={{ color: 'var(--primary)' }}>
+                Open / Preview
+              </a>
+            </div>
+            {!disabled && (
+              <button onClick={remove} className="p-2 rounded-xl transition-all hover:bg-red-500/10"
+                style={{ color: '#EF4444' }} title="Remove">
+                <X size={18} />
+              </button>
+            )}
+          </div>
         )}
       </div>
     )
   }
 
+  // ─── Upload Zone ──────────────────────────────────────────────────────────
   return (
     <div
       {...getRootProps()}
@@ -154,59 +223,78 @@ export function FileUploadZone({
       style={{
         borderColor: isDragActive ? 'var(--primary)' : 'var(--card-border)',
         background: isDragActive ? 'var(--primary-dim)' : 'var(--input)',
+        opacity: (disabled && !uploading) ? 0.5 : 1,
+        cursor: disabled ? 'not-allowed' : 'pointer',
       }}
     >
-      <input {...getInputProps()} />
+      <input {...inputProps} />
+
       {uploading ? (
         <div className="flex flex-col items-center gap-4 py-2">
           {/* Animated upload icon */}
           <div className="relative w-12 h-12 flex items-center justify-center">
-            <div
-              className="absolute inset-0 rounded-2xl opacity-20 animate-pulse"
-              style={{ background: 'var(--primary)' }}
-            />
+            <div className="absolute inset-0 rounded-2xl opacity-20 animate-pulse"
+              style={{ background: 'var(--primary)' }} />
             <Upload size={22} style={{ color: 'var(--primary)' }} className="animate-bounce" />
           </div>
 
           <div className="w-full space-y-2">
             <div className="flex items-center justify-between text-xs">
               <span className="font-bold" style={{ color: 'var(--text)' }}>Uploading…</span>
-              <span className="font-black tabular-nums" style={{ color: 'var(--primary)' }}>{Math.round(progress)}%</span>
+              <span className="font-black tabular-nums" style={{ color: 'var(--primary)' }}>
+                {progress < 100 ? `${Math.round(progress)}%` : '✓ Done!'}
+              </span>
             </div>
 
-            {/* Progress bar track */}
+            {/* Progress bar */}
             <div className="w-full h-2 rounded-full overflow-hidden" style={{ background: 'var(--card-border)' }}>
               <div
                 className="h-full rounded-full transition-all duration-300 ease-out"
                 style={{
                   width: `${progress}%`,
-                  background: 'linear-gradient(90deg, var(--primary), color-mix(in sRGB, var(--primary) 80%, white 20%))',
+                  background: progress === 100
+                    ? '#10B981'
+                    : 'linear-gradient(90deg, var(--primary), color-mix(in sRGB, var(--primary) 80%, white 20%))',
                 }}
               />
             </div>
 
             <p className="text-[10px] text-center" style={{ color: 'var(--text-muted)' }}>
-              {progress < 30 ? 'Starting upload…' : progress < 70 ? 'Uploading file…' : progress < 95 ? 'Almost there…' : 'Finalising…'}
+              {progress < 20 ? 'Preparing…'
+                : progress < 50 ? 'Uploading file…'
+                : progress < 80 ? 'Almost there…'
+                : progress < 100 ? 'Finalising…'
+                : 'Upload complete!'}
             </p>
           </div>
         </div>
       ) : (
         <div className="flex flex-col items-center gap-3">
           <div className="w-12 h-12 rounded-2xl flex items-center justify-center"
-            style={{ background: isDragActive ? 'var(--primary)' : 'var(--card-border)', color: isDragActive ? 'white' : 'var(--text-muted)' }}>
-            <Upload size={22} />
+            style={{
+              background: isDragActive ? 'var(--primary)' : 'var(--card-border)',
+              color: isDragActive ? 'white' : 'var(--text-muted)',
+            }}>
+            {captureCamera ? <Image size={22} /> : <Upload size={22} />}
           </div>
           <div>
             <p className="text-sm font-black" style={{ color: 'var(--text)' }}>
-              {isDragActive ? 'Drop to upload' : 'Drag & drop or click to upload'}
+              {captureCamera
+                ? 'Tap to take a photo or choose from gallery'
+                : isDragActive ? 'Drop to upload' : 'Drag & drop or click to upload'}
             </p>
             <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
-              PDF, PNG, JPG, WEBP supported
+              {captureCamera
+                ? 'JPG, PNG, WEBP — up to 50MB'
+                : acceptDocs
+                  ? `PDF, Images, Word, Excel, PowerPoint — up to ${maxSizeMB}MB`
+                  : `PDF, PNG, JPG, WEBP — up to ${maxSizeMB}MB`}
             </p>
           </div>
-          <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
+          <div className="flex items-center gap-2 text-xs flex-wrap justify-center" style={{ color: 'var(--text-muted)' }}>
             <FileText size={14} /> PDF
             <Image size={14} className="ml-1" /> Images
+            {acceptDocs && <><span className="ml-1 font-bold">DOCX</span> <span>XLSX</span> <span>PPTX</span></>}
           </div>
         </div>
       )}

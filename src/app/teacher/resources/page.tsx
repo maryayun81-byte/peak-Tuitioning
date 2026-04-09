@@ -16,6 +16,8 @@ import { SkeletonList } from '@/components/ui/Skeleton'
 import { FileUploadZone } from '@/components/worksheet/FileUploadZone'
 import { useAuthStore } from '@/stores/authStore'
 import { formatDate } from '@/lib/utils'
+import { useAutoSave } from '@/hooks/useAutoSave'
+import { DraftBanner } from '@/components/ui/DraftBanner'
 import toast from 'react-hot-toast'
 import type { Resource } from '@/types/database'
 
@@ -54,6 +56,17 @@ export default function TeacherResources() {
   const [allClasses, setAllClasses] = useState<any[]>([])
   const [rawAssignments, setRawAssignments] = useState<any[]>([]) // {tuition_center_id, subject_id, class_id}
   const [centerStudents, setCenterStudents] = useState<any[]>([])
+
+  // Draft auto-save: saves newResource form whenever modal is open
+  const { hasSavedDraft: hasResourceDraft, restore: restoreResource, clear: clearResource, draftAge: resourceDraftAge } = useAutoSave(
+    'new_resource',
+    newResource,
+    (saved) => {
+      setNewResource(saved)
+      setAddOpen(true)
+      toast.success('Resource draft restored!')
+    }
+  )
 
   // UI filter selections
   const [selCenter, setSelCenter] = useState('')
@@ -204,6 +217,7 @@ export default function TeacherResources() {
     if (error) { toast.error(error.message) }
     else {
        toast.success('Resource added to library!')
+       clearResource() // Clear draft on success
        setNewResource(INITIAL_RESOURCE)
        setAddOpen(false)
        loadData()
@@ -231,6 +245,15 @@ export default function TeacherResources() {
 
   return (
     <div className="p-6 space-y-6">
+      {/* Draft Banner — shown when a resource form draft is detected */}
+      {hasResourceDraft && (
+        <DraftBanner
+          label="resource"
+          draftAge={resourceDraftAge}
+          onRestore={restoreResource}
+          onDiscard={() => { clearResource(); toast('Draft discarded', { icon: '🗑️' }) }}
+        />
+      )}
       <div className="flex items-center justify-between">
          <div>
             <h1 className="text-2xl font-black" style={{ color: 'var(--text)' }}>Resource Library</h1>
@@ -534,6 +557,8 @@ export default function TeacherResources() {
                        value={newResource.attachment_url} 
                        onChange={url => setNewResource({...newResource, attachment_url: url || '', url: url || ''})} 
                        accept={{ 'video/*': ['.mp4', '.mov', '.webm'] }}
+                       acceptDocs={true}
+                       maxSizeMB={500}
                      />
                   )}
                </div>
@@ -546,6 +571,8 @@ export default function TeacherResources() {
                     bucket="resource-uploads"
                     value={newResource.attachment_url} 
                     onChange={url => setNewResource({...newResource, attachment_url: url || '', url: url || ''})} 
+                    acceptDocs={true}
+                    maxSizeMB={100}
                   />
                </div>
             )}

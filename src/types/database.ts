@@ -48,7 +48,30 @@ export type ExamMark = any
 export type Timetable = any
 export type Scheme = any
 export type Resource = any
-export type WorksheetBlock = any
+export interface WorksheetBlock {
+  id: string
+  type: QuestionType
+  question?: string
+  marks: number
+  difficulty: DifficultyLevel
+  topic: string
+  options?: string[]
+  correct_answer?: string
+  correct_answers?: string[]
+  matching_pairs?: { left: string; right: string }[]
+  answer_lines?: number
+  section_title?: string
+  section_instructions?: string
+  passage_text?: string
+  passage_type?: 'passage' | 'poem' | 'diagram'
+  diagram_json?: string
+  diagram_url?: string
+  labels?: { x: number; y: number; text: string }[]
+  table_data?: { headers: string[]; rows: string[][] }
+  blank_text?: string
+  image_url?: string // NEW: Generic image support for any question
+  answer_placeholder?: string
+}
 export type Worksheet = any
 export type ReportType = any
 export type Notification = any

@@ -345,16 +345,18 @@ export default function StudentTriviaLobbyPage() {
         }
       }
 
+      // ── Add all members via SECURITY DEFINER RPC ──────────────────────────
+      // Direct upsert violated RLS WITH CHECK on the UPDATE path for non-self
+      // members. The add_trivia_group_members RPC runs as postgres (SECURITY
+      // DEFINER), bypassing RLS while enforcing creator-only permission checks.
       const uniqueMemberIds = Array.from(new Set([student!.id, ...memberIds]))
-      const memberInserts = uniqueMemberIds.map(sid => ({ group_id: groupId, student_id: sid }))
-      
-      const { error: mErr } = await supabase
-        .from('trivia_group_members')
-        .upsert(memberInserts, { onConflict: 'group_id, student_id' })
-      
-      if (mErr && mErr.code !== '23505') throw mErr
+      const { error: mErr } = await supabase.rpc('add_trivia_group_members', {
+        p_group_id: groupId,
+        p_member_ids: uniqueMemberIds
+      })
+      if (mErr) throw mErr
 
-      toast.success('Academy Entrance Granted!')
+      toast.success('Academy Entrance Granted! 🏆')
       await loadAll()
     } catch (e: any) {
       console.error('Join Arena Failure:', e)
@@ -510,10 +512,16 @@ export default function StudentTriviaLobbyPage() {
                             </div>
                           </div>
                         </div>
-                        <Button size="sm" onClick={() => handleJoinGroup(g.id)}
+                        <Button size="sm"
+                          onClick={() => handleJoinTriviaWithSquad(
+                            g.id,
+                            g.name,
+                            g.avatar_url,
+                            g.members?.map((m: any) => m.student_id) ?? []
+                          )}
                           className="h-10 px-4 font-black bg-[var(--input)] text-[var(--text-muted)] hover:bg-primary hover:text-white"
-                          disabled={g.members?.length >= 3}>
-                          {g.members?.length >= 3 ? 'FULL' : 'JOIN'}
+                          disabled={g.members?.length >= 3 || loading}>
+                          {g.members?.length >= 3 ? 'FULL' : loading ? '...' : 'JOIN'}
                         </Button>
                       </Card>
                     ))}

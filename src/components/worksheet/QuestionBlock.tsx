@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   GripVertical, Trash2, ChevronDown, ChevronUp, Plus, X,
   CheckSquare, ToggleLeft, AlignLeft, FileText, Calculator,
-  Upload, GitMerge, Heading, BookOpen, ImageIcon, Table as TableIcon, Hash, Type as TypeIcon
+  Upload, GitMerge, Heading, BookOpen, ImageIcon, Table as TableIcon, Hash, Type as TypeIcon, Pencil
 } from 'lucide-react'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
@@ -13,6 +13,7 @@ import { Modal } from '@/components/ui/Modal'
 import { DrawerModal } from '@/components/ui/DrawerModal'
 import { AnnotationCanvas } from '@/components/worksheet/AnnotationCanvas'
 import MathRenderer from '@/components/ui/MathRenderer'
+import { FileUploadZone } from '@/components/worksheet/FileUploadZone'
 import type { WorksheetBlock, QuestionType, DifficultyLevel } from '@/types/database'
 import { v4 as uuid } from 'uuid'
 
@@ -46,6 +47,7 @@ const QUESTION_TYPE_META: Record<QuestionType, { icon: React.ReactNode; label: s
 export function QuestionBlock({ block, index, onChange, onDelete }: QuestionBlockProps) {
   const [collapsed, setCollapsed] = useState(false)
   const [showDiagramEditor, setShowDiagramEditor] = useState(false)
+  const [showImageUploader, setShowImageUploader] = useState(false)
   // KEY FIX: Use a ref instead of state so that canvas saves during drawing
   // do NOT trigger a React re-render → no Framer Motion jitter
   const diagramRef = useRef<string | undefined>(block.diagram_json)
@@ -107,6 +109,38 @@ export function QuestionBlock({ block, index, onChange, onDelete }: QuestionBloc
           </div>
           <button 
             type="button"
+            onClick={e => { e.stopPropagation(); setShowImageUploader(!showImageUploader); if (collapsed) setCollapsed(false) }} 
+            className="p-1.5 rounded-lg transition-all" 
+            style={{ 
+              color: block.image_url ? 'var(--primary)' : 'var(--text-muted)', 
+              background: block.image_url ? 'var(--primary-dim)' : 'var(--input)' 
+            }}
+            title="Add/View Image"
+          >
+            <ImageIcon size={13} />
+          </button>
+          {/* Illustration button — for ALL question types that can have content */}
+          {block.type !== 'section_header' && block.type !== 'reading_passage' && block.type !== 'passage' && block.type !== 'poem' && (
+            <button 
+              type="button"
+              onClick={e => { 
+                e.stopPropagation()
+                diagramRef.current = block.diagram_json
+                setShowDiagramEditor(true)
+                if (collapsed) setCollapsed(false)
+              }} 
+              className="p-1.5 rounded-lg transition-all" 
+              style={{ 
+                color: block.diagram_json ? '#8B5CF6' : 'var(--text-muted)', 
+                background: block.diagram_json ? 'rgba(139,92,246,0.12)' : 'var(--input)' 
+              }}
+              title="Add/Edit Illustration (Drawing)"
+            >
+              <Pencil size={13} />
+            </button>
+          )}
+          <button 
+            type="button"
             onClick={e => { e.stopPropagation(); onDelete() }} 
             className="p-1.5 rounded-lg opacity-50 hover:opacity-100 transition-opacity" 
             style={{ color: '#EF4444', background: '#EF444410' }}
@@ -145,6 +179,18 @@ export function QuestionBlock({ block, index, onChange, onDelete }: QuestionBloc
                     <div>
                       <label className="block text-xs font-semibold mb-1 text-slate-500">Question Text</label>
                       <textarea className="w-full rounded-xl p-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all shadow-inner" style={{ background: 'var(--input)', color: 'var(--text)', border: '1px solid var(--card-border)' }} rows={3} value={block.question} onChange={e => update({ question: e.target.value })} />
+                      
+                      {(showImageUploader || block.image_url) && (
+                        <div className="mt-4 space-y-2">
+                          <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400">Question Image</label>
+                          <FileUploadZone 
+                            value={block.image_url || null} 
+                            onChange={url => update({ image_url: url || undefined })}
+                            bucket="assignment-uploads"
+                          />
+                        </div>
+                      )}
+
                       {block.question && (block.question.includes('$')) && (
                         <div className="mt-2 p-3 rounded-xl bg-indigo-50/50 border border-indigo-100">
                           <div className="text-[9px] font-black uppercase tracking-widest text-indigo-400 mb-2">Math Live Preview</div>

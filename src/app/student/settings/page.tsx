@@ -40,6 +40,8 @@ export default function StudentSettings() {
   const [mySubjects, setMySubjects] = useState<any[]>([])
   const [allSubjects, setAllSubjects] = useState<any[]>([])
   const [loadingSubjects, setLoadingSubjects] = useState(false)
+  const [addingSubject, setAddingSubject] = useState(false)
+  const [selectedSubjectId, setSelectedSubjectId] = useState('')
   
   const { preferences, updatePreference } = useNotificationStore()
 
@@ -50,16 +52,17 @@ export default function StudentSettings() {
   }, [student?.id])
 
   const loadSubjects = async () => {
+     if (!student?.id) return  // Guard: do nothing if student not yet loaded
      setLoadingSubjects(true)
      try {
        const [myRes, allRes] = await Promise.all([
-          supabase.from('student_subjects').select('id, subject:subjects(id, name)').eq('student_id', student.id!),
+          supabase.from('student_subjects').select('id, subject:subjects(id, name)').eq('student_id', student.id),
           supabase.from('subjects').select('id, name').order('name')
        ])
        if (myRes.data) setMySubjects(myRes.data)
        if (allRes.data) setAllSubjects(allRes.data)
      } catch (e) {
-        console.error(e)
+        console.error('[loadSubjects] error:', e)
      } finally {
         setLoadingSubjects(false)
      }
@@ -67,15 +70,25 @@ export default function StudentSettings() {
 
   const addSubject = async (subjectId: string) => {
      if (!subjectId || !student?.id) return
-     if (mySubjects.some(s => s.subject?.id === subjectId)) return toast.error('Already added!')
-     
+     if (mySubjects.some(s => s.subject?.id === subjectId)) {
+       toast.error('Subject already in your curriculum!')
+       setSelectedSubjectId('')
+       return
+     }
+     setAddingSubject(true)
      try {
-        const { error } = await supabase.from('student_subjects').insert({ student_id: student.id, subject_id: subjectId })
+        const { error } = await supabase
+          .from('student_subjects')
+          .insert({ student_id: student.id, subject_id: subjectId })
         if (error) throw error
-        toast.success('+1 Subject Added!')
-        loadSubjects()
+        toast.success('✅ Subject added to your curriculum!')
+        setSelectedSubjectId('') // Reset the select
+        await loadSubjects()      // Refresh list
      } catch (err: any) {
-        toast.error('Failed to add subject')
+        console.error('[addSubject] error:', err)
+        toast.error(err?.message || 'Failed to add subject — check permissions')
+     } finally {
+        setAddingSubject(false)
      }
   }
 
@@ -283,14 +296,29 @@ export default function StudentSettings() {
                              ))}
                              {!loadingSubjects && mySubjects.length === 0 && <span className="text-sm opacity-50">No subjects selected yet.</span>}
                           </div>
-                          <div className="flex gap-2 max-w-sm">
-                             <Select onChange={(e) => { addSubject(e.target.value); e.target.value = '' }}>
-                                <option value="">+ Add a subject to your curriculum...</option>
-                                {allSubjects.filter(s => !mySubjects.some(ms => ms.subject?.id === s.id)).map(s => (
-                                   <option key={s.id} value={s.id}>{s.name}</option>
-                                ))}
-                             </Select>
-                          </div>
+                           <div className="flex gap-2 max-w-sm">
+                              <Select
+                                value={selectedSubjectId}
+                                onChange={(e) => {
+                                  const val = e.target.value
+                                  setSelectedSubjectId(val)
+                                  if (val) addSubject(val)
+                                }}
+                                disabled={addingSubject || loadingSubjects}
+                              >
+                                 <option value="">+ Add a subject to your curriculum...</option>
+                                 {allSubjects
+                                   .filter(s => !mySubjects.some(ms => ms.subject?.id === s.id))
+                                   .map(s => (
+                                    <option key={s.id} value={s.id}>{s.name}</option>
+                                 ))}
+                              </Select>
+                              {addingSubject && (
+                                <div className="flex items-center justify-center w-10 h-10 shrink-0">
+                                  <span className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                                </div>
+                              )}
+                           </div>
                        </section>
 
                        <section className="pt-6 border-t border-[var(--card-border)]">

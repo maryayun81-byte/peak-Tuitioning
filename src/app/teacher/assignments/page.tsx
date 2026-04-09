@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { Plus, Search, FileText, Clock, Users, ChevronRight, MoreVertical, Trash2, Edit, ExternalLink, ClipboardCheck } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
@@ -20,13 +21,8 @@ export default function TeacherAssignments() {
   const supabase = getSupabaseBrowserClient()
   const { profile, teacher } = useAuthStore()
   
-  const [loading, setLoading] = useState(true)
-  const [assignments, setAssignments] = useState<any[]>([])
-  const [submissionsCount, setSubmissionsCount] = useState(0)
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
-  
-  // Pagination State
   const [currentPage, setCurrentPage] = useState(1)
   const pageSize = 6
   
@@ -34,79 +30,59 @@ export default function TeacherAssignments() {
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [showDeleteAll, setShowDeleteAll] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const queryClient = useQueryClient()
 
-  useEffect(() => {
-    if (teacher?.id) loadAssignments()
-  }, [teacher?.id])
+  // ── React Query: fetch + cache assignments ─────────────────────────────
+  const fetchAssignments = async () => {
+    if (!teacher?.id) return null
+    // 1. Fetch assignments
+    const { data: assignmentsData } = await supabase
+      .from('assignments')
+      .select('*, class:classes(name), subject:subjects(name)')
+      .eq('teacher_id', teacher.id)
+      .order('created_at', { ascending: false })
+    const assignmentsList = assignmentsData ?? []
 
-  const loadAssignments = async () => {
-    if (!teacher?.id) return
-    setLoading(true)
-    try {
-      // 1. Fetch assignments
-      const { data: assignmentsData } = await supabase
-        .from('assignments')
-        .select('*, class:classes(name), subject:subjects(name)')
-        .eq('teacher_id', teacher.id)
-        .order('created_at', { ascending: false })
-      
-      const assignmentsList = assignmentsData ?? []
+    // 2. Fetch total pending submissions
+    const { count: totalPendingSubmissions } = await supabase
+      .from('submissions')
+      .select('id, assignment:assignments!inner(id)', { count: 'exact', head: true })
+      .eq('assignment.teacher_id', teacher.id)
+      .eq('status', 'submitted')
 
-      // 2. Fetch total submissions count for the dashboard stat (Needs Marking only)
-      const { count: totalPendingSubmissions } = await supabase
-        .from('submissions')
-        .select('id, assignment:assignments!inner(id)', { count: 'exact', head: true })
-        .eq('assignment.teacher_id', teacher.id)
-        .eq('status', 'submitted')
+    // 3. Enrich assignments with submission and expected student counts (batched)
+    const enriched = await Promise.all(assignmentsList.map(async (a: any) => {
+      const [{ count: subCount }, expectedRes] = await Promise.all([
+        supabase.from('submissions').select('id', { count: 'exact', head: true })
+          .eq('assignment_id', a.id).neq('status', 'not_started'),
+        a.audience === 'selected_students'
+          ? Promise.resolve({ count: a.selected_student_ids?.length || 0 })
+          : (() => {
+              let q = supabase.from('students')
+                .select('*, student_subjects!inner(subject_id)', { count: 'exact', head: true })
+                .eq('class_id', a.class_id)
+                .eq('student_subjects.subject_id', a.subject_id)
+              if (a.tuition_center_id) q = q.eq('tuition_center_id', a.tuition_center_id)
+              return q
+            })()
+      ])
+      return { ...a, submission_count: subCount || 0, expected_count: expectedRes.count || 0 }
+    }))
 
-      setSubmissionsCount(totalPendingSubmissions || 0)
-
-      // 3. Enrich assignments with submission and expected student counts
-      
-      const enrichedAssignments = await Promise.all(assignmentsList.map(async (a) => {
-        // Count actual submissions
-        const { count: subCount } = await supabase
-          .from('submissions')
-          .select('*', { count: 'exact', head: true })
-          .eq('assignment_id', a.id)
-          .neq('status', 'not_started') // Only those who actually started/submitted
-        
-        // Count total expected students
-        let expectedCount = 0
-        if (a.audience === 'selected_students') {
-           expectedCount = a.selected_student_ids?.length || 0
-        } else {
-           let stQuery = supabase.from('students')
-             .select('*, student_subjects!inner(subject_id)', { count: 'exact', head: true })
-             .eq('class_id', a.class_id)
-             .eq('student_subjects.subject_id', a.subject_id)
-           
-           if (a.tuition_center_id) {
-             stQuery = stQuery.eq('tuition_center_id', a.tuition_center_id)
-           }
-
-           const { count: stCount } = await stQuery
-           expectedCount = stCount || 0
-        }
-
-        return { ...a, submission_count: subCount || 0, expected_count: expectedCount }
-      }))
-
-      setAssignments(enrichedAssignments)
-    } catch (err) {
-      console.error('Error loading assignments:', err)
-    } finally {
-      setLoading(false)
-    }
+    return { assignments: enriched, submissionsCount: totalPendingSubmissions || 0 }
   }
 
-  // Safety timeout
-  useEffect(() => {
-    if (loading) {
-      const t = setTimeout(() => setLoading(false), 5000)
-      return () => clearTimeout(t)
-    }
-  }, [loading])
+  const { data, isLoading } = useQuery({
+    queryKey: ['teacher-assignments', teacher?.id],
+    queryFn: fetchAssignments,
+    enabled: !!teacher?.id,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+  })
+
+  const assignments = data?.assignments ?? []
+  const submissionsCount = data?.submissionsCount ?? 0
+  const loading = isLoading && !data
 
   const handleDeleteOne = async () => {
     if (!deleteId) return
@@ -114,9 +90,8 @@ export default function TeacherAssignments() {
     const { error } = await supabase.from('assignments').delete().eq('id', deleteId)
     setDeleting(false)
     setDeleteId(null)
-    
     if (error) { toast.error('Check for student submissions first.') }
-    else { toast.success('Assignment deleted'); loadAssignments() }
+    else { toast.success('Assignment deleted'); queryClient.invalidateQueries({ queryKey: ['teacher-assignments', teacher?.id] }) }
   }
 
   const handleDeleteAll = async () => {
@@ -124,9 +99,8 @@ export default function TeacherAssignments() {
     const { error } = await supabase.from('assignments').delete().eq('teacher_id', teacher?.id)
     setDeleting(false)
     setShowDeleteAll(false)
-    
     if (error) { toast.error('Could not delete some assignments.') }
-    else { toast.success('All assignments deleted'); loadAssignments() }
+    else { toast.success('All assignments deleted'); queryClient.invalidateQueries({ queryKey: ['teacher-assignments', teacher?.id] }) }
   }
 
   const filtered = assignments.filter(a => {

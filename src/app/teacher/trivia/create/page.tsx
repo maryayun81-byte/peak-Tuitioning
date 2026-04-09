@@ -3,20 +3,22 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Trash2, Plus, Clock, ChevronRight, ChevronLeft, Image, Check, Trophy, Users, AlertCircle, Save, BookOpen } from 'lucide-react'
+import { Trash2, Plus, Clock, ChevronRight, ChevronLeft, Image, Check, Trophy, Users, AlertCircle, Save, BookOpen, Pencil } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
+import { Modal } from '@/components/ui/Modal'
+import { FileUploadZone } from '@/components/worksheet/FileUploadZone'
 import { useAuthStore } from '@/stores/authStore'
+import { useAutoSave } from '@/hooks/useAutoSave'
+import { DraftBanner } from '@/components/ui/DraftBanner'
 import dynamic from 'next/dynamic'
-const TriviaImageUploader = dynamic(
-  () => import('@/components/trivia/TriviaImageUploader').then(mod => mod.TriviaImageUploader),
-  { ssr: false }
-)
+const AnnotationCanvas = dynamic(() => import('@/components/worksheet/AnnotationCanvas').then(m => m.AnnotationCanvas), { ssr: false })
 import RichTextEditor from '@/components/ui/RichTextEditor'
 import { generateId } from '@/lib/utils'
 import toast from 'react-hot-toast'
+import { useMemo } from 'react'
 
 interface Option { id: string; text: string }
 interface Question {
@@ -53,6 +55,7 @@ export default function CreateTriviaPage() {
 
   const [step, setStep] = useState(0)
   const [saving, setSaving] = useState(false)
+  const [drawingModalIdx, setDrawingModalIdx] = useState<number | null>(null)
 
   // Step 1 — config
   const [title, setTitle] = useState('')
@@ -71,6 +74,25 @@ export default function CreateTriviaPage() {
   const [centers, setCenters] = useState<any[]>([])
 
   useEffect(() => { if (teacher?.id) loadData() }, [teacher?.id])
+
+  // Draft auto-save
+  const triviaData = useMemo(() => ({
+    title, description, subjectId, centerId, classIds, questions
+  }), [title, description, subjectId, centerId, classIds, questions])
+
+  const { hasSavedDraft, restore, clear, draftAge } = useAutoSave(
+    'new_trivia',
+    triviaData,
+    (saved) => {
+      setTitle(saved.title || '')
+      setDescription(saved.description || '')
+      setSubjectId(saved.subjectId || '')
+      setCenterId(saved.centerId || '')
+      setClassIds(saved.classIds || [])
+      setQuestions(saved.questions?.length ? saved.questions : [makeQuestion()])
+      toast.success('Trivia draft restored!')
+    }
+  )
 
   const loadData = async () => {
     if (!teacher?.id) return
@@ -191,6 +213,7 @@ export default function CreateTriviaPage() {
     }
 
     toast.success(publish ? '🚀 Trivia published!' : 'Trivia saved as draft')
+    clear() // Clear draft after saving to DB
     router.push(`/teacher/trivia/${session.id}`)
   }
 
@@ -199,6 +222,15 @@ export default function CreateTriviaPage() {
 
   return (
     <div className="p-4 sm:p-6 pb-20 max-w-3xl mx-auto space-y-6">
+      {/* Draft Banner */}
+      {hasSavedDraft && (
+        <DraftBanner
+          label="trivia"
+          draftAge={draftAge}
+          onRestore={restore}
+          onDiscard={() => { clear(); toast('Draft discarded', { icon: '🗑️' }) }}
+        />
+      )}
       {/* Header */}
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="sm" onClick={() => router.push('/teacher/trivia')}>
@@ -321,7 +353,17 @@ export default function CreateTriviaPage() {
                     </div>
 
                     <div className="mb-4">
-                       <label className="text-xs font-bold uppercase tracking-widest mb-2 block" style={{ color: 'var(--text-muted)' }}>Question Prompt *</label>
+                       <div className="flex items-center justify-between mb-2">
+                         <label className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Question Prompt *</label>
+                         <button
+                           type="button"
+                           onClick={() => setDrawingModalIdx(activeQIdx)}
+                           className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border"
+                           style={{ background: 'var(--input)', borderColor: 'var(--card-border)', color: 'var(--text-muted)' }}
+                         >
+                           <Pencil size={11} /> Draw Illustration
+                         </button>
+                       </div>
                        <RichTextEditor
                          value={activeQ.text}
                          onChange={(html: string) => updateQ(activeQIdx, { text: html })}
@@ -330,14 +372,14 @@ export default function CreateTriviaPage() {
                     </div>
 
                     <div className="mb-4">
-                       <label className="text-xs font-bold uppercase tracking-widest mb-2 block" style={{ color: 'var(--text-muted)' }}>Visual Context (Diagrams / Images)</label>
-                       <TriviaImageUploader
-                         imageUrl={activeQ.image_url || null}
-                         onImageChange={(url: string | null) => updateQ(activeQIdx, { image_url: url || '' })}
-                         disabled={saving}
-                         sessionImages={questions.map(q => q.image_url).filter(Boolean)}
-                       />
-                    </div>
+                        <label className="text-xs font-bold uppercase tracking-widest mb-2 block" style={{ color: 'var(--text-muted)' }}>Question Image (or use Draw above)</label>
+                        <FileUploadZone
+                          bucket="trivia-media"
+                          value={activeQ.image_url || null}
+                          onChange={(url) => updateQ(activeQIdx, { image_url: url || '' })}
+                          disabled={saving}
+                        />
+                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
@@ -464,6 +506,34 @@ export default function CreateTriviaPage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Illustration Draw Modal */}
+      {drawingModalIdx !== null && (
+        <Modal
+          isOpen={true}
+          onClose={() => setDrawingModalIdx(null)}
+          title={`Draw Illustration — Q${drawingModalIdx + 1}`}
+          size="lg"
+        >
+          <div className="space-y-4">
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              Draw diagrams, shapes, or annotations below. When done, click Save — the drawing will appear above the question.
+            </p>
+            <div className="rounded-2xl overflow-hidden border" style={{ borderColor: 'var(--card-border)' }}>
+              <AnnotationCanvas
+                backgroundImageUrl={questions[drawingModalIdx]?.image_url || undefined}
+                readOnly={false}
+                onSave={(json) => {
+                  updateQ(drawingModalIdx, { image_url: json })
+                  setDrawingModalIdx(null)
+                  toast.success('Illustration attached!')
+                }}
+                defaultColor="#7C3AED"
+              />
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }

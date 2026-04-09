@@ -223,7 +223,7 @@ let cachedDashboardData: any = null
 
 export default function StudentDashboard() {
   const supabase = getSupabaseBrowserClient()
-  const { profile, student } = useAuthStore()
+  const { profile, student, setStudent } = useAuthStore()
   const [loading, setLoading] = useState(!cachedDashboardData)
   
   const [activeQuests, setActiveQuests] = useState<Quest[]>(cachedDashboardData?.activeQuests || [])
@@ -244,67 +244,66 @@ export default function StudentDashboard() {
   const handleCloseWelcome = async () => {
     setShowWelcome(false)
     if (student?.id) {
-       await supabase.from('students').update({ onboarded: true }).eq('id', student.id)
+      await supabase.from('students').update({ onboarded: true }).eq('id', student.id)
+      // CRITICAL: Sync the Zustand store immediately so the layout guard in layout.tsx
+      // sees onboarded=true and does NOT re-redirect to /student/onboarding.
+      setStudent({ ...student, onboarded: true })
     }
   }
   
+
   useEffect(() => {
-    let mounted = true
-    const timer = setTimeout(() => {
-       if (mounted && loading && !student) setLoading(false)
-    }, 2000)
-    if (student && profile) loadDashboard()
-    return () => { mounted = false; clearTimeout(timer) }
-  }, [student, profile])
+    // Only treat student?.id and profile?.id as the trigger — NOT the full
+    // object references. Previously the full [student, profile] deps caused an
+    // infinite loop: loadDashboard updates student XP → new student object →
+    // effect re-runs → loadDashboard again → repeat forever.
+    if (student?.id && profile?.id) loadDashboard()
+  }, [student?.id, profile?.id])
 
   const loadDashboard = async () => {
     if (!student || !profile) return
     setLoading(true)
 
-    // Daily XP Reward Logic
-    const today = new Date().toISOString().split('T')[0]
-    if (student.last_login_xp_at !== today) {
-      let newXP = (student.xp || 0) + 10
-      let newStreak = (student.streak_count || 0)
-      
-      const lastActive = student.last_active_at ? student.last_active_at : null
-      const yesterday = new Date()
-      yesterday.setDate(yesterday.getDate() - 1)
-      const yesterdayStr = yesterday.toISOString().split('T')[0]
-      
-      if (lastActive === yesterdayStr) {
-         newStreak += 1
-      } else if (!lastActive || lastActive < yesterdayStr) {
-         newStreak = 1
-      }
-      
-      await supabase.from('students').update({
-        xp: newXP,
-        last_login_xp_at: today,
-        last_active_at: today,
-        streak_count: newStreak
-      }).eq('id', student.id)
-      
-      useAuthStore.setState({ student: {
-        ...student,
-        xp: newXP,
-        streak_count: newStreak,
-        last_login_xp_at: today,
-        last_active_at: today
-      }})
-      
-      toast.success('Daily Reward: +10 XP earned! 🔥', {
-        icon: '🚀',
-        duration: 5000,
-        style: {
-          background: 'var(--card)',
-          color: 'var(--text)',
-          border: '1px solid var(--primary)',
-        }
-      })
-    }
-
     try {
+      // ── Daily XP Reward ─────────────────────────────────────────────────
+      // MUST be inside try so the finally { setLoading(false) } always runs.
+      const today = new Date().toISOString().split('T')[0]
+      if ((student as any).last_login_xp_at !== today) {
+        const newXP = (student.xp || 0) + 10
+        let newStreak = student.streak_count || 0
+        const lastActive = (student as any).last_active_at ?? null
+        const yesterday = new Date()
+        yesterday.setDate(yesterday.getDate() - 1)
+        const yesterdayStr = yesterday.toISOString().split('T')[0]
+        if (lastActive === yesterdayStr) newStreak += 1
+        else if (!lastActive || lastActive < yesterdayStr) newStreak = 1
+
+        // Fire-and-forget the DB write — don't await it so a slow network
+        // doesn't block the rest of the dashboard from loading.
+        supabase.from('students').update({
+          xp: newXP,
+          last_login_xp_at: today,
+          last_active_at: today,
+          streak_count: newStreak
+        }).eq('id', student.id).then(({ error }) => {
+          if (!error) {
+            // Use getState to avoid stale closure.
+            const current = useAuthStore.getState().student
+            if (current?.id === student.id) {
+              useAuthStore.setState({ student: { ...current, xp: newXP, streak_count: newStreak, last_login_xp_at: today, last_active_at: today } as any })
+            }
+          }
+        })
+
+        toast.success('Daily Reward: +10 XP earned! 🔥', {
+          id: 'daily-xp', // Deduplicate across re-renders
+          icon: '🚀',
+          duration: 5000,
+          style: { background: 'var(--card)', color: 'var(--text)', border: '1px solid var(--primary)' }
+        })
+      }
+
+      // ── Dashboard Data Fetches ───────────────────────────────────────────
       const { data: subData } = await supabase
         .from('student_subjects').select('subject_id').eq('student_id', student.id)
       const subjectIds = subData?.map(s => s.subject_id) || []
@@ -351,10 +350,10 @@ export default function StudentDashboard() {
         console.log('Rank fetch fallback')
       }
 
-      const fetchedStats = { 
-        tasks: subsCount.count || 0, 
-        awards: (certsCount.count || 0) + (badgesCount.count || 0), 
-        attendance: 98 
+      const fetchedStats = {
+        tasks: subsCount.count || 0,
+        awards: (certsCount.count || 0) + (badgesCount.count || 0),
+        attendance: 98
       }
 
       const mappedQuests = (aRes.data ?? []).map((q: any) => ({
@@ -367,7 +366,7 @@ export default function StudentDashboard() {
       setStats(fetchedStats)
       setLeaderboard(freshLeaderboard)
       setStudentRank(freshRank)
-      
+
       cachedDashboardData = {
         activeQuests: mappedQuests,
         intel: nData ?? [],
@@ -375,19 +374,61 @@ export default function StudentDashboard() {
         leaderboard: freshLeaderboard,
         studentRank: freshRank
       }
+    } catch (err) {
+      console.error('[Dashboard] loadDashboard error:', err)
     } finally {
+      // ALWAYS clear the loading state — no matter what path was taken above.
       setLoading(false)
     }
   }
 
+// ─── Daily motivational quotes ────────────────────────────────────────────────
+const DAILY_QUOTES = [
+  { quote: "The secret of getting ahead is getting started.", author: "Mark Twain" },
+  { quote: "Don't watch the clock; do what it does. Keep going.", author: "Sam Levenson" },
+  { quote: "Push yourself, because no one else is going to do it for you.", author: "Unknown" },
+  { quote: "Great things never come from comfort zones.", author: "Unknown" },
+  { quote: "Dream it. Wish it. Do it.", author: "Unknown" },
+  { quote: "Success doesn't just find you. You have to go out and get it.", author: "Unknown" },
+  { quote: "The harder you work for something, the greater you'll feel when you achieve it.", author: "Unknown" },
+  { quote: "Don't stop when you're tired. Stop when you're done.", author: "Unknown" },
+  { quote: "Wake up with determination. Go to bed with satisfaction.", author: "Unknown" },
+  { quote: "Little things make big days.", author: "Unknown" },
+  { quote: "It always seems impossible until it's done.", author: "Nelson Mandela" },
+  { quote: "Work hard in silence. Let your success make the noise.", author: "Unknown" },
+  { quote: "You are stronger than you think.", author: "Unknown" },
+  { quote: "Believe you can and you're halfway there.", author: "Theodore Roosevelt" },
+]
+
+function getDailyQuote() {
+  const day = new Date().getDay() + new Date().getDate()
+  return DAILY_QUOTES[day % DAILY_QUOTES.length]
+}
+
+function getGreeting(name: string) {
+  const h = new Date().getHours()
+  if (h < 12) return `Good morning, ${name}! ☀️`
+  if (h < 17) return `Good afternoon, ${name}! 🌤️`
+  if (h < 21) return `Good evening, ${name}! 🌆`
+  return `Studying late, ${name}? 🌙`
+}
+
   if (loading) return <SkeletonDashboard />
 
+  const quote = getDailyQuote()
+  const firstName = profile?.full_name?.split(' ')[0] || 'Scholar'
+  const { level, progressPercent, nextMilestone, isProspect, title: levelTitle } = calculateLevel(student?.xp || 0)
+  const xp = student?.xp || 0
+  const streak = student?.streak_count || 0
+
   return (
-    <div className="p-6 space-y-8 pb-12 relative overflow-hidden min-h-screen">
-      {/* Subtle Background Radial */}
-      <div className="absolute top-0 left-0 w-full h-full pointer-events-none opacity-40">
-         <div className="absolute -top-1/4 -right-1/4 w-[800px] h-[800px] rounded-full bg-primary/10 blur-[120px] animate-pulse" />
-         <div className="absolute -bottom-1/4 -left-1/4 w-[600px] h-[600px] rounded-full bg-secondary/5 blur-[100px]" />
+    <div className="pb-12 relative overflow-hidden min-h-screen" style={{ background: 'var(--bg)' }}>
+
+      {/* === Ambient Background === */}
+      <div className="fixed top-0 left-0 w-full h-full pointer-events-none overflow-hidden z-0">
+        <div className="absolute -top-32 -right-32 w-[600px] h-[600px] rounded-full opacity-20 blur-[120px] animate-pulse" style={{ background: 'radial-gradient(circle, var(--primary) 0%, transparent 70%)' }} />
+        <div className="absolute bottom-0 -left-32 w-[500px] h-[500px] rounded-full opacity-10 blur-[100px]" style={{ background: 'radial-gradient(circle, var(--accent) 0%, transparent 70%)' }} />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[200px] rounded-full opacity-5 blur-[80px] rotate-12" style={{ background: 'var(--primary)' }} />
       </div>
 
       <OnboardingModal
@@ -397,228 +438,476 @@ export default function StudentDashboard() {
         finishLabel="Start My Journey 🚀"
       />
 
-      {/* Hero Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
-         <div className="space-y-1">
-            <h1 className="text-4xl font-black flex items-center gap-3 tracking-tighter" style={{ color: 'var(--text)' }}>
-               Ready to soar, {profile?.full_name.split(' ')[0]}? <Rocket className="text-primary animate-float-slow" />
-            </h1>
-             <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-               {(() => {
-                 const { level, isProspect } = calculateLevel(student?.xp || 0)
-                 const xp = student?.xp || 0
-                 return `You have ${xp.toLocaleString()} XP. ${!isProspect ? `Level ${level}` : 'Prospect'}`
-               })()}
-             </p>
-         </div>
-          <div className="flex gap-4">
-            <div className="p-4 rounded-3xl bg-[var(--card)] border border-[var(--card-border)] flex items-center gap-4 shadow-2xl glass-card-elite">
-                <div className="w-12 h-12 rounded-2xl bg-amber-500/15 flex items-center justify-center text-amber-500 shadow-lg shadow-amber-500/10">
-                   <Flame size={24} className="fill-amber-500 animate-pulse" />
+      <div className="relative z-10 p-4 sm:p-6 space-y-6">
+
+        {/* === HERO SECTION === */}
+        <div className="relative overflow-hidden rounded-3xl p-6 sm:p-8" style={{
+          background: 'linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%)',
+        }}>
+          {/* Decorative shapes */}
+          <div className="absolute top-0 right-0 w-64 h-64 rounded-full opacity-10 blur-3xl" style={{ background: 'white', transform: 'translate(30%, -30%)' }} />
+          <div className="absolute bottom-0 left-0 w-48 h-48 rounded-full opacity-10 blur-3xl" style={{ background: 'white', transform: 'translate(-30%, 30%)' }} />
+          <div className="absolute top-4 right-4 text-white/10 text-[120px] font-black leading-none select-none pointer-events-none">✦</div>
+
+          <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="space-y-3">
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+                <p className="text-white/60 text-xs font-bold uppercase tracking-[0.2em]">Peak Performance Portal</p>
+                <h1 className="text-3xl sm:text-4xl font-black text-white leading-tight mt-1">
+                  {getGreeting(firstName)}
+                </h1>
+              </motion.div>
+
+              {/* Daily Quote */}
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.3 }}
+                className="flex items-start gap-2 max-w-lg"
+              >
+                <span className="text-white/40 text-2xl mt-0.5 leading-none">"</span>
+                <div>
+                  <p className="text-white/85 text-sm font-medium italic leading-relaxed">{quote.quote}"</p>
+                  <p className="text-white/50 text-[10px] font-bold mt-1 uppercase tracking-wider">— {quote.author}</p>
+                </div>
+              </motion.div>
+
+              {/* Typing motivation */}
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }} className="flex items-center gap-2 pt-1">
+                <div className="px-3 py-1 rounded-full bg-white/15 backdrop-blur-sm border border-white/20">
+                  <TypingText phrases={[
+                    "Today you level up! 🚀",
+                    "Study hard. Play smart. 🎯",
+                    "Your future self thanks you 💪",
+                    "Champions are made in moments like this ✨",
+                    `${streak > 0 ? `${streak}-day streak! Keep it burning 🔥` : 'Start your streak today! 🔥'}`,
+                  ]} />
+                </div>
+              </motion.div>
+            </div>
+
+            {/* XP + Streak badges */}
+            <div className="flex md:flex-col gap-3 shrink-0">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 0.2, type: 'spring' }}
+                className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-white/15 backdrop-blur-sm border border-white/20"
+              >
+                <div className="w-10 h-10 rounded-xl bg-amber-400/20 flex items-center justify-center">
+                  <Flame size={22} className="text-amber-300 fill-amber-300" />
                 </div>
                 <div>
-                   <div className="text-xl font-black tracking-tight" style={{ color: 'var(--text)' }}>{student?.streak_count || 0} Days</div>
-                   <div className="text-[10px] uppercase font-bold text-muted tracking-widest opacity-60">Fire Streak</div>
+                  <div className="text-white font-black text-lg leading-none">{streak}</div>
+                  <div className="text-white/60 text-[9px] uppercase tracking-widest font-bold">Day Streak</div>
                 </div>
+              </motion.div>
+              <motion.div
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 0.3, type: 'spring' }}
+                className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-white/15 backdrop-blur-sm border border-white/20"
+              >
+                <div className="w-10 h-10 rounded-xl bg-yellow-400/20 flex items-center justify-center">
+                  <Zap size={22} className="text-yellow-300 fill-yellow-300" />
+                </div>
+                <div>
+                  <div className="text-white font-black text-lg leading-none">{xp.toLocaleString()}</div>
+                  <div className="text-white/60 text-[9px] uppercase tracking-widest font-bold">Total XP</div>
+                </div>
+              </motion.div>
             </div>
-         </div>
-      </div>
+          </div>
 
-       <div className="space-y-3 relative z-10">
+          {/* XP Progress bar */}
+          <div className="relative z-10 mt-6 pt-5 border-t border-white/15">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <span className="text-white/60 text-[10px] uppercase tracking-widest font-bold">{isProspect ? 'Prospect' : `Level ${level}`}</span>
+                <span className="text-white/90 text-xs font-black">· {levelTitle}</span>
+              </div>
+              <span className="text-white/80 text-[10px] font-bold">{progressPercent}% · {(nextMilestone - xp).toLocaleString()} XP to next level</span>
+            </div>
+            <div className="h-3 rounded-full bg-white/15 overflow-hidden">
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: `${progressPercent}%` }}
+                transition={{ duration: 1.8, ease: 'easeOut' }}
+                className="h-full rounded-full relative overflow-hidden"
+                style={{ background: 'linear-gradient(90deg, #FCD34D, #FBBF24, #F59E0B)' }}
+              >
+                <div className="absolute inset-0 bg-white/30 animate-pulse" />
+              </motion.div>
+            </div>
+            <div className="flex justify-between text-white/40 text-[9px] mt-1 font-bold uppercase tracking-widest">
+              <span>Rank #{studentRank || '?'}</span>
+              <span>Next: Level {level + 1}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* === EVENT BANNERS === */}
+        <div className="space-y-3">
           <ExamEventBanner />
           <TuitionEventBanner />
-       </div>
+        </div>
 
-      <Card className="p-8 relative overflow-hidden group glass-card-elite border-none">
-         <div className="absolute top-0 right-0 w-80 h-80 bg-primary/5 rounded-full -mr-32 -mt-32 blur-[80px] group-hover:bg-primary/10 transition-all duration-700" />
-         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 relative z-10">
-            <div className="space-y-4">
-               {(() => {
-                 const { level, progressPercent, nextMilestone, isProspect } = calculateLevel(student?.xp || 0)
-                 const xp = student?.xp || 0
-                 
-                 return (
-                    <>
-                      <div className="flex justify-between items-end mb-1">
-                         <div className="flex flex-col">
-                            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted opacity-70 mb-1">{!isProspect ? `Level ${level}` : 'Prospect'}</span>
-                            <span className="text-2xl font-black tracking-tighter">{calculateLevel(student?.xp || 0).title.split(' ')[0]}</span>
-                         </div>
-                         <div className="flex flex-col items-end">
-                            <span className="text-xs font-black text-primary drop-shadow-[0_0_8px_var(--primary)]">{progressPercent}% to Level Up</span>
-                            <Badge variant="primary" className="text-[9px] mt-1 bg-primary/20 text-primary border-primary/30">Rank #{studentRank || '?'}</Badge>
-                         </div>
-                      </div>
-                      <div className="h-4 bg-[var(--input)]/50 rounded-full overflow-hidden border border-[var(--card-border)] backdrop-blur-sm p-0.5">
-                         <motion.div initial={{ width: 0 }} animate={{ width: `${progressPercent}%` }} transition={{ duration: 1.5, ease: 'easeOut' }} className="h-full bg-gradient-to-r from-primary to-accent rounded-full relative" style={{ boxShadow: '0 0 15px var(--primary)' }}>
-                            <div className="absolute top-0 left-0 w-full h-full bg-white/20 animate-pulse" />
-                         </motion.div>
-                      </div>
-                      <div className="flex items-center gap-2 text-[10px] font-medium" style={{ color: 'var(--text-muted)' }}>
-                         <Sparkles size={12} className="text-amber-400" /> {nextMilestone - xp} more XP to reach the next horizon!
-                      </div>
-                    </>
-                 )
-               })()}
-            </div>
-            <div className="flex items-center justify-around col-span-2 border-l border-[var(--card-border)] pl-8">
-               <div className="text-center">
-                  <div className="text-2xl font-black text-primary">{stats.awards}</div>
-                  <div className="text-[10px] uppercase font-bold text-muted">Awards</div>
-               </div>
-               <div className="text-center">
-                  <div className="text-2xl font-black text-secondary">{stats.tasks}</div>
-                  <div className="text-[10px] uppercase font-bold text-muted">Tasks Done</div>
-               </div>
-               <div className="text-center">
-                  <div className="text-2xl font-black text-emerald-500">{stats.attendance}%</div>
-                  <div className="text-[10px] uppercase font-bold text-muted">Attendance</div>
-               </div>
-            </div>
-         </div>
-      </Card>
+        {/* === STATS ROW === */}
+        <div className="grid grid-cols-3 gap-3">
+          {[
+            { label: 'Tasks Done', value: stats.tasks, icon: '✅', color: '#10B981', bg: 'rgba(16,185,129,0.08)' },
+            { label: 'Awards', value: stats.awards, icon: '🏅', color: '#F59E0B', bg: 'rgba(245,158,11,0.08)' },
+            { label: 'Attendance', value: `${stats.attendance}%`, icon: '📊', color: 'var(--primary)', bg: 'rgba(0,0,0,0.04)' },
+          ].map((s, i) => (
+            <motion.div
+              key={s.label}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.1 }}
+              className="rounded-2xl p-4 flex flex-col items-center text-center border"
+              style={{ background: s.bg, borderColor: `${s.color}20` }}
+            >
+              <span className="text-2xl mb-1">{s.icon}</span>
+              <span className="text-xl font-black" style={{ color: s.color }}>{s.value}</span>
+              <span className="text-[9px] uppercase font-bold tracking-widest mt-0.5" style={{ color: 'var(--text-muted)', opacity: 0.7 }}>{s.label}</span>
+            </motion.div>
+          ))}
+        </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-         <div className="lg:col-span-2 space-y-6">
-            <div className="flex items-center justify-between">
-               <h2 className="text-xl font-black flex items-center gap-2" style={{ color: 'var(--text)' }}>
-                  <Target size={20} className="text-primary" /> Daily Quests
-               </h2>
-               <Link href="/student/assignments" className="text-xs font-bold text-primary hover:underline">View All Quests</Link>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-               {activeQuests.length === 0 ? (
-                  <div className="col-span-full p-8 text-center rounded-3xl border-2 border-dashed border-[var(--card-border)] bg-[var(--card)]/50">
-                     <Target size={40} className="mx-auto text-muted opacity-30 mb-3" />
-                     <h3 className="text-sm font-bold opacity-70" style={{ color: 'var(--text)' }}>No Active Quests</h3>
-                     <p className="text-xs opacity-50 mt-1" style={{ color: 'var(--text-muted)' }}>You're all caught up! Take a break or start a Focus session.</p>
+        {/* === MOTIVATION CARDS STRIP === */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {[
+            {
+              icon: '🎯',
+              title: 'Set Your Target',
+              body: 'Define today\'s goal and crush it. One task at a time builds champions.',
+              gradient: 'linear-gradient(135deg, var(--primary), var(--accent))',
+              href: '/student/assignments',
+              cta: 'Go to Quests',
+            },
+            {
+              icon: '🧠',
+              title: 'Deep Focus Now',
+              body: `You've done ${stats.tasks} tasks already. Your brain is a muscle — keep training it.`,
+              gradient: 'linear-gradient(135deg, var(--accent), var(--primary))',
+              href: '/student/study',
+              cta: 'Start Focus',
+            },
+            {
+              icon: '🏆',
+              title: streak >= 3 ? `${streak}-Day Legend!` : 'Build Your Streak',
+              body: streak >= 3
+                ? `You're on fire! Keep your ${streak}-day streak alive. Don't let it break now!`
+                : 'Log in and study every day. Streaks multiply your XP rewards.',
+              gradient: 'linear-gradient(135deg, #F59E0B, #EF4444)',
+              href: '/student/performance',
+              cta: 'View Progress',
+            },
+          ].map((mc, i) => (
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 + i * 0.1 }}
+            >
+              <Link href={mc.href}>
+                <div
+                  className="relative overflow-hidden rounded-2xl p-5 cursor-pointer hover:scale-[1.02] transition-all group"
+                  style={{ background: mc.gradient }}
+                >
+                  <div className="absolute -top-6 -right-6 text-white/10 text-7xl font-black">{mc.icon}</div>
+                  <div className="relative z-10">
+                    <div className="text-2xl mb-2">{mc.icon}</div>
+                    <h3 className="font-black text-white text-sm mb-1 leading-tight">{mc.title}</h3>
+                    <p className="text-white/70 text-[10px] leading-relaxed mb-3">{mc.body}</p>
+                    <div className="inline-flex items-center gap-1 text-white text-[10px] font-black uppercase tracking-wider bg-white/15 hover:bg-white/25 transition-all px-3 py-1.5 rounded-xl">
+                      {mc.cta} <ChevronRight size={10} />
+                    </div>
                   </div>
-               ) : (
-                 activeQuests.map((q, i) => (
-                 <motion.div key={q.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}>
-                    <Card className="p-6 flex flex-col h-full border-none shadow-2xl glass-card-elite hover:scale-[1.02] transition-all group/quest">
-                       <div className="flex justify-between items-start mb-4">
-                          <div className={`p-3 rounded-2xl ${i % 2 === 0 ? 'bg-indigo-500/15 text-indigo-400' : 'bg-rose-500/15 text-rose-400'} shadow-inner`}>
-                             <Award size={22} className="group-hover/quest:animate-bounce" />
-                          </div>
-                          <Badge className="text-[9px] bg-white/5 border-white/10 uppercase tracking-widest font-black">{q.subject?.name}</Badge>
-                       </div>
-                       <h3 className="font-black text-lg mb-2 leading-tight" style={{ color: 'var(--text)' }}>{q.title}</h3>
-                       <p className="text-xs mb-8 line-clamp-2 leading-relaxed opacity-60" style={{ color: 'var(--text-muted)' }}>{q.description || 'Complete this task to earn XP and master the topic.'}</p>
-                       <div className="mt-auto flex items-center justify-between">
-                          <div className="flex items-center gap-1.5 text-xs font-black text-amber-400">
-                             <Zap size={14} className="fill-amber-400" /> +20 XP
-                          </div>
-                          <Link href={`/student/assignments/${q.id}`}>
-                             <Button size="sm" className="bg-white/5 hover:bg-white/10 border-white/10 text-xs font-bold px-6">Enter Quest</Button>
-                          </Link>
-                       </div>
-                    </Card>
-                 </motion.div>
-                 ))
-               )}
-            </div>
-         </div>
+                </div>
+              </Link>
+            </motion.div>
+          ))}
+        </div>
 
-         <div className="space-y-6">
+        {/* === MAIN CONTENT: Quests + Sidebar === */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+          {/* LEFT: Active Quests */}
+          <div className="lg:col-span-2 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-black flex items-center gap-2" style={{ color: 'var(--text)' }}>
+                <Target size={18} className="text-primary" /> Active Quests
+                {activeQuests.length > 0 && (
+                  <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] font-black text-white" style={{ background: 'var(--primary)' }}>
+                    {activeQuests.length}
+                  </span>
+                )}
+              </h2>
+              <Link href="/student/assignments" className="text-xs font-bold text-primary hover:underline flex items-center gap-1">
+                View All <ChevronRight size={12} />
+              </Link>
+            </div>
+
+            {activeQuests.length === 0 ? (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="p-10 text-center rounded-3xl border-2 border-dashed flex flex-col items-center gap-3"
+                style={{ borderColor: 'var(--card-border)', background: 'var(--card)' }}
+              >
+                <div className="text-5xl">🎉</div>
+                <h3 className="font-black text-base" style={{ color: 'var(--text)' }}>All Caught Up, Legend!</h3>
+                <p className="text-xs max-w-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                  No pending quests. Your teacher is probably brewing something powerful. Meanwhile, start a Focus session!
+                </p>
+                <Link href="/student/study">
+                  <button className="mt-2 px-5 py-2 rounded-xl text-xs font-black text-white" style={{ background: 'var(--primary)' }}>
+                    🧠 Start Focus Session
+                  </button>
+                </Link>
+              </motion.div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {activeQuests.map((q, i) => {
+                  const colors = [
+                    { icon: 'from-indigo-500 to-blue-600', badge: 'var(--primary)' },
+                    { icon: 'from-rose-500 to-pink-600', badge: '#F43F5E' },
+                    { icon: 'from-emerald-500 to-teal-600', badge: '#10B981' },
+                  ]
+                  const c = colors[i % colors.length]
+                  return (
+                    <motion.div
+                      key={q.id}
+                      initial={{ opacity: 0, y: 15 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.08 }}
+                    >
+                      <Link href={`/student/assignments/${q.id}`}>
+                        <div
+                          className="group relative overflow-hidden rounded-2xl p-5 cursor-pointer hover:scale-[1.02] active:scale-[0.98] transition-all border"
+                          style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}
+                        >
+                          <div className="absolute top-0 right-0 w-32 h-32 rounded-full blur-3xl opacity-5 group-hover:opacity-10 transition-all" style={{ background: c.badge }} />
+                          <div className="flex items-start justify-between mb-3">
+                            <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${c.icon} flex items-center justify-center text-white shadow-lg`}>
+                              <Award size={18} />
+                            </div>
+                            <span className="text-[9px] font-black px-2 py-1 rounded-lg text-white uppercase tracking-wider" style={{ background: c.badge }}>
+                              {q.subject?.name || 'Quest'}
+                            </span>
+                          </div>
+                          <h3 className="font-black text-sm mb-1 leading-tight line-clamp-2" style={{ color: 'var(--text)' }}>{q.title}</h3>
+                          <p className="text-[10px] leading-relaxed line-clamp-2 mb-4" style={{ color: 'var(--text-muted)' }}>
+                            {q.description || 'Complete this quest and earn XP to level up!'}
+                          </p>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1 text-[10px] font-black text-amber-400">
+                              <Zap size={11} className="fill-amber-400" /> +20 XP Reward
+                            </div>
+                            <span className="text-[10px] font-black text-primary flex items-center gap-0.5">
+                              Enter Quest <ChevronRight size={10} />
+                            </span>
+                          </div>
+                        </div>
+                      </Link>
+                    </motion.div>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* Quick Action Grid */}
+            <div>
+              <h2 className="text-lg font-black flex items-center gap-2 mb-3" style={{ color: 'var(--text)' }}>
+                <Rocket size={18} className="text-primary" /> Your Mission Control
+              </h2>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {[
+                  { emoji: '📝', label: 'Assignments', href: '/student/assignments', color: 'var(--primary)' },
+                  { emoji: '⚡', label: 'Quizzes', href: '/student/quizzes', color: '#F59E0B' },
+                  { emoji: '🏆', label: 'Trivia', href: '/student/trivia', color: '#EF4444' },
+                  { emoji: '📚', label: 'Resources', href: '/student/resources', color: '#10B981' },
+                  { emoji: '🎯', label: 'Focus Timer', href: '/student/study', color: 'var(--accent)' },
+                  { emoji: '📅', label: 'Schedule', href: '/student/schedule', color: '#0EA5E9' },
+                  { emoji: '🥇', label: 'My Progress', href: '/student/performance', color: '#F97316' },
+                  { emoji: '🎖️', label: 'Awards', href: '/student/awards', color: '#FBBF24' },
+                ].map((action, i) => (
+                  <motion.div
+                    key={action.label}
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: 0.05 * i, type: 'spring', stiffness: 300 }}
+                  >
+                    <Link href={action.href}>
+                      <div
+                        className="group flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border cursor-pointer hover:scale-105 active:scale-95 transition-all"
+                        style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}
+                      >
+                        <div
+                          className="w-10 h-10 rounded-xl flex items-center justify-center text-xl transition-transform group-hover:scale-110 group-hover:rotate-3"
+                          style={{ background: `${action.color}15` }}
+                        >
+                          {action.emoji}
+                        </div>
+                        <span className="text-[10px] font-black uppercase tracking-wider text-center leading-tight" style={{ color: 'var(--text-muted)' }}>
+                          {action.label}
+                        </span>
+                      </div>
+                    </Link>
+                  </motion.div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* RIGHT SIDEBAR */}
+          <div className="space-y-5">
+            {/* Timetable */}
             <TimetableWidget role="student" />
-            <h2 className="text-xl font-black flex items-center gap-2" style={{ color: 'var(--text)' }}>
-               <MessageSquare size={20} className="text-secondary" /> Recent Intel
-            </h2>
-            <div className="space-y-3">
-               {intel.map((n) => (
-                 <Card key={n.id} className="p-4 border-none shadow-md">
-                    <div className="flex gap-3">
-                       <div className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0" style={{ background: n.type === 'award' ? '#10B981' : n.type === 'info' ? '#3B82F6' : '#F59E0B' }} />
-                       <div>
-                          <p className="text-xs font-bold leading-tight" style={{ color: 'var(--text)' }}>{n.title}</p>
-                          <p className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>{n.body}</p>
-                       </div>
-                    </div>
-                 </Card>
-               ))}
-               {intel.length === 0 && <p className="text-[10px] text-center p-4 italic opacity-50">No recent intel found.</p>}
-            </div>
 
-            <Card className="p-6 text-center space-y-4 glass-card-elite border-none">
-                <div className="w-20 h-20 rounded-full bg-slate-100 flex items-center justify-center mx-auto border-4 border-primary/20 shadow-xl overflow-hidden relative group/avatar">
-                   {student?.avatar_url ? (
-                      <img src={student.avatar_url} alt="You" className="w-full h-full object-cover transition-transform duration-500 group-hover/avatar:scale-110" />
-                   ) : (
-                      <Trophy size={36} className="text-amber-500 animate-glow-pulse" />
-                   )}
-                   <div className="absolute inset-0 bg-primary/10 opacity-0 group-hover/avatar:opacity-100 transition-opacity" />
-                </div>
-                <div>
-                   <h4 className="font-black text-base tracking-tight" style={{ color: 'var(--text)' }}>Global Rank</h4>
-                   <p className="text-xs font-bold" style={{ color: 'var(--text-muted)' }}>
-                      {studentRank ? <span className="text-primary">Position #{studentRank} </span> : 'Calculating... '}
-                      {student?.class?.name ? <span className="opacity-60">in {student.class.name}</span> : ''}
-                   </p>
-                </div>
-                <Button variant="ghost" size="sm" className="w-full text-xs font-bold hover:bg-white/5" onClick={() => setShowFullLeaderboard(true)}>View Hall of Fame</Button>
-             </Card>
+            {/* Leaderboard teaser */}
+            <div
+              className="relative overflow-hidden rounded-2xl p-5 cursor-pointer hover:scale-[1.02] transition-all border"
+              style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}
+              onClick={() => setShowFullLeaderboard(true)}
+            >
+              <div className="absolute -top-8 -right-8 w-32 h-32 rounded-full blur-2xl opacity-10" style={{ background: 'var(--primary)' }} />
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-black text-sm flex items-center gap-2" style={{ color: 'var(--text)' }}>
+                  🏆 Hall of Fame
+                </h3>
+                <span className="text-[9px] font-black text-primary uppercase tracking-wider">View All →</span>
+              </div>
 
-            <Link href="/student/transcripts">
-              <Card className="p-6 bg-gradient-to-br from-indigo-500 to-purple-600 text-white border-none shadow-lg hover:scale-105 transition-all cursor-pointer">
-                 <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-2xl bg-white/20 flex items-center justify-center">
-                       <Award size={24} />
-                    </div>
-                    <div>
-                       <h4 className="font-bold text-sm">My Transcripts</h4>
-                       <p className="text-[10px] opacity-80">View Academic Reports</p>
-                    </div>
-                 </div>
-              </Card>
-            </Link>
-         </div>
-      </div>
-
-      <Modal isOpen={showFullLeaderboard} onClose={() => setShowFullLeaderboard(false)} title="Peak Authority Leaderboard 🏆" size="lg">
-         <div className="space-y-6 py-2 pb-6">
-            <div className="flex items-center justify-between p-6 rounded-3xl bg-primary/10 border border-primary/20 shadow-2xl relative overflow-hidden group">
-               <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 blur-[40px] rounded-full group-hover:scale-150 transition-transform" />
-               <div className="flex items-center gap-5 relative z-10">
-                  <div className="w-16 h-16 rounded-2xl bg-primary/20 flex items-center justify-center text-primary font-black text-3xl shadow-inner border border-primary/20">
-                     #{studentRank || '?'}
+              {studentRank && (
+                <div className="mb-3 p-3 rounded-xl flex items-center gap-3" style={{ background: 'color-mix(in oklch, var(--primary) 10%, transparent)' }}>
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-black text-white" style={{ background: 'var(--primary)' }}>
+                    #{studentRank}
                   </div>
                   <div>
-                     <div className="font-black text-xl tracking-tighter" style={{ color: 'var(--text)' }}>Your Standing</div>
-                     <div className="text-xs font-black text-primary uppercase tracking-widest">{student?.xp?.toLocaleString()} XP Earned</div>
+                    <div className="text-xs font-black" style={{ color: 'var(--text)' }}>Your Rank</div>
+                    <div className="text-[9px] font-bold text-primary">{xp.toLocaleString()} XP</div>
                   </div>
-               </div>
-              <div className="text-right relative z-10">
-                 <Badge variant="primary" className="mb-1 bg-primary text-white border-none px-4 py-1 font-black">Level {calculateLevel(student?.xp || 0).level || 1}</Badge>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                {leaderboard.slice(0, 5).map((entry, i) => (
+                  <div key={i} className={`flex items-center gap-3 p-2 rounded-xl transition-all ${entry.full_name === profile?.full_name ? 'ring-1 ring-primary/30' : ''}`} style={{ background: 'var(--bg)' }}>
+                    <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black shrink-0 ${
+                      i === 0 ? 'bg-amber-400 text-white' :
+                      i === 1 ? 'bg-slate-400 text-white' :
+                      i === 2 ? 'bg-amber-700 text-white' : 'bg-transparent text-muted'
+                    }`}>
+                      {i + 1}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[10px] font-black truncate" style={{ color: entry.full_name === profile?.full_name ? 'var(--primary)' : 'var(--text)' }}>
+                        {entry.full_name === profile?.full_name ? '⭐ ' : ''}{entry.full_name}
+                      </div>
+                    </div>
+                    <div className="text-[9px] font-black text-amber-500 shrink-0">{entry.xp?.toLocaleString()} XP</div>
+                  </div>
+                ))}
               </div>
             </div>
 
-            <div className="space-y-3 max-h-[450px] overflow-y-auto pr-2 custom-scrollbar">
-               {leaderboard.map((entry, i) => (
-                  <div key={i} className={`flex items-center justify-between p-4 rounded-2xl transition-all ${entry.full_name === profile?.full_name ? 'bg-primary/15 border border-primary/30 shadow-2xl glass-card-elite translate-x-1' : 'hover:bg-white/5 border border-transparent hover:border-white/5'}`}>
-                     <div className="flex items-center gap-5">
-                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm shadow-lg ${i === 0 ? 'bg-gradient-to-br from-amber-300 to-amber-600 text-white animate-bounce shadow-amber-500/20' : i === 1 ? 'bg-gradient-to-br from-slate-200 to-slate-400 text-white' : i === 2 ? 'bg-gradient-to-br from-amber-600 to-amber-800 text-white' : 'bg-white/5 text-muted'}`}>
-                           {i + 1}
-                        </div>
-                        <div className="relative">
-                           <Avatar url={entry.avatar_url} name={entry.full_name} size="md" />
-                           {i < 3 && <div className="absolute -top-1 -right-1 text-xs">👑</div>}
-                        </div>
-                        <div>
-                           <div className="text-base font-black tracking-tight" style={{ color: 'var(--text)' }}>{entry.full_name}</div>
-                           <div className="text-[10px] font-bold text-muted opacity-60 uppercase tracking-widest">{entry.class?.name || 'Vanguard Scholar'}</div>
-                        </div>
-                     </div>
-                     <div className="text-right px-2">
-                        <div className="text-lg font-black text-primary tracking-tighter">{entry.xp.toLocaleString()}</div>
-                        <div className="text-[9px] font-black text-muted uppercase tracking-widest opacity-60">Total XP</div>
-                     </div>
+            {/* Recent Intel */}
+            {intel.length > 0 && (
+              <div>
+                <h3 className="text-sm font-black mb-3 flex items-center gap-2" style={{ color: 'var(--text)' }}>
+                  <MessageSquare size={15} className="text-secondary" /> Latest Intel
+                </h3>
+                <div className="space-y-2">
+                  {intel.slice(0, 3).map((n) => (
+                    <div
+                      key={n.id}
+                      className="p-3 rounded-xl flex gap-3 border"
+                      style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}
+                    >
+                      <div className="w-1.5 rounded-full shrink-0 mt-1" style={{
+                        background: n.type === 'award' ? '#10B981' : n.type === 'info' ? '#3B82F6' : '#F59E0B',
+                        minHeight: '24px'
+                      }} />
+                      <div>
+                        <p className="text-[10px] font-bold leading-tight" style={{ color: 'var(--text)' }}>{n.title}</p>
+                        <p className="text-[9px] mt-0.5 leading-relaxed" style={{ color: 'var(--text-muted)' }}>{n.body}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Transcript CTA */}
+            <Link href="/student/transcripts">
+              <div className="relative overflow-hidden rounded-2xl p-5 cursor-pointer hover:scale-[1.02] transition-all group">
+                <div className="absolute inset-0 rounded-2xl" style={{ background: 'linear-gradient(135deg, var(--primary), var(--accent))' }} />
+                <div className="absolute top-0 right-0 text-white/10 text-[80px] font-black leading-none">📜</div>
+                <div className="relative z-10">
+                  <div className="text-2xl mb-2">📜</div>
+                  <h4 className="font-black text-sm text-white">Academic Transcript</h4>
+                  <p className="text-white/60 text-[10px] mt-1">View your full academic history and certificates</p>
+                  <div className="mt-3 inline-flex items-center gap-1 text-[10px] font-black text-white bg-white/15 px-3 py-1.5 rounded-xl">
+                    Open Transcript <ChevronRight size={10} />
                   </div>
-               ))}
+                </div>
+              </div>
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      {/* === HALL OF FAME MODAL === */}
+      <Modal isOpen={showFullLeaderboard} onClose={() => setShowFullLeaderboard(false)} title="Peak Authority Leaderboard 🏆" size="lg">
+        <div className="space-y-6 py-2 pb-6">
+          <div className="flex items-center justify-between p-6 rounded-3xl border relative overflow-hidden" style={{ background: 'color-mix(in oklch, var(--primary) 8%, transparent)', borderColor: 'color-mix(in oklch, var(--primary) 20%, transparent)' }}>
+            <div className="flex items-center gap-5">
+              <div className="w-16 h-16 rounded-2xl flex items-center justify-center font-black text-2xl text-white shadow-inner" style={{ background: 'var(--primary)' }}>
+                #{studentRank || '?'}
+              </div>
+              <div>
+                <div className="font-black text-xl" style={{ color: 'var(--text)' }}>Your Standing</div>
+                <div className="text-xs font-black text-primary uppercase tracking-widest">{xp.toLocaleString()} XP Earned</div>
+              </div>
             </div>
-            <p className="text-[10px] text-center text-muted italic">Leaderboard updates in real-time as you earn XP from quests and focus sessions.</p>
-         </div>
+            <Badge variant="primary" className="font-black">Level {level || 1}</Badge>
+          </div>
+
+          <div className="space-y-3 max-h-[450px] overflow-y-auto pr-1">
+            {leaderboard.map((entry, i) => (
+              <div key={i} className={`flex items-center justify-between p-4 rounded-2xl transition-all border ${entry.full_name === profile?.full_name ? 'border-primary/30' : 'border-transparent hover:border-white/5'}`} style={{ background: entry.full_name === profile?.full_name ? 'color-mix(in oklch, var(--primary) 8%, transparent)' : 'var(--bg)' }}>
+                <div className="flex items-center gap-4">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm shadow ${
+                    i === 0 ? 'bg-gradient-to-br from-amber-300 to-amber-600 text-white' :
+                    i === 1 ? 'bg-gradient-to-br from-slate-200 to-slate-400 text-white' :
+                    i === 2 ? 'bg-gradient-to-br from-amber-600 to-amber-800 text-white' :
+                    'bg-white/5 text-[var(--text-muted)]'
+                  }`}>
+                    {i < 3 ? ['🥇','🥈','🥉'][i] : i + 1}
+                  </div>
+                  <Avatar url={entry.avatar_url} name={entry.full_name} size="md" />
+                  <div>
+                    <div className="text-sm font-black" style={{ color: entry.full_name === profile?.full_name ? 'var(--primary)' : 'var(--text)' }}>
+                      {entry.full_name}
+                    </div>
+                    <div className="text-[10px] font-bold opacity-50 uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+                      {entry.class?.name || 'Scholar'}
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-base font-black text-primary">{entry.xp?.toLocaleString()}</div>
+                  <div className="text-[9px] font-bold text-muted uppercase tracking-widest opacity-60">XP</div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="text-[10px] text-center italic" style={{ color: 'var(--text-muted)' }}>Leaderboard updates as you earn XP from quests, focus sessions and trivia.</p>
+        </div>
       </Modal>
     </div>
   )
 }
+

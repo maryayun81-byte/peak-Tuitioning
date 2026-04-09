@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useMemo, Suspense } from 'react'
+import { useState, useMemo, Suspense } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { useSearchParams } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { 
@@ -26,67 +27,51 @@ function MarkingQueueContent() {
   const searchParams = useSearchParams()
   const assignmentId = searchParams.get('assignment_id')
   
-  const [loading, setLoading] = useState(true)
-  const [submissions, setSubmissions] = useState<any[]>([])
+  const fetchQueue = async () => {
+    if (!teacher) return []
+    let query = supabase
+      .from('submissions')
+      .select(`
+        *,
+        student:students(full_name, admission_number),
+        assignment:assignments!inner(title, max_marks, teacher_id)
+      `)
+      .eq('assignment.teacher_id', teacher.id)
+    if (assignmentId) query = query.eq('assignment_id', assignmentId)
+    const { data } = await query.order('submitted_at', { ascending: true })
+    return data ?? []
+  }
+
+  const { data: submissions = [], isLoading } = useQuery({
+    queryKey: ['teacher-marking', teacher?.id, assignmentId],
+    queryFn: fetchQueue,
+    enabled: !!teacher?.id,
+    staleTime: 2 * 60 * 1000,  // Marking queue refreshes more often — 2 min stale
+    gcTime: 5 * 60 * 1000,
+  })
+
+  const loading = isLoading && submissions.length === 0
+
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('submitted')
 
-  useEffect(() => {
-    if (profile) loadQueue()
-  }, [profile])
-
-  const loadQueue = async () => {
-    if (!teacher) return
-    setLoading(true)
-    try {
-      let query = supabase
-        .from('submissions')
-        .select(`
-          *,
-          student:students(full_name, admission_number),
-          assignment:assignments!inner(title, max_marks, teacher_id)
-        `)
-        .eq('assignment.teacher_id', teacher.id)
-      
-      if (assignmentId) {
-        query = query.eq('assignment_id', assignmentId)
-      }
-
-      const { data } = await query.order('submitted_at', { ascending: true })
-      
-      setSubmissions(data ?? [])
-    } finally {
-      setLoading(false)
-    }
-  }
-
   const stats = useMemo(() => {
-    const marked = submissions.filter(s => s.status === 'marked' || s.status === 'returned')
+    const marked = submissions.filter((s: any) => s.status === 'marked' || s.status === 'returned')
     const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000)
-    const markedTodayCount = marked.filter(s => s.marked_at && new Date(s.marked_at) > last24h).length
-    
-    const scores = marked.filter(s => s.marks !== null && s.assignment?.max_marks > 0)
-    const avgScore = scores.length > 0 
-      ? Math.round(scores.reduce((acc, s) => acc + (s.marks / s.assignment.max_marks), 0) / scores.length * 100)
+    const markedTodayCount = marked.filter((s: any) => s.marked_at && new Date(s.marked_at) > last24h).length
+    const scores = marked.filter((s: any) => s.marks !== null && s.assignment?.max_marks > 0)
+    const avgScore = scores.length > 0
+      ? Math.round(scores.reduce((acc: number, s: any) => acc + (s.marks / s.assignment.max_marks), 0) / scores.length * 100)
       : 0
-
     return {
-      pending: submissions.filter(s => s.status === 'submitted').length,
+      pending: submissions.filter((s: any) => s.status === 'submitted').length,
       markedToday: markedTodayCount,
       total: submissions.length,
       avgScore
     }
   }, [submissions])
 
-  // Safety timeout
-  useEffect(() => {
-    if (loading) {
-      const t = setTimeout(() => setLoading(false), 5000)
-      return () => clearTimeout(t)
-    }
-  }, [loading])
-
-  const filtered = submissions.filter(s => {
+  const filtered = submissions.filter((s: any) => {
     const q = search.toLowerCase()
     const matchesSearch = s.student?.full_name.toLowerCase().includes(q) || s.assignment?.title.toLowerCase().includes(q)
     const matchesStatus = filterStatus === 'all' || s.status === filterStatus

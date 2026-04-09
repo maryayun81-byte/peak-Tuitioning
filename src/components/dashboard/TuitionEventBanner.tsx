@@ -6,7 +6,7 @@ import { Calendar, Clock, ChevronRight, Rocket, AlertTriangle } from 'lucide-rea
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/authStore'
 import { Badge } from '@/components/ui/Card'
-import { formatDate } from '@/lib/utils'
+import { formatDate, getLocalISODate } from '@/lib/utils'
 import Link from 'next/link'
 import type { TuitionEvent } from '@/types/database'
 
@@ -55,7 +55,7 @@ export function TuitionEventBanner() {
 
     setLoading(true)
     try {
-      const todayStr = new Date().toISOString().split('T')[0]
+      const todayStr = getLocalISODate()
       const { data, error } = await supabase
         .from('tuition_events')
         .select('*, curriculum:curriculums(name)')

@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useMemo } from 'react'
 import { motion } from 'framer-motion'
+import { useQuery } from '@tanstack/react-query'
 import { 
   Users, Clock, ClipboardCheck, BookOpen, 
   Calendar, ArrowRight, MessageSquare, 
@@ -22,112 +23,81 @@ import Link from 'next/link'
 export default function TeacherDashboard() {
   const supabase = getSupabaseBrowserClient()
   const { profile, teacher } = useAuthStore()
-  const [loading, setLoading] = useState(true)
-  const [stats, setStats] = useState({
-    activeStudents: 0,
-    classesToday: 0,
-    pendingMarks: 0,
-    attendanceRate: 0,
-    breakdown: [] as any[],
-  })
-  const [pendingAssignments, setPendingAssignments] = useState<any[]>([])
-  const [notifications, setNotifications] = useState<any[]>([])
 
-  useEffect(() => {
-    let mounted = true
-    
-    // Safety timeout — never hang forever
-    const safetyTimer = setTimeout(() => {
-       if (mounted) setLoading(false)
-    }, 8000)
+  // ── React Query: fetches once, caches for 5 minutes ──────────────────
+  const fetchDashboard = useMemo(() => async () => {
+    if (!teacher?.id || !profile?.id) return null
+    const todayStr = new Date().toISOString().split('T')[0]
 
-    if (profile && teacher) {
-      loadDashboard().finally(() => clearTimeout(safetyTimer))
-    } else if (!teacher) {
-      // If teacher hasn't loaded yet give it 2s then bail
-      const fallback = setTimeout(() => { if (mounted) setLoading(false) }, 2000)
-      return () => { mounted = false; clearTimeout(safetyTimer); clearTimeout(fallback) }
-    }
+    const [mRes, evRes] = await Promise.all([
+      supabase.from('teacher_assignments')
+        .select('class_id, tuition_center_id, class:classes(name), tuition_center:tuition_centers(name)')
+        .eq('teacher_id', teacher.id),
+      supabase.from('tuition_events')
+        .select('id, start_date, end_date')
+        .gte('end_date', todayStr)
+        .order('start_date', { ascending: true })
+        .limit(5),
+    ])
 
-    return () => {
-       mounted = false
-       clearTimeout(safetyTimer)
-    }
-  }, [profile, teacher])
+    const rawAssignments: any[] = mRes.data || []
+    const classIds = Array.from(new Set(rawAssignments.map((m: any) => m.class_id).filter(Boolean)))
+    const uniqueAssignments = rawAssignments.filter((a: any, idx: number, self: any[]) =>
+      idx === self.findIndex((t: any) => t.class_id === a.class_id && t.tuition_center_id === a.tuition_center_id)
+    )
+    const events = evRes.data || []
+    const currentEvent = events.find((e: any) => todayStr >= e.start_date && todayStr <= e.end_date) || events[0]
 
-  const loadDashboard = async () => {
-    if (!teacher || !profile) return
-    setLoading(true)
-    try {
-      const todayStr = new Date().toISOString().split('T')[0]
+    const [subRes, nRes, tRes, sRes, aRes, attRes, breakdownRes] = await Promise.all([
+      supabase.from('submissions').select('id', { count: 'exact', head: true }).eq('status', 'submitted'),
+      supabase.from('notifications').select('*').eq('user_id', profile.id).order('created_at', { ascending: false }).limit(3),
+      supabase.from('timetables').select('id', { count: 'exact', head: true }).eq('teacher_id', teacher.id).ilike('day', todayStr),
+      classIds.length > 0
+        ? supabase.from('students').select('id', { count: 'exact', head: true }).in('class_id', classIds)
+        : Promise.resolve({ count: 0, data: null, error: null }),
+      supabase.from('assignments').select('*, class:classes(name)').eq('teacher_id', teacher.id).order('created_at', { ascending: false }).limit(3),
+      currentEvent?.id
+        ? supabase.from('attendance').select('status').eq('teacher_id', teacher.id).eq('tuition_event_id', currentEvent.id).limit(500)
+        : Promise.resolve({ data: [] }),
+      Promise.all(uniqueAssignments.map(async (a: any) => {
+        const { count } = await supabase.from('students').select('id', { count: 'exact', head: true }).eq('class_id', a.class_id)
+        const cName = Array.isArray(a.class) ? a.class[0]?.name : a.class?.name
+        const ctName = Array.isArray(a.tuition_center) ? a.tuition_center[0]?.name : a.tuition_center?.name
+        return { name: cName || 'Unknown', center: ctName || 'N/A', count: count || 0 }
+      }))
+    ])
 
-      // Stage 1: Fetch assignments and events in parallel (needed to derive class IDs)
-      const [mRes, evRes] = await Promise.all([
-        supabase.from('teacher_assignments')
-          .select('class_id, tuition_center_id, class:classes(name), tuition_center:tuition_centers(name)')
-          .eq('teacher_id', teacher.id),
-        supabase.from('tuition_events')
-          .select('id, start_date, end_date')
-          .gte('end_date', todayStr)
-          .order('start_date', { ascending: true })
-          .limit(5),
-      ])
+    const attendance = (attRes as any).data || []
+    const total = attendance.length
+    const present = attendance.filter((a: any) => a.status === 'present' || a.status === 'late').length
 
-      const rawAssignments: any[] = mRes.data || []
-      const classIds = Array.from(new Set(rawAssignments.map(m => m.class_id).filter(Boolean)))
-      const uniqueAssignments = rawAssignments.filter((a: any, idx: number, self: any[]) =>
-        idx === self.findIndex(t => t.class_id === a.class_id && t.tuition_center_id === a.tuition_center_id)
-      )
-
-      // Current event for attendance stats
-      const events = evRes.data || []
-      const currentEvent = events.find(e => todayStr >= e.start_date && todayStr <= e.end_date) || events[0]
-
-      // Stage 2: All remaining queries run in ONE parallel batch
-      const [subRes, nRes, tRes, sRes, aRes, attRes, breakdownRes] = await Promise.all([
-        supabase.from('submissions').select('id', { count: 'exact' }).eq('status', 'submitted'),
-        supabase.from('notifications').select('*').eq('user_id', profile.id).order('created_at', { ascending: false }).limit(3),
-        supabase.from('timetables').select('count', { count: 'exact' }).eq('teacher_id', teacher.id).ilike('day', todayStr),
-        classIds.length > 0
-          ? supabase.from('students').select('id', { count: 'exact' }).in('class_id', classIds)
-          : Promise.resolve({ count: 0 }),
-        supabase.from('assignments').select('*, class:classes(name)').eq('teacher_id', teacher.id).order('created_at', { ascending: false }).limit(3),
-        // Attendance query now runs in parallel (used to be a 3rd sequential waterfall)
-        currentEvent?.id
-          ? supabase.from('attendance').select('status').eq('teacher_id', teacher.id).eq('tuition_event_id', currentEvent.id).limit(500)
-          : Promise.resolve({ data: [] }),
-        // Breakdown: student counts per class — run in parallel too
-        Promise.all(uniqueAssignments.map(async (a) => {
-          const { count } = await supabase.from('students').select('id', { count: 'exact', head: true }).eq('class_id', a.class_id)
-          const cName = Array.isArray(a.class) ? a.class[0]?.name : (a.class as any)?.name
-          const ctName = Array.isArray(a.tuition_center) ? a.tuition_center[0]?.name : (a.tuition_center as any)?.name
-          return { name: cName || 'Unknown', center: ctName || 'N/A', count: count || 0 }
-        }))
-      ])
-
-      // Calculate attendance rate
-      const attendance = (attRes as any).data || []
-      const total = attendance.length
-      const present = attendance.filter((a: any) => a.status === 'present' || a.status === 'late').length
-      const attendanceRate = total > 0 ? Math.round((present / total) * 1000) / 10 : 0
-
-      setStats({
+    return {
+      stats: {
         activeStudents: (sRes as any).count ?? 0,
         classesToday: (tRes as any).count ?? 0,
         pendingMarks: (subRes as any).count ?? 0,
-        attendanceRate,
-        breakdown: breakdownRes as any[]
-      })
-      setPendingAssignments((aRes as any).data ?? [])
-      setNotifications((nRes as any).data ?? [])
-    } catch (err) {
-      console.error('Error loading dashboard:', err)
-    } finally {
-      setLoading(false)
+        attendanceRate: total > 0 ? Math.round((present / total) * 1000) / 10 : 0,
+        breakdown: breakdownRes as any[],
+      },
+      pendingAssignments: (aRes as any).data ?? [],
+      notifications: (nRes as any).data ?? [],
     }
-  }
+  }, [teacher?.id, profile?.id])
 
-  if (loading) return <SkeletonDashboard />
+  const { data, isLoading } = useQuery({
+    queryKey: ['teacher-dashboard', teacher?.id],
+    queryFn: fetchDashboard,
+    enabled: !!teacher?.id && !!profile?.id,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+  })
+
+  const stats = data?.stats ?? { activeStudents: 0, classesToday: 0, pendingMarks: 0, attendanceRate: 0, breakdown: [] }
+  const pendingAssignments = data?.pendingAssignments ?? []
+  const notifications = data?.notifications ?? []
+
+  // Show skeleton only on true first load (no cached data)
+  if (isLoading && !data) return <SkeletonDashboard />
 
   return (
     <div className="p-6 space-y-6 pb-12">
@@ -185,7 +155,7 @@ export default function TeacherDashboard() {
                      <h3 className="font-bold text-sm" style={{ color: 'var(--text)' }}>Active Assignments</h3>
                   </div>
                   <div className="space-y-3">
-                     {pendingAssignments.length > 0 ? pendingAssignments.map(a => (
+                     {pendingAssignments.length > 0 ? pendingAssignments.map((a: any) => (
                        <Link key={a.id} href={`/teacher/assignments/${a.id}/progress`}>
                           <div className="flex items-center justify-between p-2 rounded-lg hover:bg-[var(--primary)] hover:text-white transition-all cursor-pointer" style={{ background: 'var(--bg)' }}>
                              <div className="text-xs font-medium truncate pr-2 uppercase tracking-tighter">{a.title}</div>
@@ -241,7 +211,7 @@ export default function TeacherDashboard() {
                   {notifications.length === 0 ? (
                     <div className="py-4 text-center text-xs opacity-40">No new notifications.</div>
                   ) : (
-                    notifications.map((n, i) => (
+                    notifications.map((n: any, i: number) => (
                       <div key={i} className="flex gap-3">
                          <div className="w-1.5 h-1.5 rounded-full mt-1.5 bg-primary shrink-0" />
                          <div className="flex-1">

@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
   ArrowLeft, Check, Send, MessageSquare, Star,
   ChevronLeft, ChevronRight, User, BookOpen, CheckCircle2, 
@@ -19,6 +19,7 @@ import { renderPdfToImages } from '@/lib/pdf-renderer'
 import toast from 'react-hot-toast'
 import type { WorksheetBlock, WorksheetAnswers } from '@/types/database'
 import Link from 'next/link'
+import { useAutoSave } from '@/hooks/useAutoSave'
 
 export default function WorksheetGraderPage() {
   const params = useParams()
@@ -146,6 +147,20 @@ export default function WorksheetGraderPage() {
     setLoading(false)
   }
 
+  // Auto-save marking progress
+  const markingData = useMemo(() => ({
+    feedback,
+    questionMarks,
+    annotations
+  }), [feedback, questionMarks, annotations])
+
+  const { hasSavedDraft, restore, clear } = useAutoSave(`marking_${submissionId}`, markingData, (saved) => {
+    setFeedback(saved.feedback)
+    setQuestionMarks(saved.questionMarks)
+    setAnnotations(saved.annotations)
+    toast.success('Marking draft restored!')
+  })
+
   const questionBlocks = blocks.filter(b => b.type !== 'section_header' && b.type !== 'reading_passage')
   const totalMarks = assignment?.total_marks ?? questionBlocks.reduce((s, b) => s + b.marks, 0)
   const awardedMarks = Object.values(questionMarks).reduce((s, v) => s + (v || 0), 0)
@@ -160,7 +175,10 @@ export default function WorksheetGraderPage() {
       status: 'marked',
     }).eq('id', submissionId)
     if (error) toast.error('Save failed: ' + error.message)
-    else toast.success('Progress saved!')
+    else {
+      toast.success('Progress saved!')
+      clear() // Clear draft on manual save
+    }
     setSaving(false)
   }
 
@@ -178,23 +196,20 @@ export default function WorksheetGraderPage() {
 
     if (!error) {
       const isHighPerf = (awardedMarks / totalMarks) >= 0.8
-      let xpAwarded = 0
+      let xpAwarded = isHighPerf ? 50 : 10
       
-      if (isHighPerf) {
-        xpAwarded = 50
-        const { data: st } = await supabase.from('students').select('xp').eq('id', submission.student_id).single()
-        await supabase.from('students').update({ xp: (st?.xp || 0) + 50 }).eq('id', submission.student_id)
-      }
+      const { data: st } = await supabase.from('students').select('xp').eq('id', submission.student_id).single()
+      await supabase.from('students').update({ xp: (st?.xp || 0) + xpAwarded }).eq('id', submission.student_id)
 
       await supabase.from('notifications').insert({
         user_id: submission?.student?.user_id ?? null,
         type: 'assignment_returned',
-        title: isHighPerf ? 'Mastery Achievement! +50 XP' : 'Assignment Returned',
+        title: isHighPerf ? 'Mastery Achievement! +50 XP' : 'Assignment Returned (+10 XP)',
         body: isHighPerf 
           ? `Incredible work! You scored ${Math.round((awardedMarks/totalMarks)*100)}% on "${assignment?.title}".`
           : `Your worksheet "${assignment?.title}" has been marked. Score: ${awardedMarks}/${totalMarks}`,
         related_id: assignment?.id,
-        data: { xp: xpAwarded, marks: awardedMarks, total: totalMarks }
+        data: { xp: xpAwarded, marks: awardedMarks, total: totalMarks, mastery: isHighPerf }
       })
       
       toast.success(isHighPerf ? '✅ Returned with Mastery Bonus!' : '✅ Submission returned to student!')
@@ -219,9 +234,13 @@ export default function WorksheetGraderPage() {
   )
 
   const isDocumentAssignment = !!assignment?.attachment_url
+  // Critical: workbook assignments have no attachment_url but ARE handled
+  // with the canvas-based annotation view (student submits a photo of their book)
+  const isWorkbook = !!assignment?.is_workbook
+  const useCanvasMarkingView = isDocumentAssignment || isWorkbook
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg)' }}>
+    <div className="h-screen flex flex-col" style={{ background: 'var(--bg)' }}>
       {/* Top bar */}
       <div className="sticky top-0 z-30 flex items-center gap-3 px-4 md:px-6 py-3" style={{ background: 'var(--card)', borderBottom: '1px solid var(--card-border)' }}>
         <Link href={assignment?.id ? `/teacher/assignments/${assignment.id}/progress` : '/teacher/marking'}>
@@ -246,6 +265,24 @@ export default function WorksheetGraderPage() {
           <Send size={14} /> Return
         </Button>
       </div>
+
+      {/* Auto-save draft recovery */}
+      <AnimatePresence>
+        {hasSavedDraft && (
+          <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }} className="overflow-hidden bg-primary/10 border-b border-primary/20">
+            <div className="px-6 py-2 flex items-center justify-between">
+              <div className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+                Unsaved marking progress found
+              </div>
+              <div className="flex gap-4">
+                <button onClick={clear} className="text-[10px] font-bold text-muted transition-colors hover:text-rose-500">Discard</button>
+                <button onClick={restore} className="text-[10px] font-black uppercase tracking-widest text-primary transition-all hover:scale-105">Restore Progress</button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Tabs */}
       <div className="flex border-b border-[var(--card-border)] bg-[var(--card)] px-4 overflow-x-auto no-scrollbar">
@@ -354,26 +391,33 @@ export default function WorksheetGraderPage() {
                 </Card>
              </div>
           </div>
-       ) : isDocumentAssignment ? (
+) : useCanvasMarkingView ? (
          /* DOCUMENT MARKING VIEW */
          <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
             {/* Left: Interactive Canvas */}
             <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-slate-50">
                <div className="max-w-4xl mx-auto space-y-4">
-                  <div className="flex items-center justify-between px-2">
-                     <h2 className="text-xs font-black uppercase tracking-widest text-slate-400">Student Submission & Marking</h2>
-                     <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
-                           <div className="w-2 h-2 rounded-full border border-slate-300"></div> Original Paper
-                        </div>
-                        <div className="flex items-center gap-2 text-[10px] font-bold text-blue-500 uppercase tracking-tighter">
-                           <div className="w-2 h-2 rounded-full bg-blue-500"></div> Student Work
-                        </div>
-                        <div className="flex items-center gap-2 text-[10px] font-bold text-red-500 uppercase tracking-tighter">
-                           <div className="w-2 h-2 rounded-full bg-red-500"></div> Your Marks
-                        </div>
-                     </div>
-                  </div>
+                  <div className="flex items-center justify-between px-2 flex-wrap gap-3">
+                      <div className="flex items-center gap-3">
+                        {isWorkbook && (
+                          <span className="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-white" style={{ background: 'var(--primary)' }}>
+                            📓 Physical Workbook
+                          </span>
+                        )}
+                        <h2 className="text-xs font-black uppercase tracking-widest text-slate-400">
+                          {isWorkbook ? 'Student Workbook Photo — Annotate & Return' : 'Student Submission & Marking'}
+                        </h2>
+                      </div>
+                      <div className="flex items-center gap-4">
+                         <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
+                            <div className="w-2 h-2 rounded-full bg-slate-300" />
+                            {isWorkbook ? 'Student Photo' : 'Original Paper'}
+                         </div>
+                         <div className="flex items-center gap-2 text-[10px] font-bold text-red-500 uppercase tracking-tighter">
+                            <div className="w-2 h-2 rounded-full bg-red-500" /> Your Annotations
+                         </div>
+                      </div>
+                   </div>
                   
                   <div className="flex flex-col gap-10">
                     {renderingPdf ? (
@@ -381,27 +425,40 @@ export default function WorksheetGraderPage() {
                           <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
                           <div className="text-sm font-bold text-slate-500">Rendering PDF Pages...</div>
                        </div>
-                    ) : pageImages.map((img, idx) => {
-                       const studentAnnMap = typeof answers.__annotation__ === 'string'
-                          ? { "0": answers.__annotation__ }
-                          : (answers.__annotation__ as any || {})
-                       
-                       return (
-                          <div key={idx} className="space-y-3">
-                             <div className="px-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Page {idx + 1}</div>
-                             <Card className="p-0 overflow-hidden border-4 border-white shadow-2xl rounded-[2.5rem] bg-white">
-                                <AnnotationCanvas 
-                                   key={`grader-page-${idx}`}
-                                   backgroundImageUrl={img}
-                                   backgroundJson={studentAnnMap[idx.toString()]}
-                                   initialJson={annotations[`doc_${idx}`] || annotations[idx.toString()]}
-                                   onSave={json => setAnnotations(p => ({ ...p, [`doc_${idx}`]: json }))}
-                                   defaultColor="#EF4444"
-                                />
-                             </Card>
-                          </div>
-                       )
-                    })}
+                    ) : (answers?.__workbook_photo__ || pageImages.length > 0) ? (
+                       (answers?.__workbook_photo__ ? [answers.__workbook_photo__ as string] : pageImages).map((img, idx) => {
+                          const studentAnnMap = typeof answers.__annotation__ === 'string'
+                             ? { "0": answers.__annotation__ }
+                             : (answers.__annotation__ as any || {})
+                          
+                          return (
+                             <div key={idx} className="space-y-3">
+                                <div className="px-4 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                                   {answers?.__workbook_photo__ ? 'Student Workbook Photo' : `Page ${idx + 1}`}
+                                </div>
+                                <Card className="p-0 overflow-hidden border-4 border-white shadow-2xl rounded-[2.5rem] bg-white">
+                                   <AnnotationCanvas 
+                                      key={`grader-page-${idx}`}
+                                      backgroundImageUrl={img}
+                                      backgroundJson={studentAnnMap[idx.toString()]}
+                                      initialJson={annotations[`doc_${idx}`] || annotations[idx.toString()]}
+                                      onSave={json => setAnnotations(p => ({ ...p, [`doc_${idx}`]: json }))}
+                                      defaultColor="#EF4444"
+                                   />
+                                </Card>
+                             </div>
+                          )
+                       })
+                    ) : (
+                       <div className="py-20 text-center space-y-4">
+                          <AlertCircle size={48} className="mx-auto text-slate-300" />
+                          <p className="text-slate-500 font-medium">
+                             {isWorkbook
+                               ? 'This student has not yet uploaded a photo of their workbook. Remind them to submit.'
+                               : 'No document submitted for annotation.'}
+                          </p>
+                       </div>
+                    )}
                   </div>
                </div>
             </div>
@@ -488,7 +545,7 @@ export default function WorksheetGraderPage() {
                            {activeIndex + 1}
                         </span>
                         <div>
-                           <p className="text-sm font-medium leading-relaxed" style={{ color: 'var(--text)' }}>{activeBlock.question}</p>
+                           <p className="text-sm font-medium leading-relaxed" style={{ color: 'var(--text)' }}>{activeBlock.question || 'Untitled Question'}</p>
                            {(activeBlock.type === 'mcq' || activeBlock.type === 'true_false') && (
                               <p className="text-xs mt-2 font-bold" style={{ color: '#10B981' }}>
                               ✓ Correct answer: {activeBlock.correct_answer}
@@ -576,7 +633,9 @@ export default function WorksheetGraderPage() {
                         <button key={b.id} onClick={() => setActiveBlockId(b.id)} className="w-full flex items-center gap-3 p-3 rounded-xl transition-all text-left"
                         style={{ background: b.id === activeBlockId ? 'var(--primary-dim)' : 'var(--input)', border: `1px solid ${b.id === activeBlockId ? 'var(--primary)' : 'transparent'}` }}>
                         <span className="w-6 h-6 rounded-lg flex items-center justify-center text-xs font-black shrink-0" style={{ background: 'var(--primary)', color: 'white' }}>{i + 1}</span>
-                        <span className="flex-1 text-xs truncate" style={{ color: 'var(--text)' }}>{b.question.slice(0, 50)}</span>
+                        <span className="flex-1 text-xs truncate" style={{ color: 'var(--text)' }}>
+                          {(b.question || 'Untitled Question').slice(0, 50)}
+                        </span>
                         <div className="flex items-center gap-2 shrink-0">
                            <div className="w-16 h-1.5 rounded-full" style={{ background: 'var(--card-border)' }}>
                               <div className="h-full rounded-full" style={{ width: `${pct}%`, background: pct === 100 ? '#10B981' : pct > 0 ? '#F59E0B' : '#EF4444' }} />

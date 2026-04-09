@@ -34,32 +34,27 @@ export default function StudentAssignments() {
   const [totalCount, setTotalCount] = useState(0)
 
   useEffect(() => {
-    if (student) {
-      setPage(1) // Reset to first page when student changes
+    if (student?.id) {
+      setPage(1)
       loadData(1)
 
-      // Real-time listener for new assignments
+      // Optimize: Only listen for assignments in the student's class
       const channel = supabase
-        .channel('new-assignments')
+        .channel(`student-assignments-${student.id}`)
         .on('postgres_changes', { 
-          event: 'INSERT', 
+          event: '*', 
           schema: 'public', 
-          table: 'assignments' 
+          table: 'assignments',
+          filter: `class_id=eq.${student.class_id}` 
         }, () => {
-          loadData(page) // Refresh list when new assignment is added
-        })
-        .on('postgres_changes', {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'assignments'
-        }, () => {
-          loadData(page) // Refresh if status changes (e.g. published)
+          loadData(page)
         })
         .subscribe()
       
       return () => { supabase.removeChannel(channel) }
     }
-  }, [student, page])
+  }, [student?.id, page])
+
 
   const loadData = async (currentPage: number = page) => {
     if (!student) return

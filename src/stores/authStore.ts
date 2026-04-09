@@ -9,12 +9,14 @@ interface AuthState {
   parent: Parent | null
   selectedStudent: Student | null
   isLoading: boolean
+  isInitialRevalidationComplete: boolean
   setProfile: (profile: Profile | null) => void
   setStudent: (student: Student | null) => void
   setTeacher: (teacher: Teacher | null) => void
   setParent: (parent: Parent | null) => void
   setSelectedStudent: (student: Student | null) => void
   setLoading: (loading: boolean) => void
+  setRevalidationComplete: (complete: boolean) => void
   reset: () => void
 }
 
@@ -30,6 +32,7 @@ export const useAuthStore = create<AuthState>()(
       // immediately when a persisted profile already exists, so pages that
       // rehydrate from localStorage never flash a full spinner.
       isLoading: true,
+      isInitialRevalidationComplete: false,
 
       setProfile: (profile) => set({ profile }),
       setStudent: (student) => set({ student }),
@@ -37,7 +40,16 @@ export const useAuthStore = create<AuthState>()(
       setParent: (parent) => set({ parent }),
       setSelectedStudent: (selectedStudent) => set({ selectedStudent }),
       setLoading: (isLoading) => set({ isLoading }),
-      reset: () => set({ profile: null, student: null, teacher: null, parent: null, selectedStudent: null, isLoading: false }),
+      setRevalidationComplete: (isInitialRevalidationComplete) => set({ isInitialRevalidationComplete }),
+      reset: () => set({ 
+        profile: null, 
+        student: null, 
+        teacher: null, 
+        parent: null, 
+        selectedStudent: null, 
+        isLoading: false,
+        isInitialRevalidationComplete: false 
+      }),
     }),
     {
       name: 'ppt-auth',
