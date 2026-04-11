@@ -14,7 +14,12 @@ import { Card, Badge } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Avatar } from '@/components/ui/Avatar'
-import { SkeletonDashboard } from '@/components/ui/Skeleton'
+import { 
+  Skeleton,
+  SkeletonDashboard, 
+  SkeletonQuest, 
+  SkeletonIntel 
+} from '@/components/ui/Skeleton'
 import { useAuthStore } from '@/stores/authStore'
 import { formatDate } from '@/lib/utils'
 import { ExamEventBanner } from '@/components/dashboard/ExamEventBanner'
@@ -22,7 +27,19 @@ import { TuitionEventBanner } from '@/components/dashboard/TuitionEventBanner'
 import { TimetableWidget } from '@/components/dashboard/TimetableWidget'
 import Link from 'next/link'
 import { OnboardingModal, type OnboardingStep } from '@/components/ui/OnboardingModal'
-import { calculateLevel } from '@/lib/gamification'
+import { calculateLevel, LEVEL_THRESHOLDS } from '@/lib/gamification'
+import { 
+  useStudentStats, 
+  useStudentQuests, 
+  useStudentIntel, 
+  useLeaderboardData 
+} from '@/hooks/useDashboardData'
+import { 
+  SectionErrorBoundary, 
+  EmptyState, 
+  ErrorState, 
+  TimeoutState 
+} from '@/components/ui/PageStates'
 
 interface LeaderboardEntry {
   full_name: string
@@ -219,22 +236,38 @@ const STUDENT_STEPS: OnboardingStep[] = [
   },
 ]
 
-let cachedDashboardData: any = null
-
 export default function StudentDashboard() {
   const supabase = getSupabaseBrowserClient()
   const { profile, student, setStudent } = useAuthStore()
-  const [loading, setLoading] = useState(!cachedDashboardData)
   
-  const [activeQuests, setActiveQuests] = useState<Quest[]>(cachedDashboardData?.activeQuests || [])
-  const [nextClass, setNextClass] = useState<any>(null)
-  const [intel, setIntel] = useState<Intel[]>(cachedDashboardData?.intel || [])
-  const [stats, setStats] = useState(cachedDashboardData?.stats || { tasks: 0, awards: 0, attendance: 98 })
   const [showWelcome, setShowWelcome] = useState(false)
-  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>(cachedDashboardData?.leaderboard || [])
-  const [studentRank, setStudentRank] = useState<number | null>(cachedDashboardData?.studentRank || null)
   const [showFullLeaderboard, setShowFullLeaderboard] = useState(false)
+
+  // ── High Performance Data Streams ─────────────────────────────────────
+  const { 
+    data: qData, 
+    status: qStatus, 
+    refetch: qRefetch 
+  } = useStudentQuests(student?.id)
   
+  const { 
+    data: iData, 
+    status: iStatus, 
+    refetch: iRefetch 
+  } = useStudentIntel(profile?.id)
+  
+  const { 
+    data: sData, 
+    status: sStatus, 
+    refetch: sRefetch 
+  } = useStudentStats(student?.id)
+  
+  const { 
+    data: lData, 
+    status: lStatus, 
+    refetch: lRefetch 
+  } = useLeaderboardData(student?.id, student?.xp)
+
   useEffect(() => {
     if (student && student.onboarded === false) {
        setShowWelcome(true)
@@ -252,34 +285,26 @@ export default function StudentDashboard() {
   }
   
 
+  // ── Daily XP Reward (One-time check per day) ──────────────────────────
   useEffect(() => {
-    // Only treat student?.id and profile?.id as the trigger — NOT the full
-    // object references. Previously the full [student, profile] deps caused an
-    // infinite loop: loadDashboard updates student XP → new student object →
-    // effect re-runs → loadDashboard again → repeat forever.
-    if (student?.id && profile?.id) loadDashboard()
-  }, [student?.id, profile?.id])
+    if (!student?.id || !profile?.id) return
 
-  const loadDashboard = async () => {
-    if (!student || !profile) return
-    setLoading(true)
-
-    try {
-      // ── Daily XP Reward ─────────────────────────────────────────────────
-      // MUST be inside try so the finally { setLoading(false) } always runs.
+    const checkDailyXP = async () => {
       const today = new Date().toISOString().split('T')[0]
-      if ((student as any).last_login_xp_at !== today) {
+      if ((student as any).last_login_xp_at === today) return
+
+      try {
         const newXP = (student.xp || 0) + 10
         let newStreak = student.streak_count || 0
         const lastActive = (student as any).last_active_at ?? null
         const yesterday = new Date()
         yesterday.setDate(yesterday.getDate() - 1)
         const yesterdayStr = yesterday.toISOString().split('T')[0]
+        
         if (lastActive === yesterdayStr) newStreak += 1
         else if (!lastActive || lastActive < yesterdayStr) newStreak = 1
 
-        // Fire-and-forget the DB write — don't await it so a slow network
-        // doesn't block the rest of the dashboard from loading.
+        // Fire-and-forget DB update
         supabase.from('students').update({
           xp: newXP,
           last_login_xp_at: today,
@@ -287,117 +312,58 @@ export default function StudentDashboard() {
           streak_count: newStreak
         }).eq('id', student.id).then(({ error }) => {
           if (!error) {
-            // Use getState to avoid stale closure.
             const current = useAuthStore.getState().student
             if (current?.id === student.id) {
-              useAuthStore.setState({ student: { ...current, xp: newXP, streak_count: newStreak, last_login_xp_at: today, last_active_at: today } as any })
+              useAuthStore.setState({ 
+                student: { ...current, xp: newXP, streak_count: newStreak, last_login_xp_at: today, last_active_at: today } as any 
+              })
             }
           }
         })
 
         toast.success('Daily Reward: +10 XP earned! 🔥', {
-          id: 'daily-xp', // Deduplicate across re-renders
+          id: 'daily-xp',
           icon: '🚀',
-          duration: 5000,
-          style: { background: 'var(--card)', color: 'var(--text)', border: '1px solid var(--primary)' }
+          duration: 5000
         })
-      }
-
-      // ── Dashboard Data Fetches ───────────────────────────────────────────
-      const { data: subData } = await supabase
-        .from('student_subjects').select('subject_id').eq('student_id', student.id)
-      const subjectIds = subData?.map(s => s.subject_id) || []
-
-      const [aRes] = await Promise.all([
-        supabase.from('assignments').select('*, subject:subjects(name)')
-          .in('subject_id', subjectIds).eq('status', 'published')
-          .order('created_at', { ascending: false }).limit(3),
-      ])
-
-      const { data: nData } = await supabase.from('notifications').select('*')
-        .eq('user_id', profile.id).order('created_at', { ascending: false }).limit(3)
-
-      const [subsCount, certsCount, badgesCount] = await Promise.all([
-        supabase.from('submissions').select('*', { count: 'exact', head: true }).eq('student_id', student.id),
-        supabase.from('certificates').select('*', { count: 'exact', head: true }).eq('student_id', student.id),
-        supabase.from('study_badges').select('*', { count: 'exact', head: true }).eq('student_id', student.id)
-      ])
-
-      let freshLeaderboard: LeaderboardEntry[] = []
-      let freshRank: number | null = null
-
-      try {
-        const { data: lbData } = await supabase.from('students').select('full_name, xp, class:classes(name)').order('xp', { ascending: false }).limit(20)
-        if (lbData) {
-          freshLeaderboard = (lbData as any[]).map(item => ({
-            ...item,
-            class: Array.isArray(item.class) ? item.class[0] : item.class
-          }))
-        }
       } catch (e) {
-        console.log('Leaderboard fetch fallback')
+        console.warn('[Dashboard] XP reward failure:', e)
       }
-
-      try {
-        const rankRes = await supabase.rpc('get_student_rank', { input_student_id: student.id })
-        if (rankRes.data) {
-          freshRank = rankRes.data
-        } else {
-          const { count } = await supabase.from('students').select('*', { count: 'exact', head: true }).gt('xp', student.xp)
-          freshRank = (count || 0) + 1
-        }
-      } catch (e) {
-        console.log('Rank fetch fallback')
-      }
-
-      const fetchedStats = {
-        tasks: subsCount.count || 0,
-        awards: (certsCount.count || 0) + (badgesCount.count || 0),
-        attendance: 98
-      }
-
-      const mappedQuests = (aRes.data ?? []).map((q: any) => ({
-        ...q,
-        subject: Array.isArray(q.subject) ? q.subject[0] : q.subject
-      }))
-
-      setActiveQuests(mappedQuests)
-      setIntel(nData ?? [])
-      setStats(fetchedStats)
-      setLeaderboard(freshLeaderboard)
-      setStudentRank(freshRank)
-
-      cachedDashboardData = {
-        activeQuests: mappedQuests,
-        intel: nData ?? [],
-        stats: fetchedStats,
-        leaderboard: freshLeaderboard,
-        studentRank: freshRank
-      }
-    } catch (err) {
-      console.error('[Dashboard] loadDashboard error:', err)
-    } finally {
-      // ALWAYS clear the loading state — no matter what path was taken above.
-      setLoading(false)
     }
-  }
+
+    checkDailyXP()
+  }, [student?.id, profile?.id])
 
 // ─── Daily motivational quotes ────────────────────────────────────────────────
 const DAILY_QUOTES = [
   { quote: "The secret of getting ahead is getting started.", author: "Mark Twain" },
   { quote: "Don't watch the clock; do what it does. Keep going.", author: "Sam Levenson" },
-  { quote: "Push yourself, because no one else is going to do it for you.", author: "Unknown" },
-  { quote: "Great things never come from comfort zones.", author: "Unknown" },
-  { quote: "Dream it. Wish it. Do it.", author: "Unknown" },
-  { quote: "Success doesn't just find you. You have to go out and get it.", author: "Unknown" },
-  { quote: "The harder you work for something, the greater you'll feel when you achieve it.", author: "Unknown" },
-  { quote: "Don't stop when you're tired. Stop when you're done.", author: "Unknown" },
-  { quote: "Wake up with determination. Go to bed with satisfaction.", author: "Unknown" },
-  { quote: "Little things make big days.", author: "Unknown" },
+  { quote: "You don't have to be great to start, but you have to start to be great.", author: "Zig Ziglar" },
+  { quote: "Great things never come from comfort zones.", author: "Neil Strauss" },
+  { quote: "Dream big. Start small. Act now.", author: "Robin Sharma" },
+  { quote: "Success is the sum of small efforts, repeated day in and day out.", author: "Robert Collier" },
+  { quote: "The harder you work for something, the greater you'll feel when you achieve it.", author: "Terry Mark" },
+  { quote: "Don't stop when you're tired. Stop when you're done.", author: "Marilyn Monroe" },
+  { quote: "Wake up with determination. Go to bed with satisfaction.", author: "George Lorimer" },
   { quote: "It always seems impossible until it's done.", author: "Nelson Mandela" },
-  { quote: "Work hard in silence. Let your success make the noise.", author: "Unknown" },
-  { quote: "You are stronger than you think.", author: "Unknown" },
+  { quote: "Work hard in silence. Let your success make the noise.", author: "Frank Ocean" },
   { quote: "Believe you can and you're halfway there.", author: "Theodore Roosevelt" },
+  { quote: "Education is the most powerful weapon which you can use to change the world.", author: "Nelson Mandela" },
+  { quote: "The beautiful thing about learning is no one can take it away from you.", author: "B.B. King" },
+  { quote: "An investment in knowledge pays the best interest.", author: "Benjamin Franklin" },
+  { quote: "Live as if you were to die tomorrow. Learn as if you were to live forever.", author: "Mahatma Gandhi" },
+  { quote: "The mind is not a vessel to be filled but a fire to be kindled.", author: "Plutarch" },
+  { quote: "Success is not final, failure is not fatal: it is the courage to continue that counts.", author: "Winston Churchill" },
+  { quote: "Genius is one percent inspiration and ninety-nine percent perspiration.", author: "Thomas Edison" },
+  { quote: "You are braver than you believe, stronger than you seem, and smarter than you think.", author: "A.A. Milne" },
+  { quote: "The expert in anything was once a beginner.", author: "Helen Hayes" },
+  { quote: "Strive for progress, not perfection.", author: "Kim Collins" },
+  { quote: "Learning never exhausts the mind.", author: "Leonardo da Vinci" },
+  { quote: "Push yourself, because no one else is going to do it for you.", author: "Roy T. Bennett" },
+  { quote: "Your future is created by what you do today, not tomorrow.", author: "Robert Kiyosaki" },
+  { quote: "The only way to do great work is to love what you do.", author: "Steve Jobs" },
+  { quote: "Motivation is what gets you started. Habit is what keeps you going.", author: "Jim Ryun" },
+  { quote: "Small daily improvements over time lead to stunning results.", author: "Robin Sharma" },
 ]
 
 function getDailyQuote() {
@@ -412,8 +378,6 @@ function getGreeting(name: string) {
   if (h < 21) return `Good evening, ${name}! 🌆`
   return `Studying late, ${name}? 🌙`
 }
-
-  if (loading) return <SkeletonDashboard />
 
   const quote = getDailyQuote()
   const firstName = profile?.full_name?.split(' ')[0] || 'Scholar'
@@ -523,8 +487,8 @@ function getGreeting(name: string) {
           <div className="relative z-10 mt-6 pt-5 border-t border-white/15">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
-                <span className="text-white/60 text-[10px] uppercase tracking-widest font-bold">{isProspect ? 'Prospect' : `Level ${level}`}</span>
-                <span className="text-white/90 text-xs font-black">· {levelTitle}</span>
+                <span className="text-white/60 text-[10px] uppercase tracking-widest font-bold">{isProspect ? 'Level 0 · Prospect' : `Level ${level}`}</span>
+                {!isProspect && <span className="text-white/90 text-xs font-black">· {levelTitle}</span>}
               </div>
               <span className="text-white/80 text-[10px] font-bold">{progressPercent}% · {(nextMilestone - xp).toLocaleString()} XP to next level</span>
             </div>
@@ -540,8 +504,8 @@ function getGreeting(name: string) {
               </motion.div>
             </div>
             <div className="flex justify-between text-white/40 text-[9px] mt-1 font-bold uppercase tracking-widest">
-              <span>Rank #{studentRank || '?'}</span>
-              <span>Next: Level {level + 1}</span>
+              <span>Rank #{lData?.studentRank || '?'}</span>
+              <span>Next: Level {level + 1}{!isProspect ? ` · ${LEVEL_THRESHOLDS[level]?.title ?? ''}` : ' · Brave Adventurer'}</span>
             </div>
           </div>
         </div>
@@ -553,26 +517,29 @@ function getGreeting(name: string) {
         </div>
 
         {/* === STATS ROW === */}
-        <div className="grid grid-cols-3 gap-3">
-          {[
-            { label: 'Tasks Done', value: stats.tasks, icon: '✅', color: '#10B981', bg: 'rgba(16,185,129,0.08)' },
-            { label: 'Awards', value: stats.awards, icon: '🏅', color: '#F59E0B', bg: 'rgba(245,158,11,0.08)' },
-            { label: 'Attendance', value: `${stats.attendance}%`, icon: '📊', color: 'var(--primary)', bg: 'rgba(0,0,0,0.04)' },
-          ].map((s, i) => (
-            <motion.div
-              key={s.label}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.1 }}
-              className="rounded-2xl p-4 flex flex-col items-center text-center border"
-              style={{ background: s.bg, borderColor: `${s.color}20` }}
-            >
-              <span className="text-2xl mb-1">{s.icon}</span>
-              <span className="text-xl font-black" style={{ color: s.color }}>{s.value}</span>
-              <span className="text-[9px] uppercase font-bold tracking-widest mt-0.5" style={{ color: 'var(--text-muted)', opacity: 0.7 }}>{s.label}</span>
-            </motion.div>
-          ))}
-        </div>
+        <SectionErrorBoundary title="Stats">
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { label: 'Tasks Done', value: sData?.tasks ?? 0, icon: '✅', color: '#10B981', bg: 'rgba(16,185,129,0.08)' },
+              { label: 'Awards', value: sData?.awards ?? 0, icon: '🏅', color: '#F59E0B', bg: 'rgba(245,158,11,0.08)' },
+              { label: 'Attendance', value: `${sData?.attendance ?? 98}%`, icon: '📊', color: 'var(--primary)', bg: 'rgba(0,0,0,0.04)' },
+            ].map((s, i) => (
+              <motion.div
+                key={s.label}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.1 }}
+                className="rounded-2xl p-4 flex flex-col items-center text-center border relative overflow-hidden"
+                style={{ background: s.bg, borderColor: `${s.color}20` }}
+              >
+                {sStatus === 'loading' && <div className="absolute inset-0 bg-white/5 animate-pulse" />}
+                <span className="text-2xl mb-1">{s.icon}</span>
+                <span className="text-xl font-black" style={{ color: s.color }}>{s.value}</span>
+                <span className="text-[9px] uppercase font-bold tracking-widest mt-0.5" style={{ color: 'var(--text-muted)', opacity: 0.7 }}>{s.label}</span>
+              </motion.div>
+            ))}
+          </div>
+        </SectionErrorBoundary>
 
         {/* === MOTIVATION CARDS STRIP === */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -588,7 +555,7 @@ function getGreeting(name: string) {
             {
               icon: '🧠',
               title: 'Deep Focus Now',
-              body: `You've done ${stats.tasks} tasks already. Your brain is a muscle — keep training it.`,
+              body: `You've done ${sData?.tasks || 0} tasks already. Your brain is a muscle — keep training it.`,
               gradient: 'linear-gradient(135deg, var(--accent), var(--primary))',
               href: '/student/study',
               cta: 'Start Focus',
@@ -635,87 +602,68 @@ function getGreeting(name: string) {
 
           {/* LEFT: Active Quests */}
           <div className="lg:col-span-2 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-black flex items-center gap-2" style={{ color: 'var(--text)' }}>
-                <Target size={18} className="text-primary" /> Active Quests
-                {activeQuests.length > 0 && (
-                  <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] font-black text-white" style={{ background: 'var(--primary)' }}>
-                    {activeQuests.length}
-                  </span>
-                )}
-              </h2>
-              <Link href="/student/assignments" className="text-xs font-bold text-primary hover:underline flex items-center gap-1">
-                View All <ChevronRight size={12} />
-              </Link>
-            </div>
-
-            {activeQuests.length === 0 ? (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="p-10 text-center rounded-3xl border-2 border-dashed flex flex-col items-center gap-3"
-                style={{ borderColor: 'var(--card-border)', background: 'var(--card)' }}
-              >
-                <div className="text-5xl">🎉</div>
-                <h3 className="font-black text-base" style={{ color: 'var(--text)' }}>All Caught Up, Legend!</h3>
-                <p className="text-xs max-w-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-                  No pending quests. Your teacher is probably brewing something powerful. Meanwhile, start a Focus session!
-                </p>
-                <Link href="/student/study">
-                  <button className="mt-2 px-5 py-2 rounded-xl text-xs font-black text-white" style={{ background: 'var(--primary)' }}>
-                    🧠 Start Focus Session
-                  </button>
-                </Link>
-              </motion.div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {activeQuests.map((q, i) => {
-                  const colors = [
-                    { icon: 'from-indigo-500 to-blue-600', badge: 'var(--primary)' },
-                    { icon: 'from-rose-500 to-pink-600', badge: '#F43F5E' },
-                    { icon: 'from-emerald-500 to-teal-600', badge: '#10B981' },
-                  ]
-                  const c = colors[i % colors.length]
-                  return (
-                    <motion.div
-                      key={q.id}
-                      initial={{ opacity: 0, y: 15 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: i * 0.08 }}
-                    >
-                      <Link href={`/student/assignments/${q.id}`}>
-                        <div
-                          className="group relative overflow-hidden rounded-2xl p-5 cursor-pointer hover:scale-[1.02] active:scale-[0.98] transition-all border"
-                          style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}
-                        >
-                          <div className="absolute top-0 right-0 w-32 h-32 rounded-full blur-3xl opacity-5 group-hover:opacity-10 transition-all" style={{ background: c.badge }} />
-                          <div className="flex items-start justify-between mb-3">
-                            <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${c.icon} flex items-center justify-center text-white shadow-lg`}>
-                              <Award size={18} />
+            <SectionErrorBoundary title="Quests">
+              {qStatus === 'loading' ? (
+                <SkeletonQuest />
+              ) : qStatus === 'error' || qStatus === 'timeout' ? (
+                <ErrorState onRetry={qRefetch} message="Failed to load quests. The mission is still active, retry below." />
+              ) : !qData || qData.length === 0 ? (
+                <EmptyState 
+                  title="All Caught Up, Legend!" 
+                  description="No pending quests. Your teacher is probably brewing something powerful. Meanwhile, start a Focus session!"
+                  icon={<div className="text-5xl">🎉</div>}
+                  action={{ label: "🧠 Start Focus Session", onClick: () => window.location.href = "/student/study" }}
+                />
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {qData.map((q: any, i: number) => {
+                    const colors = [
+                      { icon: 'from-indigo-500 to-blue-600', badge: 'var(--primary)' },
+                      { icon: 'from-rose-500 to-pink-600', badge: '#F43F5E' },
+                      { icon: 'from-emerald-500 to-teal-600', badge: '#10B981' },
+                    ]
+                    const c = colors[i % colors.length]
+                    return (
+                      <motion.div
+                        key={q.id}
+                        initial={{ opacity: 0, y: 15 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: i * 0.08 }}
+                      >
+                        <Link href={`/student/assignments/${q.id}`}>
+                          <div
+                            className="group relative overflow-hidden rounded-2xl p-5 cursor-pointer hover:scale-[1.02] active:scale-[0.98] transition-all border"
+                            style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}
+                          >
+                            <div className="absolute top-0 right-0 w-32 h-32 rounded-full blur-3xl opacity-5 group-hover:opacity-10 transition-all" style={{ background: c.badge }} />
+                            <div className="flex items-start justify-between mb-3">
+                              <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${c.icon} flex items-center justify-center text-white shadow-lg`}>
+                                <Award size={18} />
+                              </div>
+                              <span className="text-[9px] font-black px-2 py-1 rounded-lg text-white uppercase tracking-wider" style={{ background: c.badge }}>
+                                {q.subject?.name || 'Quest'}
+                              </span>
                             </div>
-                            <span className="text-[9px] font-black px-2 py-1 rounded-lg text-white uppercase tracking-wider" style={{ background: c.badge }}>
-                              {q.subject?.name || 'Quest'}
-                            </span>
-                          </div>
-                          <h3 className="font-black text-sm mb-1 leading-tight line-clamp-2" style={{ color: 'var(--text)' }}>{q.title}</h3>
-                          <p className="text-[10px] leading-relaxed line-clamp-2 mb-4" style={{ color: 'var(--text-muted)' }}>
-                            {q.description || 'Complete this quest and earn XP to level up!'}
-                          </p>
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-1 text-[10px] font-black text-amber-400">
-                              <Zap size={11} className="fill-amber-400" /> +20 XP Reward
+                            <h3 className="font-black text-sm mb-1 leading-tight line-clamp-2" style={{ color: 'var(--text)' }}>{q.title}</h3>
+                            <p className="text-[10px] leading-relaxed line-clamp-2 mb-4" style={{ color: 'var(--text-muted)' }}>
+                              {q.description || 'Complete this quest and earn XP to level up!'}
+                            </p>
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-1 text-[10px] font-black text-amber-400">
+                                <Zap size={11} className="fill-amber-400" /> +20 XP Reward
+                              </div>
+                              <span className="text-[10px] font-black text-primary flex items-center gap-0.5">
+                                Enter Quest <ChevronRight size={10} />
+                              </span>
                             </div>
-                            <span className="text-[10px] font-black text-primary flex items-center gap-0.5">
-                              Enter Quest <ChevronRight size={10} />
-                            </span>
                           </div>
-                        </div>
-                      </Link>
-                    </motion.div>
-                  )
-                })}
-              </div>
-            )}
+                        </Link>
+                      </motion.div>
+                    )
+                  })}
+                </div>
+              )}
+            </SectionErrorBoundary>
 
             {/* Quick Action Grid */}
             <div>
@@ -767,78 +715,108 @@ function getGreeting(name: string) {
             <TimetableWidget role="student" />
 
             {/* Leaderboard teaser */}
-            <div
-              className="relative overflow-hidden rounded-2xl p-5 cursor-pointer hover:scale-[1.02] transition-all border"
-              style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}
-              onClick={() => setShowFullLeaderboard(true)}
-            >
-              <div className="absolute -top-8 -right-8 w-32 h-32 rounded-full blur-2xl opacity-10" style={{ background: 'var(--primary)' }} />
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-black text-sm flex items-center gap-2" style={{ color: 'var(--text)' }}>
-                  🏆 Hall of Fame
-                </h3>
-                <span className="text-[9px] font-black text-primary uppercase tracking-wider">View All →</span>
-              </div>
-
-              {studentRank && (
-                <div className="mb-3 p-3 rounded-xl flex items-center gap-3" style={{ background: 'color-mix(in oklch, var(--primary) 10%, transparent)' }}>
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-black text-white" style={{ background: 'var(--primary)' }}>
-                    #{studentRank}
-                  </div>
-                  <div>
-                    <div className="text-xs font-black" style={{ color: 'var(--text)' }}>Your Rank</div>
-                    <div className="text-[9px] font-bold text-primary">{xp.toLocaleString()} XP</div>
-                  </div>
+            <SectionErrorBoundary title="Leaderboard">
+              <div
+                className="relative overflow-hidden rounded-2xl p-5 cursor-pointer hover:scale-[1.02] transition-all border"
+                style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}
+                onClick={() => setShowFullLeaderboard(true)}
+              >
+                <div className="absolute -top-8 -right-8 w-32 h-32 rounded-full blur-2xl opacity-10" style={{ background: 'var(--primary)' }} />
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-black text-sm flex items-center gap-2" style={{ color: 'var(--text)' }}>
+                    🏆 Hall of Fame
+                  </h3>
+                  <span className="text-[9px] font-black text-primary uppercase tracking-wider">View All →</span>
                 </div>
-              )}
 
-              <div className="space-y-2">
-                {leaderboard.slice(0, 5).map((entry, i) => (
-                  <div key={i} className={`flex items-center gap-3 p-2 rounded-xl transition-all ${entry.full_name === profile?.full_name ? 'ring-1 ring-primary/30' : ''}`} style={{ background: 'var(--bg)' }}>
-                    <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black shrink-0 ${
-                      i === 0 ? 'bg-amber-400 text-white' :
-                      i === 1 ? 'bg-slate-400 text-white' :
-                      i === 2 ? 'bg-amber-700 text-white' : 'bg-transparent text-muted'
-                    }`}>
-                      {i + 1}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[10px] font-black truncate" style={{ color: entry.full_name === profile?.full_name ? 'var(--primary)' : 'var(--text)' }}>
-                        {entry.full_name === profile?.full_name ? '⭐ ' : ''}{entry.full_name}
-                      </div>
-                    </div>
-                    <div className="text-[9px] font-black text-amber-500 shrink-0">{entry.xp?.toLocaleString()} XP</div>
+                {lStatus === 'loading' ? (
+                  <div className="space-y-2">
+                    <Skeleton className="h-14 w-full rounded-xl" />
+                    {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-10 w-full rounded-lg" />)}
                   </div>
-                ))}
+                ) : lStatus === 'error' || lStatus === 'timeout' ? (
+                  <div className="py-4 text-center">
+                    <p className="text-[10px] text-muted mb-2">Failed to load rank</p>
+                    <button onClick={lRefetch} className="px-3 py-1 rounded-lg bg-input text-[10px] font-bold">Retry</button>
+                  </div>
+                ) : (
+                  <>
+                    {lData?.studentRank && (
+                      <div className="mb-3 p-3 rounded-xl flex items-center gap-3" style={{ background: 'color-mix(in oklch, var(--primary) 10%, transparent)' }}>
+                        <div className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-black text-white" style={{ background: 'var(--primary)' }}>
+                          #{lData.studentRank}
+                        </div>
+                        <div>
+                          <div className="text-xs font-black" style={{ color: 'var(--text)' }}>Your Rank</div>
+                          <div className="text-[9px] font-bold text-primary">{xp.toLocaleString()} XP</div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="space-y-2">
+                      {lData?.entries.slice(0, 5).map((entry: any, i: number) => (
+                        <div key={i} className={`flex items-center gap-3 p-2 rounded-xl transition-all ${entry.full_name === profile?.full_name ? 'ring-1 ring-primary/30' : ''}`} style={{ background: 'var(--bg)' }}>
+                          <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black shrink-0 ${
+                            i === 0 ? 'bg-amber-400 text-white' :
+                            i === 1 ? 'bg-slate-400 text-white' :
+                            i === 2 ? 'bg-amber-700 text-white' : 'bg-transparent text-muted'
+                          }`}>
+                            {i + 1}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[10px] font-black truncate" style={{ color: entry.full_name === profile?.full_name ? 'var(--primary)' : 'var(--text)' }}>
+                              {entry.full_name === profile?.full_name ? '⭐ ' : ''}{entry.full_name}
+                            </div>
+                          </div>
+                          <div className="text-[9px] font-black text-amber-500 shrink-0">{entry.xp?.toLocaleString()} XP</div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
-            </div>
+            </SectionErrorBoundary>
 
             {/* Recent Intel */}
-            {intel.length > 0 && (
-              <div>
-                <h3 className="text-sm font-black mb-3 flex items-center gap-2" style={{ color: 'var(--text)' }}>
+            <SectionErrorBoundary title="Intel">
+              <div className="space-y-4">
+                <h3 className="text-sm font-black flex items-center gap-2" style={{ color: 'var(--text)' }}>
                   <MessageSquare size={15} className="text-secondary" /> Latest Intel
                 </h3>
-                <div className="space-y-2">
-                  {intel.slice(0, 3).map((n) => (
-                    <div
-                      key={n.id}
-                      className="p-3 rounded-xl flex gap-3 border"
-                      style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}
-                    >
-                      <div className="w-1.5 rounded-full shrink-0 mt-1" style={{
-                        background: n.type === 'award' ? '#10B981' : n.type === 'info' ? '#3B82F6' : '#F59E0B',
-                        minHeight: '24px'
-                      }} />
-                      <div>
-                        <p className="text-[10px] font-bold leading-tight" style={{ color: 'var(--text)' }}>{n.title}</p>
-                        <p className="text-[9px] mt-0.5 leading-relaxed" style={{ color: 'var(--text-muted)' }}>{n.body}</p>
+                
+                {iStatus === 'loading' ? (
+                  <SkeletonIntel />
+                ) : iStatus === 'error' || iStatus === 'timeout' ? (
+                  <div className="p-4 rounded-xl bg-card border border-rose-500/20 text-center">
+                    <p className="text-[10px] text-muted mb-2">Intel feed offline</p>
+                    <button onClick={iRefetch} className="px-3 py-1 rounded-lg bg-input text-[10px] font-bold">Retry</button>
+                  </div>
+                ) : !iData || iData.length === 0 ? (
+                  <div className="p-6 text-center rounded-xl bg-card border border-dashed border-card-border">
+                    <p className="text-[10px] text-muted">No new intel for you.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {iData.map((n: any) => (
+                      <div
+                        key={n.id}
+                        className="p-3 rounded-xl flex gap-3 border"
+                        style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}
+                      >
+                        <div className="w-1.5 rounded-full shrink-0 mt-1" style={{
+                          background: n.type === 'award' ? '#10B981' : n.type === 'info' ? '#3B82F6' : '#F59E0B',
+                          minHeight: '24px'
+                        }} />
+                        <div>
+                          <p className="text-[10px] font-bold leading-tight" style={{ color: 'var(--text)' }}>{n.title}</p>
+                          <p className="text-[9px] mt-0.5 leading-relaxed" style={{ color: 'var(--text-muted)' }}>{n.body}</p>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
-            )}
+            </SectionErrorBoundary>
 
             {/* Transcript CTA */}
             <Link href="/student/transcripts">
@@ -865,7 +843,7 @@ function getGreeting(name: string) {
           <div className="flex items-center justify-between p-6 rounded-3xl border relative overflow-hidden" style={{ background: 'color-mix(in oklch, var(--primary) 8%, transparent)', borderColor: 'color-mix(in oklch, var(--primary) 20%, transparent)' }}>
             <div className="flex items-center gap-5">
               <div className="w-16 h-16 rounded-2xl flex items-center justify-center font-black text-2xl text-white shadow-inner" style={{ background: 'var(--primary)' }}>
-                #{studentRank || '?'}
+                #{lData?.studentRank || '?'}
               </div>
               <div>
                 <div className="font-black text-xl" style={{ color: 'var(--text)' }}>Your Standing</div>
@@ -876,7 +854,7 @@ function getGreeting(name: string) {
           </div>
 
           <div className="space-y-3 max-h-[450px] overflow-y-auto pr-1">
-            {leaderboard.map((entry, i) => (
+            {lData?.entries.map((entry: any, i: number) => (
               <div key={i} className={`flex items-center justify-between p-4 rounded-2xl transition-all border ${entry.full_name === profile?.full_name ? 'border-primary/30' : 'border-transparent hover:border-white/5'}`} style={{ background: entry.full_name === profile?.full_name ? 'color-mix(in oklch, var(--primary) 8%, transparent)' : 'var(--bg)' }}>
                 <div className="flex items-center gap-4">
                   <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm shadow ${

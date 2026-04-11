@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Modal } from '@/components/ui/Modal'
 import { useAuthStore } from '@/stores/authStore'
-import { cn } from '@/lib/utils'
+import { cn, formatDate } from '@/lib/utils'
 import { QuestionRenderer } from '@/components/worksheet/QuestionRenderer'
 import { AnnotationCanvas } from '@/components/worksheet/AnnotationCanvas'
 import { renderPdfToImages } from '@/lib/pdf-renderer'
@@ -20,6 +20,7 @@ import toast from 'react-hot-toast'
 import type { WorksheetBlock, WorksheetAnswers, Student } from '@/types/database'
 import Link from 'next/link'
 import { FileUploadZone } from '@/components/worksheet/FileUploadZone'
+import { clearPageDataCache } from '@/hooks/usePageData'
 
 const AUTOSAVE_MS = 4000
 
@@ -128,6 +129,13 @@ export default function StudentWorksheetSolver() {
        }
     } else if (a.attachment_url) {
        setPageImages([a.attachment_url])
+    }
+
+    // Strict Deadline Guard
+    const isOverdue = a.due_date && new Date(a.due_date) < new Date()
+    if (a.lock_after_deadline && isOverdue && !sRes.data) {
+       setLoading(false)
+       return // We will handle the UI state based on this
     }
 
     setLoading(false)
@@ -252,6 +260,7 @@ export default function StudentWorksheetSolver() {
       toast.success('✅ Submission updated successfully!')
     }
 
+    clearPageDataCache()
     router.push('/student/assignments')
   }
 
@@ -260,8 +269,10 @@ export default function StudentWorksheetSolver() {
   const questionBlocks = blocks.filter(b => b.type !== 'section_header' && b.type !== 'reading_passage')
   const passageBlocks = blocks.filter(b => b.type === 'reading_passage')
   const sectionHeaders = blocks.filter(b => b.type === 'section_header')
-  const totalPages = (isDocumentAssignment || isWorkbook) ? 1 : Math.ceil(questionBlocks.length / QUESTIONS_PER_PAGE)
-  const pageBlocks = (isDocumentAssignment || isWorkbook) ? [] : questionBlocks.slice(currentPage * QUESTIONS_PER_PAGE, (currentPage + 1) * QUESTIONS_PER_PAGE)
+  // In Document assignments, we show the whole thing at once. 
+  // In Workbook mode, we ALSO show questions now (as reference).
+  const totalPages = isDocumentAssignment ? 1 : Math.ceil(questionBlocks.length / QUESTIONS_PER_PAGE)
+  const pageBlocks = isDocumentAssignment ? [] : questionBlocks.slice(currentPage * QUESTIONS_PER_PAGE, (currentPage + 1) * QUESTIONS_PER_PAGE)
 
   const answeredCount = isWorkbook
     ? (answers.__workbook_photo__ ? 1 : 0)
@@ -281,12 +292,39 @@ export default function StudentWorksheetSolver() {
   const passage = passageBlocks[0]
   const hasPassage = !!passage?.passage_text || !!assignment?.passage
 
+  const isOverdue = assignment?.due_date && new Date(assignment.due_date) < new Date()
+  const isStrictlyLocked = assignment?.lock_after_deadline && isOverdue && !hasExistingSubmission
+
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg)' }}>
       <div className="text-center space-y-4">
         <div className="w-12 h-12 border-2 border-t-transparent rounded-full animate-spin mx-auto" style={{ borderColor: 'var(--primary)' }} />
         <p className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>Loading worksheet...</p>
       </div>
+    </div>
+  )
+
+  if (isStrictlyLocked) return (
+    <div className="min-h-screen flex items-center justify-center p-6" style={{ background: 'var(--bg)' }}>
+      <Card className="max-w-md w-full p-8 text-center space-y-6 border-2" style={{ borderColor: 'var(--card-border)' }}>
+        <div className="w-20 h-20 bg-red-500/10 text-red-500 rounded-3xl flex items-center justify-center mx-auto">
+          <Clock size={40} />
+        </div>
+        <div className="space-y-2">
+          <h2 className="text-2xl font-black uppercase italic tracking-tighter" style={{ color: 'var(--text)' }}>Time is Up!</h2>
+          <p className="text-sm leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+            This assignment was locked after the deadline (<span className="font-bold text-red-400">{formatDate(assignment.due_date, 'long')}</span>). 
+            You did not submit your work in time.
+          </p>
+        </div>
+        <div className="pt-4">
+          <Link href="/student/assignments">
+            <Button variant="secondary" className="w-full">
+              Back to Quests
+            </Button>
+          </Link>
+        </div>
+      </Card>
     </div>
   )
 
@@ -468,7 +506,7 @@ export default function StudentWorksheetSolver() {
                })}
             </div>
 
-            {/* Workbook Submission — Photo Upload */}
+             {/* Workbook Submission — Photo Upload */}
             {isWorkbook && !resultMode && (
                <Card className="p-6 space-y-4 border-2" style={{ background: 'var(--primary-dim)', borderColor: 'var(--primary)', borderStyle: 'dashed' }}>
                   <div className="flex items-center justify-between">
@@ -490,6 +528,13 @@ export default function StudentWorksheetSolver() {
                            Re-take Photo
                         </button>
                      )}
+                  </div>
+                  
+                  <div className="flex items-center gap-2 p-3 rounded-xl bg-white/50 border border-primary/10">
+                     <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+                     <p className="text-[11px] font-medium" style={{ color: 'var(--text)' }}>
+                        📝 Study the questions below carefully. Solve them in your physical workbook, then capture a photo to submit.
+                     </p>
                   </div>
 
                   {/* Show preview if uploaded */}
@@ -638,8 +683,8 @@ export default function StudentWorksheetSolver() {
                   </div>
                )}
 
-               {/* Question Side — Traditional blocks only (no attachment, no workbook) */}
-               {!isDocumentAssignment && !isWorkbook && (
+               {/* Question Side — All modes (questions show as reference in workbook mode) */}
+               {!isDocumentAssignment && (
                   <div className="space-y-4">
                      <AnimatePresence mode="wait">
                         <motion.div
@@ -649,6 +694,14 @@ export default function StudentWorksheetSolver() {
                            exit={{ opacity: 0, y: -10 }}
                            className="space-y-4"
                         >
+                           {isWorkbook && !resultMode && (
+                              <div className="px-1 py-4 flex items-center justify-between border-b-2 border-dashed border-[var(--card-border)] mb-4">
+                                 <div className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-primary">
+                                    <BookOpen size={14} /> Exercise Reference
+                                 </div>
+                                 <div className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-tighter bg-[var(--input)] text-[var(--text-muted)] border border-[var(--card-border)]">Read Only</div>
+                              </div>
+                           )}
                            {pageBlocks.map(block => (
                               <div key={block.id} className="space-y-4">
                                  <QuestionRenderer
@@ -656,7 +709,7 @@ export default function StudentWorksheetSolver() {
                                     index={getQuestionNumber(block.id)}
                                     answer={answers[block.id]}
                                     onChange={val => updateAnswer(block.id, val)}
-                                    readOnly={resultMode}
+                                    readOnly={resultMode || isWorkbook}
                                     showCorrect={resultMode}
                                  />
                                  {resultMode && (

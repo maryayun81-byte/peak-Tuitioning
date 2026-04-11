@@ -18,6 +18,8 @@ import { FileUploadZone } from '@/components/worksheet/FileUploadZone'
 import { LatexRenderer } from '@/components/ui/LatexRenderer'
 import { useAutoSave } from '@/hooks/useAutoSave'
 import { DraftBanner } from '@/components/ui/DraftBanner'
+import { clearPageDataCache } from '@/hooks/usePageData'
+import { generateId } from '@/lib/utils'
 import dynamic from 'next/dynamic'
 const AnnotationCanvas = dynamic(() => import('@/components/worksheet/AnnotationCanvas').then(m => m.AnnotationCanvas), { ssr: false })
 import { useMemo } from 'react'
@@ -77,7 +79,7 @@ export function QuizForm({ initialData, isEditing = false }: QuizFormProps) {
   const [questions, setQuestions] = useState<Question[]>(
     initialData?.questions || [
       { 
-        id: crypto.randomUUID(), 
+        id: generateId(), 
         text: '', 
         type: 'multiple_choice', 
         options: ['', '', '', ''], 
@@ -167,7 +169,7 @@ export function QuizForm({ initialData, isEditing = false }: QuizFormProps) {
 
   const addQuestion = () => {
     setQuestions([...questions, { 
-      id: crypto.randomUUID(), 
+      id: generateId(), 
       text: '', 
       type: 'multiple_choice', 
       options: ['', '', '', ''], 
@@ -261,6 +263,7 @@ export function QuizForm({ initialData, isEditing = false }: QuizFormProps) {
       toast.error('Failed to save quiz: ' + saveError.message)
     } else {
       clear() // Clear draft on successful save
+      clearPageDataCache() // Invalidate global caches
       toast.success(isEditing ? 'Quiz updated successfully!' : 'Quiz created successfully!')
       router.push('/teacher/quizzes')
     }

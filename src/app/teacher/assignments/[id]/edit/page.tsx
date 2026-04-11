@@ -40,6 +40,7 @@ export default function EditWorksheetPage() {
   const [showTimer, setShowTimer] = useState(false)
   const [timeLimit, setTimeLimit] = useState(60)
   const [shuffleQ, setShuffleQ] = useState(false)
+  const [lockAfterDeadline, setLockAfterDeadline] = useState(false)
 
   // Block state
   const [blocks, setBlocks] = useState<WorksheetBlock[]>([])
@@ -87,14 +88,15 @@ export default function EditWorksheetPage() {
   const formData = useMemo(() => ({
     title, classId, subjectId, centerId, dueDate, passage, passageType,
     showTimer, timeLimit, shuffleQ, blocks, attachmentUrl, response_mode: responseMode,
-    audience, selectedStudentIds, isWorkbook
-  }), [title, classId, subjectId, centerId, dueDate, passage, passageType, showTimer, timeLimit, shuffleQ, blocks, attachmentUrl, responseMode, audience, selectedStudentIds, isWorkbook])
+    audience, selectedStudentIds, isWorkbook, lockAfterDeadline
+  }), [title, classId, subjectId, centerId, dueDate, passage, passageType, showTimer, timeLimit, shuffleQ, blocks, attachmentUrl, responseMode, audience, selectedStudentIds, isWorkbook, lockAfterDeadline])
 
   const { hasSavedDraft, restore, clear } = useAutoSave(`edit_assignment_${id}`, formData, (saved) => {
     setTitle(saved.title)
     setBlocks(saved.blocks)
     setAttachmentUrl(saved.attachmentUrl)
     setIsWorkbook(saved.isWorkbook ?? false)
+    setLockAfterDeadline(saved.lockAfterDeadline ?? false)
     toast.success('Draft restored!')
   })
 
@@ -126,6 +128,7 @@ export default function EditWorksheetPage() {
         setAudience(data.audience === 'selected_students' ? 'students' : 'class')
         setSelectedStudentIds(data.selected_student_ids || [])
         setIsWorkbook(data.is_workbook || false)
+        setLockAfterDeadline(data.lock_after_deadline || false)
       }
     } catch (e: any) {
       toast.error('Failed to load assignment: ' + e.message)
@@ -247,6 +250,7 @@ export default function EditWorksheetPage() {
           audience: audience === 'students' ? 'selected_students' : 'class',
           selected_student_ids: audience === 'students' ? selectedStudentIds : [],
           is_workbook: isWorkbook,
+          lock_after_deadline: lockAfterDeadline,
         })
         .eq('id', id)
 
@@ -406,7 +410,7 @@ export default function EditWorksheetPage() {
              </div>
 
              {/* Document Upload */}
-             <FileUploadZone value={attachmentUrl} onChange={setAttachmentUrl} />
+             <FileUploadZone value={attachmentUrl} onChange={setAttachmentUrl} acceptDocs={true} />
            </div>
 
            <div className="p-4 md:p-6 space-y-4">

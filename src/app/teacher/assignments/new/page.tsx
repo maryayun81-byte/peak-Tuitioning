@@ -22,6 +22,7 @@ import type { WorksheetBlock, QuestionType } from '@/types/database'
 import Link from 'next/link'
 import { useAutoSave } from '@/hooks/useAutoSave'
 import { DraftBanner } from '@/components/ui/DraftBanner'
+import { clearPageDataCache } from '@/hooks/usePageData'
 
 export default function NewWorksheetPage() {
   const router = useRouter()
@@ -39,6 +40,7 @@ export default function NewWorksheetPage() {
   const [showTimer, setShowTimer] = useState(false)
   const [timeLimit, setTimeLimit] = useState(60)
   const [shuffleQ, setShuffleQ] = useState(false)
+  const [lockAfterDeadline, setLockAfterDeadline] = useState(false)
 
   // Block state
   const [blocks, setBlocks] = useState<WorksheetBlock[]>([])
@@ -70,8 +72,8 @@ export default function NewWorksheetPage() {
   const formData = useMemo(() => ({
     title, classId, subjectId, centerId, dueDate, passage, passageType,
     showTimer, timeLimit, shuffleQ, blocks, attachmentUrl, responseMode,
-    audience, selectedStudentIds, isWorkbook
-  }), [title, classId, subjectId, centerId, dueDate, passage, passageType, showTimer, timeLimit, shuffleQ, blocks, attachmentUrl, responseMode, audience, selectedStudentIds, isWorkbook])
+    audience, selectedStudentIds, isWorkbook, lockAfterDeadline
+  }), [title, classId, subjectId, centerId, dueDate, passage, passageType, showTimer, timeLimit, shuffleQ, blocks, attachmentUrl, responseMode, audience, selectedStudentIds, isWorkbook, lockAfterDeadline])
 
   const { hasSavedDraft, restore, clear, draftAge } = useAutoSave('new_assignment', formData, (saved) => {
     // This callback is for manual restoration
@@ -91,6 +93,7 @@ export default function NewWorksheetPage() {
     setAudience(saved.audience)
     setSelectedStudentIds(saved.selectedStudentIds)
     setIsWorkbook(saved.isWorkbook ?? false)
+    setLockAfterDeadline(saved.lockAfterDeadline ?? false)
     toast.success('Draft restored!')
   })
 
@@ -266,6 +269,7 @@ export default function NewWorksheetPage() {
       audience: audience === 'students' ? 'selected_students' : 'class',
       selected_student_ids: audience === 'students' ? selectedStudentIds : [],
       is_workbook: isWorkbook,
+      lock_after_deadline: lockAfterDeadline,
     })
 
     if (error) {
@@ -274,6 +278,7 @@ export default function NewWorksheetPage() {
     } else {
       toast.success(status === 'published' ? '🎉 Worksheet published!' : '✅ Draft saved!')
       clear() // Clear auto-save draft on successful save
+      clearPageDataCache() // Invalidate list cache
       router.push('/teacher/assignments')
     }
     setSaving(false)
@@ -425,16 +430,32 @@ export default function NewWorksheetPage() {
                 {derivedSubjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Input label="Due Date" type="datetime-local" value={dueDate} onChange={e => setDueDate(e.target.value)} />
-              <div className="flex items-center gap-3 pt-6">
-                <input type="checkbox" id="timer" checked={showTimer} onChange={e => setShowTimer(e.target.checked)} className="w-4 h-4" />
-                <label htmlFor="timer" className="text-sm font-medium" style={{ color: 'var(--text)' }}>Enable Timer</label>
-                {showTimer && (
-                  <input type="number" min={5} max={300} value={timeLimit} onChange={e => setTimeLimit(parseInt(e.target.value))}
-                    className="w-16 rounded-lg px-2 py-1 text-sm text-center" style={{ background: 'var(--input)', color: 'var(--text)', border: '1px solid var(--card-border)' }}
+              
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <input type="checkbox" id="timer" checked={showTimer} onChange={e => setShowTimer(e.target.checked)} className="w-4 h-4 accent-primary" />
+                  <label htmlFor="timer" className="text-sm font-medium" style={{ color: 'var(--text)' }}>Enable Timer</label>
+                  {showTimer && (
+                    <input type="number" min={5} max={300} value={timeLimit} onChange={e => setTimeLimit(parseInt(e.target.value))}
+                      className="w-16 rounded-lg px-2 py-1 text-sm text-center" style={{ background: 'var(--input)', color: 'var(--text)', border: '1px solid var(--card-border)' }}
+                    />
+                  )}
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <input 
+                    type="checkbox" 
+                    id="strict_deadline" 
+                    checked={lockAfterDeadline} 
+                    onChange={e => setLockAfterDeadline(e.target.checked)} 
+                    className="w-4 h-4 accent-red-500" 
                   />
-                )}
+                  <label htmlFor="strict_deadline" className="text-sm font-medium" style={{ color: 'var(--text)' }}>
+                    Block late submissions <span className="text-[10px] opacity-60 font-normal">(STRICT)</span>
+                  </label>
+                </div>
               </div>
             </div>
 
@@ -584,7 +605,7 @@ export default function NewWorksheetPage() {
               <p className="text-[11px] mb-2" style={{ color: 'var(--text-muted)' }}>
                 Upload a PDF or image (e.g. a scanned question paper). Students will work directly on it.
               </p>
-              <FileUploadZone value={attachmentUrl} onChange={setAttachmentUrl} />
+              <FileUploadZone value={attachmentUrl} onChange={setAttachmentUrl} acceptDocs={true} />
             </div>
 
             {/* Student Response Mode — only shown when a document is uploaded */}

@@ -34,10 +34,6 @@ export function useAuth() {
 
       console.log(`[useAuth] Loading data for ${userId} (silent=${isSilent}, hasProfile=${hasProfile})...`)
       
-      const timeout = !hasProfile ? setTimeout(() => {
-        setLoading(false)
-      }, 10000) : null
-
       try {
         const metadataRole = sessionRole
         
@@ -68,18 +64,34 @@ export function useAuth() {
           try {
             if (p.role === 'student') {
               const { data, error: fetchError } = await supabase.from('students').select('*, class:classes(*), curriculum:curriculums(*)').eq('user_id', userId).single()
-              if (data) setStudent(data as Student)
+              if (data) {
+                setStudent(data as Student)
+              } else {
+                console.warn('[useAuth] Student record missing.')
+                setStudent(null)
+              }
             } else if (p.role === 'parent') {
               const { data: parentListData } = await supabase.from('parents').select('*').eq('user_id', userId)
               if (parentListData && parentListData.length > 0) {
                 const anyOnboarded = parentListData.some(r => r.onboarded === true)
                 setParent({ ...parentListData[0], onboarded: anyOnboarded } as Parent)
+              } else {
+                console.warn('[useAuth] Parent record missing.')
+                setParent(null)
               }
             } else if (p.role === 'teacher') {
-              const { data: teacherData } = await supabase.from('teachers').select('*, teacher_assignments(is_class_teacher)').eq('user_id', userId).single()
+              const { data: teacherData, error: teacherError } = await supabase
+                .from('teachers')
+                .select('*, teacher_assignments(is_class_teacher)')
+                .eq('user_id', userId)
+                .single()
+              
               if (teacherData) {
                 const isClassTeacher = (teacherData as any).teacher_assignments?.some((a: any) => a.is_class_teacher) || false
                 setTeacher({ ...teacherData, is_class_teacher: isClassTeacher } as Teacher)
+              } else {
+                console.warn('[useAuth] Teacher record expected but not found in DB.')
+                setTeacher(null)
               }
             }
           } catch (roleError) {
@@ -87,6 +99,7 @@ export function useAuth() {
           }
         }
 
+        // Await background data fetch (Guaranteed Hydration)
         await fetchSubData()
       } catch (err: any) {
         // Silently handle lock/abort errors to keep console clean
@@ -96,7 +109,6 @@ export function useAuth() {
           console.error('[useAuth] Data load error:', err)
         }
       } finally {
-        if (timeout) clearTimeout(timeout)
         setLoading(false)
         setRevalidationComplete(true)
         loadingMap.delete(userId)

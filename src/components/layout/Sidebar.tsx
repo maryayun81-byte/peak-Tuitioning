@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   LayoutDashboard, Users, UserCheck, GraduationCap, BookOpen,
@@ -125,6 +125,8 @@ function SidebarItem({
   isActive: boolean;
   onClick?: () => void
 }) {
+  const router = useRouter()
+
   const content = (
     <>
       <span className={cn('flex-shrink-0', isActive ? 'text-white' : '')}>{item.icon}</span>
@@ -171,7 +173,12 @@ function SidebarItem({
   }
 
   return (
-    <Link href={item.href} {...commonProps}>
+    <Link
+      href={item.href}
+      prefetch={true}
+      onMouseEnter={() => router.prefetch(item.href)}
+      {...commonProps}
+    >
       {content}
     </Link>
   )

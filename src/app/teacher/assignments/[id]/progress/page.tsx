@@ -271,15 +271,20 @@ export default function AssignmentProgressPage() {
                            </div>
                         </td>
                         <td className="px-8 py-5">
-                           {s.status === 'missing' ? (
-                              <Badge variant="muted" className="bg-rose-50 text-rose-500 border-rose-100">Missing</Badge>
-                           ) : s.status === 'in_progress' ? (
-                              <Badge variant="info" className="bg-blue-50 text-blue-500 border-blue-100">In Progress</Badge>
-                           ) : s.status === 'submitted' ? (
-                              <Badge variant="warning" className="animate-pulse">Needs Marking</Badge>
-                           ) : (
-                              <Badge variant="success">Graded</Badge>
-                           )}
+                           <div className="flex items-center gap-2">
+                              {s.status === 'missing' ? (
+                                 <Badge variant="muted" className="bg-rose-50 text-rose-500 border-rose-100">Missing</Badge>
+                              ) : s.status === 'in_progress' ? (
+                                 <Badge variant="info" className="bg-blue-50 text-blue-500 border-blue-100">In Progress</Badge>
+                              ) : s.status === 'submitted' ? (
+                                 <Badge variant="warning" className="animate-pulse">Needs Marking</Badge>
+                              ) : (
+                                 <Badge variant="success">Graded</Badge>
+                              )}
+                              {s.submittedAt && assignment?.due_date && new Date(s.submittedAt) > new Date(assignment.due_date) && (
+                                 <Badge variant="muted" className="bg-red-500 text-white border-none font-black text-[9px] px-1.5 py-0.5">LATE</Badge>
+                              )}
+                           </div>
                         </td>
                         <td className="px-8 py-5 text-center font-black text-slate-600">
                            {s.marks !== undefined && s.marks !== null ? (

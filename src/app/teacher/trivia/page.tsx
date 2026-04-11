@@ -11,6 +11,8 @@ import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { useAuthStore } from '@/stores/authStore'
+import { usePageData, clearPageDataCache } from '@/hooks/usePageData'
+import { PageStates } from '@/components/ui/PageStates'
 import toast from 'react-hot-toast'
 
 interface TriviaSession {
@@ -38,49 +40,33 @@ const PAGE_SIZE = 10
 
 export default function TeacherTriviaPage() {
   const supabase = getSupabaseBrowserClient()
-  const { teacher } = useAuthStore()
+  const { teacher, isInitialRevalidationComplete } = useAuthStore()
   const router = useRouter()
-
-  const [sessions, setSessions] = useState<TriviaSession[]>([])
-  const [loading, setLoading] = useState(true)
-  const [totalCount, setTotalCount] = useState(0)
   const [page, setPage] = useState(0)
 
-  useEffect(() => {
-    if (loading) {
-      const t = setTimeout(() => {
-        setLoading(false)
-        console.warn('TeacherTrivia timeout triggered')
-      }, 8000)
-      return () => clearTimeout(t)
-    }
-  }, [loading])
+  const { 
+    data: pageData, 
+    status, 
+    refetch 
+  } = usePageData({
+    cacheKey: ['teacher-trivia-sessions', teacher?.id || 'anon', page],
+    fetcher: async () => {
+      if (!teacher?.id) return { data: null, error: 'No teacher' }
 
-  useEffect(() => {
-    if (teacher?.id) loadSessions()
-  }, [teacher?.id, page])
+      // 1. Fetch main sessions
+      const { data, error, count } = await supabase
+        .from('trivia_sessions')
+        .select(`
+          *,
+          subject:subjects(name)
+        `, { count: 'exact' })
+        .eq('teacher_id', teacher.id)
+        .order('created_at', { ascending: false })
+        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
 
-  const loadSessions = async () => {
-    if (!teacher?.id) return
-    setLoading(true)
+      if (error) return { data: null, error: error.message }
 
-    // Get count and data
-    const { data, error, count } = await supabase
-      .from('trivia_sessions')
-      .select(`
-        *,
-        subject:subjects(name)
-      `, { count: 'exact' })
-      .eq('teacher_id', teacher.id)
-      .order('created_at', { ascending: false })
-      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
-
-    if (error) { toast.error('Failed to load trivia sessions'); setLoading(false); return }
-
-    setTotalCount(count ?? 0)
-
-    try {
-      // Load counts in parallel
+      // 2. Enrich with counts in parallel
       const enriched = await Promise.all((data ?? []).map(async s => {
         const [qRes, gRes, subRes] = await Promise.all([
           supabase.from('trivia_questions').select('id', { count: 'exact', head: true }).eq('session_id', s.id),
@@ -94,14 +80,20 @@ export default function TeacherTriviaPage() {
           _submissionCount: subRes.count ?? 0,
         }
       }))
-      setSessions(enriched)
-    } catch (e: any) {
-      console.error('Trivia sessions enriching failed:', e)
-      toast.error('Failed to load trivia counts')
-    } finally {
-      setLoading(false)
-    }
-  }
+
+      return {
+        data: {
+          sessions: enriched,
+          totalCount: count ?? 0
+        },
+        error: null
+      }
+    },
+    enabled: isInitialRevalidationComplete && !!teacher?.id,
+  })
+
+  const sessions: TriviaSession[] = pageData?.sessions || []
+  const totalCount = pageData?.totalCount || 0
 
   const handleDelete = async (id: string, title: string) => {
     if (!confirm(`Are you sure you want to permanently delete "${title}"? This cannot be undone.`)) return
@@ -110,8 +102,9 @@ export default function TeacherTriviaPage() {
     if (error) { toast.error('Failed to delete trivia'); return }
     
     toast.success('Trivia deleted.')
+    clearPageDataCache()
     if (sessions.length === 1 && page > 0) setPage(p => p - 1)
-    else loadSessions()
+    else refetch()
   }
 
   const handleClearAll = async () => {
@@ -123,15 +116,17 @@ export default function TeacherTriviaPage() {
     if (error) { toast.error('Failed to clear sessions'); return }
 
     toast.success('All trivias cleared.')
+    clearPageDataCache()
     setPage(0)
-    loadSessions()
+    refetch()
   }
 
   const updateStatus = async (id: string, status: 'published' | 'closed') => {
     const { error } = await supabase.from('trivia_sessions').update({ status }).eq('id', id)
     if (error) { toast.error('Failed to update status'); return }
     toast.success(status === 'published' ? '🚀 Trivia is now live!' : 'Trivia closed.')
-    setSessions(prev => prev.map(s => s.id === id ? { ...s, status } : s))
+    clearPageDataCache()
+    refetch()
   }
 
   const stats = useMemo(() => ({
@@ -206,10 +201,12 @@ export default function TeacherTriviaPage() {
       </div>
 
       {/* Sessions list */}
-      {loading ? (
+      {status === 'loading' ? (
         <div className="space-y-3">
           {[1,2,3,4].map(i => <div key={i} className="h-28 rounded-2xl animate-pulse" style={{ background: 'var(--input)' }} />)}
         </div>
+      ) : status === 'error' || status === 'timeout' ? (
+        <PageStates status={status} onRetry={refetch} />
       ) : sessions.length === 0 ? (
         <div className="py-28 text-center bg-[var(--input)]/20 rounded-[3rem] border-2 border-dashed border-[var(--card-border)]">
           <div className="w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-4" style={{ background: 'var(--input)' }}>
@@ -225,7 +222,7 @@ export default function TeacherTriviaPage() {
         <div className="grid grid-cols-1 gap-4">
           <AnimatePresence mode="popLayout">
             {sessions.map((s, i) => {
-              const cfg = STATUS_CONFIG[s.status]
+              const cfg = STATUS_CONFIG[s.status as keyof typeof STATUS_CONFIG]
               return (
                 <motion.div
                   key={s.id}

@@ -14,6 +14,8 @@ import { useAuthStore } from '@/stores/authStore'
 import { useThemeStore } from '@/stores/themeStore'
 import { THEMES } from '@/lib/themes'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
+import { PageStates } from '@/components/ui/PageStates'
+import { usePageData } from '@/hooks/usePageData'
 import toast from 'react-hot-toast'
 
 export default function TeacherSettings() {
@@ -21,51 +23,57 @@ export default function TeacherSettings() {
   const { profile, teacher } = useAuthStore()
   const { theme: currentTheme, syncThemeToProfile } = useThemeStore()
   
-  const [loading, setLoading] = useState(false)
-  const [dataLoading, setDataLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
   const [activeTab, setActiveTab] = useState('profile')
-  const [teacherData, setTeacherData] = useState<any>(null)
 
-  useEffect(() => {
-    if (profile) loadTeacherDetails()
-  }, [profile])
+  const { 
+    data: teacherData, 
+    status, 
+    refetch 
+  } = usePageData({
+    cacheKey: ['teacher-details-settings', profile?.id || 'anon'],
+    fetcher: async () => {
+      if (!profile?.id) return { data: null, error: 'No profile' }
+      const { data, error } = await supabase
+        .from('teachers')
+        .select(`
+          *,
+          teacher_curricula(curriculum:curricula(name)),
+          teacher_assignments(
+            class:classes(id, name),
+            subject:subjects(name),
+            is_class_teacher
+          )
+        `)
+        .eq('user_id', profile.id)
+        .single()
+      
+      if (error) return { data: null, error: error.message }
+      if (!data) return { data: null, error: 'Teacher record not found' }
 
-  const loadTeacherDetails = async () => {
-    setDataLoading(true)
-    const { data, error } = await supabase
-      .from('teachers')
-      .select(`
-        *,
-        teacher_curricula(curriculum:curricula(name)),
-        teacher_assignments(
-          class:classes(id, name),
-          subject:subjects(name),
-          is_class_teacher
-        )
-      `)
-      .eq('user_id', profile?.id)
-      .single()
-    
-    if (data) {
-       // Extract unique classes and curriculums
-       const classes = Array.from(new Set(data.teacher_assignments.map((ta: any) => JSON.stringify(ta.class)))).map((s:any) => JSON.parse(s))
-       const curricula = data.teacher_curricula.map((tc: any) => tc.curriculum?.name)
-       const classTeacherFor = data.teacher_assignments.find((ta: any) => ta.is_class_teacher)?.class
-       
-       setTeacherData({
+      // Extract unique classes and curriculums
+      const classes = Array.from(new Set(data.teacher_assignments.map((ta: any) => JSON.stringify(ta.class)))).map((s:any) => JSON.parse(s))
+      const curricula = data.teacher_curricula.map((tc: any) => tc.curriculum?.name)
+      const classTeacherFor = data.teacher_assignments.find((ta: any) => ta.is_class_teacher)?.class
+      
+      return {
+        data: {
           ...data,
           uniqueClasses: classes,
           curriculaList: curricula,
           classTeacherFor
-       })
-    }
-    setDataLoading(false)
-  }
+        },
+        error: null
+      }
+    },
+    enabled: !!profile?.id,
+  })
 
   const handleSave = async () => {
-    setLoading(true)
+    setSaving(true)
+    // In a real app we'd save to DB here. For now, we simulate.
     setTimeout(() => {
-       setLoading(false)
+       setSaving(false)
        toast.success('Settings updated successfully!')
     }, 1000)
   }
@@ -77,7 +85,9 @@ export default function TeacherSettings() {
     { id: 'theme', label: 'Appearance', icon: <Palette size={16} /> },
   ]
 
-  if (dataLoading) return <div className="p-12 text-center opacity-50 font-black animate-pulse">Initializing Portal Data...</div>
+  if (status === 'loading') return <div className="p-12 text-center opacity-50 font-black animate-pulse">Initializing Portal Data...</div>
+  if (status === 'error' || status === 'timeout') return <PageStates status={status} onRetry={refetch} />
+  if (!teacherData) return null
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-8 pb-32">
@@ -138,7 +148,7 @@ export default function TeacherSettings() {
                        <Textarea label="Professional Philosophy" placeholder="Your approach to education..." className="rounded-2xl" />
                        
                        <div className="pt-4 flex justify-end">
-                          <Button onClick={handleSave} isLoading={loading} className="rounded-xl px-8 py-6 font-black"><Save size={16} className="mr-2" /> Save Profile</Button>
+                          <Button onClick={handleSave} isLoading={saving} className="rounded-xl px-8 py-6 font-black"><Save size={16} className="mr-2" /> Save Profile</Button>
                        </div>
                     </motion.div>
                   )}

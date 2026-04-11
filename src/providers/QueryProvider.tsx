@@ -9,10 +9,12 @@ import { useState } from 'react'
  * Global React Query configuration tuned for 200+ concurrent users.
  *
  * Strategy: Stale-While-Revalidate (SWR pattern)
- * - Data shown immediately from cache on re-navigation (zero spinner flash)
- * - Background revalidation after staleTime elapses
- * - Aggressive gcTime keeps data in RAM across multiple pages
+ * - Cached data shown immediately on navigation (zero spinner flash)
+ * - Background revalidation after staleTime elapses  
+ * - refetchOnMount: 'always' — when a page mounts and data is STALE, 
+ *   background-refetch silently (user already sees cached data)
  * - Retry with exponential backoff for network resilience
+ * - 8s timeout enforced at the network level via safeFetch
  */
 export function QueryProvider({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -20,22 +22,24 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
       new QueryClient({
         defaultOptions: {
           queries: {
-            // 5 minutes: data is considered "fresh" — no background refetch within this window
+            // 5 minutes: data shown from cache, background refetch runs after this
             staleTime: 5 * 60 * 1000,
-            // 15 minutes in RAM after last subscriber unmounts (pages stay cached through long sessions)
-            gcTime: 15 * 60 * 1000,
-            // Retry twice with exponential backoff (500ms, 1000ms) for network blips
+            // 30 minutes in RAM after last subscriber unmounts (long sessions cached)
+            gcTime: 30 * 60 * 1000,
+            // Retry twice with exponential backoff (500ms, 1000ms) for flaky networks
             retry: 2,
-            retryDelay: (attempt) => Math.min(500 * 2 ** attempt, 5000),
-            // Do NOT refetch just because user switches tabs or windows — reduces server load
+            retryDelay: (attempt) => Math.min(500 * 2 ** attempt, 6000),
+            // Background refetch on mount if data is stale — user still sees cached data
+            refetchOnMount: true,
+            // Don't refetch on tab focus — reduces unnecessary server load
             refetchOnWindowFocus: false,
-            // Do NOT re-fetch on mount if data is fresh — this is what eliminates spinners on navigation
-            refetchOnMount: false,
-            // Do NOT auto-refetch on reconnect — prevents stampede when 200 users reconnect simultaneously
+            // Don't stampede the server when 200 users reconnect simultaneously
             refetchOnReconnect: false,
+            // Throw on error so React error boundaries can catch it
+            throwOnError: false,
           },
           mutations: {
-            // Show errors after 1 retry
+            // Retry once on mutation failure
             retry: 1,
           },
         },

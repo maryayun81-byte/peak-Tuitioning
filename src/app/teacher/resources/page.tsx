@@ -13,10 +13,12 @@ import { Button } from '@/components/ui/Button'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import { SkeletonList } from '@/components/ui/Skeleton'
+import { PageStates } from '@/components/ui/PageStates'
 import { FileUploadZone } from '@/components/worksheet/FileUploadZone'
 import { useAuthStore } from '@/stores/authStore'
 import { formatDate } from '@/lib/utils'
 import { useAutoSave } from '@/hooks/useAutoSave'
+import { usePageData, clearPageDataCache } from '@/hooks/usePageData'
 import { DraftBanner } from '@/components/ui/DraftBanner'
 import toast from 'react-hot-toast'
 import type { Resource } from '@/types/database'
@@ -25,8 +27,6 @@ export default function TeacherResources() {
   const supabase = getSupabaseBrowserClient()
   const { profile, teacher } = useAuthStore()
   
-  const [resources, setResources] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
   const [addOpen, setAddOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [filterType, setFilterType] = useState('all')
@@ -50,11 +50,7 @@ export default function TeacherResources() {
 
   const [newResource, setNewResource] = useState(INITIAL_RESOURCE)
 
-  // All teacher data loaded once upfront
-  const [allCenters, setAllCenters] = useState<any[]>([])
-  const [allSubjects, setAllSubjects] = useState<any[]>([])
-  const [allClasses, setAllClasses] = useState<any[]>([])
-  const [rawAssignments, setRawAssignments] = useState<any[]>([]) // {tuition_center_id, subject_id, class_id}
+  // All teacher data loaded via usePageData (see below)
   const [centerStudents, setCenterStudents] = useState<any[]>([])
 
   // Draft auto-save: saves newResource form whenever modal is open
@@ -68,84 +64,75 @@ export default function TeacherResources() {
     }
   )
 
-  // UI filter selections
-  const [selCenter, setSelCenter] = useState('')
-  const [selClass, setSelClass] = useState('')
+  // ── Optimized Page Data ──────────────────────────────────────
+  const { 
+    data: pageData, 
+    status, 
+    refetch 
+  } = usePageData({
+    cacheKey: ['teacher-resources-v2', teacher?.id || 'anon'],
+    fetcher: async () => {
+      if (!teacher?.id) return { data: null, error: 'No teacher' }
+      
+      const [rRes, aRes, cRes, sRes, clRes] = await Promise.all([
+        supabase.from('resources').select('*, subject:subjects(name)').eq('teacher_id', teacher.id).order('created_at', { ascending: false }),
+        supabase.from('teacher_assignments').select('tuition_center_id, subject_id, class_id').eq('teacher_id', teacher.id),
+        supabase.from('tuition_centers').select('id, name').order('name'),
+        supabase.from('subjects').select('id, name, tuition_center_id').order('name'),
+        supabase.from('classes').select('id, name, tuition_center_id').order('name'),
+      ])
 
-  // Derive visible classes by looking at what the teacher is actually assigned to teach in the selected center
-  const visibleClasses = useMemo(() => {
-    if (!selCenter) return allClasses
-    const assignedClassIds = new Set(
-      rawAssignments
-        .filter(a => (a.tuition_center_id || '') === selCenter)
-        .map(a => a.class_id)
-    )
-    return allClasses.filter(c => assignedClassIds.has(c.id))
-  }, [allClasses, rawAssignments, selCenter])
-
-  // Derive visible subjects: if a center is selected, only show subjects assigned in that center
-  const visibleSubjects = useMemo(() => {
-    if (!selCenter) return allSubjects
-    const assignedSubjectIds = new Set(
-      rawAssignments
-        .filter(a => (a.tuition_center_id || '') === selCenter)
-        .map(a => a.subject_id)
-    )
-    return allSubjects.filter(s => assignedSubjectIds.has(s.id))
-  }, [allSubjects, rawAssignments, selCenter])
-
-  useEffect(() => {
-    if (teacher?.id) loadData()
-  }, [teacher?.id])
-
-  const loadData = async () => {
-    setLoading(true)
-    try {
-      // 1. Fetch this teacher's resources
-      const { data: rData } = await supabase
-        .from('resources')
-        .select('*, subject:subjects(name)')
-        .eq('teacher_id', teacher?.id)
-        .order('created_at', { ascending: false })
-      setResources(rData ?? [])
-
-      // 2. Get all assignment rows for this teacher (source of truth for what they teach)
-      const { data: aData } = await supabase
-        .from('teacher_assignments')
-        .select('tuition_center_id, subject_id, class_id')
-        .eq('teacher_id', teacher?.id)
-
-      const assignments = aData || []
-      setRawAssignments(assignments)
-
+      const assignments = aRes.data || []
       const centerIds = Array.from(new Set(assignments.map((a: any) => a.tuition_center_id).filter(Boolean)))
       const subjectIds = Array.from(new Set(assignments.map((a: any) => a.subject_id).filter(Boolean)))
       const classIds   = Array.from(new Set(assignments.map((a: any) => a.class_id).filter(Boolean)))
 
-      // 3. Fetch the actual records for those IDs.
-      //    Always use specific IDs if available so we only show what the teacher teaches.
-      //    Fall back to full list only if assignments table is completely empty.
-      const [cRes, sRes, clRes] = await Promise.all([
-        centerIds.length > 0
-          ? supabase.from('tuition_centers').select('id, name').in('id', centerIds).order('name')
-          : supabase.from('tuition_centers').select('id, name').order('name').limit(50),
-        subjectIds.length > 0
-          ? supabase.from('subjects').select('id, name, tuition_center_id').in('id', subjectIds).order('name')
-          : supabase.from('subjects').select('id, name, tuition_center_id').order('name').limit(100),
-        classIds.length > 0
-          ? supabase.from('classes').select('id, name, tuition_center_id').in('id', classIds).order('name')
-          : supabase.from('classes').select('id, name, tuition_center_id').order('name').limit(100),
-      ])
+      return {
+        data: {
+          resources: rRes.data || [],
+          assignments,
+          allCenters: cRes.data || [],
+          // Filter metadata to only what teacher actually teaches
+          allSubjects: (sRes.data || []).filter(s => subjectIds.length === 0 || subjectIds.includes(s.id)),
+          allClasses: (clRes.data || []).filter(c => classIds.length === 0 || classIds.includes(c.id))
+        },
+        error: rRes.error || aRes.error
+      }
+    },
+    enabled: !!teacher?.id,
+  })
 
-      setAllCenters(cRes.data || [])
-      setAllSubjects(sRes.data || [])
-      setAllClasses(clRes.data || [])
-    } catch (err) {
-      console.error('[Resources] loadData error:', err)
-    } finally {
-      setLoading(false)
-    }
-  }
+  const resources = pageData?.resources || []
+  const allCenters = pageData?.allCenters || []
+  const allSubjects = pageData?.allSubjects || []
+  const allClasses = pageData?.allClasses || []
+  const rawAssignments: any[] = pageData?.assignments || []
+
+  // UI filter selections (declared here so visibleClasses/Subjects can use the derived arrays above)
+  const [selCenter, setSelCenter] = useState('')
+  const [selClass, setSelClass] = useState('')
+
+  // Derive visible classes: filter by what the teacher is assigned to teach in the selected center
+  const visibleClasses = useMemo(() => {
+    if (!selCenter) return allClasses
+    const assignedClassIds = new Set(
+      rawAssignments
+        .filter((a: any) => (a.tuition_center_id || '') === selCenter)
+        .map((a: any) => a.class_id)
+    )
+    return allClasses.filter((c: any) => assignedClassIds.has(c.id))
+  }, [allClasses, rawAssignments, selCenter])
+
+  // Derive visible subjects: filter by selected center
+  const visibleSubjects = useMemo(() => {
+    if (!selCenter) return allSubjects
+    const assignedSubjectIds = new Set(
+      rawAssignments
+        .filter((a: any) => (a.tuition_center_id || '') === selCenter)
+        .map((a: any) => a.subject_id)
+    )
+    return allSubjects.filter((s: any) => assignedSubjectIds.has(s.id))
+  }, [allSubjects, rawAssignments, selCenter])
 
   // Load students whenever the class filter changes
   useEffect(() => {
@@ -158,14 +145,6 @@ export default function TeacherResources() {
       .then(({ data }) => setCenterStudents(data || []))
   }, [selClass])
 
-
-  // Safety timeout
-  useEffect(() => {
-    if (loading) {
-      const t = setTimeout(() => setLoading(false), 5000)
-      return () => clearTimeout(t)
-    }
-  }, [loading])
 
   const handleUpload = async () => {
     if (!newResource.title) {
@@ -220,14 +199,15 @@ export default function TeacherResources() {
        clearResource() // Clear draft on success
        setNewResource(INITIAL_RESOURCE)
        setAddOpen(false)
-       loadData()
+       clearPageDataCache() // Invalidate list cache
+       refetch()
     }
   }
 
   const deleteResource = async (id: string) => {
     const { error } = await supabase.from('resources').delete().eq('id', id)
     if (error) { toast.error('Check your permissions') }
-    else { toast.success('Removed'); loadData() }
+    else { toast.success('Removed'); clearPageDataCache(); refetch() }
   }
 
   const filtered = resources.filter(r => {
@@ -259,7 +239,12 @@ export default function TeacherResources() {
             <h1 className="text-2xl font-black" style={{ color: 'var(--text)' }}>Resource Library</h1>
             <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>Share learning materials with your students</p>
          </div>
-         <Button onClick={() => { setNewResource(INITIAL_RESOURCE); setAddOpen(true) }}><Plus size={16} className="mr-2" /> Add Resource</Button>
+          <Button onClick={() => { 
+            if (!hasResourceDraft) setNewResource(INITIAL_RESOURCE); 
+            setAddOpen(true) 
+          }}>
+            <Plus size={16} className="mr-2" /> Add Resource
+          </Button>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -280,7 +265,8 @@ export default function TeacherResources() {
          </Select>
       </div>
 
-      {loading ? <SkeletonList count={8} /> : (
+      {status === 'loading' ? <SkeletonList count={8} /> : 
+       status === 'error' || status === 'timeout' ? <PageStates status={status} onRetry={refetch} /> : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
            {filtered.map((r, i) => (
              <motion.div key={r.id} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: i * 0.03 }}>

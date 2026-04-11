@@ -1,393 +1,641 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { 
-  Trophy, TrendingUp, Calendar, 
-  Award, BrainCircuit, Zap,
-  CheckCircle2, Clock, Target,
-  Download, ArrowRight, Star, Plus
+import {
+  Trophy, TrendingUp,
+  Award, Zap,
+  CheckCircle2, Target,
+  Download, Star, Plus,
+  Crown, Users, BookOpen, Building2
 } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Card, Badge, StatCard } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
-import { SkeletonDashboard } from '@/components/ui/Skeleton'
 import { useAuthStore } from '@/stores/authStore'
 import { formatDate } from '@/lib/utils'
-import { 
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, 
-  Tooltip, ResponsiveContainer, LineChart, Line,
-  AreaChart, Area
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  Tooltip, ResponsiveContainer, AreaChart, Area
 } from 'recharts'
+import { usePageData } from '@/hooks/usePageData'
+import { ShimmerSkeleton } from '@/components/ui/ShimmerSkeleton'
+import { PageStates } from '@/components/ui/PageStates'
+
+// ── Medal colours ─────────────────────────────────────────────
+const MEDALS = [
+  { bg: 'bg-amber-400', text: 'text-white', label: '🥇' },
+  { bg: 'bg-slate-400', text: 'text-white', label: '🥈' },
+  { bg: 'bg-amber-700', text: 'text-white', label: '🥉' },
+]
+
+interface LbEntry {
+  id: string
+  full_name: string
+  xp: number
+  avatar_url?: string
+  class_name?: string
+}
+
+function LeaderboardPodium({
+  title, icon, entries, studentId, myRank, myEntry, isLoading
+}: {
+  title: string
+  icon: React.ReactNode
+  entries: LbEntry[]
+  studentId?: string
+  myRank: number | null
+  myEntry: LbEntry | null
+  isLoading: boolean
+}) {
+  const inTop = entries.some(e => e.id === studentId)
+
+  return (
+    <Card className="p-6 space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {icon}
+          <h3 className="font-black text-sm uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+            {title}
+          </h3>
+        </div>
+        {myRank != null && (
+          <span className="text-[10px] font-black px-2 py-1 rounded-lg bg-primary/10 text-primary uppercase tracking-wider">
+            Your rank #{myRank}
+          </span>
+        )}
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-3">
+          {[1, 2, 3].map(i => <ShimmerSkeleton key={i} className="h-14 rounded-2xl" />)}
+        </div>
+      ) : entries.length === 0 ? (
+        <div className="py-8 text-center space-y-2">
+          <p className="text-sm font-bold" style={{ color: 'var(--text-muted)' }}>No rankings found yet</p>
+          <p className="text-[10px] opacity-60 max-w-[200px] mx-auto leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+            Leaderboards initialize after the latest class results are synced. Check back soon!
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {/* Top 3 */}
+          {entries.map((s, i) => {
+            const isMe = s.id === studentId
+            const medal = MEDALS[i]
+            return (
+              <motion.div
+                key={s.id}
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: i * 0.08 }}
+                className={`flex items-center justify-between p-3 rounded-2xl transition-all ${
+                  isMe ? 'ring-2 ring-primary/40 bg-primary/5' : 'bg-[var(--input)]'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-black text-sm shrink-0 ${medal?.bg ?? 'bg-[var(--card)]'} ${medal?.text ?? ''}`}>
+                    {medal ? medal.label : `#${i + 1}`}
+                  </div>
+                  <div>
+                    <p className="font-black text-sm leading-tight" style={{ color: isMe ? 'var(--primary)' : 'var(--text)' }}>
+                      {s.full_name}{isMe && ' ⭐'}
+                    </p>
+                    {s.class_name && (
+                      <p className="text-[9px]" style={{ color: 'var(--text-muted)' }}>{s.class_name}</p>
+                    )}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="font-black text-sm text-amber-500">{(s.xp ?? 0).toLocaleString()}</div>
+                  <div className="text-[9px] uppercase font-bold tracking-widest" style={{ color: 'var(--text-muted)' }}>XP</div>
+                </div>
+              </motion.div>
+            )
+          })}
+
+          {/* Student's own entry if NOT in top 3 */}
+          {!inTop && myEntry && myRank != null && (
+            <>
+              {/* Dotted separator */}
+              <div className="flex items-center gap-2 py-1 px-1">
+                <div className="flex-1 border-t border-dashed" style={{ borderColor: 'var(--card-border)' }} />
+                <span className="text-[9px] font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+                  #{myRank} · Your Position
+                </span>
+                <div className="flex-1 border-t border-dashed" style={{ borderColor: 'var(--card-border)' }} />
+              </div>
+              <motion.div
+                initial={{ opacity: 0, scale: 0.97 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="flex items-center justify-between p-3 rounded-2xl ring-2 ring-primary/30 bg-primary/5"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl flex items-center justify-center font-black text-sm shrink-0 bg-primary/10 text-primary">
+                    #{myRank}
+                  </div>
+                  <div>
+                    <p className="font-black text-sm leading-tight text-primary">{myEntry.full_name} ⭐</p>
+                    {myEntry.class_name && (
+                      <p className="text-[9px]" style={{ color: 'var(--text-muted)' }}>{myEntry.class_name}</p>
+                    )}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="font-black text-sm text-amber-500">{(myEntry.xp ?? 0).toLocaleString()}</div>
+                  <div className="text-[9px] uppercase font-bold tracking-widest" style={{ color: 'var(--text-muted)' }}>XP</div>
+                </div>
+              </motion.div>
+            </>
+          )}
+        </div>
+      )}
+    </Card>
+  )
+}
 
 export default function StudentPerformance() {
   const supabase = getSupabaseBrowserClient()
-  const { student, profile } = useAuthStore()
-  
-  const [loading, setLoading] = useState(true)
-  const [subjectStats, setSubjectStats] = useState<any[]>([])
-  const [quizTimeline, setQuizTimeline] = useState<any[]>([])
-  const [attendance, setAttendance] = useState<any>({ percentage: 0, total: 0, present: 0 })
-  const [rank, setRank] = useState(0)
-  const [totalStudents, setTotalStudents] = useState(0)
-  const [percentile, setPercentile] = useState(0)
-  const [leaderboard, setLeaderboard] = useState<any[]>([])
-  const [accuracy, setAccuracy] = useState(0)
-  const [recentSuccesses, setRecentSuccesses] = useState<any[]>([])
-  const [badges, setBadges] = useState<any[]>([])
+  const { student } = useAuthStore()
 
-  useEffect(() => {
-    if (student) loadData()
-  }, [student])
+  // ── Core metrics: rank + XP ──────────────────────────────────
+  const { data: metrics, status: mStatus, refetch: mRefetch } = usePageData({
+    cacheKey: ['performance-metrics-v2', student?.id || 'anon'],
+    fetcher: async () => {
+      // Global rank via RPC (with fallback)
+      let rank: number | string = '?'
+      try {
+        const { data: rankData } = await supabase.rpc('get_student_rank', { input_student_id: student?.id })
+        if (rankData != null) rank = rankData
+      } catch {
+        // Fallback: count students with more XP
+        const { count } = await supabase
+          .from('students').select('*', { count: 'exact', head: true })
+          .gt('xp', student?.xp || 0)
+        rank = (count ?? 0) + 1
+      }
 
-  const loadData = async () => {
-    setLoading(true)
-    // In a real app, these would be complex aggregation queries
-    // Here we simulate data based on logical structures
-    
-    const [subRes, quizRes, attRes, rankRes, certRes] = await Promise.all([
-      supabase.from('submissions').select('*, assignment:assignments(*, subject:subjects(name))').eq('student_id', student?.id),
-      supabase.from('quiz_attempts').select('*, quiz:quizzes(*, subject:subjects(name))').eq('student_id', student?.id),
-      supabase.from('attendance').select('*').eq('student_id', student?.id),
-      supabase.from('students').select('id, full_name, xp').eq('curriculum_id', student?.curriculum_id).order('xp', { ascending: false }),
-      supabase.from('certificates').select('*').eq('student_id', student?.id)
-    ])
+      return { data: { rank, xp: student?.xp || 0 }, error: null }
+    },
+    enabled: !!student?.id,
+  })
 
-    const submissions = subRes.data || []
-    const quizzes = quizRes.data || []
-    const rankList = rankRes.data || []
-    const myRank = rankList.findIndex(s => s.id === student?.id) + 1
-    
-    setRank(myRank)
-    setTotalStudents(rankList.length)
-    setLeaderboard(rankList.slice(0, 5))
-    
-    if (rankList.length > 0 && myRank > 0) {
-      setPercentile(Math.round(((rankList.length - myRank) / rankList.length) * 100))
-    }
+  // ── Performance data: quiz + assignment accuracy ─────────────
+  const { data: perf, status: pStatus } = usePageData({
+    cacheKey: ['performance-intel-v2', student?.id || 'anon'],
+    fetcher: async () => {
+      const [subRes, quizRes] = await Promise.all([
+        supabase.from('submissions')
+          .select('*, assignment:assignments(title, subject:subjects(name))')
+          .eq('student_id', student?.id),
+        supabase.from('quiz_attempts')
+          .select('*, quiz:quizzes(title, subject:subjects(name))')
+          .eq('student_id', student?.id),
+      ])
 
-    // Calculate aggregated stats
-    const totalMarks = submissions.reduce((acc, s) => acc + (s.marks || 0), 0) + quizzes.reduce((acc, q) => acc + (q.score || 0), 0)
-    const totalMax = submissions.reduce((acc, s) => acc + (s.max_marks || 100), 0) + quizzes.reduce((acc, q) => acc + (q.total_marks || 100), 0)
-    setAccuracy(totalMax > 0 ? Math.round((totalMarks / totalMax) * 100) : 0)
+      const submissions = subRes.data || []
+      const quizzes = quizRes.data || []
 
-    // Subject performance logic
-    const statsBySubject: Record<string, { total: number, max: number }> = {}
-    submissions.forEach(s => {
-      const subjName = s.assignment?.subject?.name || 'General'
-      if (!statsBySubject[subjName]) statsBySubject[subjName] = { total: 0, max: 0 }
-      statsBySubject[subjName].total += (s.marks || 0)
-      statsBySubject[subjName].max += (s.max_marks || 100)
-    })
-    quizzes.forEach(q => {
-      const subjName = q.quiz?.subject?.name || 'General'
-      if (!statsBySubject[subjName]) statsBySubject[subjName] = { total: 0, max: 0 }
-      statsBySubject[subjName].total += (q.score || 0)
-      statsBySubject[subjName].max += (q.total_marks || 100)
-    })
-    
-    const realSubjectStats = Object.entries(statsBySubject).map(([name, data]) => ({
-      name,
-      score: Math.round((data.total / data.max) * 100),
-      full: 100
-    }))
-    setSubjectStats(realSubjectStats)
-
-    // Success log
-    const assignSuccesses = submissions
-      .filter(s => s.status === 'returned')
-      .map(s => {
-        const pct = s.max_marks > 0 ? (s.marks / s.max_marks) : 0
-        return {
-          title: s.assignment?.title || 'Assignment',
-          score: Math.round(pct * 100),
-          date: s.updated_at || s.created_at,
-          delta: pct >= 0.8 ? 'Excellent' : 'Good'
-        }
+      // Subject breakdown
+      const bySubject: Record<string, { total: number; max: number }> = {}
+      submissions.forEach(s => {
+        const name = s.assignment?.subject?.name || 'General'
+        if (!bySubject[name]) bySubject[name] = { total: 0, max: 0 }
+        bySubject[name].total += (s.marks || 0)
+        bySubject[name].max += (s.max_marks || 100)
       })
-
-    const quizSuccesses = quizzes
-      .filter(q => q.result === 'pass' || (q.percentage || 0) >= 80)
-      .map(q => {
-        return {
-          title: q.quiz?.title || 'Quiz Challenge',
-          score: Math.round(q.percentage || 0),
-          date: q.completed_at || q.created_at,
-          delta: (q.percentage || 0) >= 80 ? 'Excellent' : 'Good'
-        }
+      quizzes.forEach(q => {
+        const name = q.quiz?.subject?.name || 'General'
+        if (!bySubject[name]) bySubject[name] = { total: 0, max: 0 }
+        bySubject[name].total += (q.score || 0)
+        bySubject[name].max += (q.total_marks || 100)
       })
+      const subjectStats = Object.entries(bySubject)
+        .map(([name, d]) => ({ name, score: d.max > 0 ? Math.round((d.total / d.max) * 100) : 0 }))
 
-    const recent = [...assignSuccesses, ...quizSuccesses]
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-      .slice(0, 3)
-      .map(item => ({
-        title: item.title,
-        score: `${item.score}%`,
-        date: formatDate(item.date),
-        delta: item.delta
-      }))
-    setRecentSuccesses(recent)
+      // Accuracy timeline
+      const timeline = [
+        ...submissions.map(s => ({
+          date: formatDate(s.created_at, 'short'),
+          accuracy: Math.round(((s.marks || 0) / (s.max_marks || 100)) * 100),
+        })),
+        ...quizzes.map(q => ({
+          date: formatDate(q.completed_at || q.created_at, 'short'),
+          accuracy: Math.round(q.percentage || 0),
+        })),
+      ].slice(-12)
 
-    // Timeline (simplified from both submissions and quizzes)
-    const assignTimeline = submissions.map(s => ({
-      rawDate: new Date(s.created_at),
-      date: new Date(s.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
-      accuracy: Math.round(((s.marks || 0) / (s.max_marks || 100)) * 100)
-    }))
+      const totalMarks = submissions.reduce((a, s) => a + (s.marks || 0), 0) +
+        quizzes.reduce((a, q) => a + (q.score || 0), 0)
+      const totalMax = submissions.reduce((a, s) => a + (s.max_marks || 100), 0) +
+        quizzes.reduce((a, q) => a + (q.total_marks || 100), 0)
+      const accuracy = totalMax > 0 ? Math.round((totalMarks / totalMax) * 100) : 0
 
-    const quizTimelineData = quizzes.map(q => ({
-      rawDate: new Date(q.completed_at || q.created_at),
-      date: new Date(q.completed_at || q.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
-      accuracy: Math.round(q.percentage || 0)
-    }))
+      return {
+        data: { accuracy, subjectStats, timeline, submissions, quizzes },
+        error: subRes.error || quizRes.error,
+      }
+    },
+    enabled: !!student?.id,
+  })
 
-    const timeline = [...assignTimeline, ...quizTimelineData]
-      .sort((a, b) => a.rawDate.getTime() - b.rawDate.getTime())
-      .map(item => ({ date: item.date, accuracy: item.accuracy }))
+  // ── Teacher-awarded badges ────────────────────────────────────
+  const { data: earnedBadges } = usePageData({
+    cacheKey: ['earned-badges', student?.id || ''],
+    fetcher: async () => {
+      const { data } = await supabase
+        .from('study_badges')
+        .select('*, teacher:teachers(full_name), subject:subjects(name)')
+        .eq('student_id', student?.id)
+        .not('awarded_by_teacher_id', 'is', null)
+        .order('achieved_at', { ascending: false })
+      return { data: data || [], error: null }
+    },
+    enabled: !!student?.id,
+  })
 
-    setQuizTimeline(timeline.length > 0 ? timeline : [{ date: 'Start', accuracy: 0 }])
+  // ── Class leaderboard (top 3) ────────────────────────────────
+  const { data: classLb, status: classLbStatus } = usePageData({
+    cacheKey: ['lb-class', student?.class_id || ''],
+    fetcher: async () => {
+      if (!student?.class_id) return { data: [], error: null }
+      // Try RPC first (faster, uses SECURITY DEFINER to bypass RLS)
+      try {
+        const { data, error } = await supabase.rpc('get_class_leaderboard', {
+          p_class_id: student.class_id, p_limit: 3
+        })
+        if (!error && data) return { data, error: null }
+        if (error) console.warn('[ClassLB] RPC Error:', error.message)
+      } catch (e) {
+        console.warn('[ClassLB] RPC Catch:', e)
+      }
+      // Fallback: direct query
+      const { data, error } = await supabase
+        .from('students').select('id, full_name, xp, avatar_url')
+        .eq('class_id', student.class_id).order('xp', { ascending: false }).limit(3)
+      return { data: data || [], error }
+    },
+    enabled: !!student?.class_id,
+  })
 
-    setAttendance({
-       total: attRes.data?.length || 0,
-       present: attRes.data?.filter(a => a.status === 'present').length || 0,
-       percentage: attRes.data?.length ? Math.round((attRes.data.filter(a => a.status === 'present').length / attRes.data.length) * 100) : 100
-    })
+  // ── My class rank ────────────────────────────────────────────
+  const { data: myClassRank } = usePageData({
+    cacheKey: ['my-class-rank', student?.id || ''],
+    fetcher: async () => {
+      if (!student?.class_id) return { data: null, error: null }
+      try {
+        const { data, error } = await supabase.rpc('get_my_class_rank', {
+          p_student_id: student.id, p_class_id: student.class_id
+        })
+        if (!error && data != null) return { data, error: null }
+        if (error) console.warn('[ClassRank] RPC Error:', error.message)
+      } catch (e) {
+        console.warn('[ClassRank] RPC Catch:', e)
+      }
+      const { count } = await supabase.from('students')
+        .select('*', { count: 'exact', head: true })
+        .eq('class_id', student.class_id).gt('xp', student?.xp || 0)
+      return { data: (count ?? 0) + 1, error: null }
+    },
+    enabled: !!student?.id && !!student?.class_id,
+  })
 
-    // --- Badge Logic ---
-    const newBadges = []
-    
-    // 1. Level-based badges
-    const xp = student?.xp || 0
-    let level = 0
-    if (xp >= 1000) level = 1
-    if (xp >= 1800) level = 2
-    if (xp >= 2600) level = 3
-    if (xp >= 3400) level = 4
-    if (xp >= 4000) level = 5
+  // ── Curriculum leaderboard (top 3) ──────────────────────────
+  const curriculumId = (student as any)?.curriculum_id
+  const { data: currLb, status: currLbStatus } = usePageData({
+    cacheKey: ['lb-curriculum', curriculumId || ''],
+    fetcher: async () => {
+      if (!curriculumId) return { data: [], error: null }
+      try {
+        const { data, error } = await supabase.rpc('get_curriculum_leaderboard', {
+          p_curriculum_id: curriculumId, p_limit: 3
+        })
+        if (!error && data) return { data, error: null }
+        if (error) console.warn('[CurrLB] RPC Error:', error.message)
+      } catch (e) {
+        console.warn('[CurrLB] RPC Catch:', e)
+      }
+      const { data, error } = await supabase
+        .from('students').select('id, full_name, xp, avatar_url')
+        .eq('curriculum_id', curriculumId).order('xp', { ascending: false }).limit(3)
+      return { data: data || [], error }
+    },
+    enabled: !!curriculumId,
+  })
 
-    if (level >= 5) newBadges.push({ label: 'Peak Perfectionist', icon: '💎', color: 'bg-indigo-100' })
-    else if (level >= 3) newBadges.push({ label: 'Master Mind', icon: '⭐', color: 'bg-amber-100' })
-    else if (level >= 1) newBadges.push({ label: 'Brave Adventurer', icon: '🌱', color: 'bg-emerald-100' })
-    else newBadges.push({ label: 'Novice Explorer', icon: '🐣', color: 'bg-slate-100' })
+  // ── My curriculum rank ───────────────────────────────────────
+  const { data: myCurrRank } = usePageData({
+    cacheKey: ['my-curr-rank', student?.id || ''],
+    fetcher: async () => {
+      if (!curriculumId) return { data: null, error: null }
+      try {
+        const { data, error } = await supabase.rpc('get_my_curriculum_rank', {
+          p_student_id: student?.id, p_curriculum_id: curriculumId
+        })
+        if (!error && data != null) return { data, error: null }
+        if (error) console.warn('[CurrRank] RPC Error:', error.message)
+      } catch (e) {
+        console.warn('[CurrRank] RPC Catch:', e)
+      }
+      const { count } = await supabase.from('students')
+        .select('*', { count: 'exact', head: true })
+        .eq('curriculum_id', curriculumId).gt('xp', student?.xp || 0)
+      return { data: (count ?? 0) + 1, error: null }
+    },
+    enabled: !!student?.id && !!curriculumId,
+  })
 
-    // 2. Streak badges
-    const streak = student?.streak_count || 0
-    if (streak >= 7) newBadges.push({ label: 'Fire Keeper', icon: '🔥', color: 'bg-orange-100' })
-    else if (streak >= 3) newBadges.push({ label: 'Steady Pace', icon: '👣', color: 'bg-blue-100' })
+  // ── Tuition center leaderboard (top 3) ──────────────────────
+  const centerId = (student as any)?.tuition_center_id
+  const { data: centerLb, status: centerLbStatus } = usePageData({
+    cacheKey: ['lb-center', centerId || ''],
+    fetcher: async () => {
+      if (!centerId) return { data: [], error: null }
+      try {
+        const { data, error } = await supabase.rpc('get_center_leaderboard', {
+          p_center_id: centerId, p_limit: 3
+        })
+        if (!error && data) return { data, error: null }
+        if (error) console.warn('[CenterLB] RPC Error:', error.message)
+      } catch (e) {
+        console.warn('[CenterLB] RPC Catch:', e)
+      }
+      const { data, error } = await supabase
+        .from('students').select('id, full_name, xp, avatar_url')
+        .eq('tuition_center_id', centerId).order('xp', { ascending: false }).limit(3)
+      return { data: data || [], error }
+    },
+    enabled: !!centerId,
+  })
 
-    // 3. Subject Mastery Badges
-    realSubjectStats.forEach(s => {
-      if (s.score >= 90) newBadges.push({ label: `${s.name} Master`, icon: '👑', color: 'bg-purple-100' })
-    })
+  // ── My center rank ───────────────────────────────────────────
+  const { data: myCenterRank } = usePageData({
+    cacheKey: ['my-center-rank', student?.id || ''],
+    fetcher: async () => {
+      if (!centerId) return { data: null, error: null }
+      try {
+        const { data, error } = await supabase.rpc('get_my_center_rank', {
+          p_student_id: student?.id, p_center_id: centerId
+        })
+        if (!error && data != null) return { data, error: null }
+        if (error) console.warn('[CenterRank] RPC Error:', error.message)
+      } catch (e) {
+        console.warn('[CenterRank] RPC Catch:', e)
+      }
+      const { count } = await supabase.from('students')
+        .select('*', { count: 'exact', head: true })
+        .eq('tuition_center_id', centerId).gt('xp', student?.xp || 0)
+      return { data: (count ?? 0) + 1, error: null }
+    },
+    enabled: !!student?.id && !!centerId,
+  })
 
-    // 4. Actual Certificates from DB
-    if (certRes.data) {
-      certRes.data.forEach(c => {
-        newBadges.push({ label: 'Attendance Cert.', icon: '📜', color: 'bg-slate-100' })
-      })
-    }
 
-    setBadges(newBadges)
-    setLoading(false)
+  // ── Student's own entry (for when outside top 3) ─────────────
+  const myStudentEntry: LbEntry | null = student
+    ? { id: student.id, full_name: (student as any).full_name || 'You', xp: student.xp || 0 }
+    : null
+
+  // ── Loading / Error states ───────────────────────────────────
+  if (mStatus === 'loading') {
+    return (
+      <div className="p-6 space-y-8">
+        <div className="flex justify-between items-center">
+          <ShimmerSkeleton className="w-64 h-10" />
+          <ShimmerSkeleton className="w-32 h-10" />
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+          {[1, 2, 3].map(i => <ShimmerSkeleton key={i} className="h-24" />)}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {[1, 2, 3].map(i => <ShimmerSkeleton key={i} className="h-64" />)}
+        </div>
+      </div>
+    )
   }
 
-  if (loading) return <SkeletonDashboard />
+  if (mStatus === 'error' || mStatus === 'timeout') {
+    return <PageStates status={mStatus} onRetry={mRefetch} />
+  }
+
+  const { rank, xp } = metrics!
+  const intel = perf ?? { accuracy: 0, subjectStats: [], timeline: [], submissions: [], quizzes: [] }
 
   return (
     <div className="p-6 space-y-8 pb-32">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-         <div>
-            <h1 className="text-2xl font-black" style={{ color: 'var(--text)' }}>Performance Intel</h1>
-            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Track your growth and unlock new achievements!</p>
-         </div>
-         <Button variant="secondary" size="sm"><Download size={16} className="mr-2" /> Download Report</Button>
+
+      {/* === HEADER === */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-black" style={{ color: 'var(--text)' }}>My Progress</h1>
+          <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Your rankings, accuracy, and academic growth</p>
+        </div>
+        <Button variant="secondary" size="sm"><Download size={16} className="mr-2" /> Export Report</Button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-         <StatCard title="Global Rank" value={`#${rank}`} icon={<Star size={20} className="text-amber-500" />} />
-         <StatCard title="Avg. Accuracy" value={`${accuracy}%`} icon={<Target size={20} className="text-primary" />} />
-         <StatCard title="Attendance" value={`${attendance.percentage}%`} icon={<CheckCircle2 size={20} className="text-emerald-500" />} />
-         <StatCard title="Total XP" value={student?.xp?.toLocaleString() || '0'} icon={<Zap size={20} className="text-amber-500" />} />
+      {/* === STAT CARDS === */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <StatCard title="Global Rank" value={`#${rank}`} icon={<Star size={20} className="text-amber-500" />} />
+        <StatCard title="Avg. Accuracy" value={`${intel.accuracy}%`} icon={<Target size={20} className="text-primary" />} />
+        <StatCard title="Total XP" value={xp.toLocaleString()} icon={<Zap size={20} className="text-amber-500" />} />
       </div>
 
+      {/* === RANKING PODIUMS === */}
+      <div>
+        <h2 className="text-base font-black uppercase tracking-widest mb-4 flex items-center gap-2" style={{ color: 'var(--text)' }}>
+          <Trophy size={18} className="text-amber-500" /> Your Rankings
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <LeaderboardPodium
+            title="In Your Class"
+            icon={<Users size={16} className="text-primary" />}
+            entries={classLb || []}
+            studentId={student?.id}
+            myRank={myClassRank ?? null}
+            myEntry={myStudentEntry}
+            isLoading={classLbStatus === 'loading'}
+          />
+          <LeaderboardPodium
+            title="In Your Curriculum"
+            icon={<BookOpen size={16} className="text-emerald-500" />}
+            entries={currLb || []}
+            studentId={student?.id}
+            myRank={myCurrRank ?? null}
+            myEntry={myStudentEntry}
+            isLoading={currLbStatus === 'loading'}
+          />
+          <LeaderboardPodium
+            title="At Your Centre"
+            icon={<Building2 size={16} className="text-violet-500" />}
+            entries={centerLb || []}
+            studentId={student?.id}
+            myRank={myCenterRank ?? null}
+            myEntry={myStudentEntry}
+            isLoading={centerLbStatus === 'loading'}
+          />
+        </div>
+
+      </div>
+
+      {/* === PERFORMANCE CHARTS === */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-         {/* Mastery by Subject */}
-         <Card className="p-6 space-y-6">
-            <h3 className="font-bold text-sm uppercase tracking-widest text-muted">Mastery by Subject</h3>
-            <div className="h-[300px] w-full">
-               <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={subjectStats}>
-                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--card-border)" />
-                     <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--text-muted)' }} />
-                     <YAxis hide domain={[0, 100]} />
-                     <Tooltip 
-                        contentStyle={{ borderRadius: '16px', border: 'none', background: 'var(--card)', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}
-                        itemStyle={{ color: 'var(--primary)', fontStyle: 'bold' }}
-                     />
-                     <Bar dataKey="score" fill="var(--primary)" radius={[8, 8, 0, 0]} barSize={40} />
-                  </BarChart>
-               </ResponsiveContainer>
+        {/* Subject Mastery */}
+        <Card className="p-6 space-y-4">
+          <h3 className="font-bold text-sm uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Mastery by Subject</h3>
+          {intel.subjectStats.length === 0 ? (
+            <div className="h-48 flex items-center justify-center text-sm" style={{ color: 'var(--text-muted)' }}>
+              Complete assignments or quizzes to see your mastery breakdown.
             </div>
-         </Card>
+          ) : (
+            <div className="h-[280px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={intel.subjectStats}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--card-border)" />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--text-muted)' }} />
+                  <YAxis hide domain={[0, 100]} />
+                  <Tooltip contentStyle={{ borderRadius: '16px', border: 'none', background: 'var(--card)' }} />
+                  <Bar dataKey="score" fill="var(--primary)" radius={[8, 8, 0, 0]} barSize={40} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </Card>
 
-         {/* Growth Timeline */}
-         <Card className="p-6 space-y-6">
-            <h3 className="font-bold text-sm uppercase tracking-widest text-muted">Accuracy Growth</h3>
-            <div className="h-[300px] w-full">
-               <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={quizTimeline}>
-                     <defs>
-                        <linearGradient id="colorAcc" x1="0" y1="0" x2="0" y2="1">
-                           <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.3}/>
-                           <stop offset="95%" stopColor="var(--primary)" stopOpacity={0}/>
-                        </linearGradient>
-                     </defs>
-                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--card-border)" />
-                     <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--text-muted)' }} />
-                     <YAxis hide domain={[0, 100]} />
-                     <Tooltip 
-                        contentStyle={{ borderRadius: '16px', border: 'none', background: 'var(--card)', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}
-                     />
-                     <Area type="monotone" dataKey="accuracy" stroke="var(--primary)" strokeWidth={4} fillOpacity={1} fill="url(#colorAcc)" />
-                  </AreaChart>
-               </ResponsiveContainer>
+        {/* Accuracy Timeline */}
+        <Card className="p-6 space-y-4">
+          <h3 className="font-bold text-sm uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Accuracy Growth</h3>
+          {intel.timeline.length === 0 ? (
+            <div className="h-48 flex items-center justify-center text-sm" style={{ color: 'var(--text-muted)' }}>
+              Submit more work to track your accuracy over time.
             </div>
-         </Card>
+          ) : (
+            <div className="h-[280px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={intel.timeline}>
+                  <defs>
+                    <linearGradient id="colorAcc" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="var(--primary)" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--card-border)" />
+                  <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--text-muted)' }} />
+                  <YAxis hide domain={[0, 100]} />
+                  <Tooltip contentStyle={{ borderRadius: '16px', border: 'none', background: 'var(--card)' }} />
+                  <Area type="monotone" dataKey="accuracy" stroke="var(--primary)" strokeWidth={3} fillOpacity={1} fill="url(#colorAcc)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </Card>
       </div>
 
+      {/* === RECENT SUCCESSES === */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-         {/* Success Log (Attendance/Recent) */}
-         <div className="lg:col-span-2 space-y-6">
-            <h3 className="font-bold text-sm uppercase tracking-widest text-muted">Recent Successes</h3>
-            <div className="space-y-4">
-               {recentSuccesses.length > 0 ? recentSuccesses.map((s, i) => (
-                 <div key={i} className="flex items-center justify-between p-5 rounded-3xl bg-[var(--card)] border border-[var(--card-border)] hover:bg-[var(--input)] transition-all">
-                    <div className="flex items-center gap-4">
-                       <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-500">
-                          <TrendingUp size={24} />
-                       </div>
-                       <div>
-                          <p className="font-bold text-sm" style={{ color: 'var(--text)' }}>{s.title}</p>
-                          <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{s.date}</p>
-                       </div>
-                    </div>
-                    <div className="text-right">
-                       <p className="font-black text-lg text-primary">{s.score}</p>
-                       <p className="text-[10px] font-bold text-emerald-500 uppercase tracking-tighter">{s.delta}</p>
-                    </div>
-                 </div>
-               )) : (
-                 <div className="text-center p-12 bg-[var(--card)] border border-dashed rounded-3xl">
-                    <p className="text-sm text-muted">Complete goals to see your success log grow!</p>
-                 </div>
-               )}
+        <div className="lg:col-span-2 space-y-4">
+          <h3 className="font-bold text-sm uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Recent Successes</h3>
+          {intel.submissions.length === 0 && intel.quizzes.length === 0 ? (
+            <div className="text-center p-12 bg-[var(--card)] border border-dashed rounded-3xl">
+              <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Complete goals to see your success log grow!</p>
             </div>
-         </div>
-
-         {/* Badges/Achievements Cabinet */}
-          <div className="space-y-6">
-             <h3 className="font-bold text-sm uppercase tracking-widest text-muted">Trophy Cabinet</h3>
-             <div className="grid grid-cols-2 gap-4">
-                {badges.length > 0 ? badges.map((b, i) => (
-                  <Card key={i} className="p-4 text-center space-y-2 group hover:scale-105 transition-all">
-                     <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mx-auto text-2xl ${b.color} shadow-lg shadow-black/5`}>
-                        {b.icon}
-                     </div>
-                     <p className="text-[10px] font-bold" style={{ color: 'var(--text)' }}>{b.label}</p>
-                  </Card>
-                )) : (
-                  <Card className="p-8 col-span-2 text-center border-dashed border-2 flex flex-col items-center justify-center space-y-2">
-                     <Trophy size={24} className="text-muted opacity-20" />
-                     <p className="text-[10px] font-bold text-muted uppercase">Empty Cabinet</p>
-                  </Card>
-                )}
-                <Card className="p-4 flex flex-col items-center justify-center border-dashed border-2 group hover:bg-[var(--input)] cursor-pointer">
-                   <Plus size={20} className="text-muted opacity-40 group-hover:scale-110 transition-all" />
-                   <p className="text-[8px] font-bold uppercase mt-2 text-muted">View Badges</p>
-                </Card>
-             </div>
-          </div>
-      </div>
-
-       {/* Competitive Insights: Leaderboard & Your Rank */}
-       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 pb-12">
-          {/* Top PERFORMERS */}
-          <Card className="p-6 space-y-6 lg:col-span-2">
-             <div className="flex items-center justify-between">
-                <div>
-                   <h3 className="font-bold text-sm uppercase tracking-widest text-muted">Curriculum Leaders</h3>
-                   <p className="text-[10px] text-muted">Top performers across all classes in your curriculum</p>
-                </div>
-                <Badge variant="muted"><Trophy size={12} className="mr-1 text-amber-500" /> Season 1</Badge>
-             </div>
-
-             <div className="space-y-3">
-                {leaderboard.map((s, i) => (
-                  <div key={s.id} className={`flex items-center justify-between p-4 rounded-3xl transition-all ${s.id === student?.id ? 'bg-primary/5 border border-primary/20 scale-[1.02]' : 'bg-[var(--input)]'}`}>
-                     <div className="flex items-center gap-4">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-xs ${i === 0 ? 'bg-amber-100 text-amber-600' : i === 1 ? 'bg-slate-100 text-slate-500' : i === 2 ? 'bg-orange-100 text-orange-600' : 'bg-white/10 text-muted'}`}>
-                           {i + 1}
-                        </div>
-                        <div>
-                           <p className="font-bold text-sm" style={{ color: 'var(--text)' }}>{s.full_name} {s.id === student?.id && "(You)"}</p>
-                           <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{s.xp.toLocaleString()} XP Total</p>
-                        </div>
-                     </div>
-                     <div className="flex items-center gap-2">
-                        {i === 0 && <Star size={16} className="text-amber-500 fill-amber-500" />}
-                        {i === 1 && <Star size={16} className="text-slate-400 fill-slate-400" />}
-                        {i === 2 && <Star size={16} className="text-orange-400 fill-orange-400" />}
-                        <div className="font-black text-xs text-primary">#{i + 1}</div>
-                     </div>
+          ) : (
+            <div className="space-y-4">
+              {[
+                ...intel.submissions.slice(0, 2).map(s => ({
+                  label: s.assignment?.title || 'Assignment',
+                  date: formatDate(s.created_at),
+                  pct: Math.round(((s.marks || 0) / (s.max_marks || 100)) * 100),
+                  type: 'assignment',
+                })),
+                ...intel.quizzes.slice(0, 2).map(q => ({
+                  label: q.quiz?.title || 'Quiz',
+                  date: formatDate(q.completed_at || q.created_at),
+                  pct: Math.round(q.percentage || 0),
+                  type: 'quiz',
+                })),
+              ].map((item, i) => (
+                <div key={i} className="flex items-center justify-between p-5 rounded-3xl bg-[var(--card)] border border-[var(--card-border)] hover:bg-[var(--input)] transition-all">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+                      <TrendingUp size={24} />
+                    </div>
+                    <div>
+                      <p className="font-bold text-sm" style={{ color: 'var(--text)' }}>{item.label}</p>
+                      <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{item.date} · {item.type === 'quiz' ? 'Quiz' : 'Assignment'}</p>
+                    </div>
                   </div>
-                ))}
-             </div>
-          </Card>
-
-          {/* YOUR POSITION */}
-          <Card className="p-6 flex flex-col justify-between space-y-8 bg-gradient-to-br from-primary to-indigo-600 border-none text-white overflow-hidden relative">
-             <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 blur-2xl" />
-             
-             <div className="space-y-2 relative z-10">
-                <h3 className="font-bold text-xs uppercase tracking-widest opacity-80">Your Standings</h3>
-                <div className="flex items-baseline gap-2">
-                   <span className="text-5xl font-black">#{rank}</span>
-                   <span className="text-sm opacity-60">/ {totalStudents}</span>
+                  <div className="text-right">
+                    <p className="font-black text-lg text-primary">{item.pct}%</p>
+                    <p className="text-[10px] font-bold text-emerald-500 uppercase tracking-tighter">Verified</p>
+                  </div>
                 </div>
-                <p className="text-xs font-medium bg-white/20 inline-block px-3 py-1 rounded-full backdrop-blur-md">
-                   Top {100 - percentile}% of the curriculum
-                </p>
-             </div>
+              ))}
+            </div>
+          )}
+        </div>
 
-             <div className="space-y-4 relative z-10">
-                <div className="flex justify-between items-end">
-                   <div className="space-y-1">
-                      <p className="text-[10px] opacity-70 uppercase font-black">Performance Streak</p>
-                      <p className="font-black text-lg flex items-center gap-2">
-                         <TrendingUp size={20} /> Climbing <Star size={14} className="fill-white" />
+        {/* Trophy Cabinet */}
+        <div className="space-y-4">
+          <h3 className="font-bold text-sm uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Trophy Cabinet</h3>
+
+          {/* Teacher-awarded badges */}
+          {earnedBadges && earnedBadges.length > 0 && (
+            <div className="space-y-2 mb-3">
+              <p className="text-[9px] font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Awarded by Teachers</p>
+              {earnedBadges.slice(0, 4).map((b: any, i: number) => {
+                const ICONS: Record<string, string> = {
+                  consistent_student: '📝', high_achiever: '🎯', most_improved: '📈',
+                  star_of_the_week: '⭐', class_champion: '🏆', effort_award: '💪',
+                  creativity_award: '🎨', teamwork_star: '🤝',
+                }
+                return (
+                  <div key={b.id} className="flex items-center gap-3 p-3 rounded-2xl border" style={{ background: 'var(--input)', borderColor: 'var(--card-border)' }}>
+                    <span className="text-2xl shrink-0">{ICONS[b.badge_type] || '🏅'}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-black text-xs capitalize" style={{ color: 'var(--text)' }}>
+                        {b.badge_type.replace(/_/g, ' ')}
                       </p>
-                   </div>
-                   <div className="text-right">
-                      <p className="text-[10px] opacity-70 uppercase font-black">Current XP</p>
-                      <p className="font-black text-lg">{student?.xp?.toLocaleString()}</p>
-                   </div>
-                </div>
+                      <p className="text-[9px] truncate" style={{ color: 'var(--text-muted)' }}>
+                        {b.awarded_reason || 'Awarded by your teacher'}
+                        {b.teacher?.full_name && ` · ${b.teacher.full_name}`}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Zap size={10} className="text-amber-500 fill-amber-500" />
+                      <span className="text-[9px] font-black text-amber-500">
+                        +{(b.metadata as any)?.xp_reward || 50}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
 
-                <div className="space-y-2">
-                   <div className="flex justify-between text-[10px] font-black uppercase opacity-70">
-                      <span>Relative Progress</span>
-                      <span>To First Place</span>
-                   </div>
-                   <div className="h-2 bg-white/20 rounded-full overflow-hidden">
-                      <motion.div 
-                        initial={{ width: 0 }} 
-                        animate={{ width: `${Math.min(100, ((student?.xp || 0) / (leaderboard[0]?.xp || 1)) * 100)}%` }}
-                        className="h-full bg-white shadow-[0_0_10px_rgba(255,255,255,0.5)]" />
-                   </div>
+          {/* Auto-earned milestone badges */}
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { label: 'Novice Explorer', icon: '🐣', show: true },
+              { label: 'Steady Pace', icon: '👣', show: (student?.streak_count || 0) >= 3 },
+              { label: 'Brave Adventurer', icon: '🌱', show: xp >= 1000 },
+              { label: 'Fire Keeper', icon: '🔥', show: (student?.streak_count || 0) >= 7 },
+              { label: 'Quiz Champion', icon: '⚡', show: intel.quizzes.length >= 5 },
+              { label: 'Committed', icon: '💪', show: intel.submissions.length >= 5 },
+            ].filter(b => b.show).map((b, i) => (
+              <Card key={i} className="p-4 text-center space-y-2 hover:scale-105 transition-all">
+                <div className="w-12 h-12 rounded-2xl bg-amber-400/10 flex items-center justify-center mx-auto text-2xl">
+                  {b.icon}
                 </div>
-             </div>
-          </Card>
-       </div>
+                <p className="text-[10px] font-bold" style={{ color: 'var(--text)' }}>{b.label}</p>
+              </Card>
+            ))}
+            <Card className="p-4 flex flex-col items-center justify-center border-dashed border-2 group hover:bg-[var(--input)] cursor-pointer">
+              <Plus size={20} className="opacity-40 group-hover:scale-110 transition-all" style={{ color: 'var(--text-muted)' }} />
+              <p className="text-[8px] font-bold uppercase mt-2" style={{ color: 'var(--text-muted)' }}>Unlock More</p>
+            </Card>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

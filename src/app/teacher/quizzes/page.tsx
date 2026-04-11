@@ -17,7 +17,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { formatDate } from '@/lib/utils'
 import Link from 'next/link'
 import toast from 'react-hot-toast'
-import type { Quiz } from '@/types/database'
+import { usePageData, clearPageDataCache } from '@/hooks/usePageData'
 
 export default function TeacherQuizzes() {
   const supabase = getSupabaseBrowserClient()
@@ -46,7 +46,11 @@ export default function TeacherQuizzes() {
   const deleteQuiz = async (id: string) => {
     const { error } = await supabase.from('quizzes').delete().eq('id', id)
     if (error) { toast.error('Check for existing attempts first.') }
-    else { toast.success('Quiz deleted'); queryClient.invalidateQueries({ queryKey: ['teacher-quizzes', teacher?.id] }) }
+    else { 
+      toast.success('Quiz deleted')
+      clearPageDataCache()
+      queryClient.invalidateQueries({ queryKey: ['teacher-quizzes', teacher?.id] }) 
+    }
   }
 
   const filtered = quizzes.filter(q => 

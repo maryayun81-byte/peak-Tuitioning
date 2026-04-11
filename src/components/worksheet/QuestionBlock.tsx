@@ -187,6 +187,7 @@ export function QuestionBlock({ block, index, onChange, onDelete }: QuestionBloc
                             value={block.image_url || null} 
                             onChange={url => update({ image_url: url || undefined })}
                             bucket="assignment-uploads"
+                            acceptDocs={true}
                           />
                         </div>
                       )}

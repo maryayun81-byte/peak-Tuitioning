@@ -74,22 +74,29 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
   if (profile) stickyProfile.current = profile
   if (student) stickyStudent.current = student
 
+  // Track if the student was ever confirmed as onboarded in this session.
+  // Once we see onboarded=true, we never redirect to /student/onboarding
+  // — even if a background re-fetch transiently returns a different value.
+  const wasEverOnboarded = useRef(false)
+  if (student?.onboarded === true) wasEverOnboarded.current = true
+
   useEffect(() => {
     if (!isLoading && !profile) router.push('/auth/login?role=student')
     if (!isLoading && profile?.role && profile.role !== 'student') {
       router.push(`/${profile.role}`)
     }
 
-    // Redirect to onboarding ONLY when:
-    // 1. isInitialRevalidationComplete=true (fresh DB data confirmed, not stale localStorage)
-    // 2. student row exists
-    // 3. onboarded is STRICTLY false — null/undefined means the column was never set,
-    //    which we treat as already onboarded to avoid false loops for legacy accounts.
-    // 4. Not already on the onboarding page
+    // Redirect to onboarding ONLY when ALL conditions are met:
+    // 1. Fresh DB data confirmed (isInitialRevalidationComplete=true)
+    // 2. Student row exists in the store
+    // 3. onboarded is STRICTLY false (not null, not undefined — only explicit false)
+    // 4. Student was NEVER confirmed as onboarded earlier in this session
+    // 5. Not already on the onboarding page
     if (
       isInitialRevalidationComplete &&
-      student &&
+      student != null &&
       student.onboarded === false &&
+      !wasEverOnboarded.current &&
       typeof window !== 'undefined' &&
       pathname !== '/student/onboarding'
     ) {

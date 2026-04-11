@@ -17,10 +17,80 @@ import Link from 'next/link'
 import toast from 'react-hot-toast'
 import type { Assignment } from '@/types/database'
 
+import { usePageData, clearPageDataCache } from '@/hooks/usePageData'
+import { PageStates } from '@/components/ui/PageStates'
+import { ShimmerSkeleton } from '@/components/ui/ShimmerSkeleton'
+
 export default function TeacherAssignments() {
   const supabase = getSupabaseBrowserClient()
-  const { profile, teacher } = useAuthStore()
+  const { teacher } = useAuthStore()
   
+  // ── Optimized Page Data Fetching ─────────────────────────────
+  const { data: assignmentsData, status, refetch } = usePageData({
+    cacheKey: ['teacher-assignments-optimized', teacher?.id || 'anon'],
+    fetcher: async () => {
+      if (!teacher?.id) return { data: null, error: 'No teacher ID' }
+      
+      // 1. Fetch base assignments
+      const { data: assignments } = await supabase
+        .from('assignments')
+        .select('*, class:classes(name), subject:subjects(name)')
+        .eq('teacher_id', teacher.id)
+        .order('created_at', { ascending: false })
+      
+      if (!assignments?.length) return { data: { assignments: [], submissionsCount: 0 }, error: null }
+      
+      const assignmentIds = assignments.map(a => a.id)
+      const classIds = Array.from(new Set(assignments.map(a => a.class_id)))
+      
+      // 2. Batched Parallel Enrichment
+      const [subsRes, totalPendingSubmissions, studentsRes] = await Promise.all([
+        // Count submissions per assignment (batched)
+        supabase.from('submissions').select('assignment_id').in('assignment_id', assignmentIds).neq('status', 'not_started'),
+        // Total pending for global stat
+        supabase.from('submissions').select('id', { count: 'exact', head: true }).eq('assignment:assignments!inner(teacher_id)', teacher.id).eq('status', 'submitted'),
+        // Expected students (batched per class/subject mapping)
+        supabase.from('student_subjects').select('subject_id, student:students(class_id)').in('subject_id', assignments.map(a => a.subject_id))
+      ])
+
+      // 3. Efficient Aggregation (CPU is cheaper than IO)
+      const subCountMap = (subsRes.data || []).reduce((acc: any, s) => {
+        acc[s.assignment_id] = (acc[s.assignment_id] || 0) + 1
+        return acc
+      }, {})
+
+      const expectedMap = (studentsRes.data || []).reduce((acc: any, s: any) => {
+        const key = `${s.student.class_id}_${s.subject_id}`
+        acc[key] = (acc[key] || 0) + 1
+        return acc
+      }, {})
+
+      const enriched = assignments.map(a => {
+        const expectedCount = a.audience === 'selected_students' 
+          ? (a.selected_student_ids?.length || 0)
+          : (expectedMap[`${a.class_id}_${a.subject_id}`] || 0)
+          
+        return {
+          ...a,
+          submission_count: subCountMap[a.id] || 0,
+          expected_count: expectedCount
+        }
+      })
+
+      return {
+        data: {
+          assignments: enriched,
+          submissionsCount: (totalPendingSubmissions as any).count || 0
+        },
+        error: null
+      }
+    },
+    enabled: !!teacher?.id,
+  })
+
+  const assignments = assignmentsData?.assignments ?? []
+  const submissionsCount = assignmentsData?.submissionsCount ?? 0
+
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
   const [currentPage, setCurrentPage] = useState(1)
@@ -32,58 +102,18 @@ export default function TeacherAssignments() {
   const [deleting, setDeleting] = useState(false)
   const queryClient = useQueryClient()
 
-  // ── React Query: fetch + cache assignments ─────────────────────────────
-  const fetchAssignments = async () => {
-    if (!teacher?.id) return null
-    // 1. Fetch assignments
-    const { data: assignmentsData } = await supabase
-      .from('assignments')
-      .select('*, class:classes(name), subject:subjects(name)')
-      .eq('teacher_id', teacher.id)
-      .order('created_at', { ascending: false })
-    const assignmentsList = assignmentsData ?? []
-
-    // 2. Fetch total pending submissions
-    const { count: totalPendingSubmissions } = await supabase
-      .from('submissions')
-      .select('id, assignment:assignments!inner(id)', { count: 'exact', head: true })
-      .eq('assignment.teacher_id', teacher.id)
-      .eq('status', 'submitted')
-
-    // 3. Enrich assignments with submission and expected student counts (batched)
-    const enriched = await Promise.all(assignmentsList.map(async (a: any) => {
-      const [{ count: subCount }, expectedRes] = await Promise.all([
-        supabase.from('submissions').select('id', { count: 'exact', head: true })
-          .eq('assignment_id', a.id).neq('status', 'not_started'),
-        a.audience === 'selected_students'
-          ? Promise.resolve({ count: a.selected_student_ids?.length || 0 })
-          : (() => {
-              let q = supabase.from('students')
-                .select('*, student_subjects!inner(subject_id)', { count: 'exact', head: true })
-                .eq('class_id', a.class_id)
-                .eq('student_subjects.subject_id', a.subject_id)
-              if (a.tuition_center_id) q = q.eq('tuition_center_id', a.tuition_center_id)
-              return q
-            })()
-      ])
-      return { ...a, submission_count: subCount || 0, expected_count: expectedRes.count || 0 }
-    }))
-
-    return { assignments: enriched, submissionsCount: totalPendingSubmissions || 0 }
+  if (status === 'loading' && !assignmentsData) {
+     return (
+        <div className="p-6 space-y-6">
+           <div className="flex justify-between items-center"><ShimmerSkeleton className="w-64 h-10" /><ShimmerSkeleton className="w-32 h-10" /></div>
+           <div className="grid grid-cols-4 gap-4"><ShimmerSkeleton className="h-24" /><ShimmerSkeleton className="h-24" /><ShimmerSkeleton className="h-24" /><ShimmerSkeleton className="h-24" /></div>
+           <ShimmerSkeleton className="h-96" />
+        </div>
+     )
   }
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['teacher-assignments', teacher?.id],
-    queryFn: fetchAssignments,
-    enabled: !!teacher?.id,
-    staleTime: 5 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
-  })
-
-  const assignments = data?.assignments ?? []
-  const submissionsCount = data?.submissionsCount ?? 0
-  const loading = isLoading && !data
-
+  if (status === 'error' || status === 'timeout') return <PageStates status={status} onRetry={refetch} />
+  if (status === 'empty') return <div className="p-20 text-center"><Button onClick={() => refetch()}>Refresh Arena</Button></div>
   const handleDeleteOne = async () => {
     if (!deleteId) return
     setDeleting(true)
@@ -91,7 +121,7 @@ export default function TeacherAssignments() {
     setDeleting(false)
     setDeleteId(null)
     if (error) { toast.error('Check for student submissions first.') }
-    else { toast.success('Assignment deleted'); queryClient.invalidateQueries({ queryKey: ['teacher-assignments', teacher?.id] }) }
+    else { toast.success('Assignment deleted'); clearPageDataCache(); refetch(); }
   }
 
   const handleDeleteAll = async () => {
@@ -100,7 +130,7 @@ export default function TeacherAssignments() {
     setDeleting(false)
     setShowDeleteAll(false)
     if (error) { toast.error('Could not delete some assignments.') }
-    else { toast.success('All assignments deleted'); queryClient.invalidateQueries({ queryKey: ['teacher-assignments', teacher?.id] }) }
+    else { toast.success('All assignments deleted'); clearPageDataCache(); refetch(); }
   }
 
   const filtered = assignments.filter(a => {
@@ -160,7 +190,7 @@ export default function TeacherAssignments() {
          </Select>
       </div>
 
-      {loading ? <SkeletonList count={6} /> : (
+      {status === 'loading' ? <SkeletonList count={6} /> : (
         <div className="space-y-8">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {paginated.map((a, i) => (

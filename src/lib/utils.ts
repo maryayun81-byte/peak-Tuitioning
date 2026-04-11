@@ -60,12 +60,12 @@ export function generateReceiptNumber(): string {
 }
 
 export function generateTempPassword(): string {
-  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'
-  let pwd = ''
-  for (let i = 0; i < 10; i++) {
-    pwd += chars[Math.floor(Math.random() * chars.length)]
+  const digits = '0123456789'
+  let random = ''
+  for (let i = 0; i < 3; i++) {
+    random += digits[Math.floor(Math.random() * digits.length)]
   }
-  return pwd
+  return `peak${random}`
 }
 
 export function getInitials(name: string): string {

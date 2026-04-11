@@ -3,8 +3,10 @@ import { Toaster } from 'react-hot-toast'
 import { QueryProvider } from '@/providers/QueryProvider'
 import { ThemeProvider } from '@/providers/ThemeProvider'
 import { AuthHandler } from '@/components/AuthHandler'
+import { HydrationGuard } from '@/components/auth/HydrationGuard'
 import { PWAHandler } from '@/components/PWAHandler'
 import { NavigationProgress } from '@/components/ui/NavigationProgress'
+import { NetworkBanner } from '@/components/ui/NetworkBanner'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -82,8 +84,11 @@ export default function RootLayout({
           <ThemeProvider>
             <NavigationProgress />
             <AuthHandler />
+            <NetworkBanner />
             <PWAHandler />
-            {children}
+            <HydrationGuard>
+              {children}
+            </HydrationGuard>
             <Toaster
               position="top-right"
               toastOptions={{

@@ -55,9 +55,13 @@ export default function StudentSettings() {
      if (!student?.id) return  // Guard: do nothing if student not yet loaded
      setLoadingSubjects(true)
      try {
+       const currId = student.curriculum_id || (student as any).curriculum?.id
+       
        const [myRes, allRes] = await Promise.all([
           supabase.from('student_subjects').select('id, subject:subjects(id, name)').eq('student_id', student.id),
-          supabase.from('subjects').select('id, name').order('name')
+          currId 
+            ? supabase.from('subjects').select('id, name').eq('curriculum_id', currId).order('name')
+            : supabase.from('subjects').select('id, name').order('name')
        ])
        if (myRes.data) setMySubjects(myRes.data)
        if (allRes.data) setAllSubjects(allRes.data)
@@ -79,7 +83,11 @@ export default function StudentSettings() {
      try {
         const { error } = await supabase
           .from('student_subjects')
-          .insert({ student_id: student.id, subject_id: subjectId })
+          .insert({ 
+             student_id: student.id, 
+             subject_id: subjectId,
+             class_id: student.class_id 
+          })
         if (error) throw error
         toast.success('✅ Subject added to your curriculum!')
         setSelectedSubjectId('') // Reset the select

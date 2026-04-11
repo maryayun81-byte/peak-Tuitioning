@@ -13,6 +13,7 @@ import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { useAuthStore } from '@/stores/authStore'
 import toast from 'react-hot-toast'
+import { clearPageDataCache } from '@/hooks/usePageData'
 
 interface Question {
   id: string
@@ -426,6 +427,7 @@ export default function StudentTriviaAttemptPage() {
       setIsSubmitting(false)
     } else {
       if (!auto) toast.success('Assignment Complete!')
+      clearPageDataCache()
       router.push(`/student/trivia/${sessionId}/results`)
     }
   }, [sessionId, myGroupId, questions, answers, timings, activeQ, questionStartTime, isSubmitting, maxStreak, supabase, router, goldQIdx])

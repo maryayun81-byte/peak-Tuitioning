@@ -73,6 +73,30 @@ export function QuestionRenderer({ block, index, answer, onChange, readOnly, sho
 
   const renderQuestionImage = () => {
     if (!block.image_url) return null
+    const isPDF = block.image_url.toLowerCase().split('?')[0].endsWith('.pdf')
+
+    if (isPDF) {
+      return (
+        <div className="my-4 space-y-2">
+          <div className="rounded-2xl overflow-hidden border border-slate-200 bg-white shadow-sm h-[500px] w-full">
+            <iframe 
+              src={block.image_url} 
+              className="w-full h-full border-none"
+              title={`PDF prompt for question ${index}`}
+            />
+          </div>
+          <a 
+            href={block.image_url} 
+            target="_blank" 
+            rel="noreferrer"
+            className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-[#0EA5E9] hover:underline px-1"
+          >
+            <BookOpen size={12} /> View Fullscreen / Download
+          </a>
+        </div>
+      )
+    }
+
     return (
       <div className="my-4 rounded-2xl overflow-hidden border border-slate-100 bg-white shadow-sm flex items-center justify-center p-2 bg-slate-50/30">
         <img 

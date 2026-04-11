@@ -13,6 +13,7 @@ import { FileUploadZone } from '@/components/worksheet/FileUploadZone'
 import { useAuthStore } from '@/stores/authStore'
 import { useAutoSave } from '@/hooks/useAutoSave'
 import { DraftBanner } from '@/components/ui/DraftBanner'
+import { clearPageDataCache } from '@/hooks/usePageData'
 import dynamic from 'next/dynamic'
 const AnnotationCanvas = dynamic(() => import('@/components/worksheet/AnnotationCanvas').then(m => m.AnnotationCanvas), { ssr: false })
 import RichTextEditor from '@/components/ui/RichTextEditor'
@@ -214,6 +215,7 @@ export default function CreateTriviaPage() {
 
     toast.success(publish ? '🚀 Trivia published!' : 'Trivia saved as draft')
     clear() // Clear draft after saving to DB
+    clearPageDataCache() // Invalidate global caches
     router.push(`/teacher/trivia/${session.id}`)
   }
 

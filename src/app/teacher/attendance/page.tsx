@@ -44,15 +44,15 @@ interface AttendanceEntry {
 export default function TeacherAttendance() {
   const router = useRouter()
   const supabase = getSupabaseBrowserClient()
-  const { teacher, profile, isLoading: authLoading } = useAuthStore()
+  const { teacher, profile, isLoading: authLoading, isInitialRevalidationComplete } = useAuthStore()
 
   // Access Control: Only class teachers can access this page
   useEffect(() => {
-    if (!authLoading && teacher && !teacher.is_class_teacher) {
+    if (isInitialRevalidationComplete && teacher && !teacher.is_class_teacher) {
       toast.error('Only Class Teachers can access the register.')
       router.push('/teacher')
     }
-  }, [teacher, authLoading, router])
+  }, [teacher, isInitialRevalidationComplete, router])
 
   // Data
   const [loading, setLoading] = useState(true)
@@ -109,8 +109,14 @@ export default function TeacherAttendance() {
 
   // Load initial data — wait for teacher to be hydrated from auth store
   useEffect(() => {
-    if (teacher?.id) loadBaseData()
-  }, [teacher?.id])
+    if (isInitialRevalidationComplete) {
+       if (teacher?.id) {
+          loadBaseData()
+       } else {
+          setLoading(false)
+       }
+    }
+  }, [teacher?.id, isInitialRevalidationComplete])
 
   // Safety fallback for infinite loading
   useEffect(() => {
@@ -444,7 +450,7 @@ export default function TeacherAttendance() {
     })
   }, [allAttendance, selectedWeek, students])
 
-  if (authLoading || (loading && !teacher)) return (
+  if (authLoading || !isInitialRevalidationComplete || (loading && !teacher)) return (
     <div className="p-6 space-y-4">
       <div className="h-8 w-48 rounded-xl animate-pulse" style={{ background: 'var(--input)' }} />
       <SkeletonList count={8} />
@@ -453,7 +459,7 @@ export default function TeacherAttendance() {
 
   if (!teacher) return (
     <div className="p-6 py-24 text-center" style={{ color: 'var(--text-muted)' }}>
-      <p className="text-sm">Unable to load teacher profile. Please refresh the page.</p>
+      <p className="text-sm">Unable to load teacher profile. Please refresh the page or contact support.</p>
     </div>
   )
 

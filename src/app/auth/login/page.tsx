@@ -81,13 +81,17 @@ function LoginForm() {
         
         if (userRole && userRole !== selectedRole) {
           await supabase.auth.signOut()
-          toast.error(`Access Denied: Your account is registered as a ${userRole}, but you are trying to access the ${selectedRole} portal.`)
+          toast.error(`Access Denied: Your account is registered as a ${userRole}.`)
           return
         }
 
-        toast.success(`Welcome back!`)
+        // Redirect IMMEDIATELY — don't wait for data to load.
+        // AuthHandler fires SIGNED_IN event and loads profile+student in background.
+        // The portal renders with cached data (or skeleton) while fresh data arrives.
         router.push(`/${selectedRole}`)
       }
+    } catch (e: any) {
+      toast.error(e?.message || 'Login failed. Please try again.')
     } finally {
       setLoading(false)
     }

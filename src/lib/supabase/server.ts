@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
+import { resilientFetch } from '../resilientFetch'
 
 export async function createClient() {
   const cookieStore = await cookies()
@@ -21,6 +22,9 @@ export async function createClient() {
             // Server component — ignore
           }
         },
+      },
+      global: {
+        fetch: resilientFetch,
       },
     }
   )
@@ -44,6 +48,9 @@ export async function createAdminClient() {
             )
           } catch {}
         },
+      },
+      global: {
+        fetch: resilientFetch,
       },
     }
   )

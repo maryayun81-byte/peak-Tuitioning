@@ -4,6 +4,7 @@ import { useState, useCallback, useRef } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { Upload, X, FileText, Image, Film, FileSpreadsheet, Presentation } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
+import { compressImage } from '@/lib/imageOptimization'
 import toast from 'react-hot-toast'
 
 interface FileUploadZoneProps {
@@ -18,6 +19,8 @@ interface FileUploadZoneProps {
   maxSizeMB?: number
   /** Hint the OS to open camera on mobile (for workbook photo uploads) */
   captureCamera?: boolean
+  /** Enable client-side image optimization (downsizing/compression) */
+  optimize?: boolean
 }
 
 // Derive a human-friendly label from a URL or filename
@@ -43,34 +46,30 @@ export function FileUploadZone({
   acceptDocs = false,
   maxSizeMB = 50,
   captureCamera = false,
+  optimize = true,
 }: FileUploadZoneProps) {
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState(0)
+  const [status, setStatus] = useState('')
   const supabase = getSupabaseBrowserClient()
-  // Ref to hold the simulated ticker so we can cancel it
-  const tickerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  // Simulated progress ticker — gives real UX feedback since Supabase JS SDK
-  // does NOT fire onUploadProgress (it's an XHR-only option, the SDK uses fetch).
-  const startTicker = () => {
-    let current = 0
-    tickerRef.current = setInterval(() => {
-      // Asymptotic approach to 90% — slows down as it gets closer
-      current += Math.max(0.5, (90 - current) * 0.07)
-      setProgress(Math.min(90, Math.round(current)))
-    }, 300)
-  }
-
-  const stopTicker = () => {
-    if (tickerRef.current) {
-      clearInterval(tickerRef.current)
-      tickerRef.current = null
-    }
-  }
+  const progressInterval = useRef<NodeJS.Timeout | null>(null)
+  const lastProgressTime = useRef<number>(0)
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
-    const file = acceptedFiles[0]
+    let file = acceptedFiles[0]
     if (!file) return
+
+    // Optimization: More aggressive for camera/workbook photos to ensure fast upload
+    if (optimize && file.type.startsWith('image/')) {
+       setStatus('Optimizing photo...')
+       const compressionOptions = captureCamera 
+         ? { maxWidth: 1600, quality: 0.6 } // Clearer text, smaller file
+         : { maxWidth: 1280, quality: 0.8 } // Default
+       
+       if (file.size > 150 * 1024) {
+          file = await compressImage(file, compressionOptions)
+       }
+    }
 
     // Client-side size validation
     const fileSizeMB = file.size / (1024 * 1024)
@@ -80,22 +79,45 @@ export function FileUploadZone({
     }
 
     setUploading(true)
-    setProgress(0)
-    startTicker()
-    console.log('[FileUpload] Starting upload:', file.name, file.type, `${fileSizeMB.toFixed(2)}MB`)
+    setProgress(5) // Immediate feedback jump
+    setStatus('Connecting to server...')
+    lastProgressTime.current = Date.now()
+    
+    // Synthetic progress crawl (up to 25%) if server is silent
+    progressInterval.current = setInterval(() => {
+       setProgress(prev => {
+          if (prev >= 25) return prev
+          return prev + 1
+       })
+    }, 400)
 
     try {
       const ext = file.name.split('.').pop()
       const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
 
-      const { data, error } = await supabase.storage
-        .from(bucket)
-        .upload(filename, file, { 
-          contentType: file.type || 'application/octet-stream',
-          upsert: false,
-        })
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Upload timed out after 90 seconds.')), 90000)
+      )
 
-      stopTicker()
+      const { data, error } = await Promise.race([
+        supabase.storage
+          .from(bucket)
+          .upload(filename, file, { 
+            contentType: file.type || 'application/octet-stream',
+            upsert: false,
+            onUploadProgress: (evt: any) => {
+              if (progressInterval.current) {
+                 clearInterval(progressInterval.current)
+                 progressInterval.current = null
+              }
+              setStatus('Uploading...')
+              const pct = (evt.loaded / evt.total) * 100
+              // Real progress takes over
+              setProgress(Math.max(5, Math.min(99, Math.round(pct))))
+            }
+          } as any),
+        timeoutPromise
+      ]) as any
 
       if (error) {
         console.error('[FileUpload] Supabase error:', error)
@@ -104,7 +126,7 @@ export function FileUploadZone({
 
       // Snap to 100% on success
       setProgress(100)
-      console.log('[FileUpload] Success:', data.path)
+      console.log(`[FileUpload] Successful upload of ${file.name} to ${data.path}`)
 
       const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(data.path)
       onChange(urlData.publicUrl)
@@ -117,14 +139,15 @@ export function FileUploadZone({
       }, 700)
 
     } catch (err: any) {
-      stopTicker()
       console.error('[FileUpload] Error:', err)
       toast.error(
         `Upload failed: ${err.message}. ` +
         `Ensure the Supabase bucket "${bucket}" exists and is set to PUBLIC.`
       )
+      if (progressInterval.current) clearInterval(progressInterval.current)
       setUploading(false)
       setProgress(0)
+      setStatus('')
     }
   }, [supabase, onChange, bucket, maxSizeMB])
 
@@ -139,13 +162,21 @@ export function FileUploadZone({
       'image/gif': ['.gif'],
     }
     if (acceptDocs) {
+      // Extensive MIME types for maximum compatibility (Win/Mac/Old Browser)
       base['application/msword'] = ['.doc']
+      base['application/vnd.ms-word'] = ['.doc']
       base['application/vnd.openxmlformats-officedocument.wordprocessingml.document'] = ['.docx']
+      base['application/vnd.ms-word.document.macroEnabled.12'] = ['.docm']
+      
       base['application/vnd.ms-excel'] = ['.xls']
       base['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'] = ['.xlsx']
+      base['application/vnd.ms-excel.sheet.macroEnabled.12'] = ['.xlsm']
+      
       base['application/vnd.ms-powerpoint'] = ['.ppt']
       base['application/vnd.openxmlformats-officedocument.presentationml.presentation'] = ['.pptx']
+      
       base['text/csv'] = ['.csv']
+      base['application/csv'] = ['.csv']
     }
     return base
   }
@@ -157,10 +188,11 @@ export function FileUploadZone({
     disabled: disabled || uploading || !!value,
   })
 
-  // Build input props, adding capture="environment" for camera on mobile
+  // Build input props
   const inputProps = getInputProps()
   if (captureCamera) {
-    (inputProps as any).capture = 'environment'
+    // We removed capture="environment" to allow Gallery vs Camera choice
+    // for significantly better mobile reliability and user flexibility.
     ;(inputProps as any).accept = 'image/*'
   }
 
@@ -197,7 +229,10 @@ export function FileUploadZone({
               <div className="text-sm font-black truncate" style={{ color: 'var(--text)' }}>
                 {label} attached
               </div>
-              <a href={value} target="_blank" rel="noreferrer"
+              <a href={value} 
+                target="_blank" 
+                rel="noreferrer"
+                onClick={(e) => e.stopPropagation()}
                 className="text-xs underline opacity-70"
                 style={{ color: 'var(--primary)' }}>
                 Open / Preview
@@ -260,11 +295,7 @@ export function FileUploadZone({
             </div>
 
             <p className="text-[10px] text-center" style={{ color: 'var(--text-muted)' }}>
-              {progress < 20 ? 'Preparing…'
-                : progress < 50 ? 'Uploading file…'
-                : progress < 80 ? 'Almost there…'
-                : progress < 100 ? 'Finalising…'
-                : 'Upload complete!'}
+              {status || (progress < 100 ? 'Processing...' : 'Upload complete!')}
             </p>
           </div>
         </div>

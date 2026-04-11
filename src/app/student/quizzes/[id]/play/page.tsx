@@ -15,6 +15,7 @@ import { useAuthStore } from '@/stores/authStore'
 import toast from 'react-hot-toast'
 import { gradeQuiz, GradingQuestion } from '@/lib/quiz/grading'
 import { LatexRenderer } from '@/components/ui/LatexRenderer'
+import { clearPageDataCache } from '@/hooks/usePageData'
 
 export default function QuizPlayer() {
   const { id } = useParams()
@@ -130,6 +131,7 @@ export default function QuizPlayer() {
       }
 
       toast.success('Quiz Submitted!')
+      clearPageDataCache()
     }
   }
 

@@ -10,7 +10,7 @@ export function AuthHandler() {
   const supabase = getSupabaseBrowserClient()
   const router = useRouter()
   const { loadUserData } = useAuth()
-  const { setLoading, reset } = useAuthStore()
+  const { setLoading, reset, setRevalidationComplete } = useAuthStore()
 
   useEffect(() => {
     // 1. Initial State Check (Single session check)
@@ -30,6 +30,7 @@ export function AuthHandler() {
         await loadUserData(session.user.id, !!existingProfile, role)
       } else {
         setLoading(false)
+        setRevalidationComplete(true)
       }
     }
 
@@ -58,18 +59,21 @@ export function AuthHandler() {
           reset()
           router.push('/auth/login')
           setLoading(false)
+          setRevalidationComplete(true)
           break
       }
     })
 
     // Fallback: Safety timeout to prevent infinite loading hangs
+    // Increased to 30s to allow for resilientFetch retry cycles
     const safetyTimeout = setTimeout(() => {
       if (!isInitialized) {
-        console.warn('[AuthHandler] Safety timeout reached. Forcing loading to false.')
+        console.warn('[AuthHandler] Safety timeout reached. Forcing resolution.')
         setLoading(false)
+        setRevalidationComplete(true)
         isInitialized = true
       }
-    }, 3000)
+    }, 25000)
 
     // Fallback: If INITIAL_SESSION doesn't fire (e.g. library behavior change), 
     // manually check session after a short tick
@@ -81,6 +85,7 @@ export function AuthHandler() {
         } catch (err) {
           console.error('[AuthHandler] Manual session check failed:', err)
           setLoading(false)
+          setRevalidationComplete(true)
           isInitialized = true
         }
       }

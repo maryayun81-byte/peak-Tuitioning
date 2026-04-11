@@ -160,12 +160,24 @@ export function WorksheetPreview({ title, subject, class_name, blocks, passage, 
                         )}
 
                         {block.image_url && (
-                          <div className="mt-4 rounded-xl overflow-hidden border border-gray-100 bg-gray-50 flex items-center justify-center p-2">
-                            <img 
-                              src={block.image_url} 
-                              alt={`Context for question ${qLabel}`}
-                              className="max-w-full max-h-[300px] object-contain rounded-lg shadow-sm"
-                            />
+                          <div className="mt-4 space-y-2">
+                            {block.image_url.toLowerCase().split('?')[0].endsWith('.pdf') ? (
+                              <div className="rounded-xl overflow-hidden border border-gray-200 bg-white shadow-sm h-[400px] w-full">
+                                <iframe 
+                                  src={block.image_url} 
+                                  className="w-full h-full border-none"
+                                  title="PDF Preview"
+                                />
+                              </div>
+                            ) : (
+                              <div className="rounded-xl overflow-hidden border border-gray-100 bg-gray-50 flex items-center justify-center p-2">
+                                <img 
+                                  src={block.image_url} 
+                                  alt={`Context for question ${qLabel}`}
+                                  className="max-w-full max-h-[300px] object-contain rounded-lg shadow-sm"
+                                />
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
