@@ -48,6 +48,7 @@ export function TimetableWidget({ role }: Props) {
   const todayIdx = DAYS.indexOf(today)
   const [mobileDay, setMobileDay] = useState(todayIdx >= 0 ? todayIdx : 0)
   const [sessions, setSessions] = useState<TimetableEntry[]>([])
+  const { isInitialRevalidationComplete } = useAuthStore()
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -126,7 +127,8 @@ export function TimetableWidget({ role }: Props) {
 
   const hasSessions = sessions.length > 0
 
-  if (loading) return (
+  // Show skeleton if revalidation is pending OR internal load is running
+  if (!isInitialRevalidationComplete || loading) return (
     <div className="rounded-2xl border border-[var(--card-border)] p-4 animate-pulse">
       <div className="h-4 w-32 bg-[var(--input)] rounded mb-3" />
       <div className="space-y-2">

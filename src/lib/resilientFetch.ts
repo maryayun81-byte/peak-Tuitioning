@@ -10,7 +10,7 @@
 
 const MAX_RETRIES = 3
 const INITIAL_DELAY_MS = 500
-const MAX_TIMEOUT_MS = 10000 // 10s per attempt
+const MAX_TIMEOUT_MS = 25000 // 25s per attempt — accounts for Vercel/Supabase cold-starts
 
 function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms))
@@ -44,9 +44,33 @@ export async function resilientFetch(
 ): Promise<Response> {
   let lastError: any = null
 
+  // If the request was cancelled before it even started, exit immediately.
+  if (init?.signal?.aborted) {
+    const err = new Error('Aborted')
+    err.name = 'AbortError'
+    throw err
+  }
+
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    // Check if the user navigated away between retry delays
+    if (init?.signal?.aborted) {
+      const err = new Error('Aborted')
+      err.name = 'AbortError'
+      throw err
+    }
+
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), MAX_TIMEOUT_MS)
+
+    // Bridge the parent's generic abort signal to our internal controller
+    const parentAbortHandler = () => {
+      clearTimeout(timeoutId)
+      controller.abort()
+    }
+
+    if (init?.signal) {
+      init.signal.addEventListener('abort', parentAbortHandler)
+    }
 
     try {
       if (attempt > 0) {
@@ -58,16 +82,41 @@ export async function resilientFetch(
         signal: controller.signal,
       })
 
-      // If we got a response, clear timeout and return
+      // Buffering the payload ensures that the 25-second timeout protects both the TCP connection
+      // AND the entire data download. If the network drops while downloading the payload, arrayBuffer() 
+      // will throw, triggering our retry mechanism rather than hanging the application indefinitely.
+      const buffer = await response.arrayBuffer()
+
+      // We have the full, valid response. Clean up listeners and exit.
       clearTimeout(timeoutId)
-      return response
+      if (init?.signal) {
+        init.signal.removeEventListener('abort', parentAbortHandler)
+      }
+      
+      // Reconstruct the response with the buffered body so downstream clients (supabase-js) can parse it.
+      return new Response(buffer, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers
+      })
 
     } catch (err: any) {
       clearTimeout(timeoutId)
+      if (init?.signal) {
+        init.signal.removeEventListener('abort', parentAbortHandler)
+      }
+      
       lastError = err
 
-      const isTimeout = err.name === 'AbortError'
-      const shouldRetry = isTimeout || isRetryableError(err)
+      // If the parent explicitly cancelled the request (e.g. user navigated away), 
+      // DO NOT RETRY. Throw immediately to release the connection pool.
+      if (init?.signal?.aborted) {
+        throw err
+      }
+
+      // Check if it's our internal 10s timeout OR a legitimate network reset
+      const isInternalTimeout = err.name === 'AbortError' && !init?.signal?.aborted
+      const shouldRetry = isInternalTimeout || isRetryableError(err)
 
       if (shouldRetry && attempt < MAX_RETRIES) {
         // Exponential backoff: 500ms, 1000ms, 2000ms...

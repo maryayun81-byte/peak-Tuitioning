@@ -22,8 +22,17 @@ export interface SafeFetchResult<T> {
 const DEFAULT_TIMEOUT_MS = 8000
 const DEFAULT_RETRIES = 2
 
-function sleep(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms))
+function sleep(ms: number, signal?: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) return reject(new Error('Aborted'))
+    const id = setTimeout(resolve, ms)
+    if (signal) {
+      signal.addEventListener('abort', () => {
+        clearTimeout(id)
+        reject(new Error('Aborted'))
+      }, { once: true })
+    }
+  })
 }
 
 function jitter(ms: number) {
@@ -69,7 +78,11 @@ export async function safeFetch<T>(
         lastError = `Request timed out after ${timeoutMs / 1000}s`
         // Only retry on timeout if we have retries left and it's not the last attempt
         if (attempt < retries) {
-          await sleep(jitter(500 * Math.pow(2, attempt)))
+          try {
+            await sleep(jitter(500 * Math.pow(2, attempt)), signal)
+          } catch (err) {
+            return { data: null, error: 'Request cancelled', timedOut: false }
+          }
           continue
         }
         return { data: null, error: lastError, timedOut: true }
@@ -83,7 +96,11 @@ export async function safeFetch<T>(
           return { data: null, error: lastError, timedOut: false }
         }
         if (attempt < retries) {
-          await sleep(jitter(500 * Math.pow(2, attempt)))
+          try {
+            await sleep(jitter(500 * Math.pow(2, attempt)), signal)
+          } catch (err) {
+            return { data: null, error: 'Request cancelled', timedOut: false }
+          }
           continue
         }
         return { data: null, error: lastError, timedOut: false }
@@ -93,7 +110,11 @@ export async function safeFetch<T>(
     } catch (e: any) {
       lastError = e?.message || 'Unexpected error'
       if (attempt < retries) {
-        await sleep(jitter(500 * Math.pow(2, attempt)))
+        try {
+          await sleep(jitter(500 * Math.pow(2, attempt)), signal)
+        } catch (err) {
+          return { data: null, error: 'Request cancelled', timedOut: false }
+        }
       }
     }
   }

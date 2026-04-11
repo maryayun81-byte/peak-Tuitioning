@@ -60,9 +60,9 @@ function LoginForm() {
   const onSubmit = async (data: FormData) => {
     setLoading(true)
     try {
-      let loginIdentifier = data.email
+      let loginIdentifier = data.email.toLowerCase().trim()
       if (selectedRole === 'student' && !loginIdentifier.includes('@')) {
-        loginIdentifier = `${loginIdentifier.toLowerCase().trim()}@student.peak.edu`
+        loginIdentifier = `${loginIdentifier}@student.peak.edu`
       }
 
       const { data: authData, error } = await supabase.auth.signInWithPassword({

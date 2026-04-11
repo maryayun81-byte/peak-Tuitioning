@@ -100,13 +100,14 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
       typeof window !== 'undefined' &&
       pathname !== '/student/onboarding'
     ) {
+      console.log('[StudentLayout] Handshake stable. Directing to onboarding...')
       router.push('/student/onboarding')
     }
   }, [profile, student, isLoading, isInitialRevalidationComplete, router, pathname])
 
-  // Daily XP Login logic
+  // Daily XP Login logic — Only fires once handshake is stable
   useEffect(() => {
-    if (isLoading || !student?.id) return
+    if (!isInitialRevalidationComplete || !student?.id || student.onboarded === false) return
 
     const checkDailyXP = async () => {
       try {
@@ -141,8 +142,10 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
       }
     }
 
-    checkDailyXP()
-  }, [student?.id, isLoading])
+    // Short debounce to ensure store is stable
+    const t = setTimeout(checkDailyXP, 1000)
+    return () => clearTimeout(t)
+  }, [student?.id, isInitialRevalidationComplete])
 
 
   // ─── RULE 1: Only show full-screen splash on true first-load (no session yet) ───

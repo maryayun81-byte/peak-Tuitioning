@@ -63,8 +63,6 @@ export default function StudentWorksheetSolver() {
   const [currentPage, setCurrentPage] = useState(0)
   const QUESTIONS_PER_PAGE = resultMode ? 1 : 3 // Show one by one in result mode for better focus on annotations
 
-  // Passage panel
-  const [passageOpen, setPassageOpen] = useState(false)
 
   // Timer
   const [timeLeft, setTimeLeft] = useState<number | null>(null)
@@ -417,63 +415,35 @@ export default function StudentWorksheetSolver() {
       )}
 
       <div className={`flex-1 flex flex-col md:flex-row overflow-hidden relative`}>
-        {/* Passage panel (Left Side on Desktop) */}
-        {hasPassage && (
-          <motion.div 
-            initial={false}
-            animate={{ 
-              width: passageOpen || window.innerWidth >= 768 ? (window.innerWidth >= 1280 ? '45%' : '40%') : '0%',
-              x: passageOpen || window.innerWidth >= 768 ? 0 : -340
-            }}
-            className={cn(
-              "h-full overflow-hidden flex flex-col bg-[var(--sidebar)] border-r border-[var(--card-border)] z-20 absolute md:relative w-full md:w-auto",
-              !passageOpen && "hidden md:flex"
-            )}
-          >
-            <div className="px-5 py-4 flex items-center justify-between bg-primary/5 border-b border-primary/10">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
-                   <BookOpen size={18} />
-                </div>
-                <span className="text-xs font-black uppercase tracking-widest text-[var(--text)]">
-                   {passage?.passage_type === 'poem' ? 'Reading: Poem' : 'Reading: Passage'}
-                </span>
-              </div>
-              <button onClick={() => setPassageOpen(false)} className="md:hidden p-2 hover:bg-[var(--input)] rounded-xl">
-                 <ChevronUp size={16} />
-              </button>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto p-8 md:p-12 custom-scrollbar">
-               <div className="max-w-2xl mx-auto">
-                  <div 
-                    className="text-lg leading-[1.8] whitespace-pre-wrap select-none" 
-                    style={{ 
-                       fontFamily: passage?.passage_type === 'poem' ? 'Georgia, serif' : 'inherit',
-                       color: 'var(--text)',
-                       fontStyle: passage?.passage_type === 'poem' ? 'italic' : 'normal'
-                    }}
-                  >
-                    {passage?.passage_text || assignment?.passage}
-                  </div>
-               </div>
-            </div>
-          </motion.div>
-        )}
 
-        {/* Mobile Passage Toggle */}
-        {hasPassage && (
-          <button
-            onClick={() => setPassageOpen(true)}
-            className="md:hidden fixed bottom-24 right-6 w-14 h-14 rounded-full bg-primary text-white shadow-2xl flex items-center justify-center z-40 ring-4 ring-primary/20"
-          >
-            <BookOpen size={24} />
-          </button>
-        )}
 
         {/* Content column */}
         <div className="flex-1 overflow-y-auto pb-28">
           <div className={`max-w-${resultMode ? '4xl' : '2xl'} mx-auto p-4 md:p-6 space-y-4`}>
+            {/* Inline Passage Display */}
+            {hasPassage && (
+              <Card className="p-6 md:p-8 space-y-4 border-2 shadow-sm" style={{ borderColor: 'var(--card-border)', background: 'var(--card)' }}>
+                 <div className="flex items-center gap-3 mb-4">
+                   <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary shrink-0">
+                      <BookOpen size={20} />
+                   </div>
+                   <span className="text-xs font-black uppercase tracking-widest" style={{ color: 'var(--text)' }}>
+                      {passage?.passage_type === 'poem' ? 'Reading: Poem' : 'Reading: Passage'}
+                   </span>
+                 </div>
+                 <div 
+                   className="text-lg leading-[1.8] whitespace-pre-wrap select-none" 
+                   style={{ 
+                      fontFamily: passage?.passage_type === 'poem' ? 'Georgia, serif' : 'inherit',
+                      color: 'var(--text)',
+                      fontStyle: passage?.passage_type === 'poem' ? 'italic' : 'normal'
+                   }}
+                 >
+                   {passage?.passage_text || assignment?.passage}
+                 </div>
+              </Card>
+            )}
+
             {/* Nav dots */}
             <div className="flex items-center gap-1.5 flex-wrap">
                {questionBlocks.map((b, i) => {

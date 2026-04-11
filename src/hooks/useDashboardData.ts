@@ -2,6 +2,7 @@
 
 import { usePageData } from './usePageData'
 import { getSupabaseBrowserClient } from '../lib/supabase/client'
+import { useAuthStore } from '../stores/authStore'
 import type { Student } from '../types/database'
 
 const supabase = getSupabaseBrowserClient()
@@ -11,9 +12,10 @@ const supabase = getSupabaseBrowserClient()
  * Fetches core counts: assignments submitted, certificates/badges earned.
  */
 export function useStudentStats(studentId?: string) {
+  const { isInitialRevalidationComplete } = useAuthStore()
   return usePageData({
     cacheKey: ['student', 'stats', studentId || ''],
-    enabled: !!studentId,
+    enabled: isInitialRevalidationComplete && !!studentId,
     fetcher: async () => {
       const [subs, certs, badges] = await Promise.all([
         supabase.from('submissions').select('*', { count: 'exact', head: true }).eq('student_id', studentId),
@@ -38,9 +40,10 @@ export function useStudentStats(studentId?: string) {
  * Fetches the top 3 published assignments for the student's subjects.
  */
 export function useStudentQuests(studentId?: string) {
+  const { isInitialRevalidationComplete } = useAuthStore()
   return usePageData({
     cacheKey: ['student', 'quests', studentId || ''],
-    enabled: !!studentId,
+    enabled: isInitialRevalidationComplete && !!studentId,
     fetcher: async () => {
       // 1. Get student's subject IDs
       const { data: subData, error: subError } = await supabase
@@ -96,9 +99,10 @@ export function useStudentIntel(userId?: string) {
  * Fetches the top performers and the current student's global rank.
  */
 export function useLeaderboardData(studentId?: string, studentXp?: number) {
+  const { isInitialRevalidationComplete } = useAuthStore()
   return usePageData({
     cacheKey: ['student', 'leaderboard', studentId || ''],
-    enabled: !!studentId,
+    enabled: isInitialRevalidationComplete && !!studentId,
     fetcher: async () => {
       // 1. Fetch top 20 students by XP for Hall of Fame
       let entries: any[] = []
@@ -182,10 +186,11 @@ export function useStudentAssignments(params: {
   pageSize: number
 }) {
   const { studentId, tuitionCenterId, classId, page, pageSize } = params
+  const { isInitialRevalidationComplete } = useAuthStore()
 
   return usePageData({
     cacheKey: ['student', 'assignments', studentId || '', String(page)],
-    enabled: !!studentId,
+    enabled: isInitialRevalidationComplete && !!studentId,
     fetcher: async () => {
       // 1. Get subject IDs
       const { data: subData } = await supabase
@@ -249,9 +254,10 @@ export function useStudentAssignments(params: {
  * Returns { quizzes, attempts }.
  */
 export function useStudentQuizzes(studentId?: string, classId?: string | null, tuitionCenterId?: string | null) {
+  const { isInitialRevalidationComplete } = useAuthStore()
   return usePageData({
     cacheKey: ['student', 'quizzes', studentId || ''],
-    enabled: !!studentId,
+    enabled: isInitialRevalidationComplete && !!studentId,
     fetcher: async () => {
       // 1. Fetch IDs of quizzes for "all_classes" or student's specific class
       const now = new Date().toISOString()
