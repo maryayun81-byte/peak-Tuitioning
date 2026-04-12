@@ -13,6 +13,7 @@ import { Card, Badge, StatCard } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
 import { SkeletonList } from '@/components/ui/Skeleton'
+import { PageStates } from '@/components/ui/PageStates'
 import { useAuthStore } from '@/stores/authStore'
 import { formatDate } from '@/lib/utils'
 import Link from 'next/link'
@@ -26,22 +27,25 @@ export default function TeacherQuizzes() {
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
 
-  const { data: quizzes = [], isLoading } = useQuery({
-    queryKey: ['teacher-quizzes', teacher?.id],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('quizzes')
-        .select('*, class:classes(name), subject:subjects(name)')
-        .eq('teacher_id', teacher!.id)
-        .order('created_at', { ascending: false })
-      return data ?? []
+  const { data: qData, status, refetch } = usePageData({
+    cacheKey: ['teacher-quizzes', teacher?.id || 'anon'],
+    fetcher: async () => {
+      try {
+        const { data, error } = await supabase
+          .from('quizzes')
+          .select('id, title, created_at, time_limit, passing_score, class:classes(name), subject:subjects(name)')
+          .eq('teacher_id', teacher!.id)
+          .order('created_at', { ascending: false })
+        
+        return { data: data ?? [], error: error?.message }
+      } catch (err: any) {
+        return { data: null, error: err.message }
+      }
     },
     enabled: !!teacher?.id,
-    staleTime: 5 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
   })
 
-  const loading = isLoading && quizzes.length === 0
+  const quizzes: any[] = qData || []
 
   const deleteQuiz = async (id: string) => {
     const { error } = await supabase.from('quizzes').delete().eq('id', id)
@@ -81,7 +85,8 @@ export default function TeacherQuizzes() {
          <Input placeholder="Search quizzes..." leftIcon={<Search size={16} />} value={search} onChange={e => setSearch(e.target.value)} />
       </div>
 
-      {loading ? <SkeletonList count={6} /> : (
+      {status === 'loading' ? <SkeletonList count={6} /> : 
+       status === 'error' || status === 'timeout' ? <PageStates status={status} onRetry={refetch} /> : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
            {filtered.map((q, i) => (
              <motion.div key={q.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>

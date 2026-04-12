@@ -18,9 +18,9 @@ export function useStudentStats(studentId?: string) {
     enabled: isInitialRevalidationComplete && !!studentId,
     fetcher: async () => {
       const [subs, certs, badges] = await Promise.all([
-        supabase.from('submissions').select('*', { count: 'exact', head: true }).eq('student_id', studentId),
-        supabase.from('certificates').select('*', { count: 'exact', head: true }).eq('student_id', studentId),
-        supabase.from('study_badges').select('*', { count: 'exact', head: true }).eq('student_id', studentId)
+        supabase.from('submissions').select('id', { count: 'exact', head: true }).eq('student_id', studentId),
+        supabase.from('certificates').select('id', { count: 'exact', head: true }).eq('student_id', studentId),
+        supabase.from('study_badges').select('id', { count: 'exact', head: true }).eq('student_id', studentId)
       ])
       
       return {
@@ -54,10 +54,10 @@ export function useStudentQuests(studentId?: string) {
 
       if (subjectIds.length === 0) return { data: [], error: null }
 
-      // 2. Fetch assignments
+      // 2. Fetch assignments (selective fields only)
       const { data, error } = await supabase
         .from('assignments')
-        .select('*, subject:subjects(name)')
+        .select('id, title, description, due_date, status, total_marks, subject:subjects(name)')
         .in('subject_id', subjectIds)
         .eq('status', 'published')
         .order('created_at', { ascending: false })
@@ -113,7 +113,7 @@ export function useLeaderboardData(studentId?: string, studentXp?: number) {
         if (!rpcError && rpcData) {
           entries = rpcData
         } else {
-          // Table fallback (requires RLS policy: "Students can view all students for leaderboard")
+          // Table fallback (selective fields for efficiency)
           const { data: lbData, error: lbError } = await supabase
             .from('students')
             .select('id, full_name, xp, avatar_url, class:classes(name)')
@@ -192,20 +192,20 @@ export function useStudentAssignments(params: {
     cacheKey: ['student', 'assignments', studentId || '', String(page)],
     enabled: isInitialRevalidationComplete && !!studentId,
     fetcher: async () => {
-      // 1. Get subject IDs
+      // 1. Get subject IDs (minimal select)
       const { data: subData } = await supabase
         .from('student_subjects').select('subject_id').eq('student_id', studentId)
       const subjectIds = subData?.map(s => s.subject_id) || []
 
       if (subjectIds.length === 0) return { data: { assignments: [], submissions: {}, count: 0 }, error: null }
 
-      // 2. Fetch assignments
+      // 2. Fetch assignments (selective fields)
       const from = (page - 1) * pageSize
       const to = from + pageSize - 1
 
       let query = supabase
         .from('assignments')
-        .select('*, subject:subjects(name), teacher:teachers(full_name)', { count: 'exact' })
+        .select('id, title, description, due_date, status, total_marks, max_marks, is_workbook, attachment_url, lock_after_deadline, worksheet, subject:subjects(name), teacher:teachers(full_name)', { count: 'exact' })
         .in('subject_id', subjectIds)
         .eq('status', 'published')
         .order('created_at', { ascending: false })
@@ -222,11 +222,11 @@ export function useStudentAssignments(params: {
       const { data: assignments, count, error: aError } = await query
       if (aError) return { data: null, error: aError }
 
-      // 3. Fetch submissions for these assignments
+      // 3. Fetch submissions for these assignments (selective fields)
       const assignmentIds = assignments?.map(a => a.id) || []
       const { data: subDataList, error: sError } = await supabase
         .from('submissions')
-        .select('*')
+        .select('id, assignment_id, student_id, status, marks, submitted_at, worksheet_answers')
         .eq('student_id', studentId)
         .in('assignment_id', assignmentIds)
 
@@ -278,7 +278,7 @@ export function useStudentQuizzes(studentId?: string, classId?: string | null, t
               .or(`publish_at.is.null,publish_at.lte.${now}`)
               .or(`tuition_center_id.eq.${tuitionCenterId},tuition_center_id.is.null`)
           : Promise.resolve({ data: [], error: null }),
-        supabase.from('quiz_attempts').select('*').eq('student_id', studentId)
+        supabase.from('quiz_attempts').select('id, quiz_id, student_id, score, completed_at, status').eq('student_id', studentId)
       ])
 
       const matchedIds = [...(allRes.data || []), ...(classRes.data || [])].map((q: any) => q.id)

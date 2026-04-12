@@ -19,7 +19,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import toast from 'react-hot-toast'
 import type { Timetable, Class, Subject, Teacher, Curriculum, TeacherAssignment } from '@/types/database'
 import { TimetablePDF } from '@/components/admin/TimetablePDF'
-import { exportTimetableToPDF } from '@/lib/export/timetableExport'
+import { exportTimetableToPDF, exportTimetableAsImage } from '@/lib/export/timetableExport'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
 const DAY_COLORS: Record<string, string> = {
@@ -50,6 +50,7 @@ const schema = z.object({
   end_time:         z.string().min(1, 'Set an end time'),
   room_number:      z.string().optional(),
   session_type:     z.string().min(1, 'Select a session type'),
+  guest_speaker:    z.string().optional().nullable(),
 })
 type FormData = z.infer<typeof schema>
 
@@ -86,7 +87,12 @@ export default function AdminTimetables() {
   const [filterClass, setFilterClass]           = useState('')
   const [filterEvent, setFilterEvent]           = useState('')
   const [filterCenter, setFilterCenter]         = useState('')
+  const [filterTeacher, setFilterTeacher]       = useState('')
   const defaultsApplied = useRef(false)
+
+  // Bulk Delete State
+  const [bulkOpen, setBulkOpen]           = useState(false)
+  const [bulkDeleting, setBulkDeleting]   = useState(false)
 
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long' })
 
@@ -160,6 +166,7 @@ export default function AdminTimetables() {
     if (filterClass && t.class_id !== filterClass) return false
     if (filterEvent && t.tuition_event_id !== filterEvent) return false
     if (filterCenter && t.tuition_center_id !== filterCenter) return false
+    if (filterTeacher && t.teacher_id !== filterTeacher) return false
     return true
   })
 
@@ -223,12 +230,14 @@ export default function AdminTimetables() {
       if (c.length > 0) { c.forEach(msg => toast.error(msg, { duration: 5000, icon: '⚠️' })); return }
     }
     setSaving(true)
+    const isAcademic = ['class', 'practical', 'assessment', 'exam', 'cat'].includes(data.session_type)
     const payload = { 
       ...data, 
       status: 'draft',
-      // If NOT a class, nullify subject and teacher
-      subject_id: data.session_type === 'class' ? data.subject_id : null,
-      teacher_id: data.session_type === 'class' ? data.teacher_id : null
+      // Nullify subject and teacher if it's a non-academic block like break or duty
+      subject_id: isAcademic ? data.subject_id : null,
+      teacher_id: isAcademic || data.session_type === 'mentorship' ? data.teacher_id || null : null,
+      guest_speaker: data.session_type === 'mentorship' ? data.guest_speaker || null : null
     }
     const { error } = editing
       ? await supabase.from('timetables').update(payload).eq('id', editing.id)
@@ -253,27 +262,72 @@ export default function AdminTimetables() {
     toast.success('Session deleted'); load()
   }
 
-  const exportSingleClass = async (targetClassId: string) => {
+  const handleBulkDelete = async () => {
+    if (filtered.length === 0) return
+    setBulkDeleting(true)
+    const ids = filtered.map(t => t.id)
+    
+    try {
+      // Chunk deletions to bypass PostgREST payload limits
+      for (let i = 0; i < ids.length; i += 100) {
+        const chunk = ids.slice(i, i + 100)
+        await supabase.from('timetables').delete().in('id', chunk)
+      }
+      toast.success(`Successfully deleted ${ids.length} session${ids.length > 1 ? 's' : ''}`)
+      load()
+      setBulkOpen(false)
+    } catch (err: any) {
+       toast.error('Bulk delete failed: ' + err.message)
+    } finally {
+       setBulkDeleting(false)
+    }
+  }
+
+  const exportSingleClassAsPDF = async (targetClassId: string) => {
     const cls = classes.find(c => c.id === targetClassId)
     if (!cls) return
 
     setExporting(true)
     const sessions = timetables.filter(t => t.class_id === targetClassId)
-    const curriculum = curriculums.find(c => c.id === (cls as any).curriculum_id)
 
     setPdfClass(cls as any)
     setPdfSessions(sessions)
 
-    // Small delay to ensure the component renders in the hidden area
-    toast.loading('Preparing PDF...', { id: 'pdf-gen' })
+    toast.loading('Preparing Print PDF...', { id: 'pdf-gen' })
     await new Promise(r => setTimeout(r, 800))
 
     try {
       const fileName = `${cls.name.replace(/\s+/g, '_')}_Timetable.pdf`
       await exportTimetableToPDF('timetable-pdf-content', fileName)
-      toast.success('Timetable exported!', { id: 'pdf-gen' })
+      toast.success('Timetable PDF Ready!', { id: 'pdf-gen' })
     } catch (err) {
       toast.error('Failed to generate PDF', { id: 'pdf-gen' })
+    } finally {
+      setPdfClass(null)
+      setPdfSessions([])
+      setExporting(false)
+    }
+  }
+
+  const exportSingleClassAsImage = async (targetClassId: string) => {
+    const cls = classes.find(c => c.id === targetClassId)
+    if (!cls) return
+
+    setExporting(true)
+    const sessions = timetables.filter(t => t.class_id === targetClassId)
+
+    setPdfClass(cls as any)
+    setPdfSessions(sessions)
+
+    toast.loading('Processing High-Res Image...', { id: 'image-gen' })
+    await new Promise(r => setTimeout(r, 800))
+
+    try {
+      const fileName = `${cls.name.replace(/\s+/g, '_')}_Timetable_HD.png`
+      await exportTimetableAsImage('timetable-pdf-content', fileName)
+      toast.success('High-Res Image Ready!', { id: 'image-gen' })
+    } catch (err) {
+      toast.error('Failed to generate Image', { id: 'image-gen' })
     } finally {
       setPdfClass(null)
       setPdfSessions([])
@@ -374,14 +428,19 @@ export default function AdminTimetables() {
           </p>
         </div>
         <div className="flex gap-2">
-          {filterCurriculum && (
-            <Button variant="secondary" onClick={exportCurriculum} disabled={exporting}>
-               <FileText size={16} className="mr-2" /> Export Curriculum
-            </Button>
-          )}
           {filterClass && (
-            <Button variant="secondary" onClick={() => exportSingleClass(filterClass)} disabled={exporting}>
-               <FileText size={16} className="mr-2" /> Export Class PDF
+            <div className="flex gap-2 p-1 bg-slate-100 rounded-2xl border border-slate-200">
+              <Button variant="secondary" className="h-9 px-4 text-[10px] font-black uppercase bg-white border-transparent shadow-sm" onClick={() => exportSingleClassAsPDF(filterClass)} disabled={exporting}>
+                 <FileText size={14} className="mr-2 text-red-500" /> Export PDF
+              </Button>
+              <Button variant="secondary" className="h-9 px-4 text-[10px] font-black uppercase bg-white border-transparent shadow-sm" onClick={() => exportSingleClassAsImage(filterClass)} disabled={exporting}>
+                 <Globe size={14} className="mr-2 text-blue-500" /> Export Image
+              </Button>
+            </div>
+          )}
+          {filtered.length > 0 && (
+            <Button variant="secondary" className="!text-red-500 !bg-red-500/10 hover:!bg-red-500/20" onClick={() => setBulkOpen(true)}>
+              <Trash2 size={16} className="mr-2" /> Bulk Delete
             </Button>
           )}
           <Button onClick={openAdd}><Plus size={16} /> Add Session</Button>
@@ -411,13 +470,17 @@ export default function AdminTimetables() {
             <option value="">All Centers</option>
             {centers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </Select>
+          <Select value={filterTeacher} onChange={e => setFilterTeacher(e.target.value)}>
+            <option value="">All Teachers</option>
+            {teachers.map(t => <option key={t.id} value={t.id}>{t.full_name}</option>)}
+          </Select>
         </div>
         <div className="mt-2 flex items-center gap-3">
           <Badge variant="muted">{filtered.length} session{filtered.length !== 1 ? 's' : ''}</Badge>
           <Badge variant="success">{filtered.filter(t => t.status === 'published').length} published</Badge>
           <Badge variant="muted">{filtered.filter(t => t.status === 'draft').length} draft</Badge>
-          {(filterCurriculum || filterClass || filterEvent || filterCenter) && (
-            <button onClick={() => { setFilterCurriculum(''); setFilterClass(''); setFilterEvent(''); setFilterCenter('') }}
+          {(filterCurriculum || filterClass || filterEvent || filterCenter || filterTeacher) && (
+            <button onClick={() => { setFilterCurriculum(''); setFilterClass(''); setFilterEvent(''); setFilterCenter(''); setFilterTeacher('') }}
               className="text-xs text-primary underline ml-2">Clear filters</button>
           )}
         </div>
@@ -515,12 +578,16 @@ export default function AdminTimetables() {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <Select label="Session Type *" error={errors.session_type?.message} {...register('session_type')}>
                   <option value="class">Class Session</option>
+                  <option value="practical">Practical</option>
+                  <option value="assessment">Assessment</option>
+                  <option value="exam">Exam</option>
+                  <option value="cat">CAT</option>
+                  <option value="mentorship">Mentorship</option>
                   <option value="break">Break</option>
-                  <option value="prep">Prep Period</option>
                   <option value="duty">Duty/Other</option>
                 </Select>
                 
-                {watchType === 'class' && (
+                {['class', 'practical', 'assessment', 'exam', 'cat'].includes(watchType) && (
                   <>
                     <Select label="Class *" error={errors.class_id?.message} {...register('class_id')}>
                       <option value="">Select Class</option>
@@ -533,20 +600,26 @@ export default function AdminTimetables() {
                   </>
                 )}
                 
-                {watchType !== 'class' && (
-                  <Select label="Class Context (Optional)" {...register('class_id')}>
+                {!['class', 'practical', 'assessment', 'exam', 'cat'].includes(watchType) && (
+                  <Select label="Class Context" {...register('class_id')}>
                     <option value="">No specific class</option>
                     {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </Select>
                 )}
               </div>
 
-              {watchType === 'class' && (
-                <div className="space-y-2">
-                  <Select label="Teacher *" error={errors.teacher_id?.message} {...register('teacher_id')}>
-                    <option value="">Select Teacher</option>
-                    {teachers.map(t => <option key={t.id} value={t.id}>{t.full_name}</option>)}
-                  </Select>
+              {['class', 'practical', 'assessment', 'exam', 'cat', 'mentorship'].includes(watchType) && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <Select label={watchType === 'mentorship' ? "Teacher (Optional for Guest)" : "Teacher *"} error={errors.teacher_id?.message} {...register('teacher_id')}>
+                      <option value="">Select Teacher</option>
+                      {teachers.map(t => <option key={t.id} value={t.id}>{t.full_name}</option>)}
+                    </Select>
+                    
+                    {watchType === 'mentorship' && (
+                       <Input label="Guest Speaker" placeholder="e.g. Dr. Jane Ochieng" {...register('guest_speaker')} />
+                    )}
+                  </div>
                   
                   {suggestedAssignment && (
                     <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}
@@ -636,6 +709,42 @@ export default function AdminTimetables() {
           sessions={pdfSessions}
         />
       )}
+
+      {/* Bulk Delete Confirm Modal */}
+      <Modal isOpen={bulkOpen} onClose={() => setBulkOpen(false)} title="Confirm Bulk Deletion" size="sm">
+        <div className="space-y-4 py-2">
+          <div className="flex items-center gap-4 p-4 rounded-2xl bg-red-500/10 border border-red-500/20">
+             <div className="w-12 h-12 rounded-xl bg-red-500 text-white flex items-center justify-center shrink-0 shadow-lg">
+                <AlertTriangle size={24} />
+             </div>
+             <div>
+                <h3 className="text-sm font-black text-red-500">Warning: Destructive Action</h3>
+                <p className="text-xs text-red-500/80 mt-1 font-medium">
+                  You are about to permanently delete <strong>{filtered.length}</strong> scheduled sessions based on your current filters.
+                </p>
+             </div>
+          </div>
+
+          <div className="text-xs p-3 rounded-xl bg-[var(--input)] text-muted font-bold space-y-1">
+             <div className="uppercase tracking-widest text-[9px] mb-2 opacity-70">Current Target Scope:</div>
+             <div>• Curriculum: {filterCurriculum ? curriculums.find(c => c.id === filterCurriculum)?.name : 'ALL'}</div>
+             <div>• Class: {filterClass ? classes.find(c => c.id === filterClass)?.name : 'ALL'}</div>
+             <div>• Center: {filterCenter ? centers.find(c => c.id === filterCenter)?.name : 'ALL'}</div>
+             <div>• Teacher: {filterTeacher ? teachers.find(c => c.id === filterTeacher)?.full_name : 'ALL'}</div>
+          </div>
+
+          <div className="flex gap-2">
+             <Button variant="secondary" className="flex-1" onClick={() => setBulkOpen(false)}>Cancel</Button>
+             <Button 
+               className="flex-1 !bg-red-500 hover:!bg-red-600 !text-white" 
+               onClick={handleBulkDelete}
+               isLoading={bulkDeleting}
+             >
+               Delete {filtered.length} Sessions
+             </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }
@@ -672,11 +781,18 @@ function SessionBlock({ entry, teachers: _teachers, onEdit, onDelete, onSetStatu
       </div>
 
       <div className="flex-1 min-w-0">
-        <h4 className="font-black text-sm truncate" style={{ color: 'var(--text)' }}>
-          {(entry as any).session_type === 'class' ? (entry as any).subject?.name : (entry as any).session_type?.toUpperCase()}
+        <h4 className="font-black text-sm truncate uppercase tracking-tight" style={{ color: 'var(--text)' }}>
+          {['class', 'practical', 'assessment', 'exam', 'cat'].includes((entry as any).session_type) 
+            ? `${(entry as any).session_type === 'class' ? '' : `${(entry as any).session_type} - `}${(entry as any).subject?.name}` 
+            : (entry as any).session_type?.toUpperCase()}
         </h4>
         <div className="flex items-center gap-1 text-[10px] mt-0.5 truncate" style={{ color: 'var(--text-muted)' }}>
-          <UserCircle size={10} className="shrink-0" /><span className="truncate">{(entry as any).teacher?.full_name || 'No Teacher'}</span>
+          <UserCircle size={10} className="shrink-0" />
+          <span className="truncate">
+            {(entry as any).guest_speaker 
+              ? `Guest: ${(entry as any).guest_speaker}` 
+              : ((entry as any).teacher?.full_name || 'No Teacher')}
+          </span>
         </div>
         <div className="flex items-center gap-1 text-[10px] truncate" style={{ color: 'var(--text-muted)' }}>
           <School size={10} className="shrink-0" /><span className="truncate">{(entry as any).class?.name || 'School Wide'}</span>

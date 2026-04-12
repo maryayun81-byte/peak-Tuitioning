@@ -24,6 +24,7 @@ export default function QuizPlayer() {
   const { student } = useAuthStore()
   
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [quiz, setQuiz] = useState<any>(null)
   
   const [currentIdx, setCurrentIdx] = useState(0)
@@ -39,14 +40,25 @@ export default function QuizPlayer() {
 
   const loadQuiz = async () => {
     setLoading(true)
-    const { data } = await supabase.from('quizzes').select('*, teacher:teachers(full_name)').eq('id', id).single()
-    if (!data) { toast.error('Quiz not found'); router.push('/student/quizzes'); return }
-    
-    setQuiz(data)
-    // Fix: duration_minutes is the correct column name from the schema
-    const limit = data.duration_minutes || 0
-    setTimeLeft(limit * 60)
-    setLoading(false)
+    setLoadError(false)
+    try {
+      const { data, error } = await supabase.from('quizzes').select('*, teacher:teachers(full_name)').eq('id', id).single()
+      if (error || !data) { 
+        toast.error('Quiz not found or network error')
+        setLoadError(true)
+        setLoading(false)
+        return 
+      }
+      
+      setQuiz(data)
+      const limit = data.duration_minutes || 0
+      setTimeLeft(limit * 60)
+    } catch (err) {
+      console.error('[Quiz] Load error:', err)
+      setLoadError(true)
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
@@ -135,10 +147,27 @@ export default function QuizPlayer() {
     }
   }
 
-  if (loading) return (
-     <div className="h-screen flex items-center justify-center bg-[var(--bg)]">
+  if (loading && !quiz) return (
+     <div className="h-screen flex flex-col items-center justify-center bg-[var(--bg)] gap-4">
         <BrainCircuit size={64} className="text-primary animate-pulse" />
+        <p className="text-sm font-bold text-muted">Loading Quiz Engine...</p>
      </div>
+  )
+
+  if (loadError && !quiz) return (
+    <div className="h-screen flex items-center justify-center p-6 bg-[var(--bg)]">
+      <div className="text-center space-y-4 max-w-sm">
+        <div className="w-16 h-16 rounded-3xl bg-rose-500/10 flex items-center justify-center mx-auto">
+          <AlertTriangle size={32} className="text-rose-500" />
+        </div>
+        <h2 className="text-xl font-black uppercase italic" style={{ color: 'var(--text)' }}>Failed to Load</h2>
+        <p className="text-sm" style={{ color: 'var(--text-muted)' }}>We couldn't connect to the quiz engine. Check your connection.</p>
+        <div className="flex gap-3 justify-center pt-4">
+          <Button variant="secondary" onClick={() => router.push('/student/quizzes')}>Back to Hub</Button>
+          <Button onClick={() => loadQuiz()}>Try Again</Button>
+        </div>
+      </div>
+    </div>
   )
 
   const currentQ = quiz.questions[currentIdx]

@@ -1,16 +1,17 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
-  Rocket, Star, ChevronRight, CheckCircle2, BookOpen, School, GraduationCap, Loader2
+  Rocket, Star, ChevronRight, CheckCircle2, BookOpen, School, GraduationCap, Loader2, AlertCircle
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, Badge } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { useAuthStore } from '@/stores/authStore'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
+import { Skeleton } from '@/components/ui/Skeleton'
 import toast from 'react-hot-toast'
 
 const AVATARS = [
@@ -22,10 +23,12 @@ const AVATARS = [
   { id: '6', emoji: '⚡', label: 'Speedster', color: 'from-yellow-400 to-amber-500' },
 ]
 
+const SUBMIT_TIMEOUT_MS = 15000
+
 export default function StudentOnboarding() {
   const supabase = getSupabaseBrowserClient()
   const router = useRouter()
-  const { profile, student, setStudent } = useAuthStore()
+  const { profile, student, setStudent, isInitialRevalidationComplete } = useAuthStore()
   
   const [step, setStep] = useState(1)
   const [selectedAvatar, setSelectedAvatar] = useState('')
@@ -34,7 +37,10 @@ export default function StudentOnboarding() {
   const [schoolName, setSchoolName] = useState('')
   const [loading, setLoading] = useState(false)
   const [loadingSubjects, setLoadingSubjects] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const [onboardingSuccess, setOnboardingSuccess] = useState(false)
   const [meta, setMeta] = useState<any>(null)
+  const submitAbortRef = useRef<AbortController | null>(null)
 
   // Block access if already onboarded
   useEffect(() => {
@@ -43,15 +49,17 @@ export default function StudentOnboarding() {
     }
   }, [student?.onboarded])
 
-  // Fetch student meta + subjects
+  // ── PHASE-GATED SUBJECT FETCH ──────────────────────────────────────────────
+  // Wait for isInitialRevalidationComplete before fetching so we always have
+  // fresh DB data (class_id, curriculum_id) rather than stale localStorage values.
   useEffect(() => {
-    if (!student?.id) return
+    if (!student?.id || !isInitialRevalidationComplete) return
 
     const fetchData = async () => {
       // Fetch fresh student row with joined relations
       const { data: freshStudent } = await supabase
         .from('students')
-        .select('*, class:classes(id, name), curriculum:curriculums(id, name)')
+        .select('id, class_id, curriculum_id, class:classes(id, name), curriculum:curriculums(id, name)')
         .eq('id', student.id)
         .single()
 
@@ -60,12 +68,12 @@ export default function StudentOnboarding() {
 
       setLoadingSubjects(true)
       try {
-        // Try curriculum_id first (most accurate)
-        const curriculumId = freshStudent.curriculum_id || freshStudent.curriculum?.id
-        const classId = freshStudent.class_id || freshStudent.class?.id
+        const curriculumId = freshStudent.curriculum_id || (freshStudent.curriculum as any)?.id
+        const classId = freshStudent.class_id || (freshStudent.class as any)?.id
 
         let sData: any[] = []
 
+        // Strategy 1: curriculum-scoped subjects (most specific)
         if (curriculumId) {
           const { data } = await supabase
             .from('subjects')
@@ -75,7 +83,7 @@ export default function StudentOnboarding() {
           sData = data ?? []
         }
 
-        // Fallback: if no curriculum subjects, try class-scoped subjects
+        // Strategy 2: class-linked subjects via junction table
         if (sData.length === 0 && classId) {
           const { data: classSubjects } = await supabase
             .from('class_subjects')
@@ -84,11 +92,11 @@ export default function StudentOnboarding() {
           sData = (classSubjects ?? [])
             .map((cs: any) => cs.subject)
             .filter(Boolean)
-            .filter((s: any, i: number, arr: any[]) => 
+            .filter((s: any, i: number, arr: any[]) =>
               arr.findIndex(x => x.id === s.id) === i) // deduplicate
         }
 
-        // Ultimate fallback: list all subjects in the system
+        // Strategy 3: system-wide fallback — student can always proceed
         if (sData.length === 0) {
           const { data: allSubjects } = await supabase
             .from('subjects')
@@ -105,17 +113,26 @@ export default function StudentOnboarding() {
     }
 
     fetchData()
-  }, [student?.id])
+  }, [student?.id, isInitialRevalidationComplete])
 
   const finish = async () => {
     if (!student) return
-    // School name is optional — just warn if empty but continue
     if (selectedSubjects.length === 0) {
       toast.error('Please select at least one subject to continue')
       return
     }
-    
+
     setLoading(true)
+    setSubmitError(null)
+
+    // Set up a 15s abort timeout for the entire submission
+    submitAbortRef.current?.abort()
+    submitAbortRef.current = new AbortController()
+    
+    const submissionTimeout = setTimeout(() => {
+      submitAbortRef.current?.abort()
+    }, SUBMIT_TIMEOUT_MS)
+
     try {
       // 1. Upsert student subjects
       const payload = selectedSubjects.map(subId => ({
@@ -128,12 +145,12 @@ export default function StudentOnboarding() {
         .from('student_subjects')
         .upsert(payload, { onConflict: 'student_id,subject_id' })
 
-      // Non-fatal — subjects can be updated later in settings
       if (subError) {
+        // Non-fatal — log and continue
         console.warn('[Onboarding] student_subjects upsert error:', subError)
       }
 
-      // 2. Update onboarded flag + school name
+      // 2. Update onboarded flag + school name (this is atomic — single row update)
       const updatePayload: any = { onboarded: true }
       if (schoolName.trim()) updatePayload.school_name = schoolName.trim()
 
@@ -147,7 +164,7 @@ export default function StudentOnboarding() {
       if (updateError) throw updateError
       if (!updatedStudent) throw new Error('Could not confirm profile update. Please try again.')
 
-      // 3. Update avatar (optional — fire-and-forget)
+      // 3. Update avatar (optional — fire-and-forget, doesn't block onboarding)
       if (selectedAvatar) {
         const avatar = AVATARS.find(a => a.id === selectedAvatar)
         if (avatar) {
@@ -158,27 +175,54 @@ export default function StudentOnboarding() {
         }
       }
 
-      // 4. Write to Zustand FIRST (wins race vs background re-fetch)
+      // 4. Write to Zustand FIRST — wins the race vs background re-fetch
       setStudent({ ...updatedStudent, onboarded: true } as any)
 
       // 5. Sync auth metadata fire-and-forget
       supabase.auth.updateUser({ data: { onboarded: true } }).catch(() => {})
 
-      toast.success('Welcome to Peak Performance! Your journey starts now 🚀', {
-        id: 'onboarding-success',
-        duration: 4000,
-      })
-
-      // 6. Short settle then navigate
-      await new Promise(r => setTimeout(r, 200))
+      // 6. Finalize Success State
+      setOnboardingSuccess(true)
+      
+      // 7. Atomic Redirect + Nuclear Fallback
       router.replace('/student')
+      
+      // If Next.js router hangs for more than 1.5s, force a hard location reload
+      setTimeout(() => {
+         if (window.location.pathname.includes('onboarding')) {
+            window.location.href = '/student'
+         }
+      }, 1500)
+
     } catch (e: any) {
+      const isAborted = e?.name === 'AbortError' || e?.message?.includes('aborted')
+      const message = isAborted
+        ? 'The request timed out. Please check your connection and try again.'
+        : (e.message || 'Something went wrong. Please try again.')
+      
       console.error('[Onboarding] finish error:', e)
-      toast.error(e.message || 'Something went wrong. Please try again.')
+      setSubmitError(message)
+      toast.error(message, { id: 'onboarding-error' })
     } finally {
+      clearTimeout(submissionTimeout)
       setLoading(false)
     }
   }
+
+  // Subjects skeleton for loading state
+  const SubjectsSkeleton = () => (
+    <div className="space-y-3">
+      {Array.from({ length: 5 }).map((_, i) => (
+        <div key={i} className="p-5 rounded-3xl border-2 flex items-center gap-4" style={{ borderColor: 'var(--card-border)', background: 'var(--card)' }}>
+          <Skeleton className="w-12 h-12 rounded-2xl shrink-0" />
+          <div className="flex-1 space-y-2">
+            <Skeleton className="h-4 w-1/2" />
+            <Skeleton className="h-3 w-1/4" />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-[var(--bg)]">
@@ -203,14 +247,14 @@ export default function StudentOnboarding() {
                 </p>
                 {meta && (
                   <div className="flex gap-3 justify-center pt-2 flex-wrap">
-                    {meta.curriculum?.name && (
+                    {(meta.curriculum as any)?.name && (
                       <Badge variant="info" className="px-4 py-2 rounded-xl flex items-center gap-2">
-                        <GraduationCap size={14} /> {meta.curriculum.name}
+                        <GraduationCap size={14} /> {(meta.curriculum as any).name}
                       </Badge>
                     )}
-                    {meta.class?.name && (
+                    {(meta.class as any)?.name && (
                       <Badge variant="muted" className="px-4 py-2 rounded-xl flex items-center gap-2">
-                        <School size={14} /> {meta.class.name}
+                        <School size={14} /> {(meta.class as any).name}
                       </Badge>
                     )}
                   </div>
@@ -284,11 +328,17 @@ export default function StudentOnboarding() {
                 <p className="text-sm mt-2" style={{ color: 'var(--text-muted)' }}>Choose the subjects you&apos;ll be studying.</p>
               </div>
 
-              {loadingSubjects ? (
-                <div className="flex items-center justify-center py-12 gap-3" style={{ color: 'var(--text-muted)' }}>
-                  <Loader2 size={20} className="animate-spin" />
-                  <span className="text-sm font-medium">Loading your subjects…</span>
+              {/* Waiting for auth sync before showing subjects */}
+              {!isInitialRevalidationComplete ? (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-xs text-center justify-center" style={{ color: 'var(--text-muted)' }}>
+                    <Loader2 size={14} className="animate-spin" />
+                    <span>Syncing your profile…</span>
+                  </div>
+                  <SubjectsSkeleton />
                 </div>
+              ) : loadingSubjects ? (
+                <SubjectsSkeleton />
               ) : subjects.length === 0 ? (
                 <div className="text-center py-8 space-y-3">
                   <p className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>
@@ -298,8 +348,8 @@ export default function StudentOnboarding() {
                     You can add subjects later in Settings. Click &ldquo;Continue&rdquo; to proceed.
                   </p>
                   <Button className="mt-4 px-8 py-4 rounded-3xl" onClick={async () => {
-                    // Allow completing onboarding without subjects
                     setLoading(true)
+                    setSubmitError(null)
                     try {
                       const { data: updatedStudent, error } = await supabase
                         .from('students')
@@ -314,6 +364,7 @@ export default function StudentOnboarding() {
                       await new Promise(r => setTimeout(r, 200))
                       router.replace('/student')
                     } catch (e: any) {
+                      setSubmitError(e.message || 'Error completing setup')
                       toast.error(e.message || 'Error completing setup')
                     } finally {
                       setLoading(false)
@@ -345,6 +396,14 @@ export default function StudentOnboarding() {
                       {selectedSubjects.includes(s.id) && <CheckCircle2 size={20} className="text-primary shrink-0" />}
                     </button>
                   ))}
+                </div>
+              )}
+
+              {/* Submission error inline */}
+              {submitError && (
+                <div className="flex items-center gap-3 p-4 rounded-2xl" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                  <AlertCircle size={18} className="text-red-500 shrink-0" />
+                  <p className="text-xs font-bold text-red-500">{submitError}</p>
                 </div>
               )}
 

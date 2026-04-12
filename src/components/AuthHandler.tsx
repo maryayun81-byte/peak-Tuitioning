@@ -64,8 +64,8 @@ export function AuthHandler() {
       }
     })
 
-    // Fallback: Safety timeout to prevent infinite loading hangs
-    // Increased to 30s to allow for resilientFetch retry cycles
+    // Fallback: Safety timeout to prevent infinite loading hangs.
+    // 10s is generous enough for cold starts but fast enough to not feel broken.
     const safetyTimeout = setTimeout(() => {
       if (!isInitialized) {
         console.warn('[AuthHandler] Safety timeout reached. Forcing resolution.')
@@ -73,7 +73,7 @@ export function AuthHandler() {
         setRevalidationComplete(true)
         isInitialized = true
       }
-    }, 25000)
+    }, 10000)
 
     // Fallback: If INITIAL_SESSION doesn't fire (e.g. library behavior change), 
     // manually check session after a short tick

@@ -46,7 +46,7 @@ export default function StudentAssignments() {
   })
 
   // Destructure data for easy access
-  const assignments = result?.assignments || []
+  const assignments: any[] = result?.assignments || []
   const submissions = result?.submissions || {}
   const totalCount = result?.count || 0
 

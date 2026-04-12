@@ -85,6 +85,10 @@ function LoginForm() {
           return
         }
 
+        toast.success(`Successfully logged in as ${selectedRole}! Welcome back.`, {
+          icon: '🚀',
+        })
+
         // Redirect IMMEDIATELY — don't wait for data to load.
         // AuthHandler fires SIGNED_IN event and loads profile+student in background.
         // The portal renders with cached data (or skeleton) while fresh data arrives.

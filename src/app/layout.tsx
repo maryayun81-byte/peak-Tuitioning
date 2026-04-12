@@ -7,6 +7,7 @@ import { HydrationGuard } from '@/components/auth/HydrationGuard'
 import { PWAHandler } from '@/components/PWAHandler'
 import { NavigationProgress } from '@/components/ui/NavigationProgress'
 import { NetworkBanner } from '@/components/ui/NetworkBanner'
+import { NavigationRefetchManager } from '@/components/NavigationRefetchManager'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -81,6 +82,7 @@ export default function RootLayout({
       </head>
       <body>
         <QueryProvider>
+          <NavigationRefetchManager />
           <ThemeProvider>
             <NavigationProgress />
             <AuthHandler />

@@ -121,6 +121,7 @@ export default function StudentTriviaLobbyPage() {
 
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [myGroup, setMyGroup] = useState<Group | null>(null)
   const [hasSubmitted, setHasSubmitted] = useState(false)
 
@@ -145,9 +146,10 @@ export default function StudentTriviaLobbyPage() {
 
   const loadAll = async (isSilent = false) => {
     if (!isSilent) setLoading(true)
+    if (!isSilent) setLoadError(false)
     try {
       const [sRes, mRes, subRes] = await Promise.all([
-        supabase.from('trivia_sessions').select('*, subject:subjects(name)').eq('id', sessionId).single(),
+        supabase.from('trivia_sessions').select('id, title, description, status, duration_minutes, questions_count, max_participants, subject:subjects(name)').eq('id', sessionId).single(),
         supabase.from('trivia_group_members')
           .select(`group_id, group:trivia_groups(id, name, created_by, session_id, avatar_url, attempt_started_at, attempt_started_by, members:trivia_group_members(student_id, student:students(full_name)))`)
           .eq('student_id', student!.id),
@@ -155,7 +157,12 @@ export default function StudentTriviaLobbyPage() {
       ])
 
       if (sRes.error) { toast.error('Trivia not found'); router.push('/student/trivia'); return }
-      setSession(sRes.data)
+      // Supabase returns joined relations as arrays; normalise subject to object
+      const rawSession = sRes.data as any
+      setSession({
+        ...rawSession,
+        subject: Array.isArray(rawSession.subject) ? rawSession.subject[0] : rawSession.subject,
+      })
 
       const membership = (mRes.data ?? []).find((m: any) => m.group?.session_id === sessionId)
       let sessionGroup = membership?.group as any
@@ -170,9 +177,15 @@ export default function StudentTriviaLobbyPage() {
       if (sessionGroup) {
         const submission = (subRes.data ?? []).find((s: any) => s.group_id === sessionGroup.id)
         setHasSubmitted(!!submission)
+      } else {
+        // Safety Guard: If no group found for this session, redirect back with a helpful toast
+        toast.error('Mission Locked: You must join or form a squad to enter this lobby!')
+        router.replace('/student/trivia')
+        return
       }
     } catch (e) {
       console.error('Failed to load lobby data', e)
+      if (!isSilent) setLoadError(true)
     } finally {
       if (!isSilent) setLoading(false)
     }
@@ -245,7 +258,31 @@ export default function StudentTriviaLobbyPage() {
   const filteredClassmates = availableClassmates.filter(c => c.full_name.toLowerCase().includes(searchQuery.toLowerCase()))
   const isLeader = myGroup?.created_by === student?.id
 
-  if (loading && !session) return <div className="p-6">Loading trivia details...</div>
+  if (loading && !session) return (
+    <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg)' }}>
+      <div className="text-center space-y-4">
+        <div className="w-10 h-10 border-2 border-t-transparent rounded-full animate-spin mx-auto" style={{ borderColor: 'var(--primary)' }} />
+        <p className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>Loading Arena…</p>
+      </div>
+    </div>
+  )
+
+  if (loadError && !session) return (
+    <div className="min-h-screen flex items-center justify-center p-6" style={{ background: 'var(--bg)' }}>
+      <div className="text-center space-y-4 max-w-sm">
+        <div className="w-16 h-16 rounded-3xl bg-rose-500/10 flex items-center justify-center mx-auto">
+          <Trophy size={32} className="text-rose-500" />
+        </div>
+        <h2 className="text-xl font-black uppercase italic" style={{ color: 'var(--text)' }}>Couldn&apos;t Load Arena</h2>
+        <p className="text-sm" style={{ color: 'var(--text-muted)' }}>There was a problem loading this trivia session. Please check your connection.</p>
+        <div className="flex gap-3 justify-center pt-2">
+          <Button variant="secondary" onClick={() => router.push('/student/trivia')}><ChevronLeft size={16} /> Back</Button>
+          <Button onClick={() => loadAll()}>Try Again</Button>
+        </div>
+      </div>
+    </div>
+  )
+
   if (!session) return null
 
   return (

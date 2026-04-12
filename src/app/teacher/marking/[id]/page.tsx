@@ -36,6 +36,7 @@ export default function WorksheetGraderPage() {
   const [feedback, setFeedback] = useState('')
   const [annotations, setAnnotations] = useState<Record<string, string>>({}) // Map of blockId -> fabric json
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [saving, setSaving] = useState(false)
   const [returning, setReturning] = useState(false)
   const [confirmReturn, setConfirmReturn] = useState(false)
@@ -49,13 +50,20 @@ export default function WorksheetGraderPage() {
 
   const loadSubmission = async () => {
     setLoading(true)
-    const { data: sub } = await supabase
-      .from('submissions')
-      .select('*, student:students(id, user_id, full_name, admission_number, class:classes(name)), assignment:assignments(*)')
-      .eq('id', submissionId)
-      .single()
+    setLoadError(false)
+    try {
+      const { data: sub, error: subErr } = await supabase
+        .from('submissions')
+        .select('*, student:students(id, user_id, full_name, admission_number, class:classes(name)), assignment:assignments(*)')
+        .eq('id', submissionId)
+        .single()
 
-    if (!sub) { toast.error('Submission not found'); setLoading(false); return }
+      if (subErr || !sub) { 
+        toast.error('Submission not found')
+        setLoadError(true)
+        setLoading(false)
+        return 
+      }
     setSubmission(sub)
     setFeedback(sub.feedback ?? '')
     setAnswers(sub.worksheet_answers ?? {})
@@ -144,7 +152,12 @@ export default function WorksheetGraderPage() {
        setPageImages([a.attachment_url])
     }
 
-    setLoading(false)
+    } catch (err: any) {
+      console.error('[Marking] Load error:', err)
+      setLoadError(true)
+    } finally {
+      setLoading(false)
+    }
   }
 
   // Auto-save marking progress
@@ -229,7 +242,28 @@ export default function WorksheetGraderPage() {
 
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg)' }}>
-      <div className="w-10 h-10 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: 'var(--primary)' }} />
+      <div className="text-center space-y-4">
+        <div className="w-10 h-10 border-2 border-t-transparent rounded-full animate-spin mx-auto" style={{ borderColor: 'var(--primary)' }} />
+        <p className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>Loading submission…</p>
+      </div>
+    </div>
+  )
+
+  if (loadError) return (
+    <div className="min-h-screen flex items-center justify-center p-6" style={{ background: 'var(--bg)' }}>
+      <div className="text-center space-y-5 max-w-sm">
+        <div className="w-16 h-16 rounded-3xl bg-rose-500/10 flex items-center justify-center mx-auto">
+          <AlertCircle size={32} className="text-rose-500" />
+        </div>
+        <div>
+          <h2 className="text-xl font-black uppercase italic" style={{ color: 'var(--text)' }}>Failed to Load</h2>
+          <p className="text-sm mt-2" style={{ color: 'var(--text-muted)' }}>Could not load this submission. Please check your connection.</p>
+        </div>
+        <div className="flex gap-3 justify-center">
+          <Button variant="secondary" onClick={() => router.back()}><ArrowLeft size={16} /> Back</Button>
+          <Button onClick={() => loadSubmission()}>Try Again</Button>
+        </div>
+      </div>
     </div>
   )
 
@@ -576,23 +610,44 @@ export default function WorksheetGraderPage() {
                <div className="p-5 space-y-3" style={{ borderBottom: '1px solid var(--card-border)' }}>
                   <div className="text-xs font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Marks — Q{activeIndex + 1}</div>
                   <div className="flex items-center gap-2 flex-wrap">
-                     {[0, Math.ceil(activeBlock.marks / 2), activeBlock.marks]
-                        .filter((v, i, a) => a.indexOf(v) === i)
-                        .map(v => (
-                        <button key={v} onClick={() => setQuestionMarks(p => ({ ...p, [activeBlock.id]: v }))}
-                           className="px-4 py-2 rounded-xl text-sm font-black transition-all"
-                           style={{ background: questionMarks[activeBlock.id] === v ? 'var(--primary)' : 'var(--input)', color: questionMarks[activeBlock.id] === v ? 'white' : 'var(--text-muted)' }}>
-                           {v}
-                        </button>
-                        ))}
-                     <input
-                        type="number" min={0} max={activeBlock.marks}
-                        value={questionMarks[activeBlock.id] ?? 0}
-                        onChange={e => setQuestionMarks(p => ({ ...p, [activeBlock.id]: Math.min(activeBlock.marks, Math.max(0, parseInt(e.target.value) || 0)) }))}
-                        className="w-20 rounded-xl px-3 py-2 text-sm text-center font-bold"
-                        style={{ background: 'var(--input)', color: 'var(--primary)', border: '1px solid var(--card-border)' }}
-                     />
-                     <span className="text-sm ml-1" style={{ color: 'var(--text-muted)' }}>/ {activeBlock.marks}</span>
+                     {activeBlock.marks <= 10 ? (
+                        // If marks <= 10, show all options as clickable chips
+                        Array.from({ length: activeBlock.marks + 1 }).map((_, v) => (
+                           <button key={v} onClick={() => setQuestionMarks(p => ({ ...p, [activeBlock.id]: v }))}
+                              className="w-10 h-10 rounded-xl text-sm font-black transition-all flex items-center justify-center shrink-0"
+                              style={{ background: questionMarks[activeBlock.id] === v ? 'var(--primary)' : 'var(--input)', color: questionMarks[activeBlock.id] === v ? 'white' : 'var(--text-muted)' }}>
+                              {v}
+                           </button>
+                        ))
+                     ) : (
+                        // If marks > 10, show 0, Half, Full and an Input box that doesn't break when cleared
+                        <>
+                           {[0, Math.ceil(activeBlock.marks / 2), activeBlock.marks]
+                              .filter((v, i, a) => a.indexOf(v) === i)
+                              .map(v => (
+                              <button key={v} onClick={() => setQuestionMarks(p => ({ ...p, [activeBlock.id]: v }))}
+                                 className="px-4 py-2 rounded-xl text-sm font-black transition-all"
+                                 style={{ background: questionMarks[activeBlock.id] === v ? 'var(--primary)' : 'var(--input)', color: questionMarks[activeBlock.id] === v ? 'white' : 'var(--text-muted)' }}>
+                                 {v}
+                              </button>
+                              ))}
+                           <input
+                              type="number" min={0} max={activeBlock.marks}
+                              value={questionMarks[activeBlock.id] === undefined ? '' : questionMarks[activeBlock.id]}
+                              onChange={e => {
+                                 const val = e.target.value
+                                 if (val === '') {
+                                    setQuestionMarks(p => { const next = { ...p }; delete next[activeBlock.id]; return next; })
+                                 } else {
+                                    setQuestionMarks(p => ({ ...p, [activeBlock.id]: Math.min(activeBlock.marks, Math.max(0, parseInt(val) || 0)) }))
+                                 }
+                              }}
+                              className="w-20 rounded-xl px-3 py-2 text-sm text-center font-bold"
+                              style={{ background: 'var(--input)', color: 'var(--primary)', border: '1px solid var(--card-border)' }}
+                           />
+                           <span className="text-sm ml-1" style={{ color: 'var(--text-muted)' }}>/ {activeBlock.marks}</span>
+                        </>
+                     )}
                   </div>
                </div>
                )}

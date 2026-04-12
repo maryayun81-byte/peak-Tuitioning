@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -63,6 +63,7 @@ const LEADERSHIP_TIPS = [
 ]
 
 const AVATAR_OPTIONS = [
+  // Existing High-Energy Bots
   'https://api.dicebear.com/9.x/bottts/svg?seed=Phoenix&backgroundColor=b6e3f4',
   'https://api.dicebear.com/9.x/bottts/svg?seed=Infinity&backgroundColor=c0aede',
   'https://api.dicebear.com/9.x/bottts/svg?seed=Zenith&backgroundColor=d1d4f9',
@@ -75,6 +76,34 @@ const AVATAR_OPTIONS = [
   'https://api.dicebear.com/9.x/bottts/svg?seed=Aero&backgroundColor=d1d4f9',
   'https://api.dicebear.com/9.x/bottts/svg?seed=Pulse&backgroundColor=ffd5dc',
   'https://api.dicebear.com/9.x/bottts/svg?seed=Nova&backgroundColor=ffdfbf',
+  // New "Hero" Style Avatars
+  'https://api.dicebear.com/9.x/avataaars/svg?seed=Super1&backgroundColor=b6e3f4',
+  'https://api.dicebear.com/9.x/avataaars/svg?seed=Super2&backgroundColor=c0aede',
+  'https://api.dicebear.com/9.x/avataaars/svg?seed=Super3&backgroundColor=d1d4f9',
+  'https://api.dicebear.com/9.x/avataaars/svg?seed=Super4&backgroundColor=ffdfbf',
+  'https://api.dicebear.com/9.x/avataaars/svg?seed=Super5&backgroundColor=ffd5dc',
+  'https://api.dicebear.com/9.x/avataaars/svg?seed=Super6&backgroundColor=d1f4d1',
+  // New "Academy" Style Icons
+  'https://api.dicebear.com/9.x/identicon/svg?seed=Team1&backgroundColor=b6e3f4',
+  'https://api.dicebear.com/9.x/identicon/svg?seed=Team2&backgroundColor=c0aede',
+  'https://api.dicebear.com/9.x/identicon/svg?seed=Team3&backgroundColor=d1d4f9',
+  'https://api.dicebear.com/9.x/identicon/svg?seed=Team4&backgroundColor=ffdfbf',
+  'https://api.dicebear.com/9.x/identicon/svg?seed=Team5&backgroundColor=ffd5dc',
+  'https://api.dicebear.com/9.x/identicon/svg?seed=Team6&backgroundColor=d1f4d1',
+  // New "Pixel" Style Squads
+  'https://api.dicebear.com/9.x/pixel-art/svg?seed=Squad1&backgroundColor=b6e3f4',
+  'https://api.dicebear.com/9.x/pixel-art/svg?seed=Squad2&backgroundColor=c0aede',
+  'https://api.dicebear.com/9.x/pixel-art/svg?seed=Squad3&backgroundColor=d1d4f9',
+  'https://api.dicebear.com/9.x/pixel-art/svg?seed=Squad4&backgroundColor=ffdfbf',
+  'https://api.dicebear.com/9.x/pixel-art/svg?seed=Squad5&backgroundColor=ffd5dc',
+  'https://api.dicebear.com/9.x/pixel-art/svg?seed=Squad6&backgroundColor=d1f4d1',
+  // New "Vibrant" Abstract Shapes
+  'https://api.dicebear.com/9.x/jdenticon/svg?seed=Alpha&backgroundColor=b6e3f4',
+  'https://api.dicebear.com/9.x/jdenticon/svg?seed=Beta&backgroundColor=c0aede',
+  'https://api.dicebear.com/9.x/jdenticon/svg?seed=Gamma&backgroundColor=d1d4f9',
+  'https://api.dicebear.com/9.x/jdenticon/svg?seed=Delta&backgroundColor=ffdfbf',
+  'https://api.dicebear.com/9.x/jdenticon/svg?seed=Epsilon&backgroundColor=ffd5dc',
+  'https://api.dicebear.com/9.x/jdenticon/svg?seed=Zeta&backgroundColor=d1f4d1',
 ]
 
 function LeadershipMarquee() {
@@ -128,6 +157,7 @@ export default function StudentTriviaPage() {
   const [mySentRequests, setMySentRequests] = useState<JoinRequest[]>([])
   const [incomingApprovals, setIncomingApprovals] = useState<JoinRequest[]>([])
   const [loadingSquads, setLoadingSquads] = useState(false)
+  const squadHQRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (student?.id) { loadSquadArchitecture() }
@@ -396,7 +426,7 @@ export default function StudentTriviaPage() {
       </header>
 
       {/* ── SQUAD COMMAND CENTER ── */}
-      <div className="relative z-20 space-y-8">
+      <div className="relative z-20 space-y-8" ref={squadHQRef}>
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           
           {/* Academy Squad - Left/Center */}
@@ -544,7 +574,14 @@ export default function StudentTriviaPage() {
               <motion.div key={t.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }} whileHover={{ scale: 1.02 }}>
                 <Card 
                   className={`p-6 cursor-pointer relative overflow-hidden transition-all duration-300 border-2 group shadow-lg ${isTop ? 'border-amber-400 bg-amber-400/5' : hasSubmitted ? 'border-emerald-500/20 bg-emerald-500/5 opacity-80' : 'border-[var(--card-border)] hover:border-primary/50 shadow-xl bg-[var(--card)]'}`}
-                  onClick={() => router.push(`/student/trivia/${t.id}`)}
+                  onClick={() => {
+                    if (hasGroup || hasSubmitted) {
+                      router.push(`/student/trivia/${t.id}`)
+                    } else {
+                      toast.error('Mission Locked: You must join or form a squad to enter this arena!')
+                      squadHQRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                    }
+                  }}
                 >
                   <div className="flex items-start gap-4">
                     <div className="w-14 h-14 rounded-2xl bg-[var(--input)] flex items-center justify-center shrink-0 border border-[var(--card-border)] relative">
@@ -595,7 +632,7 @@ export default function StudentTriviaPage() {
       <AnimatePresence>
         {showSquadCreator && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-[var(--bg)]/90 backdrop-blur-md">
-             <Card className="w-full max-w-lg p-8 relative space-y-8 border-2 border-primary/20 shadow-2xl">
+             <Card className="w-full max-w-lg p-6 md:p-8 relative space-y-6 md:space-y-8 border-2 border-primary/20 shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar">
                 <button onClick={() => setShowSquadCreator(false)} className="absolute top-6 right-6 text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"><X size={24} /></button>
                 
                 <div className="text-center space-y-2">
@@ -613,8 +650,8 @@ export default function StudentTriviaPage() {
                       </AnimatePresence>
                       <div className="absolute inset-0 bg-gradient-to-t from-primary/20 to-transparent opacity-0 group-hover/avatar:opacity-100 transition-opacity" />
                    </div>
-                   <h2 className="text-2xl font-black uppercase italic" style={{ color: 'var(--text)' }}>Academy Registration</h2>
-                   <p className="text-[10px] font-black text-primary uppercase tracking-[0.4em]">Unity • Glory • Legacy</p>
+                   <h2 className="text-xl md:text-2xl font-black uppercase italic" style={{ color: 'var(--text)' }}>Academy Registration</h2>
+                   <p className="text-[9px] md:text-[10px] font-black text-primary uppercase tracking-[0.4em]">Unity • Glory • Legacy</p>
                 </div>
 
                 <div className="space-y-6">
@@ -633,7 +670,7 @@ export default function StudentTriviaPage() {
                       </div>
                    </div>
 
-                   <Input label="Squad Designation" value={newSquadName} onChange={e => setNewSquadName(e.target.value)} placeholder="Enter unique squad name..." className="h-14 font-black uppercase italic" />
+                   <Input label="Squad Designation" value={newSquadName} onChange={e => setNewSquadName(e.target.value)} placeholder="Enter unique squad name..." className="h-12 md:h-14 font-black uppercase italic" />
                    
                    <div>
                       <label className="text-[10px] font-black uppercase text-[var(--text-muted)] mb-2 block">Recruit Your Roster (Max 3)</label>
@@ -656,9 +693,9 @@ export default function StudentTriviaPage() {
                    </div>
                 </div>
 
-                <div className="flex gap-4 pt-4">
-                   <Button variant="secondary" className="flex-1 h-14 font-black uppercase" onClick={() => setShowSquadCreator(false)}>Cancel</Button>
-                   <Button className="flex-1 h-14 font-black uppercase bg-primary text-white shadow-xl shadow-primary/20" onClick={handleCreateAcademySquad} disabled={!newSquadName.trim() || loadingSquads}>
+                <div className="flex flex-col sm:flex-row gap-4 pt-4">
+                   <Button variant="secondary" className="flex-1 h-12 md:h-14 font-black uppercase" onClick={() => setShowSquadCreator(false)}>Cancel</Button>
+                   <Button className="flex-1 h-12 md:h-14 font-black uppercase bg-primary text-white shadow-xl shadow-primary/20" onClick={handleCreateAcademySquad} disabled={!newSquadName.trim() || loadingSquads}>
                       Confirm Roster <ArrowRight size={20} className="ml-2" />
                    </Button>
                 </div>

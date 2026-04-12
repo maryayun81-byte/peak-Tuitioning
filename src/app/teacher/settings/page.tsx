@@ -15,6 +15,7 @@ import { useThemeStore } from '@/stores/themeStore'
 import { THEMES } from '@/lib/themes'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { PageStates } from '@/components/ui/PageStates'
+import { SkeletonList } from '@/components/ui/Skeleton'
 import { usePageData } from '@/hooks/usePageData'
 import toast from 'react-hot-toast'
 
@@ -34,8 +35,10 @@ export default function TeacherSettings() {
     cacheKey: ['teacher-details-settings', profile?.id || 'anon'],
     fetcher: async () => {
       if (!profile?.id) return { data: null, error: 'No profile' }
-      const { data, error } = await supabase
-        .from('teachers')
+      
+      try {
+        const { data, error } = await supabase
+          .from('teachers')
         .select(`
           *,
           teacher_curricula(curriculum:curricula(name)),
@@ -65,6 +68,9 @@ export default function TeacherSettings() {
         },
         error: null
       }
+      } catch (err: any) {
+        return { data: null, error: err.message }
+      }
     },
     enabled: !!profile?.id,
   })
@@ -85,7 +91,7 @@ export default function TeacherSettings() {
     { id: 'theme', label: 'Appearance', icon: <Palette size={16} /> },
   ]
 
-  if (status === 'loading') return <div className="p-12 text-center opacity-50 font-black animate-pulse">Initializing Portal Data...</div>
+  if (status === 'loading') return <div className="p-8"><SkeletonList count={3} /></div>
   if (status === 'error' || status === 'timeout') return <PageStates status={status} onRetry={refetch} />
   if (!teacherData) return null
 

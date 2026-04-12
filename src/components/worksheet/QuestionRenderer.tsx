@@ -73,26 +73,37 @@ export function QuestionRenderer({ block, index, answer, onChange, readOnly, sho
 
   const renderQuestionImage = () => {
     if (!block.image_url) return null
-    const isPDF = block.image_url.toLowerCase().split('?')[0].endsWith('.pdf')
+    const urlLower = block.image_url.toLowerCase().split('?')[0]
+    const isPDF = urlLower.endsWith('.pdf')
+    const isImage = /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(urlLower)
 
-    if (isPDF) {
+    // Both PDFs and non-image documents (DOCX, etc.) fallback to the robust embedded document card.
+    // Native iframes for PDFs silently fail on iOS/Safari, leaving students with a blank 500px box.
+    if (isPDF || !isImage) {
       return (
-        <div className="my-4 space-y-2">
-          <div className="rounded-2xl overflow-hidden border border-slate-200 bg-white shadow-sm h-[500px] w-full">
-            <iframe 
-              src={block.image_url} 
-              className="w-full h-full border-none"
-              title={`PDF prompt for question ${index}`}
-            />
-          </div>
-          <a 
-            href={block.image_url} 
-            target="_blank" 
-            rel="noreferrer"
-            className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-[#0EA5E9] hover:underline px-1"
-          >
-            <BookOpen size={12} /> View Fullscreen / Download
-          </a>
+        <div className="my-4 rounded-xl border border-primary/20 bg-primary/5 p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
+           <div className="flex items-start sm:items-center gap-4">
+              <div className="w-12 h-12 rounded-xl text-white flex items-center justify-center shrink-0" style={{ background: 'var(--primary)' }}>
+                 <BookOpen size={24} />
+              </div>
+              <div>
+                 <p className="text-sm font-black text-slate-800 tracking-tight">
+                   {isPDF ? 'Attached PDF Document' : 'Attached Document'}
+                 </p>
+                 <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-0.5">
+                   Opens in a safe tab
+                 </p>
+              </div>
+           </div>
+           <a 
+             href={block.image_url} 
+             target="_blank" 
+             rel="noreferrer"
+             className="w-full sm:w-auto px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest shadow-md hover:scale-[1.02] active:scale-95 transition-all outline-none text-center"
+             style={{ background: 'var(--primary)', color: '#ffffff' }}
+           >
+             Read Document
+           </a>
         </div>
       )
     }

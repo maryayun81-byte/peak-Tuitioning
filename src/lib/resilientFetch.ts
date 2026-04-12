@@ -8,9 +8,9 @@
  * - UND_ERR_CONNECT_TIMEOUT (Internal Node/Undici timeouts)
  */
 
-const MAX_RETRIES = 3
+const MAX_RETRIES = 1
 const INITIAL_DELAY_MS = 500
-const MAX_TIMEOUT_MS = 25000 // 25s per attempt — accounts for Vercel/Supabase cold-starts
+const MAX_TIMEOUT_MS = 15000 // 15s per attempt — strict enforcement but respects cold-starts
 
 function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms))
@@ -59,8 +59,18 @@ export async function resilientFetch(
       throw err
     }
 
+    // --- STORAGE BYPASS ---
+    // Detect Storage Operations (Uploads/Downloads).
+    // We bypass resilientFetch logic for storage to preserve native stream handling and real upload progress.
+    const urlStr = input.toString()
+    const isStorageOp = urlStr.includes('/storage/v1/object') || urlStr.includes('supabase.co/storage')
+    if (isStorageOp) {
+       return fetch(input, init)
+    }
+
+    const currentTimeout = MAX_TIMEOUT_MS
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), MAX_TIMEOUT_MS)
+    const timeoutId = setTimeout(() => controller.abort(), currentTimeout)
 
     // Bridge the parent's generic abort signal to our internal controller
     const parentAbortHandler = () => {
@@ -94,7 +104,10 @@ export async function resilientFetch(
       }
       
       // Reconstruct the response with the buffered body so downstream clients (supabase-js) can parse it.
-      return new Response(buffer, {
+      // HTTP spec strictly forbids bodies for 204, 205, and 304 status codes.
+      const isBodyAllowed = response.status !== 204 && response.status !== 205 && response.status !== 304
+      
+      return new Response(isBodyAllowed ? buffer : null, {
         status: response.status,
         statusText: response.statusText,
         headers: response.headers

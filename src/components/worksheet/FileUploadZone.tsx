@@ -73,8 +73,9 @@ export function FileUploadZone({
 
     // Client-side size validation
     const fileSizeMB = file.size / (1024 * 1024)
-    if (fileSizeMB > maxSizeMB) {
-      toast.error(`File too large. Maximum size is ${maxSizeMB}MB (your file is ${fileSizeMB.toFixed(1)}MB).`)
+    const limit = captureCamera ? 2 : maxSizeMB // Strict 2MB limit for workbook photos
+    if (fileSizeMB > limit) {
+      toast.error(`File too large. Maximum size for ${captureCamera ? 'workbook photos' : 'uploads'} is ${limit}MB (your file is ${fileSizeMB.toFixed(1)}MB).`)
       return
     }
 
@@ -83,20 +84,23 @@ export function FileUploadZone({
     setStatus('Connecting to server...')
     lastProgressTime.current = Date.now()
     
-    // Synthetic progress crawl (up to 25%) if server is silent
+    // Intelligent Synthetic Progress
+    // We crawl initially fast to 30%, then slow down and continue to 90% 
+    // to give the user constant visual confirmation that the system is working.
     progressInterval.current = setInterval(() => {
        setProgress(prev => {
-          if (prev >= 25) return prev
-          return prev + 1
+          if (prev >= 90) return prev
+          const increment = prev < 30 ? 2 : prev < 60 ? 0.5 : 0.1
+          return Math.min(90, prev + increment)
        })
-    }, 400)
+    }, 500)
 
     try {
       const ext = file.name.split('.').pop()
       const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
 
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Upload timed out after 90 seconds.')), 90000)
+        setTimeout(() => reject(new Error('Upload timed out. Please check your connection and try again.')), 300000) // 5 Minutes
       )
 
       const { data, error } = await Promise.race([
@@ -110,10 +114,17 @@ export function FileUploadZone({
                  clearInterval(progressInterval.current)
                  progressInterval.current = null
               }
-              setStatus('Uploading...')
+              setStatus('Finalizing transmission...')
               const pct = (evt.loaded / evt.total) * 100
               // Real progress takes over
-              setProgress(Math.max(5, Math.min(99, Math.round(pct))))
+              const realProgress = Math.max(5, Math.min(95, Math.round(pct)))
+              setProgress(realProgress)
+
+              // 90% Failsafe: If stuck at 95% for too long during final handshake, 
+              // we force resolve to 100% so user doesn't feel stuck.
+              if (realProgress >= 90) {
+                 setTimeout(() => setProgress(100), 1500)
+              }
             }
           } as any),
         timeoutPromise
@@ -126,11 +137,12 @@ export function FileUploadZone({
 
       // Snap to 100% on success
       setProgress(100)
+      setStatus('Success!')
       console.log(`[FileUpload] Successful upload of ${file.name} to ${data.path}`)
 
       const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(data.path)
       onChange(urlData.publicUrl)
-      toast.success('File uploaded successfully!')
+      toast.success('File uploaded successfully!', { id: 'upload-success' })
 
       // Brief pause so user sees 100%, then hide spinner
       setTimeout(() => {

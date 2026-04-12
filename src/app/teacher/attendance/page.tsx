@@ -122,9 +122,12 @@ export default function TeacherAttendance() {
   useEffect(() => {
     if (loading) {
       const t = setTimeout(() => {
-        setLoading(false)
-        console.warn('TeacherAttendance timeout triggered')
-      }, 8000)
+        if (loading) {
+          setLoading(false)
+          toast.error('Network delay: UI unlocked, but data may be incomplete.')
+          console.warn('TeacherAttendance timeout triggered')
+        }
+      }, 5000)
       return () => clearTimeout(t)
     }
   }, [loading])
@@ -168,6 +171,7 @@ export default function TeacherAttendance() {
 
   const loadBaseData = async () => {
     setLoading(true)
+    
     try {
       // Load events + teacher assignments concurrently
       const [evRes, assignRes] = await Promise.all([

@@ -59,7 +59,7 @@ export default function TeacherSchedule() {
       loadData()
       loadTeachers()
     }
-  }, [teacher, viewMode])
+  }, [teacher, viewMode, selectedClassContext])
 
   const loadTeachers = async () => {
     const { data } = await supabase.from('teachers').select('id, full_name')
@@ -142,7 +142,7 @@ export default function TeacherSchedule() {
     } finally {
       setLoading(false)
     }
-  }, [teacher, viewMode])
+  }, [teacher, viewMode, selectedClassContext, supabase])
 
   const handleRequestSwap = async () => {
     if (!selectedSession || !teacher) return

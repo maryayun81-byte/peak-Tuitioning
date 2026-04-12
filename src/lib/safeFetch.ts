@@ -19,8 +19,8 @@ export interface SafeFetchResult<T> {
   timedOut: boolean
 }
 
-const DEFAULT_TIMEOUT_MS = 8000
-const DEFAULT_RETRIES = 2
+const DEFAULT_TIMEOUT_MS = 15000
+const DEFAULT_RETRIES = 1
 
 function sleep(ms: number, signal?: AbortSignal) {
   return new Promise<void>((resolve, reject) => {
