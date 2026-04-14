@@ -1,13 +1,15 @@
 'use client'
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
+import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
   Calendar as CalIcon, Clock, MapPin, 
   Users, ChevronLeft, ChevronRight, 
   Filter, Zap, CheckCircle2, ArrowRight,
   Info, School, Coffee, BookOpen, LayoutGrid, List,
-  ArrowRightLeft, UserCircle, MessageSquare, X, Check
+  ArrowRightLeft, UserCircle, MessageSquare, X, Check,
+  Target, TrendingUp, HelpCircle, Activity, ExternalLink
 } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Card, Badge } from '@/components/ui/Card'
@@ -18,9 +20,15 @@ import { useAuthStore } from '@/stores/authStore'
 import toast from 'react-hot-toast'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-const TIME_SLOTS = [
-  '08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00'
-]
+
+// Subject Branding Map
+const SUBJECT_STAYLE: Record<string, { color: string, bg: string, icon: any }> = {
+  'math': { color: '#6366F1', bg: 'rgba(99, 102, 241, 0.1)', icon: <TrendingUp size={12} /> },
+  'maths': { color: '#6366F1', bg: 'rgba(99, 102, 241, 0.1)', icon: <TrendingUp size={12} /> },
+  'science': { color: '#10B981', bg: 'rgba(16, 185, 129, 0.1)', icon: <Zap size={12} /> },
+  'english': { color: '#F59E0B', bg: 'rgba(245, 158, 11, 0.1)', icon: <BookOpen size={12} /> },
+  'default': { color: '#8B5CF6', bg: 'rgba(139, 92, 246, 0.1)', icon: <Activity size={12} /> }
+}
 
 type ViewType = 'personal' | 'classes'
 
@@ -34,6 +42,7 @@ export default function TeacherSchedule() {
   const [viewMode, setViewMode] = useState<ViewType>('personal')
   const [activeDay, setActiveDay] = useState(DAYS[new Date().getDay() - 1] || 'Monday')
   const [isMobile, setIsMobile] = useState(false)
+  const [currentTime, setCurrentTime] = useState(new Date())
   
   // Class Context Toggle State
   const [selectedClassContext, setSelectedClassContext] = useState<string>('all')
@@ -43,7 +52,13 @@ export default function TeacherSchedule() {
     const checkMobile = () => setIsMobile(window.innerWidth < 1024)
     checkMobile()
     window.addEventListener('resize', checkMobile)
-    return () => window.removeEventListener('resize', checkMobile)
+    
+    const timer = setInterval(() => setCurrentTime(new Date()), 60000)
+    
+    return () => {
+      window.removeEventListener('resize', checkMobile)
+      clearInterval(timer)
+    }
   }, [])
   
   // Swap UI State
@@ -195,168 +210,283 @@ export default function TeacherSchedule() {
     }
   }
 
+  // Dynamic Timegrid Calculation
+  const { timegrid, minHour, maxHour } = useMemo(() => {
+     if (schedule.length === 0) return { timegrid: ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00'], minHour: 8, maxHour: 13 }
+     
+     const hours = schedule.map(s => parseInt(s.start_time.split(':')[0]))
+     const endHours = schedule.map(s => parseInt(s.end_time.split(':')[0]))
+     
+     const min = Math.max(0, Math.min(...hours) - 1)
+     const max = Math.min(23, Math.max(...endHours) + 1)
+     
+     const grid = []
+     for (let i = min; i <= max; i++) {
+        grid.push(`${i.toString().padStart(2, '0')}:00`)
+     }
+     
+     return { timegrid: grid, minHour: min, maxHour: max }
+  }, [schedule])
+
   const getSessionStyle = (startTime: string, endTime: string) => {
     const startHour = parseInt(startTime.split(':')[0])
     const startMin = parseInt(startTime.split(':')[1])
     const endHour = parseInt(endTime.split(':')[0])
     const endMin = parseInt(endTime.split(':')[1])
-    const startPos = (startHour - 8) * 60 + startMin
+    
+    const startPos = (startHour - minHour) * 60 + startMin
     const duration = (endHour - startHour) * 60 + (endMin - startMin)
-    return { top: `${(startPos / 60) * 100}px`, height: `${(duration / 60) * 100}px` }
+    return { 
+      top: `${(startPos / 60) * 120}px`, 
+      height: `${(duration / 60) * 120}px` 
+    }
   }
 
+  // Live Indicator Position
+  const liveIndicatorY = useMemo(() => {
+     const h = currentTime.getHours()
+     const m = currentTime.getMinutes()
+     if (h < minHour || h > maxHour) return null
+     const pos = (h - minHour) * 60 + m
+     return (pos / 60) * 120
+  }, [currentTime, minHour, maxHour])
+
   return (
-    <div className="p-4 md:p-8 space-y-8 pb-32">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-         <div>
-            <h1 className="text-3xl font-black tracking-tight" style={{ color: 'var(--text)' }}>Faculty Schedule</h1>
-            <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>Coordinate and manage your teaching commitments</p>
-         </div>
-          <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
-            <div className="flex bg-[var(--input)] p-1 rounded-2xl border border-[var(--card-border)] w-full sm:w-auto">
-              <button 
-                onClick={() => setViewMode('personal')}
-                className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${viewMode === 'personal' ? 'bg-primary text-white shadow-lg' : 'text-muted hover:text-primary'}`}
-              >
-                <UserCircle size={14} /> My Sessions
-              </button>
-              <button 
-                onClick={() => setViewMode('classes')}
-                className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${viewMode === 'classes' ? 'bg-primary text-white shadow-lg' : 'text-muted hover:text-primary'}`}
-              >
-                <Users size={14} /> Class Timetables
-              </button>
+    <div className="p-4 md:p-8 space-y-10 pb-32 max-w-[1800px] mx-auto min-h-screen">
+      {/* Cinematic Header */}
+      <div className="relative group">
+         <div className="absolute -inset-1 bg-gradient-to-r from-primary to-violet-600 rounded-3xl blur opacity-10 group-hover:opacity-20 transition duration-1000"></div>
+         <div className="relative flex flex-col xl:flex-row xl:items-end justify-between gap-8 bg-[var(--card)] p-8 rounded-3xl border border-[var(--card-border)] shadow-xl shadow-primary/5">
+            <div className="space-y-4">
+               <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner">
+                     <CalIcon size={24} />
+                  </div>
+                  <div>
+                    <h1 className="text-4xl font-black tracking-tight leading-none" style={{ color: 'var(--text)' }}>Faculty Hub</h1>
+                    <div className="flex items-center gap-2 mt-1 text-xs font-bold text-muted uppercase tracking-[0.2em]" style={{ color: 'var(--text-muted)' }}>
+                       <Clock size={12} className="text-primary" /> {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {activeDay}
+                    </div>
+                  </div>
+               </div>
+               <p className="text-sm font-medium max-w-lg leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                  Welcome, <span className="text-primary font-bold">{profile?.full_name?.split(' ')[0]}</span>. You have <span className="text-primary font-bold">{schedule.filter(s => s.teacher_id === teacher?.id).length} classes</span> assigned this week. Focus on inspiring excellence today.
+               </p>
             </div>
-            {viewMode === 'classes' && teacherContexts.length > 0 && (
-               <select 
-                 className="flex-1 sm:flex-none bg-[var(--input)] border border-[var(--card-border)] text-[11px] font-bold text-primary p-2.5 rounded-xl outline-none ring-2 ring-primary/20 cursor-pointer min-w-0 max-w-full"
-                 value={selectedClassContext}
-                 onChange={(e) => setSelectedClassContext(e.target.value)}
-                 style={{ color: 'var(--text)' }}
+
+            <div className="flex flex-wrap items-center gap-4 p-2 rounded-[2rem] border border-[var(--card-border)]" style={{ background: 'var(--input)' }}>
+               <button 
+                  onClick={() => setViewMode('personal')}
+                  className={`flex items-center gap-3 px-6 py-3 rounded-[1.5rem] text-xs font-black uppercase tracking-widest transition-all ${viewMode === 'personal' ? 'bg-primary text-white shadow-2xl shadow-primary/30 ring-4 ring-primary/10' : 'text-muted hover:text-primary'}`}
                >
-                 <option value="all">All Assigned Classes</option>
-                 {teacherContexts.map((ctx, idx) => (
-                    <option key={idx} value={`${ctx.cls}|${ctx.cen}`}>
-                      {ctx.clsName} - {ctx.cenName}
-                    </option>
-                 ))}
-               </select>
-            )}
-          </div>
+                  <UserCircle size={16} /> My Stream
+               </button>
+               <button 
+                  onClick={() => setViewMode('classes')}
+                  className={`flex items-center gap-3 px-6 py-3 rounded-[1.5rem] text-xs font-black uppercase tracking-widest transition-all ${viewMode === 'classes' ? 'bg-primary text-white shadow-2xl shadow-primary/30 ring-4 ring-primary/10' : 'text-muted hover:text-primary'}`}
+               >
+                  <Users size={16} /> Global Grid
+               </button>
+               {viewMode === 'classes' && teacherContexts.length > 0 && (
+                  <div className="pl-2 border-l py-1" style={{ borderColor: 'var(--card-border)' }}>
+                     <select 
+                        className="bg-transparent text-[11px] font-black text-primary uppercase tracking-widest outline-none cursor-pointer"
+                        value={selectedClassContext}
+                        onChange={(e) => setSelectedClassContext(e.target.value)}
+                        style={{ color: 'var(--primary)' }}
+                     >
+                        <option value="all">Everywhere</option>
+                        {teacherContexts.map((ctx, idx) => (
+                           <option key={idx} value={`${ctx.cls}|${ctx.cen}`}>{ctx.clsName}</option>
+                        ))}
+                     </select>
+                  </div>
+               )}
+            </div>
+         </div>
       </div>
 
-      {/* Swaps Inbox */}
-      {swaps.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-           {swaps.map(s => (
-             <Card key={s.id} className="p-4 border-amber-500/30 bg-amber-500/5 flex flex-col gap-3">
-                <div className="flex items-center justify-between">
-                   <Badge variant="warning" className="text-[9px]">Swap Request</Badge>
-                   <span className="text-[10px] text-muted">{s.timetable?.day} {s.timetable?.start_time}</span>
-                </div>
-                <p className="text-xs font-bold" style={{ color: 'var(--text)' }}>
-                   {s.requested_by.full_name} is requesting someone to cover their class.
-                </p>
-                {s.reason && <p className="text-[10px] italic text-muted opacity-80">"{s.reason}"</p>}
-                <div className="flex gap-2 mt-2">
-                   <Button size="sm" variant="secondary" className="flex-1 text-[10px]" onClick={() => handleHandleSwap(s, 'accepted')}>
-                      <Check size={12} className="mr-1" /> Stepping In
-                   </Button>
-                   <Button size="sm" variant="ghost" className="text-[10px]" onClick={() => handleHandleSwap(s, 'rejected')}>
-                      <X size={12} />
-                   </Button>
-                </div>
-             </Card>
-           ))}
-        </div>
-      )}
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-8 items-start">
+         {/* Main Schedule Pane */}
+         <div className="space-y-8">
+            {/* Days Pipeline */}
+            <div className="flex items-center gap-3 p-2 rounded-[2rem] border border-[var(--card-border)] shadow-sm overflow-x-auto no-scrollbar" style={{ background: 'var(--card)' }}>
+               {DAYS.map(day => (
+                  <button 
+                     key={day}
+                     onClick={() => setActiveDay(day)}
+                     className={`px-8 py-3 rounded-3xl font-black text-[10px] uppercase tracking-[0.2em] transition-all whitespace-nowrap ${activeDay === day ? 'bg-primary text-white shadow-lg' : 'text-muted hover:bg-primary/5 hover:text-primary'}`}
+                  >
+                     {day.substring(0, 3)}
+                  </button>
+               ))}
+            </div>
 
-      {loading ? <SkeletonDashboard /> : (
-        <div className="space-y-6">
-          <div className="flex overflow-x-auto pb-2 gap-3 no-scrollbar">
-             {DAYS.map(day => (
-               <button 
-                 key={day}
-                 onClick={() => setActiveDay(day)}
-                 className={`px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-all whitespace-nowrap border-2 ${activeDay === day ? 'bg-primary text-white border-primary shadow-xl shadow-primary/20 scale-105' : 'bg-[var(--card)] text-[var(--text-muted)] border-[var(--card-border)] hover:bg-[var(--input)]'}`}
-               >
-                  {day}
-               </button>
-             ))}
-          </div>
+            {loading ? <SkeletonDashboard /> : (
+               <div className="relative">
+                  <Card className="overflow-hidden border-none shadow-2xl rounded-[2.5rem] border border-white/5" style={{ background: 'var(--card)' }}>
+                     {!isMobile ? (
+                        <div className="p-0 md:p-6 overflow-x-auto">
+                           <div className="min-w-[1400px]">
+                              {/* Grid Header */}
+                              <div className="grid grid-cols-[100px_repeat(7,1fr)] py-6 mb-4" style={{ borderBottom: '1px solid var(--card-border)' }}>
+                                 <div className="pl-6 text-[10px] font-black uppercase tracking-[0.3em] text-muted">Time</div>
+                                 {DAYS.map(day => (
+                                    <div key={day} className={`text-center text-[11px] font-black uppercase tracking-[0.2em] ${day === activeDay ? 'text-primary' : 'text-muted opacity-40'}`}>
+                                       {day}
+                                    </div>
+                                 ))}
+                              </div>
 
-          <Card className="overflow-hidden border-none shadow-2xl relative" style={{ background: 'var(--card)' }}>
-             {!isMobile ? (
-               <div className="p-0 md:p-4 overflow-x-auto">
-                 <div className="min-w-[1200px]">
-                   {/* Grid Header */}
-                   <div className="grid grid-cols-[100px_repeat(7,1fr)] border-b border-[var(--card-border)] text-[10px] font-black uppercase tracking-[0.2em] text-muted py-4">
-                     <div className="pl-4">Time</div>
-                     {DAYS.map(day => (
-                       <div key={day} className={`text-center ${day === activeDay ? 'text-primary' : ''}`}>{day}</div>
-                     ))}
-                   </div>
+                              {/* Grid Body */}
+                              <div className="relative grid grid-cols-[100px_repeat(7,1fr)] rounded-[2rem]" style={{ height: `${timegrid.length * 120}px`, background: 'var(--input)', opacity: '0.8' }}>
+                                 {/* Time labels column */}
+                                 <div className="relative">
+                                    {timegrid.map(time => (
+                                       <div key={time} className="h-[120px] text-[10px] font-black text-muted pl-6 flex items-start pt-2 tracking-tighter" style={{ borderRight: '1px solid var(--card-border)' }}>{time}</div>
+                                    ))}
+                                 </div>
 
-                   {/* Grid Body */}
-                   <div className="relative grid grid-cols-[100px_repeat(7,1fr)] h-[600px]">
-                     <div className="relative pt-2">
-                        {TIME_SLOTS.map(time => (
-                          <div key={time} className="h-[100px] text-[10px] font-bold text-muted pl-4 border-r border-[var(--card-border)] flex items-start pt-1">{time}</div>
-                        ))}
+                                 {/* Day columns */}
+                                 {DAYS.map(day => (
+                                    <div key={day} className={`relative last:border-r-0 ${day === activeDay ? 'bg-primary/[0.03]' : ''}`} style={{ borderRight: '1px solid var(--card-border)' }}>
+                                       {timegrid.map(t => <div key={t} className="h-[120px]" style={{ borderBottom: '1px solid var(--card-border)', opacity: '0.3' }} />)}
+                                       {schedule.filter(s => s.day === day).map(s => (
+                                          <SessionCard 
+                                             key={s.id} 
+                                             session={s} 
+                                             teacher={teacher} 
+                                             isMine={s.teacher_id === teacher?.id}
+                                             style={getSessionStyle(s.start_time, s.end_time)}
+                                             onSwapRequest={() => { setSelectedSession(s); setSwapModalOpen(true); }}
+                                          />
+                                       ))}
+                                    </div>
+                                 ))}
+
+                                 {/* Live Timeline Indictor */}
+                                 {liveIndicatorY !== null && (
+                                    <motion.div 
+                                       initial={{ opacity: 0, x: -20 }}
+                                       animate={{ opacity: 1, x: 0 }}
+                                       className="absolute left-0 right-0 z-30 pointer-events-none flex items-center gap-2"
+                                       style={{ top: `${liveIndicatorY}px` }}
+                                    >
+                                       <div className="px-2 py-0.5 bg-rose-500 text-white text-[8px] font-black rounded uppercase ml-2 shadow-lg shadow-rose-500/30">Live</div>
+                                       <div className="flex-1 h-px bg-rose-500/50 shadow-[0_0_10px_rgba(244,63,94,0.5)]" />
+                                       <div className="w-2 h-2 rounded-full bg-rose-500 border-2 border-white dark:border-slate-800 shadow-lg mr-4" />
+                                    </motion.div>
+                                 )}
+                              </div>
+                           </div>
+                        </div>
+                     ) : (
+                        <div className="p-6 space-y-6">
+                           <div className="flex items-center justify-between">
+                              <h3 className="text-lg font-black tracking-tight" style={{ color: 'var(--text)' }}>{activeDay} <span className="text-primary italic">Sessions</span></h3>
+                              <Badge variant="primary" className="rounded-lg">{schedule.filter(s => s.day === activeDay).length} Slots</Badge>
+                           </div>
+                           {schedule.filter(s => s.day === activeDay).length === 0 ? (
+                              <div className="py-24 text-center space-y-4 rounded-[2rem] border-2 border-dashed" style={{ background: 'var(--input)', borderColor: 'var(--card-border)' }}>
+                                 <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto text-muted opacity-40" style={{ background: 'var(--card)' }}>
+                                    <CalIcon size={32} />
+                                 </div>
+                                 <p className="text-xs font-black uppercase tracking-widest text-muted">No Commitments Scheduled</p>
+                              </div>
+                           ) : (
+                              <div className="space-y-4">
+                                 {schedule.filter(s => s.day === activeDay).map(s => (
+                                    <SessionCard 
+                                       key={s.id} 
+                                       session={s} 
+                                       teacher={teacher} 
+                                       isMine={s.teacher_id === teacher?.id}
+                                       mobile
+                                       onSwapRequest={() => { setSelectedSession(s); setSwapModalOpen(true); }}
+                                    />
+                                 ))}
+                              </div>
+                           )}
+                        </div>
+                     )}
+                  </Card>
+               </div>
+            )}
+         </div>
+
+         {/* Large Screen Focus Sidebar */}
+         <div className="hidden xl:flex flex-col gap-8 sticky top-32">
+            <Card className="p-8 space-y-6 bg-gradient-to-br from-primary to-violet-600 border-none shadow-2xl shadow-primary/20 text-white rounded-[2.5rem] relative overflow-hidden group">
+               <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 blur-3xl transition-transform group-hover:scale-150 duration-700" />
+               <div className="relative space-y-4">
+                  <div className="flex items-center gap-3">
+                     <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center">
+                        <Zap size={20} />
                      </div>
+                     <span className="text-xs font-black uppercase tracking-[0.2em] opacity-80">Today's Pulse</span>
+                  </div>
+                  <div>
+                     <div className="text-4xl font-black">{schedule.filter(s => s.teacher_id === teacher?.id && s.day === (DAYS[new Date().getDay() - 1] || 'Monday')).length}</div>
+                     <div className="text-[10px] font-bold uppercase tracking-widest opacity-60">Sessions across {Array.from(new Set(schedule.filter(s => s.teacher_id === teacher?.id).map(s => s.tuition_center_id))).length} centers</div>
+                  </div>
+                  <div className="pt-4 flex gap-2">
+                     <div className="flex-1 bg-white/15 p-3 rounded-2xl">
+                        <div className="text-xl font-black">2.4k</div>
+                        <div className="text-[8px] font-black uppercase opacity-60">XP Goal</div>
+                     </div>
+                     <div className="flex-1 bg-white/15 p-3 rounded-2xl">
+                        <div className="text-xl font-black">100%</div>
+                        <div className="text-[8px] font-black uppercase opacity-60">Punctuality</div>
+                     </div>
+                  </div>
+               </div>
+            </Card>
 
-                     {DAYS.map(day => (
-                       <div key={day} className={`relative border-r border-[var(--card-border)] last:border-r-0 ${day === activeDay ? 'bg-primary/5' : ''}`}>
-                          {TIME_SLOTS.map(t => <div key={t} className="h-[100px] border-b border-[var(--card-border)] opacity-20" />)}
-                          {schedule.filter(s => s.day === day).map(s => (
-                            <SessionCard 
-                              key={s.id} 
-                              session={s} 
-                              teacher={teacher} 
-                              isMine={s.teacher_id === teacher?.id}
-                              style={getSessionStyle(s.start_time, s.end_time)}
-                              onSwapRequest={() => { setSelectedSession(s); setSwapModalOpen(true); }}
-                            />
-                          ))}
+            <Card className="p-8 space-y-6 rounded-[2.5rem] shadow-xl" style={{ background: 'var(--card)', border: '1px solid var(--card-border)' }}>
+               <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-black uppercase tracking-widest text-muted">Quick Actions</h3>
+                  <div className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+               </div>
+               <div className="space-y-3">
+                  <button className="w-full p-4 rounded-2xl flex items-center gap-4 hover:scale-[1.02] transition-all group" style={{ background: 'var(--input)' }}>
+                     <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center group-hover:bg-indigo-500 group-hover:text-white transition-colors">
+                        <Activity size={18} />
+                     </div>
+                     <div className="text-left">
+                        <div className="text-xs font-black uppercase tracking-widest" style={{ color: 'var(--text)' }}>Swap Marketplace</div>
+                        <div className="text-[10px] text-muted font-bold">{swaps.length} pending requests</div>
+                     </div>
+                  </button>
+                  <Link href="/teacher/assignments" className="block">
+                    <button className="w-full p-4 rounded-2xl flex items-center gap-4 hover:scale-[1.02] transition-all group text-left" style={{ background: 'var(--input)' }}>
+                       <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center group-hover:bg-amber-500 group-hover:text-white transition-colors">
+                          <Target size={18} />
                        </div>
-                     ))}
-                   </div>
-                 </div>
+                       <div>
+                          <div className="text-xs font-black uppercase tracking-widest" style={{ color: 'var(--text)' }}>Pending Marking</div>
+                          <div className="text-[10px] text-muted font-bold">Grade 12 submissions now</div>
+                       </div>
+                    </button>
+                  </Link>
+                  <button className="w-full p-4 rounded-2xl flex items-center gap-4 hover:scale-[1.02] transition-all group" style={{ background: 'var(--input)' }}>
+                     <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center group-hover:bg-primary group-hover:text-white transition-colors">
+                        <HelpCircle size={18} />
+                     </div>
+                     <div className="text-left">
+                        <div className="text-xs font-black uppercase tracking-widest" style={{ color: 'var(--text)' }}>Support Chat</div>
+                        <div className="text-[10px] text-muted font-bold">24/7 Admin assistance</div>
+                     </div>
+                  </button>
                </div>
-             ) : (
-               <div className="p-4 space-y-4 min-h-[400px]">
-                 <div className="flex items-center justify-between mb-2">
-                   <h3 className="text-sm font-black text-primary uppercase tracking-widest">{activeDay} Schedule</h3>
-                   <Badge variant="muted">{schedule.filter(s => s.day === activeDay).length} Sessions</Badge>
-                 </div>
-                 {schedule.filter(s => s.day === activeDay).length === 0 ? (
-                   <div className="py-20 text-center space-y-2 opacity-40">
-                      <CalIcon size={40} className="mx-auto" />
-                      <p className="text-xs font-bold uppercase">No sessions for {activeDay}</p>
-                   </div>
-                 ) : (
-                   schedule.filter(s => s.day === activeDay).map(s => (
-                     <SessionCard 
-                       key={s.id} 
-                       session={s} 
-                       teacher={teacher} 
-                       isMine={s.teacher_id === teacher?.id}
-                       mobile
-                       onSwapRequest={() => { setSelectedSession(s); setSwapModalOpen(true); }}
-                     />
-                   ))
-                 )}
-               </div>
-             )}
-          </Card>
-        </div>
-      )}
+            </Card>
 
-      {/* legend */}
-      <div className="flex flex-wrap gap-6 justify-center text-[10px] font-black tracking-widest text-muted uppercase">
-         <div className="flex items-center gap-2"><div className="w-3 h-3 rounded bg-primary/20 border-2 border-primary/50" /> Your Session</div>
-         <div className="flex items-center gap-2"><div className="w-3 h-3 rounded bg-[var(--input)] border-2 border-[var(--card-border)]" /> Colleague Session</div>
-         <div className="flex items-center gap-2"><div className="w-3 h-3 rounded bg-slate-100 border-2 border-slate-200" /> Break / Duty</div>
+            <div className="p-4 rounded-3xl border-2 border-dashed flex flex-col items-center text-center gap-2" style={{ background: 'var(--input)', borderColor: 'var(--card-border)' }}>
+               <div className="text-[10px] font-black uppercase tracking-widest text-muted">Need a permanent change?</div>
+               <button className="text-[11px] font-bold text-primary flex items-center gap-1 hover:underline">
+                  Contact Registrar <ExternalLink size={10} />
+               </button>
+            </div>
+         </div>
       </div>
 
       <Modal isOpen={swapModalOpen} onClose={() => setSwapModalOpen(false)} title="Request Session Swap 🔄" size="md">
@@ -412,51 +542,78 @@ export default function TeacherSchedule() {
 
 function SessionCard({ session: s, teacher, isMine, style, mobile, onSwapRequest }: any) {
   const isBreak = s.session_type === 'break'
+  const subjectKey = (s.subject?.name || '').toLowerCase()
+  const branding = SUBJECT_STAYLE[subjectKey] || SUBJECT_STAYLE['default']
   
   return (
     <motion.div 
-      initial={{ opacity: 0, scale: 0.95 }}
-      animate={{ opacity: 1, scale: 1 }}
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      whileHover={{ y: -4, scale: 1.01 }}
       onClick={() => { if (isMine && s.session_type === 'class') onSwapRequest() }}
-      className={`${mobile ? 'relative w-full' : 'absolute left-1 right-1'} rounded-xl p-3 border-2 overflow-hidden group cursor-pointer transition-all hover:scale-[1.02] hover:z-20 ${
-        isMine ? 'bg-primary/15 border-primary/40 ring-2 ring-primary/20 shadow-xl shadow-primary/5' : 
-        isBreak ? 'bg-slate-500/10 border-slate-500/20 grayscale translate-y-1' :
-        'bg-[var(--card)] border-[var(--card-border)] hover:bg-[var(--input)]'
+      className={`${mobile ? 'relative w-full' : 'absolute left-2 right-2'} rounded-[1.5rem] p-4 border-2 overflow-hidden group cursor-pointer transition-all ${
+        isMine ? 'bg-primary/5 border-primary/20 shadow-xl shadow-primary/5 ring-1 ring-primary/10' : 
+        isBreak ? 'opacity-60 grayscale' :
+        ''
       }`}
-      style={style}
+      style={{ 
+        ...style,
+        background: isMine ? 'var(--card)' : isBreak ? 'var(--input)' : 'var(--card)',
+        borderColor: isMine ? 'var(--primary-hover)' : 'var(--card-border)',
+        backdropFilter: 'blur(10px)',
+        WebkitBackdropFilter: 'blur(10px)'
+      }}
     >
-      <div className="flex flex-col h-full gap-1">
+      {/* Decorative Branding Line */}
+      <div className="absolute top-0 left-0 bottom-0 w-1" style={{ background: isMine ? 'var(--primary)' : branding.color }} />
+      
+      <div className="flex flex-col h-full gap-2 relative z-10">
         <div className="flex justify-between items-start">
-          <Badge variant={isMine ? 'primary' : 'muted'} className="text-[8px] px-1 py-0 font-black tracking-widest uppercase">
-            {s.start_time} - {s.end_time}
-          </Badge>
-          {isMine && <div className="w-2 h-2 rounded-full bg-primary animate-pulse shadow-[0_0_8px_rgba(245,158,11,0.5)]" />}
+          <div className="flex items-center gap-2">
+             <div className="w-6 h-6 rounded-lg flex items-center justify-center text-white shadow-lg" style={{ background: isMine ? 'var(--primary)' : branding.color }}>
+                {branding.icon}
+             </div>
+             <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+                {s.start_time}
+             </span>
+          </div>
+          {isMine && <div className="w-2 h-2 rounded-full bg-primary animate-pulse shadow-[0_0_12px_rgba(245,158,11,1)]" />}
         </div>
         
-        <div className="font-black text-[11px] md:text-xs leading-tight uppercase" style={{ color: 'var(--text)' }}>
-          {s.session_type === 'class' ? s.subject?.name : s.session_type?.toUpperCase()}
-          {s.class?.name && <span className="block text-[8px] md:text-[9px] opacity-60 font-bold lowercase tracking-tight">for {s.class.name}</span>}
+        <div className="namespace">
+          <div className="font-black text-[13px] leading-tight uppercase tracking-tight" style={{ color: 'var(--text)' }}>
+            {s.session_type === 'class' ? s.subject?.name : s.session_type?.toUpperCase()}
+          </div>
+          {s.class?.name && (
+             <div className="flex items-center gap-1 mt-0.5">
+                <School size={10} className="text-primary" />
+                <span className="text-[9px] font-black uppercase tracking-widest opacity-70" style={{ color: 'var(--primary)' }}>{s.class.name}</span>
+             </div>
+          )}
         </div>
 
-        <div className="mt-auto flex flex-col gap-1.5 pt-2">
-          <div className="flex items-center gap-1 text-[9px] font-black text-muted truncate">
-            <UserCircle size={10} className="shrink-0" />
-            {isMine ? 'YOU' : s.teacher?.full_name || 'STAFF'}
-          </div>
+        <div className="mt-auto flex flex-col gap-2">
           <div className="flex items-center justify-between">
-            <div className="bg-primary/10 text-primary px-1.5 py-0.5 rounded text-[8px] font-black uppercase flex items-center gap-1 max-w-[80%]">
-              <MapPin size={8} />
-              <span className="truncate">{s.center?.name || 'Main Center'}</span>
-            </div>
-            {isMine && s.session_type === 'class' && (
-              <button 
-                onClick={(e) => { e.stopPropagation(); onSwapRequest(); }}
-                className="flex items-center gap-1.5 bg-[var(--card)] hover:bg-white text-[10px] font-black uppercase text-primary border-2 border-primary/20 px-2 py-1 rounded-lg hover:scale-105 active:scale-95 transition-all z-30"
-              >
-                <ArrowRightLeft size={12} /> Swap
-              </button>
-            )}
+             <div className="flex items-center gap-1.5 min-w-0">
+                <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0" style={{ background: 'var(--input)' }}>
+                   <UserCircle size={12} className="text-muted opacity-50" />
+                </div>
+                <span className="text-[9px] font-bold uppercase tracking-tighter truncate" style={{ color: 'var(--text-muted)' }}>
+                   {isMine ? 'Assigned to You' : s.teacher?.full_name?.split(' ')[0] || 'Staff'}
+                </span>
+             </div>
+             <Badge variant="secondary" className="text-[8px] px-1.5 shadow-sm">{s.center?.name?.substring(0, 10) || 'Main'}</Badge>
           </div>
+
+          {isMine && s.session_type === 'class' && (
+            <button 
+              onClick={(e) => { e.stopPropagation(); onSwapRequest(); }}
+              className="w-full flex items-center justify-center gap-2 text-[9px] font-black uppercase py-2 rounded-xl active:scale-95 transition-all opacity-0 group-hover:opacity-100 transform translate-y-2 group-hover:translate-y-0"
+              style={{ background: 'var(--text)', color: 'var(--bg)' }}
+            >
+              <ArrowRightLeft size={10} /> Request Swap
+            </button>
+          )}
         </div>
       </div>
     </motion.div>

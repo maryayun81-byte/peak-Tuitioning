@@ -20,6 +20,8 @@ import toast from 'react-hot-toast'
 import type { Timetable, Class, Subject, Teacher, Curriculum, TeacherAssignment } from '@/types/database'
 import { TimetablePDF } from '@/components/admin/TimetablePDF'
 import { exportTimetableToPDF, exportTimetableAsImage } from '@/lib/export/timetableExport'
+import { usePageData } from '@/hooks/usePageData'
+import { useQueryClient } from '@tanstack/react-query'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
 const DAY_COLORS: Record<string, string> = {
@@ -60,60 +62,13 @@ function timesOverlap(s1: string, e1: string, s2: string, e2: string) {
 
 export default function AdminTimetables() {
   const supabase = getSupabaseBrowserClient()
-  const [timetables, setTimetables]     = useState<Timetable[]>([])
-  const [classes, setClasses]           = useState<Class[]>([])
-  const [subjects, setSubjects]         = useState<Subject[]>([])
-  const [teachers, setTeachers]         = useState<Teacher[]>([])
-  const [curriculums, setCurriculums]   = useState<Curriculum[]>([])
-  const [tuitionEvents, setTuitionEvents] = useState<{ id: string; name: string; status: string }[]>([])
-  const [centers, setCenters]             = useState<any[]>([])
-  const [assignments, setAssignments]     = useState<TeacherAssignment[]>([])
-  const [loading, setLoading]           = useState(true)
-  const [addOpen, setAddOpen]           = useState(false)
-  const [editing, setEditing]           = useState<Timetable | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [mobileDay, setMobileDay]       = useState(0)
-  const [exporting, setExporting]       = useState(false)
+  const queryClient = useQueryClient()
   
-  // PDF Rendering State (Current Class to Export)
-  const [pdfClass, setPdfClass] = useState<{ name: string; id: string; curriculum_id: string } | null>(null)
-  const [pdfSessions, setPdfSessions] = useState<Timetable[]>([])
-
-  // Persistent ref so openAdd always has the active event id even before state settles
-  const activeEventIdRef = useRef<string | null>(null)
-
-  // Filters – smart defaults applied after data loads
-  const [filterCurriculum, setFilterCurriculum] = useState('')
-  const [filterClass, setFilterClass]           = useState('')
-  const [filterEvent, setFilterEvent]           = useState('')
-  const [filterCenter, setFilterCenter]         = useState('')
-  const [filterTeacher, setFilterTeacher]       = useState('')
-  const defaultsApplied = useRef(false)
-
-  // Bulk Delete State
-  const [bulkOpen, setBulkOpen]           = useState(false)
-  const [bulkDeleting, setBulkDeleting]   = useState(false)
-
-  const today = new Date().toLocaleDateString('en-US', { weekday: 'long' })
-
-  const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<FormData>({
-    resolver: zodResolver(schema)
-  })
-
-  const watchDay       = watch('day')
-  const watchClassId   = watch('class_id')
-  const watchSubjectId = watch('subject_id')
-  const watchTeacherId = watch('teacher_id')
-  const watchStart     = watch('start_time')
-  const watchEnd       = watch('end_time')
-  const watchType      = watch('session_type')
-  const watchEventId   = watch('tuition_event_id')
-  const watchCenterId  = watch('tuition_center_id')
-
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const [tRes, cRes, sRes, teRes, evRes, curRes, asRes, cenRes] = await Promise.all([
+  // PAGE DATA (REACTIVE)
+  const { data: pageData, isLoading: loading, refetch: load } = usePageData({
+    cacheKey: ['admin', 'timetables', 'page-data'],
+    fetcher: async () => {
+       const [tRes, cRes, sRes, teRes, evRes, curRes, asRes, cenRes] = await Promise.all([
         supabase.from('timetables')
           .select('*, class:classes(name, curriculum_id), subject:subjects(name), teacher:teachers(full_name), center:tuition_centers(name)')
           .order('day').order('start_time'),
@@ -125,39 +80,67 @@ export default function AdminTimetables() {
         supabase.from('teacher_assignments').select('*, teacher:teachers(full_name), class:classes(name), subject:subjects(name)'),
         supabase.from('tuition_centers').select('*').order('name'),
       ])
-      const events   = evRes.data ?? []
-      const curList  = curRes.data ?? []
-
-      setTimetables(tRes.data ?? [])
-      setClasses(cRes.data ?? [])
-      setSubjects(sRes.data ?? [])
-      setTeachers(teRes.data ?? [])
-      setTuitionEvents(events)
-      setCurriculums(curList)
-      setAssignments(asRes.data ?? [])
-      setCenters(cenRes.data ?? [])
-
-      // Store active event id in ref so form can use it reliably
-      const activeEvent = events.find((e: any) => e.status === 'active')
-      activeEventIdRef.current = activeEvent?.id ?? null
-
-      // Apply smart filter defaults once on first load
-      if (!defaultsApplied.current) {
-        defaultsApplied.current = true
-        if (activeEvent?.id) setFilterEvent(activeEvent.id)
-        // Default curriculum: find '8-4-4' (case-insensitive) or first one
-        const cur844 = curList.find((c: any) => c.name.toLowerCase().includes('8-4-4') || c.name.toLowerCase().includes('844'))
-          ?? curList[0]
-        if (cur844?.id) setFilterCurriculum(cur844.id)
+      return {
+        data: {
+          timetables: tRes.data ?? [],
+          classes: cRes.data ?? [],
+          subjects: sRes.data ?? [],
+          teachers: teRes.data ?? [],
+          tuitionEvents: evRes.data ?? [],
+          curriculums: curRes.data ?? [],
+          assignments: asRes.data ?? [],
+          centers: cenRes.data ?? [],
+        },
+        error: tRes.error || cRes.error || sRes.error || teRes.error || evRes.error || curRes.error || asRes.error || cenRes.error
       }
-    } catch {
-      toast.error('Failed to load timetables')
-    } finally {
-      setLoading(false)
     }
-  }, [supabase])
+  })
 
-  useEffect(() => { load() }, [load])
+  // Extract data with fallbacks
+  const timetables     = pageData?.timetables ?? []
+  const classes        = pageData?.classes ?? []
+  const subjects       = pageData?.subjects ?? []
+  const teachers       = pageData?.teachers ?? []
+  const tuitionEvents  = pageData?.tuitionEvents ?? []
+  const curriculums    = pageData?.curriculums ?? []
+  const assignments    = pageData?.assignments ?? []
+  const centers        = pageData?.centers ?? []
+
+  const [addOpen, setAddOpen]           = useState(false)
+  const [editing, setEditing]           = useState<Timetable | null>(null)
+  const [saving, setSaving]             = useState(false)
+  const [mobileDay, setMobileDay]       = useState(0)
+  const [exporting, setExporting]       = useState(false)
+  
+  const [pdfClass, setPdfClass] = useState<{ name: string; id: string; curriculum_id: string } | null>(null)
+  const [pdfSessions, setPdfSessions] = useState<Timetable[]>([])
+
+  const activeEventIdRef = useRef<string | null>(null)
+
+  const [filterCurriculum, setFilterCurriculum] = useState('')
+  const [filterClass, setFilterClass]           = useState('')
+  const [filterEvent, setFilterEvent]           = useState('')
+  const [filterCenter, setFilterCenter]         = useState('')
+  const [filterTeacher, setFilterTeacher]       = useState('')
+  const defaultsApplied = useRef(false)
+
+  const [bulkOpen, setBulkOpen]           = useState(false)
+  const [bulkDeleting, setBulkDeleting]   = useState(false)
+
+  // Smart Filter Defaults (Active Event & 8-4-4)
+  useEffect(() => {
+    if (pageData && !defaultsApplied.current) {
+      defaultsApplied.current = true
+      const activeEvent = tuitionEvents.find((e: any) => e.status === 'active')
+      activeEventIdRef.current = activeEvent?.id ?? null
+      
+      if (activeEvent?.id) setFilterEvent(activeEvent.id)
+      const cur844 = curriculums.find((c: any) => c.name.toLowerCase().includes('8-4-4') || c.name.toLowerCase().includes('844'))
+        ?? curriculums[0]
+      if (cur844?.id) setFilterCurriculum(cur844.id)
+    }
+  }, [pageData, tuitionEvents, curriculums])
+
 
   // Filtered timetables
   const filtered = timetables.filter(t => {
@@ -177,20 +160,44 @@ export default function AdminTimetables() {
     return acc
   }, {} as Record<string, Timetable[]>)
 
+  const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<FormData>({
+    resolver: zodResolver(schema)
+  })
+
+  const watchDay       = watch('day')
+  const watchClassId   = watch('class_id')
+  const watchSubjectId = watch('subject_id')
+  const watchTeacherId = watch('teacher_id')
+  const watchStart     = watch('start_time')
+  const watchEnd       = watch('end_time')
+  const watchType      = watch('session_type')
+  const watchEventId   = watch('tuition_event_id')
+  const watchCenterId  = watch('tuition_center_id')
+
+  const today = new Date().toLocaleDateString('en-US', { weekday: 'long' })
+
   // Conflict detection
   const getConflicts = (data: FormData): string[] => {
     const conflicts: string[] = []
-    const existing = timetables.filter(t =>
+    
+    // 🔥 CRITICAL: Scope conflicts to the same Tuition Event
+    // This prevents old sessions from previous terms from blocking current work.
+    const eventSessions = timetables.filter(t => 
+      t.tuition_event_id === data.tuition_event_id
+    )
+
+    const existing = eventSessions.filter(t =>
       t.day.toLowerCase() === data.day.toLowerCase() && t.id !== editing?.id
     )
+
     const classConflict = existing.find(t =>
       t.class_id === data.class_id &&
-      // If either session spans all centers (null) OR they share the same explicit center, it's a conflict
       (!t.tuition_center_id || !data.tuition_center_id || t.tuition_center_id === data.tuition_center_id) &&
       timesOverlap(data.start_time, data.end_time, t.start_time, t.end_time)
     )
     if (classConflict)
-      conflicts.push(`This class already has a session perfectly at ${classConflict.start_time}–${classConflict.end_time} in this center`)
+      conflicts.push(`This class already has a session at ${classConflict.start_time} in this center`)
+
     const teacherConflict = existing.find(t =>
       t.teacher_id === data.teacher_id &&
       timesOverlap(data.start_time, data.end_time, t.start_time, t.end_time)
@@ -245,7 +252,10 @@ export default function AdminTimetables() {
     setSaving(false)
     if (error) { toast.error(error.message); return }
     toast.success(editing ? 'Session updated!' : 'Session saved as draft!')
-    reset(); setEditing(null); setAddOpen(false); load()
+    
+    // INVALIDATE CACHE
+    queryClient.invalidateQueries({ queryKey: ['admin', 'timetables'] })
+    reset(); setEditing(null); setAddOpen(false)
   }
 
   const setStatus = async (id: string, status: 'published' | 'draft' | 'unpublished') => {
@@ -253,13 +263,14 @@ export default function AdminTimetables() {
     if (error) { toast.error(error.message); return }
     const labels: Record<string, string> = { published: 'Published ✅', draft: 'Moved to Draft', unpublished: 'Unpublished' }
     toast.success(labels[status])
-    load()
+    queryClient.invalidateQueries({ queryKey: ['admin', 'timetables'] })
   }
 
   const del = async (id: string) => {
     const { error } = await supabase.from('timetables').delete().eq('id', id)
     if (error) { toast.error('Delete failed'); return }
-    toast.success('Session deleted'); load()
+    toast.success('Session deleted')
+    queryClient.invalidateQueries({ queryKey: ['admin', 'timetables'] })
   }
 
   const handleBulkDelete = async () => {
@@ -268,13 +279,12 @@ export default function AdminTimetables() {
     const ids = filtered.map(t => t.id)
     
     try {
-      // Chunk deletions to bypass PostgREST payload limits
       for (let i = 0; i < ids.length; i += 100) {
         const chunk = ids.slice(i, i + 100)
         await supabase.from('timetables').delete().in('id', chunk)
       }
       toast.success(`Successfully deleted ${ids.length} session${ids.length > 1 ? 's' : ''}`)
-      load()
+      queryClient.invalidateQueries({ queryKey: ['admin', 'timetables'] })
       setBulkOpen(false)
     } catch (err: any) {
        toast.error('Bulk delete failed: ' + err.message)

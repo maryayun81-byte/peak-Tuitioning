@@ -45,6 +45,7 @@ export default function WorksheetGraderPage() {
   const [classStatus, setClassStatus] = useState<any[]>([])
   const [activeBlockId, setActiveBlockId] = useState<string | null>(null)
   const [pageImages, setPageImages] = useState<string[]>([])
+  const [isScoringOpen, setIsScoringOpen] = useState(false)
 
   useEffect(() => { loadSubmission() }, [submissionId])
 
@@ -113,7 +114,6 @@ export default function WorksheetGraderPage() {
     
     setClassStatus(statusMap)
 
-// ... existing mark initialization ...
     const saved = sub.question_marks ?? {}
     const initMarks: Record<string, number> = {}
     ws.forEach((b: WorksheetBlock) => {
@@ -268,8 +268,6 @@ export default function WorksheetGraderPage() {
   )
 
   const isDocumentAssignment = !!assignment?.attachment_url
-  // Critical: workbook assignments have no attachment_url but ARE handled
-  // with the canvas-based annotation view (student submits a photo of their book)
   const isWorkbook = !!assignment?.is_workbook
   const useCanvasMarkingView = isDocumentAssignment || isWorkbook
 
@@ -290,7 +288,7 @@ export default function WorksheetGraderPage() {
         </div>
         <div className="px-3 py-1.5 rounded-xl" style={{ background: 'var(--primary-dim)' }}>
           <span className="text-lg font-black" style={{ color: 'var(--primary)' }}>{awardedMarks}</span>
-          <span className="text-sm text-gray-400">/{totalMarks}</span>
+          <span className="text-sm text-opacity-50" style={{ color: 'var(--text)' }}>/{totalMarks}</span>
         </div>
         <Button size="sm" variant="secondary" onClick={saveProgress} isLoading={saving}>
           <Check size={14} /> Save
@@ -319,7 +317,7 @@ export default function WorksheetGraderPage() {
       </AnimatePresence>
 
       {/* Tabs */}
-      <div className="flex border-b border-[var(--card-border)] bg-[var(--card)] px-4 overflow-x-auto no-scrollbar">
+      <div className="flex border-b border-[var(--card-border)] bg-[var(--card)] px-4 overflow-x-auto no-scrollbar shrink-0">
         <button 
           onClick={() => setActiveTab('marking')}
           className={`px-6 py-3 text-xs font-black uppercase tracking-widest transition-all border-b-2 ${activeTab === 'marking' ? 'border-primary text-primary' : 'border-transparent text-muted'}`}
@@ -345,7 +343,7 @@ export default function WorksheetGraderPage() {
                          <CheckCircle2 size={20} />
                       </div>
                       <div>
-                         <div className="text-lg font-black">{classStatus.filter(s => s.status === 'marked' || s.status === 'returned').length}</div>
+                         <div className="text-lg font-black" style={{ color: 'var(--text)' }}>{classStatus.filter(s => s.status === 'marked' || s.status === 'returned').length}</div>
                          <div className="text-[10px] uppercase font-bold text-muted">Graded</div>
                       </div>
                    </Card>
@@ -354,7 +352,7 @@ export default function WorksheetGraderPage() {
                          <Clock size={20} />
                       </div>
                       <div>
-                         <div className="text-lg font-black">{classStatus.filter(s => s.status === 'submitted').length}</div>
+                         <div className="text-lg font-black" style={{ color: 'var(--text)' }}>{classStatus.filter(s => s.status === 'submitted').length}</div>
                          <div className="text-[10px] uppercase font-bold text-muted">Pending</div>
                       </div>
                    </Card>
@@ -363,7 +361,7 @@ export default function WorksheetGraderPage() {
                          <AlertCircle size={20} />
                       </div>
                       <div>
-                         <div className="text-lg font-black">{classStatus.filter(s => s.status === 'missing').length}</div>
+                         <div className="text-lg font-black" style={{ color: 'var(--text)' }}>{classStatus.filter(s => s.status === 'missing').length}</div>
                          <div className="text-[10px] uppercase font-bold text-muted">Missing</div>
                       </div>
                    </Card>
@@ -373,38 +371,38 @@ export default function WorksheetGraderPage() {
                    <div className="overflow-x-auto">
                       <table className="w-full text-sm">
                          <thead>
-                            <tr className="bg-slate-50 border-b border-slate-100">
-                               <th className="text-left px-6 py-4 text-xs font-black uppercase tracking-widest text-slate-400">Student</th>
-                               <th className="text-left px-6 py-4 text-xs font-black uppercase tracking-widest text-slate-400">Status</th>
-                               <th className="text-left px-6 py-4 text-xs font-black uppercase tracking-widest text-slate-400">Score</th>
-                               <th className="text-right px-6 py-4 text-xs font-black uppercase tracking-widest text-slate-400">Action</th>
+                            <tr className="border-b" style={{ background: 'var(--input)', borderColor: 'var(--card-border)' }}>
+                               <th className="text-left px-6 py-4 text-xs font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Student</th>
+                               <th className="text-left px-6 py-4 text-xs font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Status</th>
+                               <th className="text-left px-6 py-4 text-xs font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Score</th>
+                               <th className="text-right px-6 py-4 text-xs font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Action</th>
                             </tr>
                          </thead>
-                         <tbody className="divide-y divide-slate-50">
+                         <tbody className="divide-y" style={{ borderColor: 'var(--card-border)' }}>
                             {classStatus.map((s) => (
-                               <tr key={s.id} className={`hover:bg-slate-50 transition-colors ${s.id === submission?.student_id ? 'bg-primary/5' : ''}`}>
+                               <tr key={s.id} className="transition-colors hover:opacity-80" style={{ background: s.id === submission?.student_id ? 'var(--primary-dim)' : 'transparent' }}>
                                   <td className="px-6 py-4">
                                      <div className="flex items-center gap-3">
-                                        <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center font-bold text-[10px] text-slate-500">
+                                        <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-[10px]" style={{ background: 'var(--input)', color: 'var(--text-muted)' }}>
                                            {s.full_name[0]}
                                         </div>
                                         <div>
-                                           <div className="font-bold text-slate-700">{s.full_name}</div>
-                                           <div className="text-[10px] text-slate-400">{s.admission_number}</div>
+                                           <div className="font-bold" style={{ color: 'var(--text)' }}>{s.full_name}</div>
+                                           <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{s.admission_number}</div>
                                         </div>
                                      </div>
                                   </td>
                                   <td className="px-6 py-4">
                                      {s.status === 'missing' ? (
-                                        <Badge variant="muted" className="bg-rose-50 text-rose-500 border-rose-100">Missing</Badge>
+                                        <Badge variant="danger" className="opacity-50">Missing</Badge>
                                      ) : s.status === 'submitted' ? (
                                         <Badge variant="warning" className="animate-pulse">Needs Marking</Badge>
                                      ) : (
                                         <Badge variant="success">Graded</Badge>
                                      )}
                                   </td>
-                                  <td className="px-6 py-4 font-bold text-slate-600">
-                                     {s.marks !== undefined && s.marks !== null ? `${s.marks} / ${assignment?.total_marks || assignment?.max_marks}` : '—'}
+                                  <td className="px-6 py-4 font-bold" style={{ color: 'var(--text)' }}>
+                                     {s.marks !== undefined && s.marks !== null ? `${s.marks} / ${totalMarks}` : '—'}
                                   </td>
                                   <td className="px-6 py-4 text-right">
                                      {s.submissionId ? (
@@ -414,7 +412,7 @@ export default function WorksheetGraderPage() {
                                            </Button>
                                         </Link>
                                      ) : (
-                                        <span className="text-[10px] font-bold text-slate-300">No Submission</span>
+                                        <span className="text-[10px] font-bold" style={{ color: 'var(--text-muted)' }}>No Submission</span>
                                      )}
                                   </td>
                                </tr>
@@ -427,9 +425,9 @@ export default function WorksheetGraderPage() {
           </div>
 ) : useCanvasMarkingView ? (
          /* DOCUMENT MARKING VIEW */
-         <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+         <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
             {/* Left: Interactive Canvas */}
-            <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-slate-50">
+            <div className="flex-1 overflow-y-auto p-4 md:p-8" style={{ background: 'var(--bg)' }}>
                <div className="max-w-4xl mx-auto space-y-4">
                   <div className="flex items-center justify-between px-2 flex-wrap gap-3">
                       <div className="flex items-center gap-3">
@@ -438,13 +436,13 @@ export default function WorksheetGraderPage() {
                             📓 Physical Workbook
                           </span>
                         )}
-                        <h2 className="text-xs font-black uppercase tracking-widest text-slate-400">
-                          {isWorkbook ? 'Student Workbook Photo — Annotate & Return' : 'Student Submission & Marking'}
+                        <h2 className="text-xs font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+                          {isWorkbook ? 'Student Workbook Photo — Annotate' : 'Student Submission & Marking'}
                         </h2>
                       </div>
                       <div className="flex items-center gap-4">
-                         <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
-                            <div className="w-2 h-2 rounded-full bg-slate-300" />
+                         <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-tighter" style={{ color: 'var(--text-muted)' }}>
+                            <div className="w-2 h-2 rounded-full" style={{ background: 'var(--card-border)' }} />
                             {isWorkbook ? 'Student Photo' : 'Original Paper'}
                          </div>
                          <div className="flex items-center gap-2 text-[10px] font-bold text-red-500 uppercase tracking-tighter">
@@ -457,7 +455,7 @@ export default function WorksheetGraderPage() {
                     {renderingPdf ? (
                        <div className="flex flex-col items-center justify-center py-20 gap-4">
                           <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-                          <div className="text-sm font-bold text-slate-500">Rendering PDF Pages...</div>
+                          <div className="text-sm font-bold opacity-50" style={{ color: 'var(--text)' }}>Rendering PDF...</div>
                        </div>
                     ) : (answers?.__workbook_photo__ || pageImages.length > 0) ? (
                        (answers?.__workbook_photo__ ? [answers.__workbook_photo__ as string] : pageImages).map((img, idx) => {
@@ -467,10 +465,10 @@ export default function WorksheetGraderPage() {
                           
                           return (
                              <div key={idx} className="space-y-3">
-                                <div className="px-4 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                                <div className="px-4 text-[10px] font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
                                    {answers?.__workbook_photo__ ? 'Student Workbook Photo' : `Page ${idx + 1}`}
                                 </div>
-                                <Card className="p-0 overflow-hidden border-4 border-white shadow-2xl rounded-[2.5rem] bg-white">
+                                <Card className="p-0 overflow-hidden border-4 shadow-2xl rounded-[2.5rem]" style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}>
                                    <AnnotationCanvas 
                                       key={`grader-page-${idx}`}
                                       backgroundImageUrl={img}
@@ -485,10 +483,10 @@ export default function WorksheetGraderPage() {
                        })
                     ) : (
                        <div className="py-20 text-center space-y-4">
-                          <AlertCircle size={48} className="mx-auto text-slate-300" />
-                          <p className="text-slate-500 font-medium">
+                          <AlertCircle size={48} className="mx-auto" style={{ color: 'var(--card-border)' }} />
+                          <p className="font-medium" style={{ color: 'var(--text-muted)' }}>
                              {isWorkbook
-                               ? 'This student has not yet uploaded a photo of their workbook. Remind them to submit.'
+                               ? 'This student has not yet uploaded a photo of their workbook.'
                                : 'No document submitted for annotation.'}
                           </p>
                        </div>
@@ -497,83 +495,170 @@ export default function WorksheetGraderPage() {
                </div>
             </div>
 
-            {/* Right: Scoring & Feedback */}
-            <div className="w-full lg:w-96 overflow-y-auto bg-white border-l border-[var(--card-border)] p-6 space-y-6">
-               <div>
-                  <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-4">Award Marks</h3>
-                  <div className="p-5 rounded-3xl bg-slate-50 border border-slate-100 flex flex-col items-center justify-center gap-2 text-center">
-                     <input 
-                        type="number" 
-                        min={0} 
-                        max={totalMarks}
-                        value={awardedMarks}
-                        onChange={e => {
-                           const v = Math.min(totalMarks, Math.max(0, parseInt(e.target.value) || 0))
-                           // For doc assignments, we store the overall score in a special key or distribute it
-                           setQuestionMarks({ __total__: v })
-                        }}
-                        className="text-4xl font-black w-32 text-center bg-transparent focus:outline-none"
-                        style={{ color: 'var(--primary)' }}
-                     />
-                     <div className="text-xs font-bold text-slate-400 uppercase tracking-widest border-t border-slate-200 pt-2 w-full">
-                        Total out of {totalMarks}
+            {/* Right: Scoring & Feedback (Drawer on Mobile, Sidebar on Desktop) */}
+            <AnimatePresence>
+               {(isScoringOpen || typeof window !== 'undefined' && window.innerWidth >= 1024) && (
+                  <motion.div 
+                     initial={{ y: '100%', opacity: 0 }}
+                     animate={{ y: 0, opacity: 1 }}
+                     exit={{ y: '100%', opacity: 0 }}
+                     transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+                     className="fixed inset-x-0 bottom-0 z-40 lg:relative lg:inset-auto lg:w-96 lg:translate-y-0 h-[80vh] lg:h-full border-t lg:border-t-0 shadow-[0_-20px_50px_rgba(0,0,0,0.1)] lg:shadow-none flex flex-col rounded-t-[2.5rem] lg:rounded-none overflow-hidden"
+                     style={{ background: 'var(--card)', borderColor: 'var(--card-border)', borderLeftWidth: '1px' }}
+                  >
+                     {/* Mobile Handle */}
+                     <div className="lg:hidden flex justify-center py-4 shrink-0" onClick={() => setIsScoringOpen(false)}>
+                        <div className="w-12 h-1.5 rounded-full" style={{ background: 'var(--card-border)' }} />
                      </div>
+
+                     <div className="flex-1 overflow-y-auto p-6 space-y-8 no-scrollbar">
+                        <div className="space-y-6">
+                           <div className="flex items-center justify-between">
+                             <div className="flex flex-col">
+                                <h3 className="text-[11px] font-black uppercase tracking-[0.2em]" style={{ color: 'var(--text-muted)' }}>Award Marks</h3>
+                                <div className="lg:hidden text-[10px] font-bold opacity-50" style={{ color: 'var(--text-muted)' }}>Tap Handle to Close</div>
+                             </div>
+                             <div className="px-3 py-1 bg-primary/10 rounded-lg text-[10px] font-black text-primary uppercase">
+                                {awardedMarks} / {totalMarks} Total
+                             </div>
+                           </div>
+
+                           <div className="space-y-4">
+                              {questionBlocks.length > 0 ? (
+                                 questionBlocks.map((b, i) => (
+                                    <div key={b.id} className="p-4 rounded-2xl border space-y-3" style={{ background: 'var(--input)', borderColor: 'var(--card-border)' }}>
+                                       <div className="flex justify-between items-start gap-4">
+                                          <div className="flex-1">
+                                             <div className="text-[10px] font-black text-primary uppercase mb-1">Question {i + 1}</div>
+                                             <div className="text-xs font-bold line-clamp-2 leading-relaxed" style={{ color: 'var(--text)' }}>
+                                                {b.question || 'Untitled Question'}
+                                             </div>
+                                          </div>
+                                          <div className="text-[10px] font-black uppercase" style={{ color: 'var(--text-muted)' }}>/{b.marks}</div>
+                                       </div>
+                                       <div className="flex items-center gap-1.5 flex-wrap">
+                                          {Array.from({ length: Math.min(b.marks + 1, 6) }).map((_, v) => (
+                                             <button 
+                                                key={v} 
+                                                onClick={() => setQuestionMarks(p => ({ ...p, [b.id]: v }))}
+                                                className={`w-9 h-9 rounded-xl text-xs font-black transition-all border ${questionMarks[b.id] === v ? 'bg-primary text-white shadow-md' : 'shadow-sm'}`}
+                                                style={{ background: questionMarks[b.id] === v ? 'var(--primary)' : 'var(--card)', borderColor: 'var(--card-border)', color: questionMarks[b.id] === v ? 'white' : 'var(--text-muted)' }}
+                                             >
+                                                {v}
+                                             </button>
+                                          ))}
+                                          {b.marks > 5 && (
+                                             <input 
+                                                type="number"
+                                                max={b.marks}
+                                                min={0}
+                                                value={questionMarks[b.id] ?? ''}
+                                                onChange={e => {
+                                                   const v = Math.min(b.marks, Math.max(0, parseInt(e.target.value) || 0))
+                                                   setQuestionMarks(p => ({ ...p, [b.id]: v }))
+                                                }}
+                                                placeholder="..."
+                                                className="w-12 h-9 rounded-xl border text-center text-xs font-black focus:outline-none focus:ring-2 focus:ring-primary/20"
+                                                style={{ background: 'var(--card)', borderColor: 'var(--card-border)', color: 'var(--text)' }}
+                                             />
+                                          )}
+                                       </div>
+                                    </div>
+                                 ))
+                              ) : (
+                                 <div className="p-5 rounded-3xl border flex flex-col items-center justify-center gap-2 text-center" style={{ background: 'var(--input)', borderColor: 'var(--card-border)' }}>
+                                    <input 
+                                       type="number" 
+                                       min={0} 
+                                       max={totalMarks}
+                                       value={awardedMarks}
+                                       onChange={e => {
+                                          const v = Math.min(totalMarks, Math.max(0, parseInt(e.target.value) || 0))
+                                          setQuestionMarks({ __total__: v })
+                                       }}
+                                       className="text-4xl font-black w-32 text-center bg-transparent focus:outline-none"
+                                       style={{ color: 'var(--primary)' }}
+                                    />
+                                    <div className="text-xs font-bold uppercase tracking-widest border-t pt-2 w-full" style={{ borderColor: 'var(--card-border)', color: 'var(--text-muted)' }}>
+                                       Total out of {totalMarks}
+                                    </div>
+                                 </div>
+                              )}
+                           </div>
+                        </div>
+
+                        <div className="space-y-3 pt-4 border-t" style={{ borderColor: 'var(--card-border)' }}>
+                           <h3 className="text-[11px] font-black uppercase tracking-[0.2em] flex items-center gap-2" style={{ color: 'var(--text-muted)' }}>
+                              <MessageSquare size={14} /> Overall Feedback
+                           </h3>
+                           <textarea 
+                              className="w-full rounded-2xl p-4 text-sm resize-none min-h-[160px] outline-none ring-primary/20 focus:ring-2 border"
+                              style={{ background: 'var(--input)', color: 'var(--text)', borderColor: 'var(--card-border)' }}
+                              value={feedback}
+                              onChange={e => setFeedback(e.target.value)}
+                              placeholder="Write some encouraging words..."
+                           />
+                        </div>
+
+                        <div className="pt-6 border-t pb-10" style={{ borderColor: 'var(--card-border)' }}>
+                           <p className="text-[11px] italic" style={{ color: 'var(--text-muted)' }}>
+                              Students see your red annotations overlaid on their photo.
+                           </p>
+                        </div>
+                     </div>
+                  </motion.div>
+               )}
+            </AnimatePresence>
+
+            {/* Mobile Float Toggle */}
+            <div className="lg:hidden fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
+               <button 
+                  onClick={() => setIsScoringOpen(!isScoringOpen)}
+                  className="px-6 py-4 bg-primary text-white rounded-[2rem] shadow-2xl shadow-primary/40 flex items-center gap-3 active:scale-95 transition-transform"
+               >
+                  <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center font-black text-xs">
+                     {awardedMarks}
                   </div>
-               </div>
-
-               <div className="space-y-3">
-                  <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
-                     <MessageSquare size={14} /> Overall Feedback
-                  </h3>
-                  <textarea 
-                     className="w-full rounded-2xl p-4 text-sm resize-none min-h-[160px] focus:ring-2 focus:ring-primary/20 border-slate-200"
-                     style={{ background: 'var(--input)', color: 'var(--text)' }}
-                     value={feedback}
-                     onChange={e => setFeedback(e.target.value)}
-                     placeholder="Write some encouraging words or specific feedback..."
-                  />
-               </div>
-
-               <div className="pt-6 border-t border-slate-100">
-                  <p className="text-[11px] text-slate-400 italic">
-                     Students will see your red annotations overlaid on their work when you return this assignment.
-                  </p>
-               </div>
+                  <div className="flex flex-col items-start leading-none text-left">
+                     <span className="text-[10px] font-black uppercase tracking-widest opacity-80">Award Marks</span>
+                     <span className="text-xs font-bold">Open Drawer</span>
+                  </div>
+                  {isScoringOpen ? <ChevronLeft className="-rotate-90" size={18} /> : <ChevronLeft className="rotate-90" size={18} />}
+               </button>
             </div>
          </div>
       ) : (
-         /* TRADITIONAL BLOCK MARKING VIEW */
-         <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 overflow-hidden">
+          <div className="flex-1 flex flex-col lg:grid lg:grid-cols-2 overflow-hidden relative">
             {/* LEFT — Question + Student Answer */}
-            <div className="overflow-y-auto" style={{ borderRight: '1px solid var(--card-border)' }}>
+            <div className="flex-1 overflow-y-auto lg:border-r" style={{ borderColor: 'var(--card-border)' }}>
                {/* Question navigator */}
-               <div className="sticky top-0 z-10 flex items-center gap-2 px-4 py-2" style={{ background: 'var(--card)', borderBottom: '1px solid var(--card-border)' }}>
-               <button onClick={() => navQuestion(-1)} disabled={activeIndex <= 0} className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'var(--input)', color: 'var(--text-muted)' }}>
-                  <ChevronLeft size={14} />
-               </button>
-               <div className="flex gap-1 flex-wrap flex-1">
-                  {questionBlocks.map((b, i) => {
-                     const awarded = questionMarks[b.id] ?? -1
-                     const isActive = b.id === activeBlockId
-                     const bg = isActive ? 'var(--primary)' : awarded === b.marks ? '#10B981' : awarded > 0 ? '#F59E0B' : awarded === 0 ? '#EF444420' : 'var(--input)'
-                     return (
-                        <button key={b.id} onClick={() => setActiveBlockId(b.id)}
-                        className="w-7 h-7 rounded-lg text-xs font-bold flex items-center justify-center"
-                        style={{ background: bg, color: isActive ? 'white' : 'var(--text)' }}>
-                        {i + 1}
-                        </button>
-                     )
-                  })}
-               </div>
-               <button onClick={() => navQuestion(1)} disabled={activeIndex >= questionBlocks.length - 1} className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'var(--input)', color: 'var(--text-muted)' }}>
-                  <ChevronRight size={14} />
-               </button>
+               <div className="sticky top-0 z-10 flex items-center gap-2 px-4 py-2 border-b" style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}>
+                <button onClick={() => navQuestion(-1)} disabled={activeIndex <= 0} className="w-7 h-7 rounded-lg flex items-center justify-center font-bold transition-all hover:opacity-80 disabled:opacity-30" style={{ background: 'var(--input)', color: 'var(--text-muted)' }}>
+                   <ChevronLeft size={14} />
+                </button>
+                <div className="flex gap-1 flex-wrap flex-1">
+                   {questionBlocks.map((b, i) => {
+                      const awarded = questionMarks[b.id] ?? -1
+                      const isActive = b.id === activeBlockId
+                      const bg = isActive ? 'var(--primary)' : awarded === b.marks ? '#10B981' : awarded > 0 ? '#F59E0B' : awarded === 0 ? '#EF444420' : 'var(--input)'
+                      return (
+                         <button key={b.id} onClick={() => setActiveBlockId(b.id)}
+                         className="w-7 h-7 rounded-lg text-xs font-bold flex items-center justify-center transition-all shadow-sm"
+                         style={{ background: bg, color: isActive ? 'white' : 'var(--text)' }}>
+                         {i + 1}
+                         </button>
+                      )
+                   })}
+                </div>
+                <button onClick={() => navQuestion(1)} disabled={activeIndex >= questionBlocks.length - 1} className="w-7 h-7 rounded-lg flex items-center justify-center font-bold transition-all hover:opacity-80 disabled:opacity-30" style={{ background: 'var(--input)', color: 'var(--text-muted)' }}>
+                   <ChevronRight size={14} />
+                </button>
                </div>
 
                <div className="p-5 space-y-4">
                {activeBlock && (
                   <>
-                     <div className="p-4 rounded-2xl" style={{ background: 'var(--card)', border: '1px solid var(--card-border)' }}>
+                     <div className="p-4 rounded-2xl border" style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}>
                         <div className="flex items-start gap-3">
                         <span className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-black shrink-0" style={{ background: 'var(--primary)', color: 'white' }}>
                            {activeIndex + 1}
@@ -605,103 +690,138 @@ export default function WorksheetGraderPage() {
             </div>
 
             {/* RIGHT — Marks + Annotation + Feedback */}
-            <div className="overflow-y-auto">
-               {activeBlock && (
-               <div className="p-5 space-y-3" style={{ borderBottom: '1px solid var(--card-border)' }}>
-                  <div className="text-xs font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Marks — Q{activeIndex + 1}</div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                     {activeBlock.marks <= 10 ? (
-                        // If marks <= 10, show all options as clickable chips
-                        Array.from({ length: activeBlock.marks + 1 }).map((_, v) => (
-                           <button key={v} onClick={() => setQuestionMarks(p => ({ ...p, [activeBlock.id]: v }))}
-                              className="w-10 h-10 rounded-xl text-sm font-black transition-all flex items-center justify-center shrink-0"
-                              style={{ background: questionMarks[activeBlock.id] === v ? 'var(--primary)' : 'var(--input)', color: questionMarks[activeBlock.id] === v ? 'white' : 'var(--text-muted)' }}>
-                              {v}
-                           </button>
-                        ))
-                     ) : (
-                        // If marks > 10, show 0, Half, Full and an Input box that doesn't break when cleared
-                        <>
-                           {[0, Math.ceil(activeBlock.marks / 2), activeBlock.marks]
-                              .filter((v, i, a) => a.indexOf(v) === i)
-                              .map(v => (
-                              <button key={v} onClick={() => setQuestionMarks(p => ({ ...p, [activeBlock.id]: v }))}
-                                 className="px-4 py-2 rounded-xl text-sm font-black transition-all"
-                                 style={{ background: questionMarks[activeBlock.id] === v ? 'var(--primary)' : 'var(--input)', color: questionMarks[activeBlock.id] === v ? 'white' : 'var(--text-muted)' }}>
-                                 {v}
-                              </button>
-                              ))}
-                           <input
-                              type="number" min={0} max={activeBlock.marks}
-                              value={questionMarks[activeBlock.id] === undefined ? '' : questionMarks[activeBlock.id]}
-                              onChange={e => {
-                                 const val = e.target.value
-                                 if (val === '') {
-                                    setQuestionMarks(p => { const next = { ...p }; delete next[activeBlock.id]; return next; })
-                                 } else {
-                                    setQuestionMarks(p => ({ ...p, [activeBlock.id]: Math.min(activeBlock.marks, Math.max(0, parseInt(val) || 0)) }))
-                                 }
-                              }}
-                              className="w-20 rounded-xl px-3 py-2 text-sm text-center font-bold"
-                              style={{ background: 'var(--input)', color: 'var(--primary)', border: '1px solid var(--card-border)' }}
-                           />
-                           <span className="text-sm ml-1" style={{ color: 'var(--text-muted)' }}>/ {activeBlock.marks}</span>
-                        </>
-                     )}
-                  </div>
-               </div>
-               )}
+            <AnimatePresence>
+               {(isScoringOpen || typeof window !== 'undefined' && window.innerWidth >= 1024) && (
+                  <motion.div 
+                     initial={{ y: '100%', opacity: 0 }}
+                     animate={{ y: 0, opacity: 1 }}
+                     exit={{ y: '100%', opacity: 0 }}
+                     transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+                     className="fixed inset-x-0 bottom-0 z-40 lg:relative lg:inset-auto lg:w-full lg:translate-y-0 h-[80vh] lg:h-full border-t lg:border-t-0 shadow-[0_-20px_50px_rgba(0,0,0,0.1)] lg:shadow-none flex flex-col rounded-t-[2.5rem] lg:rounded-none overflow-hidden"
+                     style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}
+                  >
+                     {/* Mobile Handle */}
+                     <div className="lg:hidden flex justify-center py-4 shrink-0" onClick={() => setIsScoringOpen(false)}>
+                        <div className="w-12 h-1.5 rounded-full" style={{ background: 'var(--card-border)' }} />
+                     </div>
 
-               {/* Annotation */}
-               <div className="p-5 space-y-2" style={{ borderBottom: '1px solid var(--card-border)' }}>
-               <div className="text-xs font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Annotation Canvas</div>
-               <div className="rounded-2xl border border-[var(--card-border)] bg-white">
-                     <AnnotationCanvas
-                        key={activeBlockId ?? 'canvas'}
-                        backgroundText={activeBlockId && typeof answers[activeBlockId] === 'string' && !(answers[activeBlockId] as string).startsWith('{') ? (answers[activeBlockId] as string) : undefined}
-                        backgroundJson={activeBlockId && typeof answers[activeBlockId] === 'string' && (answers[activeBlockId] as string).startsWith('{') ? (answers[activeBlockId] as string) : undefined}
-                        initialJson={activeBlockId ? annotations[activeBlockId] : undefined}
-                        defaultColor="#EF4444"
-                     onSave={json => activeBlockId && setAnnotations(p => ({ ...p, [activeBlockId]: json }))}
-                  />
-                  </div>
-               </div>
-
-               {/* Feedback + all-questions summary */}
-               <div className="p-5 space-y-4">
-               <div className="text-xs font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Overall Feedback</div>
-               <textarea
-                  className="w-full rounded-xl p-3 text-sm resize-none"
-                  style={{ background: 'var(--input)', color: 'var(--text)', border: '1px solid var(--card-border)' }}
-                  rows={4}
-                  value={feedback}
-                  onChange={e => setFeedback(e.target.value)}
-                  placeholder="Write overall feedback for this student..."
-               />
-
-               <div className="text-xs font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>All Questions</div>
-               <div className="space-y-2">
-                  {questionBlocks.map((b, i) => {
-                     const awarded = questionMarks[b.id] ?? 0
-                     const pct = b.marks > 0 ? (awarded / b.marks) * 100 : 0
-                     return (
-                        <button key={b.id} onClick={() => setActiveBlockId(b.id)} className="w-full flex items-center gap-3 p-3 rounded-xl transition-all text-left"
-                        style={{ background: b.id === activeBlockId ? 'var(--primary-dim)' : 'var(--input)', border: `1px solid ${b.id === activeBlockId ? 'var(--primary)' : 'transparent'}` }}>
-                        <span className="w-6 h-6 rounded-lg flex items-center justify-center text-xs font-black shrink-0" style={{ background: 'var(--primary)', color: 'white' }}>{i + 1}</span>
-                        <span className="flex-1 text-xs truncate" style={{ color: 'var(--text)' }}>
-                          {(b.question || 'Untitled Question').slice(0, 50)}
-                        </span>
-                        <div className="flex items-center gap-2 shrink-0">
-                           <div className="w-16 h-1.5 rounded-full" style={{ background: 'var(--card-border)' }}>
-                              <div className="h-full rounded-full" style={{ width: `${pct}%`, background: pct === 100 ? '#10B981' : pct > 0 ? '#F59E0B' : '#EF4444' }} />
+                     <div className="flex-1 overflow-y-auto p-5 space-y-8 no-scrollbar">
+                        {activeBlock && (
+                           <div className="p-5 rounded-3xl border space-y-4 shadow-sm" style={{ background: 'var(--input)', borderColor: 'var(--card-border)' }}>
+                              <div className="text-xs font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Marks — Q{activeIndex + 1}</div>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                 {activeBlock.marks <= 10 ? (
+                                    Array.from({ length: activeBlock.marks + 1 }).map((_, v) => (
+                                       <button key={v} onClick={() => setQuestionMarks(p => ({ ...p, [activeBlock.id]: v }))}
+                                          className={`w-10 h-10 rounded-xl text-sm font-black transition-all flex items-center justify-center shrink-0 border shadow-sm ${questionMarks[activeBlock.id] === v ? 'bg-primary text-white' : ''}`}
+                                          style={{ background: questionMarks[activeBlock.id] === v ? 'var(--primary)' : 'var(--card)', color: questionMarks[activeBlock.id] === v ? 'white' : 'var(--text-muted)', borderColor: 'var(--card-border)' }}>
+                                          {v}
+                                       </button>
+                                    ))
+                                 ) : (
+                                    <>
+                                       {[0, Math.ceil(activeBlock.marks / 2), activeBlock.marks]
+                                          .filter((v, i, a) => a.indexOf(v) === i)
+                                          .map(v => (
+                                          <button key={v} onClick={() => setQuestionMarks(p => ({ ...p, [activeBlock.id]: v }))}
+                                             className={`px-4 py-2 rounded-xl text-sm font-black transition-all border shadow-sm ${questionMarks[activeBlock.id] === v ? 'bg-primary text-white' : ''}`}
+                                             style={{ background: questionMarks[activeBlock.id] === v ? 'var(--primary)' : 'var(--card)', color: questionMarks[activeBlock.id] === v ? 'white' : 'var(--text-muted)', borderColor: 'var(--card-border)' }}>
+                                             {v}
+                                          </button>
+                                          ))}
+                                       <input
+                                          type="number" min={0} max={activeBlock.marks}
+                                          value={questionMarks[activeBlock.id] === undefined ? '' : questionMarks[activeBlock.id]}
+                                          onChange={e => {
+                                             const val = e.target.value
+                                             if (val === '') {
+                                                setQuestionMarks(p => { const next = { ...p }; delete next[activeBlock.id]; return next; })
+                                             } else {
+                                                setQuestionMarks(p => ({ ...p, [activeBlock.id]: Math.min(activeBlock.marks, Math.max(0, parseInt(val) || 0)) }))
+                                             }
+                                          }}
+                                          className="w-20 rounded-xl px-3 py-2 text-sm text-center font-bold border focus:ring-2 ring-primary/20"
+                                          style={{ background: 'var(--card)', borderColor: 'var(--card-border)', color: 'var(--text)' }}
+                                          placeholder="..."
+                                       />
+                                       <span className="text-xs font-bold" style={{ color: 'var(--text-muted)' }}>/ {activeBlock.marks}</span>
+                                    </>
+                                 )}
+                              </div>
                            </div>
-                           <span className="text-xs font-bold w-12 text-right" style={{ color: 'var(--text)' }}>{awarded}/{b.marks}</span>
+                        )}
+
+                        {/* Annotation */}
+                        <div className="space-y-3">
+                           <div className="text-xs font-black uppercase tracking-widest text-slate-400">Annotation Canvas</div>
+                           <div className="rounded-3xl border overflow-hidden shadow-inner" style={{ borderColor: 'var(--card-border)', background: 'var(--card)' }}>
+                              <AnnotationCanvas
+                                 key={activeBlockId ?? 'canvas'}
+                                 backgroundText={activeBlockId && typeof answers[activeBlockId] === 'string' && !(answers[activeBlockId] as string).startsWith('{') ? (answers[activeBlockId] as string) : undefined}
+                                 backgroundJson={activeBlockId && typeof answers[activeBlockId] === 'string' && (answers[activeBlockId] as string).startsWith('{') ? (answers[activeBlockId] as string) : undefined}
+                                 initialJson={activeBlockId ? annotations[activeBlockId] : undefined}
+                                 defaultColor="#EF4444"
+                                 onSave={json => activeBlockId && setAnnotations(p => ({ ...p, [activeBlockId]: json }))}
+                              />
+                           </div>
                         </div>
-                        </button>
-                     )
-                  })}
-               </div>
-               </div>
+
+                        {/* Feedback + summary */}
+                        <div className="space-y-6">
+                           <div className="space-y-2">
+                              <div className="text-xs font-black uppercase tracking-widest text-slate-400">Overall Feedback</div>
+                              <textarea
+                                 className="w-full rounded-2xl p-4 text-sm resize-none outline-none ring-primary/20 focus:ring-2 border"
+                                 style={{ background: 'var(--input)', color: 'var(--text)', borderColor: 'var(--card-border)' }}
+                                 rows={4}
+                                 value={feedback}
+                                 onChange={e => setFeedback(e.target.value)}
+                                 placeholder="Write overall feedback for this student..."
+                              />
+                           </div>
+
+                           <div className="space-y-3">
+                              <div className="text-xs font-black uppercase tracking-widest text-slate-400">Marking Summary</div>
+                              <div className="space-y-2">
+                                 {questionBlocks.map((b, i) => {
+                                    const awarded = questionMarks[b.id] ?? 0
+                                    const pct = b.marks > 0 ? (awarded / b.marks) * 100 : 0
+                                    return (
+                                       <button key={b.id} onClick={() => setActiveBlockId(b.id)} className={`w-full flex items-center gap-3 p-3 rounded-2xl transition-all text-left ${b.id === activeBlockId ? 'bg-primary/5 ring-1 ring-primary/20' : 'border border-transparent hover:opacity-80'}`} style={{ background: b.id === activeBlockId ? 'transparent' : 'var(--input)' }}>
+                                          <span className="w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black shrink-0 shadow-sm" style={{ background: 'var(--card)', color: 'var(--primary)' }}>{i + 1}</span>
+                                          <span className="flex-1 text-xs truncate font-medium" style={{ color: 'var(--text)' }}>
+                                             {b.question || 'Untitled Question'}
+                                          </span>
+                                          <div className="flex items-center gap-2 shrink-0">
+                                             <div className="w-16 h-1.5 rounded-full" style={{ background: 'var(--card-border)' }}>
+                                                <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, background: pct === 100 ? '#10B981' : pct > 0 ? '#F59E0B' : '#EF4444' }} />
+                                             </div>
+                                             <span className="text-[10px] font-black w-10 text-right" style={{ color: 'var(--text-muted)' }}>{awarded}/{b.marks}</span>
+                                          </div>
+                                       </button>
+                                    )
+                                 })}
+                              </div>
+                           </div>
+                        </div>
+                     </div>
+                  </motion.div>
+               )}
+            </AnimatePresence>
+
+            {/* Mobile Toggle */}
+            <div className="lg:hidden fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
+               <button 
+                  onClick={() => setIsScoringOpen(!isScoringOpen)}
+                  className="px-6 py-4 bg-primary text-white rounded-[2rem] shadow-2xl flex items-center gap-3 active:scale-95 transition-transform"
+               >
+                  <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center font-black text-xs">{awardedMarks}</div>
+                  <div className="flex flex-col items-start leading-none text-left">
+                     <span className="text-[10px] font-black uppercase tracking-widest opacity-80">Award Marks</span>
+                     <span className="text-xs font-bold">Open Drawer</span>
+                  </div>
+                  {isScoringOpen ? <ChevronLeft className="-rotate-90" size={18} /> : <ChevronLeft className="rotate-90" size={18} />}
+               </button>
             </div>
          </div>
       )}
