@@ -20,6 +20,7 @@ import RichTextEditor from '@/components/ui/RichTextEditor'
 import { generateId } from '@/lib/utils'
 import toast from 'react-hot-toast'
 import { useMemo } from 'react'
+import { useAIFormStore } from '@/stores/aiFormStore'
 
 interface Option { id: string; text: string }
 interface Question {
@@ -94,6 +95,43 @@ export default function CreateTriviaPage() {
       toast.success('Trivia draft restored!')
     }
   )
+
+  // ── AI Auto-fill Listener ──
+  const { parsedData, intent, lastGeneratedAt, clear: clearAI } = useAIFormStore()
+  useEffect(() => {
+    if (lastGeneratedAt && intent === 'trivia' && parsedData) {
+      if (parsedData.title) setTitle(parsedData.title)
+      if (parsedData.description) setDescription(parsedData.description)
+      if (parsedData.class_id) setClassIds([parsedData.class_id])
+      if (parsedData.subject_id) setSubjectId(parsedData.subject_id)
+      
+      if (parsedData.questions) {
+        setQuestions(parsedData.questions.map((q: any) => ({
+          id: generateId(),
+          text: q.text,
+          options: (q.options || ['', '', '', '']).map((t: string) => makeOption(t)),
+          correct_option_id: '', // Will be matched by text below
+          marks: q.marks || 1,
+          time_seconds: q.time_seconds || 30,
+          image_url: q.image_url || ''
+        })))
+        
+        // After mapping, we need to match the correct_option_id by text if provided
+        setQuestions(qs => qs.map((q, i) => {
+          const aiQ = parsedData.questions[i]
+          if (aiQ.correct_answer) {
+            const found = q.options.find((o: any) => o.text === aiQ.correct_answer)
+            if (found) return { ...q, correct_option_id: found.id }
+          }
+          return q
+        }))
+      }
+      
+      setStep(1) // Move to questions step automatically
+      toast.success('AI populated this trivia! 🚀')
+      clearAI()
+    }
+  }, [lastGeneratedAt, intent, parsedData])
 
   const loadData = async () => {
     if (!teacher?.id) return

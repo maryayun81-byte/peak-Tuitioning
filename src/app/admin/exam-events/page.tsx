@@ -89,6 +89,36 @@ export default function AdminExamEvents() {
   const updateStatus = async (exam: ExamEvent, newStatus: ExamEvent['status']) => {
     const { error } = await supabase.from('exam_events').update({ status: newStatus }).eq('id', exam.id)
     if (error) { toast.error('Status update failed'); return }
+    
+    // NOTIFY STUDENTS ON PUBLISH
+    if (newStatus === 'published') {
+      try {
+        const { data: marks } = await supabase
+          .from('exam_marks')
+          .select('student:students(user_id)')
+          .eq('exam_event_id', exam.id)
+        
+        const userIds = Array.from(new Set(marks?.map(m => {
+          const s = m.student as any
+          return Array.isArray(s) ? s[0]?.user_id : s?.user_id
+        }).filter(Boolean)))
+        
+        if (userIds.length > 0) {
+          const notifications = userIds.map(uid => ({
+            user_id: uid,
+            type: 'results_published',
+            title: 'Exam Results Published',
+            body: `Results for "${exam.name}" have been published. Check your grades in the portal.`,
+            related_id: exam.id,
+            data: { exam_event_id: exam.id }
+          }))
+          await supabase.from('notifications').insert(notifications)
+        }
+      } catch (err) {
+        console.error('Failed to send exam notifications:', err)
+      }
+    }
+
     toast.success(`Exam is now ${newStatus.toUpperCase()}`)
     load()
   }

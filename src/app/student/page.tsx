@@ -1,14 +1,17 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
   Zap, Trophy, Target, Clock, 
   ArrowRight, Play, CheckCircle2,
   Calendar, Award, MessageSquare,
-  Sparkles, Flame, Rocket, ChevronRight
+  Sparkles, Flame, Rocket, ChevronRight,
+  BookOpen, Lightbulb, GraduationCap,
+  Library as LibraryIcon
 } from 'lucide-react'
 import { toast } from 'react-hot-toast'
+import { useRouter } from 'next/navigation'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Card, Badge } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -32,7 +35,8 @@ import {
   useStudentStats, 
   useStudentQuests, 
   useStudentIntel, 
-  useLeaderboardData 
+  useLeaderboardData,
+  useKnowledgeFeed
 } from '@/hooks/useDashboardData'
 import { 
   SectionErrorBoundary, 
@@ -40,6 +44,8 @@ import {
   ErrorState, 
   TimeoutState 
 } from '@/components/ui/PageStates'
+import { PeakAIAssistant } from '@/components/student/PeakAIAssistant'
+import { InsightTrigger } from '@/components/student/InsightTrigger'
 
 interface LeaderboardEntry {
   full_name: string
@@ -236,12 +242,47 @@ const STUDENT_STEPS: OnboardingStep[] = [
   },
 ]
 
+// (Hardcoded datasets removed — now fetched from Supabase app_knowledge_base)
+
+const RECOMMENDED_BOOKS = [
+  { title: "Atomic Habits", author: "James Clear", genre: "Self-Improvement" },
+  { title: "Thinking, Fast and Slow", author: "Daniel Kahneman", genre: "Psychology" },
+  { title: "The Great Gatsby", author: "F. Scott Fitzgerald", genre: "Classic Fiction" },
+]
+
+function ConfettiPiece({ delay = 0 }) {
+  return (
+    <motion.div
+      initial={{ y: -20, opacity: 1, scale: 0 }}
+      animate={{ 
+        y: [null, 400 + Math.random() * 200],
+        x: [null, (Math.random() - 0.5) * 300],
+        rotate: [0, 360 * 2],
+        opacity: [1, 1, 0],
+        scale: [0, 1.2, 0.8]
+      }}
+      transition={{ duration: 3 + Math.random() * 2, delay, ease: "easeOut" }}
+      className="absolute w-2 h-2 rounded-sm"
+      style={{ 
+        background: ['#FBBF24', '#3B82F6', '#10B981', '#F43F5E', '#8B5CF6'][Math.floor(Math.random() * 5)],
+        left: `${Math.random() * 100}%`
+      }}
+    />
+  )
+}
+
 export default function StudentDashboard() {
+  const router = useRouter()
   const supabase = getSupabaseBrowserClient()
   const { profile, student, setStudent } = useAuthStore()
   
   const [showWelcome, setShowWelcome] = useState(false)
   const [showFullLeaderboard, setShowFullLeaderboard] = useState(false)
+  const [selectedIntel, setSelectedIntel] = useState<Intel | null>(null)
+  const [showLevelUp, setShowLevelUp] = useState(false)
+
+  // Tracking level for celebration
+  const lastLevelRef = useRef<number | null>(null)
 
   // ── High Performance Data Streams ─────────────────────────────────────
   const { 
@@ -267,6 +308,11 @@ export default function StudentDashboard() {
     status: lStatus, 
     refetch: lRefetch 
   } = useLeaderboardData(student?.id, student?.xp)
+
+  const {
+    data: kData,
+    status: kStatus
+  } = useKnowledgeFeed()
 
   useEffect(() => {
     if (student && student.onboarded === false) {
@@ -379,14 +425,81 @@ function getGreeting(name: string) {
   return `Studying late, ${name}? 🌙`
 }
 
-  const quote = getDailyQuote()
-  const firstName = profile?.full_name?.split(' ')[0] || 'Scholar'
   const { level, progressPercent, nextMilestone, isProspect, title: levelTitle } = calculateLevel(student?.xp || 0)
+
+  // ── Level Up Celebration Logic ────────────────────────────────────────
+  useEffect(() => {
+    if (level > 0) {
+      if (lastLevelRef.current !== null && level > lastLevelRef.current) {
+        setShowLevelUp(true)
+      }
+      lastLevelRef.current = level
+    }
+  }, [level])
+
   const xp = student?.xp || 0
   const streak = student?.streak_count || 0
 
+  // 6-hour rotation logic (now backed by DB feed)
+  const now = new Date()
+  const dailyWord = kData?.word || { word: "Elevate", type: "Verb", def: "To lift up or improve.", ex: "Always strive to elevate your mindset." }
+  const dailyFact = kData?.fact || { text: "Consistency is key to mastering any new skill." }
+  const book = RECOMMENDED_BOOKS[Math.floor(now.getTime() / (1000 * 60 * 60 * 6)) % RECOMMENDED_BOOKS.length]
+
+  const quote = getDailyQuote()
+  const firstName = profile?.full_name?.split(' ')[0] || 'Scholar'
+
   return (
     <div className="pb-12 relative overflow-hidden min-h-screen" style={{ background: 'var(--bg)' }}>
+
+      {/* Confetti Overlay */}
+      {showLevelUp && (
+        <div className="fixed inset-0 z-[100] pointer-events-none">
+          {Array.from({ length: 50 }).map((_, i) => <ConfettiPiece key={i} delay={i * 0.05} />)}
+        </div>
+      )}
+
+      {/* Level Up Modal */}
+      <Modal isOpen={showLevelUp} onClose={() => setShowLevelUp(false)} title="LEVEL UP! 🚀" size="md">
+        <div className="text-center space-y-6 py-8">
+          <motion.div 
+            initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', damping: 12 }}
+            className="w-24 h-24 mx-auto bg-gradient-to-br from-yellow-400 to-amber-600 rounded-3xl flex items-center justify-center text-4xl shadow-2xl shadow-amber-500/20"
+          >
+            ⭐
+          </motion.div>
+          <div className="space-y-2">
+            <h2 className="text-3xl font-black" style={{ color: 'var(--text)' }}>You reached Level {level}!</h2>
+            <p className="text-lg font-bold text-primary">{levelTitle}</p>
+          </div>
+          <p className="text-sm px-6" style={{ color: 'var(--text-muted)' }}>
+            Your dedication to mastery is paying off. Keep pushing boundaries, and you&apos;ll be a Peak Legend in no time!
+          </p>
+          <Button onClick={() => setShowLevelUp(false)} className="w-full py-6 text-lg">Continue My Journey</Button>
+        </div>
+      </Modal>
+
+      {/* Intel Detail Modal */}
+      <Modal isOpen={!!selectedIntel} onClose={() => setSelectedIntel(null)} title={selectedIntel?.title || 'System Message'} size="md">
+        <div className="space-y-6 py-4">
+          <div className="flex items-start gap-4 p-4 rounded-2xl bg-white/5 border border-white/10">
+            <div className={`w-2 h-12 rounded-full shrink-0 ${
+              selectedIntel?.type === 'award' ? 'bg-emerald-500' : selectedIntel?.type === 'assignment_returned' ? 'bg-amber-500' : 'bg-primary'
+            }`} />
+            <div>
+              <p className="text-base leading-relaxed" style={{ color: 'var(--text)' }}>{selectedIntel?.body}</p>
+            </div>
+          </div>
+          <div className="flex flex-col gap-2">
+            {(selectedIntel as any)?.data?.assignment_id && (
+              <Button onClick={() => router.push(`/student/assignments/${(selectedIntel as any).data.assignment_id}`)} className="w-full py-4 gap-2">
+                <Play size={18} /> View Results & Feedback
+              </Button>
+            )}
+            <Button variant="outline" onClick={() => setSelectedIntel(null)} className="w-full py-4">Dismiss</Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* === Ambient Background === */}
       <div className="fixed top-0 left-0 w-full h-full pointer-events-none overflow-hidden z-0">
@@ -516,9 +629,10 @@ function getGreeting(name: string) {
           <TuitionEventBanner />
         </div>
 
-        {/* === STATS ROW === */}
-        <SectionErrorBoundary title="Stats">
-          <div className="grid grid-cols-3 gap-3">
+        {/* === STATS & EDUCATION ROW === */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {/* Main Stats */}
+          <div className="md:col-span-2 grid grid-cols-3 gap-3">
             {[
               { label: 'Tasks Done', value: sData?.tasks ?? 0, icon: '✅', color: '#10B981', bg: 'rgba(16,185,129,0.08)' },
               { label: 'Awards', value: sData?.awards ?? 0, icon: '🏅', color: '#F59E0B', bg: 'rgba(245,158,11,0.08)' },
@@ -527,19 +641,110 @@ function getGreeting(name: string) {
               <motion.div
                 key={s.label}
                 initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
                 transition={{ delay: i * 0.1 }}
-                className="rounded-2xl p-4 flex flex-col items-center text-center border relative overflow-hidden"
+                className="rounded-2xl p-4 flex flex-col items-center text-center border relative overflow-hidden group hover:scale-[1.05] transition-all"
                 style={{ background: s.bg, borderColor: `${s.color}20` }}
               >
-                {sStatus === 'loading' && <div className="absolute inset-0 bg-white/5 animate-pulse" />}
+                <div className="absolute inset-0 bg-white/5 opacity-0 group-hover:opacity-100 transition-opacity" />
                 <span className="text-2xl mb-1">{s.icon}</span>
                 <span className="text-xl font-black" style={{ color: s.color }}>{s.value}</span>
                 <span className="text-[9px] uppercase font-bold tracking-widest mt-0.5" style={{ color: 'var(--text-muted)', opacity: 0.7 }}>{s.label}</span>
               </motion.div>
             ))}
           </div>
-        </SectionErrorBoundary>
+
+          {/* Word of the Day High-Impact Redesign */}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            whileInView={{ opacity: 1, scale: 1 }}
+            viewport={{ once: true }}
+            whileHover={{ y: -5 }}
+            className="rounded-3xl p-6 border relative overflow-hidden group shadow-xl transition-all h-full flex flex-col justify-between"
+            style={{ 
+              background: 'linear-gradient(145deg, rgba(99, 102, 241, 0.15), rgba(168, 85, 247, 0.15))',
+              backdropFilter: 'blur(12px)',
+              borderColor: 'rgba(255, 255, 255, 0.1)'
+            }}
+          >
+            {/* Animated Shine Overlay */}
+            <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent w-[200%] h-full animate-shine" />
+            </div>
+
+            {kStatus === 'loading' ? (
+              <div className="space-y-4 animate-pulse relative z-10">
+                <div className="h-4 w-24 bg-white/10 rounded-full" />
+                <div className="h-8 w-48 bg-white/20 rounded-xl" />
+                <div className="h-16 w-full bg-white/5 rounded-2xl" />
+              </div>
+            ) : (
+              <div className="relative z-10 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400 animate-float-mini">
+                      <Lightbulb size={20} />
+                    </div>
+                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-300">Word of the Day</span>
+                  </div>
+                  <Badge variant="secondary" className="text-[8px] border-indigo-500/30 text-indigo-300 font-black uppercase tracking-widest">{dailyWord.type}</Badge>
+                </div>
+                
+                <div className="space-y-2">
+                  <h4 className="text-3xl font-black italic tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-indigo-300 to-purple-300 leading-none">
+                    {dailyWord.word}
+                  </h4>
+                  <p className="text-xs leading-relaxed opacity-90 font-medium" style={{ color: 'var(--text)' }}>
+                    “{dailyWord.def}”
+                  </p>
+                </div>
+                
+                <div className="pt-3 border-t border-white/10">
+                  <p className="text-[10px] italic opacity-60 leading-relaxed" style={{ color: 'var(--text)' }}>
+                    <span className="font-bold uppercase tracking-widest text-[8px] mr-1 opacity-40">EG:</span>
+                    {dailyWord.ex || 'Use this word to level up your vocabulary today.'}
+                  </p>
+                </div>
+              </div>
+            )}
+          </motion.div>
+
+          {/* Daily Fact Callout Redesign */}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            whileInView={{ opacity: 1, scale: 1 }}
+            viewport={{ once: true }}
+            whileHover={{ y: -5 }}
+            transition={{ delay: 0.1 }}
+            className="rounded-3xl p-6 border relative overflow-hidden group shadow-xl transition-all h-full flex flex-col justify-between"
+            style={{ 
+              background: 'linear-gradient(145deg, rgba(16, 185, 129, 0.12), rgba(6, 182, 212, 0.12))',
+              backdropFilter: 'blur(12px)',
+              borderColor: 'rgba(255, 255, 255, 0.1)'
+            }}
+          >
+            <div className="space-y-4">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400">
+                  <Sparkles size={20} />
+                </div>
+                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-300">Daily Fact</span>
+              </div>
+              
+              {kStatus === 'loading' ? (
+                <div className="space-y-3 animate-pulse">
+                  <div className="h-4 w-full bg-white/10 rounded-full" />
+                  <div className="h-4 w-3/4 bg-white/10 rounded-full" />
+                </div>
+              ) : (
+                <p className="text-[11px] leading-relaxed font-medium opacity-90" style={{ color: 'var(--text)' }}>
+                  {dailyFact.text}
+                </p>
+              )}
+            </div>
+          </motion.div>
+        </div>
 
         {/* === MOTIVATION CARDS STRIP === */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -714,68 +919,112 @@ function getGreeting(name: string) {
             {/* Timetable */}
             <TimetableWidget role="student" />
 
-            {/* Leaderboard teaser */}
+            {/* Leaderboard Redesign */}
             <SectionErrorBoundary title="Leaderboard">
               <div
-                className="relative overflow-hidden rounded-2xl p-5 cursor-pointer hover:scale-[1.02] transition-all border"
+                className="relative overflow-hidden rounded-3xl p-6 cursor-pointer hover:scale-[1.01] transition-all border group"
                 style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}
                 onClick={() => setShowFullLeaderboard(true)}
               >
-                <div className="absolute -top-8 -right-8 w-32 h-32 rounded-full blur-2xl opacity-10" style={{ background: 'var(--primary)' }} />
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-black text-sm flex items-center gap-2" style={{ color: 'var(--text)' }}>
-                    🏆 Hall of Fame
-                  </h3>
-                  <span className="text-[9px] font-black text-primary uppercase tracking-wider">View All →</span>
+                <div className="absolute -top-12 -right-12 w-48 h-48 rounded-full blur-3xl opacity-10 group-hover:opacity-20 transition-opacity" style={{ background: 'var(--primary)' }} />
+                
+                <div className="flex items-center justify-between mb-6">
+                  <div>
+                    <h3 className="font-black text-base flex items-center gap-2" style={{ color: 'var(--text)' }}>
+                      🏆 Hall of Fame
+                    </h3>
+                    <p className="text-[10px] font-bold opacity-50" style={{ color: 'var(--text-muted)' }}>Top scholars this week</p>
+                  </div>
+                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary transition-transform group-hover:translate-x-1">
+                    <ChevronRight size={18} />
+                  </div>
                 </div>
 
                 {lStatus === 'loading' ? (
-                  <div className="space-y-2">
-                    <Skeleton className="h-14 w-full rounded-xl" />
-                    {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-10 w-full rounded-lg" />)}
-                  </div>
-                ) : lStatus === 'error' || lStatus === 'timeout' ? (
-                  <div className="py-4 text-center">
-                    <p className="text-[10px] text-muted mb-2">Failed to load rank</p>
-                    <button onClick={lRefetch} className="px-3 py-1 rounded-lg bg-input text-[10px] font-bold">Retry</button>
+                  <div className="space-y-3">
+                    <Skeleton className="h-24 w-full rounded-2xl" />
+                    <Skeleton className="h-12 w-full rounded-xl" />
                   </div>
                 ) : (
-                  <>
+                  <div className="space-y-6">
+                    {/* PODIUM */}
+                    <div className="flex items-end justify-center gap-2 pt-4 pb-2">
+                      {[1, 0, 2].map((idx) => {
+                        const entry = lData?.entries[idx]
+                        if (!entry) return null
+                        const heights = ['h-24', 'h-28', 'h-20']
+                        const medals = ['🥈', '🥇', '🥉']
+                        const colors = ['bg-slate-400', 'bg-amber-400', 'bg-amber-700']
+                        
+                        return (
+                          <div key={idx} className="flex flex-col items-center gap-2 flex-1 max-w-[80px]">
+                            <div className="relative">
+                              <Avatar url={entry.avatar_url} name={entry.full_name} size={idx === 0 ? 'lg' : 'md'} className="border-4 border-card" />
+                              <div className={`absolute -bottom-1 -right-1 w-6 h-6 rounded-full ${colors[idx]} flex items-center justify-center text-[10px] font-bold text-white border-2 border-card`}>
+                                {idx + 1}
+                              </div>
+                            </div>
+                            <div className={`${heights[idx]} w-full rounded-t-xl opacity-20 flex flex-col items-center justify-center px-1 text-center`} style={{ background: 'var(--primary)' }}>
+                              <span className="text-[7px] font-black truncate w-full" style={{ color: 'var(--text)' }}>{entry.full_name.split(' ')[0]}</span>
+                              <span className="text-[8px] font-black text-primary">{entry.xp}</span>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    {/* YOUR RANK STACKED BAR */}
                     {lData?.studentRank && (
-                      <div className="mb-3 p-3 rounded-xl flex items-center gap-3" style={{ background: 'color-mix(in oklch, var(--primary) 10%, transparent)' }}>
-                        <div className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-black text-white" style={{ background: 'var(--primary)' }}>
-                          #{lData.studentRank}
-                        </div>
-                        <div>
-                          <div className="text-xs font-black" style={{ color: 'var(--text)' }}>Your Rank</div>
-                          <div className="text-[9px] font-bold text-primary">{xp.toLocaleString()} XP</div>
+                      <div className="relative p-4 rounded-2xl overflow-hidden border border-primary/20 bg-primary/5">
+                        <div className="absolute top-0 right-0 w-12 h-12 bg-primary/10 rounded-bl-full flex items-center justify-center text-lg">⭐</div>
+                        <div className="flex items-center gap-4">
+                          <div className="text-3xl font-black text-primary italic">#{lData.studentRank}</div>
+                          <div>
+                            <div className="text-xs font-black uppercase tracking-widest" style={{ color: 'var(--text)' }}>Your Global Rank</div>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className="text-[10px] font-bold" style={{ color: 'var(--text-muted)' }}>Next award at rank #10</span>
+                              <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                            </div>
+                          </div>
                         </div>
                       </div>
                     )}
-
-                    <div className="space-y-2">
-                      {lData?.entries.slice(0, 5).map((entry: any, i: number) => (
-                        <div key={i} className={`flex items-center gap-3 p-2 rounded-xl transition-all ${entry.full_name === profile?.full_name ? 'ring-1 ring-primary/30' : ''}`} style={{ background: 'var(--bg)' }}>
-                          <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black shrink-0 ${
-                            i === 0 ? 'bg-amber-400 text-white' :
-                            i === 1 ? 'bg-slate-400 text-white' :
-                            i === 2 ? 'bg-amber-700 text-white' : 'bg-transparent text-muted'
-                          }`}>
-                            {i + 1}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="text-[10px] font-black truncate" style={{ color: entry.full_name === profile?.full_name ? 'var(--primary)' : 'var(--text)' }}>
-                              {entry.full_name === profile?.full_name ? '⭐ ' : ''}{entry.full_name}
-                            </div>
-                          </div>
-                          <div className="text-[9px] font-black text-amber-500 shrink-0">{entry.xp?.toLocaleString()} XP</div>
-                        </div>
-                      ))}
-                    </div>
-                  </>
+                  </div>
                 )}
               </div>
             </SectionErrorBoundary>
+
+            {/* Peak Library Hub */}
+            <Link href="/student/library">
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                className="rounded-2xl p-5 border relative overflow-hidden group bg-gradient-to-br from-rose-500/5 to-orange-500/5 cursor-pointer"
+                style={{ borderColor: 'var(--card-border)' }}
+              >
+                <div className="absolute top-0 right-0 text-rose-500/10 text-6xl rotate-12 transition-transform group-hover:rotate-0">
+                  <BookOpen size={64} />
+                </div>
+                <div className="relative z-10">
+                  <div className="flex justify-between items-start mb-2">
+                    <h3 className="font-black text-sm flex items-center gap-2" style={{ color: 'var(--text)' }}>
+                      <LibraryIcon size={16} className="text-rose-400" /> Peak Library
+                    </h3>
+                    <Badge variant="primary" className="text-[8px] tracking-widest bg-rose-500/10 text-rose-500 border-none">NEW HUB</Badge>
+                  </div>
+                  
+                  <div className="p-3 rounded-xl bg-white/5 border border-white/5 mb-3 group-hover:bg-rose-500/5 transition-colors">
+                    <p className="text-[9px] font-bold text-rose-400 uppercase tracking-widest mb-0.5">Mindset & Growth</p>
+                    <h4 className="text-xs font-black uppercase" style={{ color: 'var(--text)' }}>Start Your Next Chapter</h4>
+                    <p className="text-[10px] opacity-60 mt-1" style={{ color: 'var(--text-muted)' }}>Earn 200+ XP per book reflection.</p>
+                  </div>
+                  <Button variant="outline" className="w-full text-[10px] h-8 gap-2 bg-transparent hover:bg-rose-500/10 border-rose-500/20 text-rose-500 transition-all pointer-events-none">
+                    Enter Library <ArrowRight size={12} />
+                  </Button>
+                </div>
+              </motion.div>
+            </Link>
 
             {/* Recent Intel */}
             <SectionErrorBoundary title="Intel">
@@ -798,20 +1047,26 @@ function getGreeting(name: string) {
                 ) : (
                   <div className="space-y-2">
                     {iData.map((n: any) => (
-                      <div
+                      <motion.div
                         key={n.id}
-                        className="p-3 rounded-xl flex gap-3 border"
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="p-3 rounded-xl flex gap-3 border cursor-pointer hover:scale-[1.03] hover:shadow-lg transition-all group active:scale-95"
                         style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}
+                        onClick={() => setSelectedIntel(n)}
                       >
-                        <div className="w-1.5 rounded-full shrink-0 mt-1" style={{
-                          background: n.type === 'award' ? '#10B981' : n.type === 'info' ? '#3B82F6' : '#F59E0B',
+                        <div className="w-1.5 rounded-full shrink-0 group-hover:scale-y-110 transition-transform" style={{
+                          background: n.type === 'award' ? '#10B981' : n.type === 'assignment_returned' ? '#F59E0B' : '#3B82F6',
                           minHeight: '24px'
                         }} />
-                        <div>
-                          <p className="text-[10px] font-bold leading-tight" style={{ color: 'var(--text)' }}>{n.title}</p>
-                          <p className="text-[9px] mt-0.5 leading-relaxed" style={{ color: 'var(--text-muted)' }}>{n.body}</p>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between mb-0.5">
+                            <p className="text-[10px] font-black leading-tight" style={{ color: 'var(--text)' }}>{n.title}</p>
+                            <ChevronRight size={10} className="text-muted opacity-0 group-hover:opacity-100 transition-opacity" />
+                          </div>
+                          <p className="text-[9px] leading-relaxed line-clamp-2" style={{ color: 'var(--text-muted)' }}>{n.body}</p>
                         </div>
-                      </div>
+                      </motion.div>
                     ))}
                   </div>
                 )}
@@ -885,7 +1140,9 @@ function getGreeting(name: string) {
           <p className="text-[10px] text-center italic" style={{ color: 'var(--text-muted)' }}>Leaderboard updates as you earn XP from quests, focus sessions and trivia.</p>
         </div>
       </Modal>
+      {/* ── PEAK AI ASSISTANT ── */}
+      <PeakAIAssistant />
+      <InsightTrigger />
     </div>
   )
 }
-

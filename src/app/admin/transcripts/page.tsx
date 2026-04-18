@@ -396,11 +396,35 @@ function AdminTranscriptsContent() {
     if (!selectedEventId) return
     const toastId = toast.loading('Publishing selected transcripts...')
     try {
-      let query = supabase.from('transcripts').update({ is_published: true }).eq('tuition_event_id', selectedEventId)
+      let query = supabase.from('transcripts').update({ 
+        is_published: true,
+        published_at: new Date().toISOString() 
+      }).eq('tuition_event_id', selectedEventId)
+      
       if (selectedExamId) query = query.eq('exam_event_id', selectedExamId)
-      const { error } = await query
+      
+      const { data: published, error } = await query.select('id, student_id, student:students(user_id)')
 
       if (error) throw error
+      
+      // SEND NOTIFICATIONS
+      if (published && published.length > 0) {
+        const notifications = published
+          .map((p: any) => ({
+            user_id: Array.isArray(p.student) ? p.student[0]?.user_id : p.student?.user_id,
+            type: 'transcript_published',
+            title: 'Academic Transcript Published',
+            body: 'Your official academic transcript has been published and is now available in your portal.',
+            related_id: p.id,
+            data: { transcript_id: p.id }
+          }))
+          .filter(n => n.user_id)
+        
+        if (notifications.length > 0) {
+          await supabase.from('notifications').insert(notifications)
+        }
+      }
+
       toast.success('Transcripts published to students', { id: toastId })
       loadTranscripts(selectedEventId, selectedExamId)
     } catch (err) {
@@ -411,12 +435,31 @@ function AdminTranscriptsContent() {
   const togglePublish = async (t: Transcript) => {
     const toastId = toast.loading(`${t.is_published ? 'Unpublishing' : 'Publishing'} transcript...`)
     try {
-      const { error } = await supabase
+      const willPublish = !t.is_published
+      const { data, error } = await supabase
         .from('transcripts')
-        .update({ is_published: !t.is_published })
+        .update({ 
+          is_published: willPublish,
+          published_at: willPublish ? new Date().toISOString() : null
+        })
         .eq('id', t.id)
+        .select('id, student:students(user_id)')
+        .single()
 
       if (error) throw error
+
+      const studentData = data as any
+      if (willPublish && studentData?.student?.user_id) {
+         await supabase.from('notifications').insert({
+            user_id: studentData.student.user_id,
+            type: 'transcript_published',
+            title: 'Academic Transcript Published',
+            body: 'Your official academic transcript has been published and is now available in your portal.',
+            related_id: t.id,
+            data: { transcript_id: t.id }
+         })
+      }
+
       toast.success(`Transcript ${t.is_published ? 'unpublished' : 'published'}`, { id: toastId })
       loadTranscripts(selectedEventId!, selectedExamId)
     } catch (err) {

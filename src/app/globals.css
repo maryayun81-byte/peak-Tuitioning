@@ -332,3 +332,22 @@ pre.passage-node.is-poem {
   transform: translateY(-2px);
   transition: all 0.3s ease;
 }
+
+/* Premium Shine Effect */
+@keyframes shine {
+  0% { transform: translateX(-200%) rotate(45deg); }
+  100% { transform: translateX(200%) rotate(45deg); }
+}
+
+.animate-shine {
+  animation: shine 8s infinite linear;
+}
+
+@keyframes float-mini {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
+.animate-float-mini {
+  animation: float-mini 3s ease-in-out infinite;
+}

@@ -18,6 +18,7 @@ import Link from 'next/link'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { TermsEnforcementModal } from '@/components/teacher/TermsEnforcementModal'
 import { PageErrorBoundary } from '@/components/ui/PageErrorBoundary'
+import { TeacherAIAssistant } from '@/components/teacher/TeacherAIAssistant'
 
 import { useNotificationStore } from '@/stores/notificationStore'
 import { useRealtimeNotifications } from '@/hooks/useRealtimeNotifications'
@@ -177,6 +178,7 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
           { label: 'Sign Out', href: '#', icon: <LogOut size={18} />, onClick: signOut }
         ]} 
       />
+      <TeacherAIAssistant />
       </div>
     </>
   )

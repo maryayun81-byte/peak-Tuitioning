@@ -208,7 +208,9 @@ export default function WorksheetGraderPage() {
     }).eq('id', submissionId)
 
     if (!error) {
-      const isHighPerf = (awardedMarks / totalMarks) >= 0.8
+      const numericAwarded = Number(awardedMarks) || 0
+      const numericTotal = Number(totalMarks) || 1
+      const isHighPerf = (numericAwarded / numericTotal) >= 0.8
       let xpAwarded = isHighPerf ? 50 : 10
       
       const { data: st } = await supabase.from('students').select('xp').eq('id', submission.student_id).single()
@@ -219,10 +221,16 @@ export default function WorksheetGraderPage() {
         type: 'assignment_returned',
         title: isHighPerf ? 'Mastery Achievement! +50 XP' : 'Assignment Returned (+10 XP)',
         body: isHighPerf 
-          ? `Incredible work! You scored ${Math.round((awardedMarks/totalMarks)*100)}% on "${assignment?.title}".`
-          : `Your worksheet "${assignment?.title}" has been marked. Score: ${awardedMarks}/${totalMarks}`,
+          ? `Incredible work! You scored ${Math.round((numericAwarded/numericTotal)*100)}% on "${assignment?.title}".`
+          : `Your worksheet "${assignment?.title}" has been marked. Score: ${numericAwarded}/${numericTotal}`,
         related_id: assignment?.id,
-        data: { xp: xpAwarded, marks: awardedMarks, total: totalMarks, mastery: isHighPerf }
+        data: { 
+          xp: xpAwarded, 
+          marks: numericAwarded, 
+          total: numericTotal, 
+          mastery: isHighPerf,
+          assignment_id: assignment?.id 
+        }
       })
       
       toast.success(isHighPerf ? '✅ Returned with Mastery Bonus!' : '✅ Submission returned to student!')
@@ -614,16 +622,16 @@ export default function WorksheetGraderPage() {
             <div className="lg:hidden fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
                <button 
                   onClick={() => setIsScoringOpen(!isScoringOpen)}
-                  className="px-6 py-4 bg-primary text-white rounded-[2rem] shadow-2xl shadow-primary/40 flex items-center gap-3 active:scale-95 transition-transform"
+                  className="px-8 py-5 bg-primary text-white rounded-[2.5rem] shadow-2xl shadow-primary/40 flex items-center gap-4 active:scale-95 transition-all active:brightness-90 hover:brightness-110"
                >
-                  <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center font-black text-xs">
+                  <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center font-black text-sm">
                      {awardedMarks}
                   </div>
                   <div className="flex flex-col items-start leading-none text-left">
-                     <span className="text-[10px] font-black uppercase tracking-widest opacity-80">Award Marks</span>
-                     <span className="text-xs font-bold">Open Drawer</span>
+                     <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80">Marking Tools</span>
+                     <span className="text-sm font-black">{isScoringOpen ? 'Close Panel' : 'Open Drawer'}</span>
                   </div>
-                  {isScoringOpen ? <ChevronLeft className="-rotate-90" size={18} /> : <ChevronLeft className="rotate-90" size={18} />}
+                  <ChevronLeft className={`transition-transform duration-300 ${isScoringOpen ? '-rotate-90' : 'rotate-90'}`} size={20} />
                </button>
             </div>
          </div>
@@ -683,10 +691,68 @@ export default function WorksheetGraderPage() {
                         readOnly
                         showCorrect
                         />
-                     </div>
-                  </>
-               )}
-               </div>
+                      </div>
+
+                      {/* MOBILE INLINE MARKING */}
+                      <div className="lg:hidden pt-8 border-t space-y-6" style={{ borderColor: 'var(--card-border)' }}>
+                         <div className="space-y-4">
+                            <div className="text-xs font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Award Marks — Q{activeIndex + 1}</div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                               {activeBlock.marks <= 10 ? (
+                                  Array.from({ length: activeBlock.marks + 1 }).map((_, v) => (
+                                     <button key={v} 
+                                        onClick={() => {
+                                          setQuestionMarks(p => ({ ...p, [activeBlock.id]: v }))
+                                          if (activeIndex < questionBlocks.length - 1) {
+                                            setTimeout(() => navQuestion(1), 300)
+                                          }
+                                        }}
+                                        className={`w-12 h-12 rounded-2xl text-sm font-black transition-all flex items-center justify-center shrink-0 border shadow-sm active:scale-90 ${questionMarks[activeBlock.id] === v ? 'bg-primary text-white scale-105' : ''}`}
+                                        style={{ background: questionMarks[activeBlock.id] === v ? 'var(--primary)' : 'var(--card)', color: questionMarks[activeBlock.id] === v ? 'white' : 'var(--text-muted)', borderColor: 'var(--card-border)' }}>
+                                        {v}
+                                     </button>
+                                  ))
+                               ) : (
+                                  <div className="flex items-center gap-3">
+                                     <input
+                                        type="number" min={0} max={activeBlock.marks}
+                                        value={questionMarks[activeBlock.id] === undefined ? '' : questionMarks[activeBlock.id]}
+                                        onChange={e => {
+                                           const val = e.target.value
+                                           if (val === '') {
+                                              setQuestionMarks(p => { const next = { ...p }; delete next[activeBlock.id]; return next; })
+                                           } else {
+                                              setQuestionMarks(p => ({ ...p, [activeBlock.id]: Math.min(activeBlock.marks, Math.max(0, parseInt(val) || 0)) }))
+                                           }
+                                        }}
+                                        className="w-24 h-12 rounded-2xl px-4 text-center font-black border focus:ring-2 ring-primary/20 text-lg"
+                                        style={{ background: 'var(--card)', borderColor: 'var(--card-border)', color: 'var(--text)' }}
+                                        placeholder="..."
+                                     />
+                                     <span className="text-sm font-black" style={{ color: 'var(--text-muted)' }}>/ {activeBlock.marks}</span>
+                                  </div>
+                               )}
+                            </div>
+                         </div>
+                         
+                         {/* Annotation Canvas (Mobile Mini) */}
+                         <div className="space-y-3">
+                            <div className="text-xs font-black uppercase tracking-widest text-slate-400">Annotation (Optional)</div>
+                            <div className="rounded-[2rem] border overflow-hidden shadow-inner" style={{ borderColor: 'var(--card-border)', background: 'var(--card)' }}>
+                               <AnnotationCanvas
+                                  key={`mobile-${activeBlockId}`}
+                                  backgroundText={activeBlockId && typeof answers[activeBlockId] === 'string' && !(answers[activeBlockId] as string).startsWith('{') ? (answers[activeBlockId] as string) : undefined}
+                                  backgroundJson={activeBlockId && typeof answers[activeBlockId] === 'string' && (answers[activeBlockId] as string).startsWith('{') ? (answers[activeBlockId] as string) : undefined}
+                                  initialJson={activeBlockId ? annotations[activeBlockId] : undefined}
+                                  defaultColor="#EF4444"
+                                  onSave={json => activeBlockId && setAnnotations(p => ({ ...p, [activeBlockId]: json }))}
+                               />
+                            </div>
+                         </div>
+                      </div>
+                   </>
+                )}
+                </div>
             </div>
 
             {/* RIGHT — Marks + Annotation + Feedback */}
@@ -713,7 +779,7 @@ export default function WorksheetGraderPage() {
                                  {activeBlock.marks <= 10 ? (
                                     Array.from({ length: activeBlock.marks + 1 }).map((_, v) => (
                                        <button key={v} onClick={() => setQuestionMarks(p => ({ ...p, [activeBlock.id]: v }))}
-                                          className={`w-10 h-10 rounded-xl text-sm font-black transition-all flex items-center justify-center shrink-0 border shadow-sm ${questionMarks[activeBlock.id] === v ? 'bg-primary text-white' : ''}`}
+                                          className={`w-12 h-12 rounded-xl text-sm font-black transition-all flex items-center justify-center shrink-0 border shadow-sm active:scale-90 ${questionMarks[activeBlock.id] === v ? 'bg-primary text-white scale-105' : ''}`}
                                           style={{ background: questionMarks[activeBlock.id] === v ? 'var(--primary)' : 'var(--card)', color: questionMarks[activeBlock.id] === v ? 'white' : 'var(--text-muted)', borderColor: 'var(--card-border)' }}>
                                           {v}
                                        </button>

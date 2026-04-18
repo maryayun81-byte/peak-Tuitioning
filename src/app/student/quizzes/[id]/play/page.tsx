@@ -51,8 +51,26 @@ export default function QuizPlayer() {
       }
       
       setQuiz(data)
-      const limit = data.duration_minutes || 0
-      setTimeLeft(limit * 60)
+
+      // ARTIFACT: Restore Persistence Draft
+      const draftKey = `quiz_draft_${id}_${student?.id}`
+      const savedDraft = localStorage.getItem(draftKey)
+      
+      if (savedDraft) {
+        try {
+          const draft = JSON.parse(savedDraft)
+          setAnswers(draft.answers || {})
+          setCurrentIdx(draft.currentIdx || 0)
+          setTimeLeft(draft.timeLeft || (data.duration_minutes * 60))
+          toast.success('Session restored! 🚀', { icon: '⚡' })
+        } catch (e) {
+          console.error('Failed to parse quiz draft', e)
+          setTimeLeft((data.duration_minutes || 0) * 60)
+        }
+      } else {
+        const limit = data.duration_minutes || 0
+        setTimeLeft(limit * 60)
+      }
     } catch (err) {
       console.error('[Quiz] Load error:', err)
       setLoadError(true)
@@ -143,9 +161,27 @@ export default function QuizPlayer() {
       }
 
       toast.success('Quiz Submitted!')
+      
+      // Cleanup draft
+      localStorage.removeItem(`quiz_draft_${id}_${student?.id}`)
+      
       clearPageDataCache()
     }
   }
+
+  // Auto-Save Effect
+  useEffect(() => {
+    if (quiz && !isFinished && student?.id) {
+      const draftKey = `quiz_draft_${id}_${student.id}`
+      const draft = {
+        answers,
+        currentIdx,
+        timeLeft,
+        updatedAt: new Date().toISOString()
+      }
+      localStorage.setItem(draftKey, JSON.stringify(draft))
+    }
+  }, [answers, currentIdx, timeLeft, quiz, isFinished, student?.id, id])
 
   if (loading && !quiz) return (
      <div className="h-screen flex flex-col items-center justify-center bg-[var(--bg)] gap-4">

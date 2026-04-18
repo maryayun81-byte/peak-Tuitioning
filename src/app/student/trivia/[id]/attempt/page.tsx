@@ -361,7 +361,29 @@ export default function StudentTriviaAttemptPage() {
        setQuestions(qRes.data ?? [])
        setMyGroupId(myGroup.id)
        
-       if (qRes.data?.[0]) setQuestionTimeLeft(qRes.data[0].time_seconds)
+       // ARTIFACT: Restore Mission Persistence
+       const draftKey = `trivia_draft_${sessionId}_${student?.id}`
+       const savedDraft = localStorage.getItem(draftKey)
+
+       if (savedDraft) {
+         try {
+           const draft = JSON.parse(savedDraft)
+           setAnswers(draft.answers || {})
+           setTimings(draft.timings || {})
+           setCurrentIdx(draft.currentIdx || 0)
+           setStreak(draft.streak || 0)
+           setMaxStreak(draft.maxStreak || 0)
+           
+           const currentQ = qRes.data?.[draft.currentIdx || 0]
+           setQuestionTimeLeft(currentQ?.time_seconds || 30)
+           toast.success('Mission progress restored! 🛸', { icon: '👽' })
+         } catch (e) {
+           console.error('Failed to parse trivia draft', e)
+           if (qRes.data?.[0]) setQuestionTimeLeft(qRes.data[0].time_seconds)
+         }
+       } else {
+         if (qRes.data?.[0]) setQuestionTimeLeft(qRes.data[0].time_seconds)
+       }
 
        setLoading(false)
        setQuestionStartTime(Date.now())
@@ -427,10 +449,30 @@ export default function StudentTriviaAttemptPage() {
       setIsSubmitting(false)
     } else {
       if (!auto) toast.success('Assignment Complete!')
+      
+      // Cleanup Draft
+      localStorage.removeItem(`trivia_draft_${sessionId}_${student?.id}`)
+      
       clearPageDataCache()
       router.push(`/student/trivia/${sessionId}/results`)
     }
   }, [sessionId, myGroupId, questions, answers, timings, activeQ, questionStartTime, isSubmitting, maxStreak, supabase, router, goldQIdx])
+
+  // Auto-Save Effect
+  useEffect(() => {
+    if (!loading && !isSubmitting && student?.id && questions.length > 0) {
+      const draftKey = `trivia_draft_${sessionId}_${student.id}`
+      const draft = {
+        answers,
+        timings,
+        currentIdx,
+        streak,
+        maxStreak,
+        updatedAt: new Date().toISOString()
+      }
+      localStorage.setItem(draftKey, JSON.stringify(draft))
+    }
+  }, [answers, timings, currentIdx, streak, maxStreak, loading, isSubmitting, sessionId, student?.id, questions.length])
 
   const handleNext = useCallback(async (auto = false) => {
       silenceOscillators()

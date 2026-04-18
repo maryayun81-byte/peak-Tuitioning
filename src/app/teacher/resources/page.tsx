@@ -14,13 +14,14 @@ import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import { SkeletonList } from '@/components/ui/Skeleton'
 import { PageStates } from '@/components/ui/PageStates'
-import { FileUploadZone } from '@/components/worksheet/FileUploadZone'
+import { ResourceFileUploader } from '@/components/ui/ResourceFileUploader'
 import { useAuthStore } from '@/stores/authStore'
 import { formatDate } from '@/lib/utils'
 import { useAutoSave } from '@/hooks/useAutoSave'
 import { usePageData, clearPageDataCache } from '@/hooks/usePageData'
 import { DraftBanner } from '@/components/ui/DraftBanner'
 import toast from 'react-hot-toast'
+import { useAIFormStore } from '@/stores/aiFormStore'
 import type { Resource } from '@/types/database'
 
 export default function TeacherResources() {
@@ -49,6 +50,7 @@ export default function TeacherResources() {
   }
 
   const [newResource, setNewResource] = useState(INITIAL_RESOURCE)
+  const [videoMode, setVideoMode] = useState<'upload' | 'link'>('upload')
 
   // All teacher data loaded via usePageData (see below)
   const [centerStudents, setCenterStudents] = useState<any[]>([])
@@ -63,6 +65,23 @@ export default function TeacherResources() {
       toast.success('Resource draft restored!')
     }
   )
+
+  // ── AI Auto-fill Listener ──
+  const { parsedData, intent, lastGeneratedAt, clear: clearAI } = useAIFormStore()
+  useEffect(() => {
+    if (lastGeneratedAt && intent === 'resource' && parsedData) {
+      setNewResource(prev => ({
+        ...prev,
+        title: parsedData.title || prev.title,
+        description: parsedData.description || prev.description,
+        type: (parsedData.type_detail || 'file') as any,
+        chapter: (parsedData.topic || parsedData.chapter) || prev.chapter,
+      }))
+      setAddOpen(true)
+      toast.success('AI populated this resource! 🚀')
+      clearAI()
+    }
+  }, [lastGeneratedAt, intent, parsedData])
 
   // ── Optimized Page Data ──────────────────────────────────────
   const { 
@@ -512,52 +531,41 @@ export default function TeacherResources() {
                      <span className="text-[10px] font-black uppercase tracking-tighter" style={{ color: 'var(--primary)' }}>Video Source</span>
                      <div className="flex gap-2">
                         <button 
-                          onClick={() => setNewResource({...newResource, url: '', video_url: ''})} 
-                          className="text-[8px] px-2 py-1 rounded-md font-bold uppercase transition-all"
-                          style={{
-                             background: !newResource.video_url ? 'var(--primary)' : 'transparent',
-                             color: !newResource.video_url ? 'white' : 'var(--text-muted)',
-                             border: !newResource.video_url ? 'none' : '1px solid var(--card-border)',
-                          }}
+                          onClick={() => setVideoMode('upload')} 
+                          className={`text-[8px] px-3 py-1.5 rounded-md font-bold uppercase transition-all ${videoMode === 'upload' ? 'bg-primary text-white' : 'bg-transparent text-muted border border-card-border'}`}
                         >
                            Upload
                         </button>
                         <button 
-                          onClick={() => setNewResource({...newResource, attachment_url: ''})} 
-                          className="text-[8px] px-2 py-1 rounded-md font-bold uppercase transition-all"
-                          style={{
-                             background: (newResource.video_url || newResource.url.includes('youtube')) ? 'var(--primary)' : 'transparent',
-                             color: (newResource.video_url || newResource.url.includes('youtube')) ? 'white' : 'var(--text-muted)',
-                             border: (newResource.video_url || newResource.url.includes('youtube')) ? 'none' : '1px solid var(--card-border)',
-                          }}
+                          onClick={() => setVideoMode('link')} 
+                          className={`text-[8px] px-3 py-1.5 rounded-md font-bold uppercase transition-all ${videoMode === 'link' ? 'bg-primary text-white' : 'bg-transparent text-muted border border-card-border'}`}
                         >
                            Link
                         </button>
                      </div>
                   </div>
-                  {(newResource.video_url || newResource.url.includes('youtube')) ? (
+                  {videoMode === 'link' ? (
                      <Input placeholder="YouTube, Vimeo, or MP4 URL" value={newResource.video_url} onChange={e => setNewResource({...newResource, video_url: e.target.value, url: e.target.value})} />
                   ) : (
-                     <FileUploadZone 
-                       bucket="resource-uploads"
-                       value={newResource.attachment_url} 
-                       onChange={url => setNewResource({...newResource, attachment_url: url || '', url: url || ''})} 
-                       accept={{ 'video/*': ['.mp4', '.mov', '.webm'] }}
-                       acceptDocs={true}
-                       maxSizeMB={500}
+                     <ResourceFileUploader 
+                        bucket="resource-uploads"
+                        value={newResource.attachment_url} 
+                        onChange={url => setNewResource({...newResource, attachment_url: url || '', url: url || ''})} 
+                        acceptType="video"
+                        maxSizeMB={500}
                      />
                   )}
                </div>
             ) : newResource.type === 'link' ? (
                <Input label="URL Link" placeholder="https://..." value={newResource.url} onChange={e => setNewResource({...newResource, url: e.target.value})} />
             ) : (
-               <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Upload Document</label>
-                  <FileUploadZone 
+               <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Upload Material</label>
+                  <ResourceFileUploader 
                     bucket="resource-uploads"
                     value={newResource.attachment_url} 
                     onChange={url => setNewResource({...newResource, attachment_url: url || '', url: url || ''})} 
-                    acceptDocs={true}
+                    acceptType={newResource.type === 'file' ? 'document' : 'any'}
                     maxSizeMB={100}
                   />
                </div>

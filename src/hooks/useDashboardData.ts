@@ -311,3 +311,73 @@ export function useStudentQuizzes(studentId?: string, classId?: string | null, t
     }
   })
 }
+
+/**
+ * useKnowledgeFeed
+ * Fetches dynamic "Word of the Day" and "Quick Fact" from the database.
+ * Rotates 4 times a day based on a consistent seed.
+ */
+export function useKnowledgeFeed() {
+  return usePageData({
+    cacheKey: ['knowledge', 'feed'],
+    fetcher: async () => {
+      const { data, error } = await supabase
+        .from('app_knowledge_base')
+        .select('*')
+        .eq('is_active', true)
+      
+      if (error) return { data: null, error }
+
+      // Rotation Logic: 4 items per day
+      const now = new Date()
+      const daysSinceEpoch = Math.floor(now.getTime() / (1000 * 60 * 60 * 24))
+      const hourSegment = Math.floor(now.getHours() / 6)
+      const seed = daysSinceEpoch * 4 + hourSegment
+
+      const vocabs = data?.filter((i: any) => i.category === 'vocabulary') || []
+      const facts = data?.filter((i: any) => i.category === 'fact') || []
+
+      return {
+        data: {
+          word: vocabs.length > 0 ? vocabs[seed % vocabs.length].content : null,
+          fact: facts.length > 0 ? facts[seed % facts.length].content : null
+        },
+        error: null
+      }
+    }
+  })
+}
+
+/**
+ * useLibraryBooks
+ * Fetches all published books from the Peak Library.
+ */
+export function useLibraryBooks() {
+  return usePageData({
+    cacheKey: ['library', 'books'],
+    fetcher: async () => {
+      return await supabase
+        .from('library_books')
+        .select('*')
+        .eq('is_published', true)
+        .order('created_at', { ascending: false })
+    }
+  })
+}
+
+/**
+ * useStudentLibrary
+ * Fetches the student's personal reading shelf and progress.
+ */
+export function useStudentLibrary(studentId?: string) {
+  return usePageData({
+    cacheKey: ['library', 'student', studentId || 'guest'],
+    fetcher: async () => {
+      if (!studentId) return { data: null, error: null }
+      return await supabase
+        .from('library_student_progress')
+        .select('*, book:library_books(*)')
+        .eq('student_id', studentId)
+    }
+  })
+}

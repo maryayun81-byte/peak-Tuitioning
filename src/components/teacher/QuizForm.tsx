@@ -18,8 +18,9 @@ import { FileUploadZone } from '@/components/worksheet/FileUploadZone'
 import { LatexRenderer } from '@/components/ui/LatexRenderer'
 import { useAutoSave } from '@/hooks/useAutoSave'
 import { DraftBanner } from '@/components/ui/DraftBanner'
-import { clearPageDataCache } from '@/hooks/usePageData'
+import { usePageData, clearPageDataCache } from '@/hooks/usePageData'
 import { generateId } from '@/lib/utils'
+import { useAIFormStore } from '@/stores/aiFormStore'
 import dynamic from 'next/dynamic'
 const AnnotationCanvas = dynamic(() => import('@/components/worksheet/AnnotationCanvas').then(m => m.AnnotationCanvas), { ssr: false })
 import { useMemo } from 'react'
@@ -104,6 +105,34 @@ export function QuizForm({ initialData, isEditing = false }: QuizFormProps) {
       toast.success('Draft restored!')
     }
   )
+
+  // ── AI Auto-fill Listener ──
+  const { parsedData, intent, lastGeneratedAt, clear: clearAI } = useAIFormStore()
+  useEffect(() => {
+    if (lastGeneratedAt && intent === 'quiz' && parsedData) {
+      setForm(prev => ({
+        ...prev,
+        title: parsedData.title || prev.title,
+        instructions: parsedData.instructions || prev.instructions,
+        class_id: parsedData.class_id || prev.class_id,
+        subject_id: parsedData.subject_id || prev.subject_id,
+      }))
+      if (parsedData.questions) {
+        setQuestions(parsedData.questions.map((q: any) => ({
+          id: generateId(),
+          text: q.text,
+          type: q.type,
+          options: q.options || ['', '', '', ''],
+          correct_answer: q.correct_answer || '',
+          correct_answers: q.correct_answers || [],
+          marks: q.marks || 1,
+          grading_method: 'exact'
+        })))
+      }
+      toast.success('AI populated this quiz! 🚀')
+      clearAI()
+    }
+  }, [lastGeneratedAt, intent, parsedData])
 
   useEffect(() => {
     if (profile) loadSelectors()

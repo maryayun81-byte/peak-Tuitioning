@@ -23,6 +23,7 @@ import Link from 'next/link'
 import { useAutoSave } from '@/hooks/useAutoSave'
 import { DraftBanner } from '@/components/ui/DraftBanner'
 import { clearPageDataCache } from '@/hooks/usePageData'
+import { useAIFormStore } from '@/stores/aiFormStore'
 
 export default function NewWorksheetPage() {
   const router = useRouter()
@@ -98,6 +99,30 @@ export default function NewWorksheetPage() {
   })
 
   useEffect(() => { loadMeta() }, [])
+
+  // ── AI Auto-fill Listener ──
+  const { parsedData, intent, lastGeneratedAt, clear: clearAI } = useAIFormStore()
+  useEffect(() => {
+    if (lastGeneratedAt && intent === 'assignment' && parsedData) {
+      if (parsedData.title) setTitle(parsedData.title)
+      if (parsedData.class_id) setClassId(parsedData.class_id)
+      if (parsedData.subject_id) setSubjectId(parsedData.subject_id)
+      if (parsedData.due_date) setDueDate(parsedData.due_date.slice(0, 16))
+      if (parsedData.questions) {
+        setBlocks(parsedData.questions.map((q: any) => ({
+          ...createBlock(q.type === 'long_answer' ? 'long_answer' : 'short_answer' as any),
+          question: q.question,
+          marks: q.marks || 5,
+          lines: q.lines || 3
+        })))
+      }
+      if (parsedData.settings) {
+        setLockAfterDeadline(parsedData.settings.strict_mode || false)
+      }
+      toast.success('AI populated this assignment! 🚀')
+      clearAI()
+    }
+  }, [lastGeneratedAt, intent, parsedData])
 
   // Load students when audience class filter changes
   useEffect(() => {
@@ -247,7 +272,7 @@ export default function NewWorksheetPage() {
       return
     }
 
-    const { error } = await supabase.from('assignments').insert({
+    const { data: newAssign, error } = await supabase.from('assignments').insert({
       title,
       class_id: classId,
       subject_id: subjectId,
@@ -270,13 +295,40 @@ export default function NewWorksheetPage() {
       selected_student_ids: audience === 'students' ? selectedStudentIds : [],
       is_workbook: isWorkbook,
       lock_after_deadline: lockAfterDeadline,
-    })
+    }).select('id').single()
 
     if (error) {
       console.error('[Save Assignment Error]', error)
       toast.error('Failed to save: ' + error.message)
     } else {
       toast.success(status === 'published' ? '🎉 Worksheet published!' : '✅ Draft saved!')
+      
+      // SEND NOTIFICATIONS
+      if (status === 'published') {
+        const studentIds = audience === 'students' ? selectedStudentIds : []
+        let targetUserIds: string[] = []
+
+        if (audience === 'students' && studentIds.length > 0) {
+          const { data: stUsers } = await supabase.from('students').select('user_id').in('id', studentIds)
+          targetUserIds = stUsers?.map(s => s.user_id).filter(Boolean) as string[] || []
+        } else if (audience === 'class' && classId) {
+          const { data: stUsers } = await supabase.from('students').select('user_id').eq('class_id', classId)
+          targetUserIds = stUsers?.map(s => s.user_id).filter(Boolean) as string[] || []
+        }
+
+        if (targetUserIds.length > 0) {
+          const notifications = targetUserIds.map(uid => ({
+            user_id: uid,
+            type: 'new_assignment',
+            title: 'New Assignment Posted',
+            body: `A new assignment "${title}" has been posted in ${derivedSubjects.find(s => s.id === subjectId)?.name || 'your class'}.`,
+            related_id: newAssign?.id,
+            data: { assignment_id: newAssign?.id, subject_id: subjectId }
+          }))
+          await supabase.from('notifications').insert(notifications)
+        }
+      }
+
       clear() // Clear auto-save draft on successful save
       clearPageDataCache() // Invalidate list cache
       router.push('/teacher/assignments')

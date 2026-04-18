@@ -104,7 +104,12 @@ export default function StudentWorksheetSolver() {
     if (sRes.data?.status !== 'returned') {
       const idbAnswers = await idbGet(`ws-${assignmentId}`)
       const existing: WorksheetAnswers = sRes.data?.worksheet_answers ?? {}
-      setAnswers(idbAnswers && Object.keys(idbAnswers).length > 0 ? idbAnswers : existing)
+      if (idbAnswers && Object.keys(idbAnswers).length > 0) {
+        setAnswers(idbAnswers)
+        toast.success('Your work was automatically restored! 📝', { icon: '💾' })
+      } else {
+        setAnswers(existing)
+      }
       
       // Timer
       if (a.show_timer && a.time_limit && sRes.data?.status !== 'submitted') {

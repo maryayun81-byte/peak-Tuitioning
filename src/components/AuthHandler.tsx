@@ -65,15 +65,15 @@ export function AuthHandler() {
     })
 
     // Fallback: Safety timeout to prevent infinite loading hangs.
-    // 10s is generous enough for cold starts but fast enough to not feel broken.
+    // 8s is generous enough for cold starts but fast enough to not feel broken.
     const safetyTimeout = setTimeout(() => {
-      if (!isInitialized) {
+      const state = useAuthStore.getState()
+      if (!state.isInitialRevalidationComplete) {
         console.warn('[AuthHandler] Safety timeout reached. Forcing resolution.')
         setLoading(false)
         setRevalidationComplete(true)
-        isInitialized = true
       }
-    }, 10000)
+    }, 8000)
 
     // Fallback: If INITIAL_SESSION doesn't fire (e.g. library behavior change), 
     // manually check session after a short tick
