@@ -11,17 +11,28 @@ import { NavigationRefetchManager } from '@/components/NavigationRefetchManager'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Peak Performance Tutoring',
-  description: 'Premium tuition management platform for students, teachers, parents and administrators',
+  metadataBase: new URL('https://www.peakcampus.co.ke'),
+  title: {
+    default: 'Peak Performance Campus',
+    template: '%s | Peak Campus',
+  },
+  description: 'Peak Performance Campus - Premium academic excellence and student tuition management portal.',
   manifest: '/manifest.json',
   icons: {
     icon: '/logo.png',
     apple: '/logo.png',
   },
   openGraph: {
-    title: 'Peak Performance Tutoring',
-    description: 'Premium tuition management platform',
+    title: 'Peak Performance Campus',
+    description: 'Academic excellence and student management portal.',
+    url: 'https://www.peakcampus.co.ke',
+    siteName: 'Peak Campus',
+    locale: 'en_KE',
     type: 'website',
+  },
+  robots: {
+    index: true,
+    follow: true,
   },
 }
 

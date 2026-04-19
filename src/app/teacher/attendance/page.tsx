@@ -16,9 +16,11 @@ import {
   LineChart, Line, AreaChart, Area
 } from 'recharts'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
-import { exportTimetableToPDF } from '@/lib/export/timetableExport'
+import { AttendanceReportTemplate } from '@/components/attendance/AttendanceReportTemplate'
+import { exportTimetableToPDF, exportTimetableAsImage } from '@/lib/export/timetableExport'
 import { AttendancePDF } from '@/components/teacher/AttendancePDF'
 import { Card, Badge } from '@/components/ui/Card'
+import { Share2, FileDown } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Select, Input } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
@@ -32,7 +34,8 @@ const PAGE_SIZE = 15
 
 type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused'
 interface StudentRecord {
-  id: string
+  id: string | null
+  registration_id: string
   full_name: string
   admission_number: string
 }
@@ -93,7 +96,9 @@ export default function TeacherAttendance() {
   const [activeTab, setActiveTab] = useState<'mark' | 'analytics'>('mark')
   const [previewOpen, setPreviewOpen] = useState(false)
   const [reminderOpen, setReminderOpen] = useState(false)
-  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null)
+  const [premiumExportData, setPremiumExportData] = useState<any>(null)
+  const [premiumGenerating, setPremiumGenerating] = useState(false)
+  const [selectedRegistrationId, setSelectedRegistrationId] = useState<string | null>(null)
   
   // Analytics data
   const [allAttendance, setAllAttendance] = useState<any[]>([])
@@ -301,30 +306,44 @@ export default function TeacherAttendance() {
     setStudentsLoading(true)
     setPage(1)
 
-    const [studRes, attRes] = await Promise.all([
+    const [regRes, attRes] = await Promise.all([
       supabase
-        .from('students')
-        .select('id, full_name, admission_number')
+        .from('event_registrations')
+        .select(`
+          id,
+          student_id,
+          student_name,
+          student:students(id, full_name, admission_number)
+        `)
+        .eq('tuition_event_id', selectedEventId)
         .eq('class_id', selectedClassId)
         .eq('tuition_center_id', selectedCenterId)
-        .order('full_name'),
+        .eq('status', 'active'),
       supabase
         .from('attendance')
-        .select('student_id, status, notes')
+        .select('student_id, registration_id, status, notes')
         .eq('tuition_event_id', selectedEventId)
         .eq('class_id', selectedClassId)
         .eq('tuition_center_id', selectedCenterId)
         .eq('date', selectedDate),
     ])
 
-    const studentList = studRes.data ?? []
+    const registrations = regRes.data ?? []
     const existing = attRes.data ?? []
+
+    const studentList = registrations.map((r: any) => ({
+      id: r.student_id,
+      registration_id: r.id,
+      full_name: r.student?.full_name || r.student_name,
+      admission_number: r.student?.admission_number || 'PENDING'
+    })).sort((a, b) => a.full_name.localeCompare(b.full_name))
+
     setStudents(studentList)
     setAlreadyMarked(existing.length > 0)
 
     const map = studentList.reduce((acc, s) => {
-      const found = existing.find(e => e.student_id === s.id)
-      acc[s.id] = { status: (found?.status as AttendanceStatus) ?? 'present', notes: found?.notes ?? '' }
+      const found = existing.find(e => e.registration_id === s.registration_id)
+      acc[s.registration_id] = { status: (found?.status as AttendanceStatus) ?? 'present', notes: found?.notes ?? '' }
       return acc
     }, {} as Record<string, AttendanceEntry>)
     setAttendance(map)
@@ -335,20 +354,24 @@ export default function TeacherAttendance() {
     setSaving(true)
     setPreviewOpen(false)
     try {
-      const items = Object.entries(attendance).map(([studentId, data]) => ({
-        student_id: studentId,
-        tuition_event_id: selectedEventId,
-        class_id: selectedClassId,
-        tuition_center_id: selectedCenterId,
-        teacher_id: teacher?.id,
-        date: selectedDate,
-        week_number: selectedWeekNum,
-        status: data.status,
-        notes: data.notes,
-      }))
+      const items = Object.entries(attendance).map(([regId, data]) => {
+        const student = students.find(s => s.registration_id === regId)
+        return {
+          registration_id: regId,
+          student_id: student?.id, // Optional link
+          tuition_event_id: selectedEventId,
+          class_id: selectedClassId,
+          tuition_center_id: selectedCenterId,
+          teacher_id: teacher?.id,
+          date: selectedDate,
+          week_number: selectedWeekNum,
+          status: data.status,
+          notes: data.notes,
+        }
+      })
 
       const { error } = await supabase.from('attendance').upsert(items, {
-        onConflict: 'student_id,tuition_event_id,date',
+        onConflict: 'registration_id,date',
       })
 
       if (error) {
@@ -379,8 +402,8 @@ export default function TeacherAttendance() {
     setAnalyticsLoading(false)
   }
 
-  const exportToCSV = (type: 'student' | 'class', duration: 'week' | 'full', studentId?: string) => {
-    const targetStudents = type === 'student' ? students.filter(s => s.id === studentId) : students
+  const exportToCSV = (type: 'student' | 'class', duration: 'week' | 'full', registrationId?: string) => {
+    const targetStudents = type === 'student' ? students.filter(s => s.registration_id === registrationId) : students
     const targetDates = duration === 'week' ? (selectedWeek?.activeDates || []) : (weeks.flatMap(w => w.activeDates))
     
     let csv = 'Student,Admission No.,' + targetDates.map(d => formatDate(d, 'short')).join(',') + ',Avg %\n'
@@ -389,7 +412,7 @@ export default function TeacherAttendance() {
       const row = [s.full_name, s.admission_number]
       let attended = 0
       targetDates.forEach(d => {
-        const entry = allAttendance.find(a => a.student_id === s.id && a.date === d)
+        const entry = allAttendance.find(a => a.registration_id === s.registration_id && a.date === d)
         row.push(entry?.status || 'N/A')
         if (entry?.status === 'present') attended++
       })
@@ -397,7 +420,7 @@ export default function TeacherAttendance() {
       row.push(`${avg}%`)
       csv += row.join(',') + '\n'
     })
-
+    
     const blob = new Blob([csv], { type: 'text/csv' })
     const url = window.URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -454,6 +477,94 @@ export default function TeacherAttendance() {
     })
   }, [allAttendance, selectedWeek, students])
 
+  const attendanceGaps = useMemo(() => {
+    if (!selectedEvent || weeks.length === 0) return []
+    const today = getLocalISODate()
+    // Only check days before today
+    const allActiveDates = weeks.flatMap(w => w.activeDates).filter(d => d < today)
+    const markedDates = new Set(allAttendance.map(a => a.date))
+    return allActiveDates.filter(d => !markedDates.has(d))
+  }, [weeks, allAttendance, selectedEvent])
+
+  const atRiskStudents = useMemo(() => {
+    if (!selectedEvent || weeks.length === 0 || students.length === 0) return []
+    const today = getLocalISODate()
+    // Current completed or in-progress weeks
+    const pastWeeks = weeks.filter(w => getLocalISODate(w.startDate) <= today)
+    if (pastWeeks.length === 0) return []
+
+    return students.filter(s => {
+      // Must be < 10% in ALL past weeks (where at least 1 day has passed) to be flagged
+      const validPastWeeks = pastWeeks.filter(w => w.activeDates.some(d => d < today))
+      if (validPastWeeks.length === 0) return false
+
+      return validPastWeeks.every(w => {
+        const weekAtt = allAttendance.filter(a => a.registration_id === s.registration_id && w.activeDates.includes(a.date))
+        const present = weekAtt.filter(a => a.status === 'present' || a.status === 'late').length
+        const totalMarked = w.activeDates.filter(d => d < today).length 
+        if (totalMarked === 0) return true
+        const percent = (present / totalMarked) * 100
+        return percent < 10
+      })
+    })
+  }, [weeks, allAttendance, students, selectedEvent])
+
+  const handlePremiumExport = async (reportType: 'student-weekly' | 'student-full' | 'class-weekly', format: 'png' | 'pdf', registrationId?: string) => {
+    setPremiumGenerating(true)
+    const toastId = toast.loading(`Preparing Premium ${format.toUpperCase()}...`)
+    
+    try {
+      const student = registrationId ? students.find(s => s.registration_id === registrationId) : null
+      const selectedWeek = weeks.find(w => w.weekNumber === selectedWeekNum)
+      
+      let data: any = {
+        centerName: teacher?.tuition_center_name || 'Peak Tuitioning',
+        tuitionEventName: selectedEvent?.name,
+        className: myClasses.find(c => c.id === selectedClassId)?.name,
+        activeDates: selectedWeek?.activeDates || []
+      }
+
+      if (reportType === 'student-weekly' && student && selectedWeek) {
+        data.studentName = student.full_name
+        data.weekLabel = selectedWeek.label
+        data.records = allAttendance.filter(a => a.student_id === student.id && selectedWeek.activeDates.includes(a.date))
+      } else if (reportType === 'student-full' && student) {
+        data.studentName = student.full_name
+        data.weekLabel = 'Full Journey Overview'
+        data.records = allAttendance.filter(a => a.student_id === student.id)
+        data.weeksToRender = weeks.filter(w => w.activeDates.some(d => d <= getLocalISODate()))
+        // Use all active dates from all past weeks
+        data.activeDates = (data.weeksToRender || []).flatMap((w: any) => w.activeDates)
+      } else if (reportType === 'class-weekly' && selectedWeek) {
+        data.weekLabel = `Class Report: ${selectedWeek.label}`
+        data.records = students.map(s => ({
+          studentName: s.full_name,
+          records: allAttendance.filter(a => a.student_id === s.id && selectedWeek.activeDates.includes(a.date))
+        }))
+      }
+
+      setPremiumExportData({ type: reportType, data })
+      
+      // Allow time for images and styles to load in the hidden component
+      await new Promise(r => setTimeout(r, 1000))
+
+      const filename = `${reportType}_${new Date().getTime()}`
+      if (format === 'png') {
+        await exportTimetableAsImage('premium-attendance-report', filename)
+      } else {
+        await exportTimetableToPDF('premium-attendance-report', filename)
+      }
+      
+      toast.success('Premium Export Ready!', { id: toastId })
+    } catch (err) {
+      console.error(err)
+      toast.error('Export failed. Please try again.', { id: toastId })
+    } finally {
+      setPremiumGenerating(false)
+      setPremiumExportData(null)
+    }
+  }
+
   if (authLoading || !isInitialRevalidationComplete || (loading && !teacher)) return (
     <div className="p-6 space-y-4">
       <div className="h-8 w-48 rounded-xl animate-pulse" style={{ background: 'var(--input)' }} />
@@ -500,9 +611,29 @@ export default function TeacherAttendance() {
             </Button>
           )}
           {activeTab === 'analytics' && (
-            <Button variant="secondary" onClick={() => exportToCSV('class', 'full')}>
-              <Download size={16} /> Export All
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button 
+                variant="secondary" 
+                size="sm" 
+                className="hidden md:flex border-amber-500/20 hover:bg-amber-500/10 text-amber-600"
+                onClick={() => handlePremiumExport('class-weekly', 'png')}
+                disabled={premiumGenerating}
+              >
+                <Share2 size={16} /> Premium PNG
+              </Button>
+              <Button 
+                variant="secondary" 
+                size="sm" 
+                className="hidden lg:flex border-primary/20 hover:bg-primary/10 text-primary"
+                onClick={() => handlePremiumExport('class-weekly', 'pdf')}
+                disabled={premiumGenerating}
+              >
+                <FileDown size={16} /> Premium PDF
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => exportToCSV('class', 'full')}>
+                <Download size={16} /> CSV
+              </Button>
+            </div>
           )}
         </div>
       </div>
@@ -646,7 +777,7 @@ export default function TeacherAttendance() {
         {selectedWeek?.hasHolidays && (
           <div className="mt-3 flex items-center gap-2 text-xs px-1" style={{ color: '#F59E0B' }}>
             <AlertTriangle size={12} />
-            This week has holidays — {5 - selectedWeek.activeDates.length} day(s) removed
+            This week has holidays — {5 - (selectedWeek?.activeDates.length || 0)} day(s) removed
           </div>
         )}
       </Card>
@@ -722,13 +853,13 @@ export default function TeacherAttendance() {
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button size="sm" onClick={() => {
-                  const bulk = Object.fromEntries(students.map(s => [s.id, { status: 'present' as AttendanceStatus, notes: '' }]))
+                  const bulk = Object.fromEntries(students.map(s => [s.registration_id, { status: 'present' as AttendanceStatus, notes: '' }]))
                   setAttendance(bulk)
                 }} className="bg-emerald-500 hover:bg-emerald-600 text-white border-0 shadow-sm shadow-emerald-500/20 flex-1 sm:flex-none min-w-[120px]">
                   <CheckCircle2 size={14} className="mr-1" /> All Present
                 </Button>
                 <Button size="sm" onClick={() => {
-                  const bulk = Object.fromEntries(students.map(s => [s.id, { status: 'absent' as AttendanceStatus, notes: '' }]))
+                  const bulk = Object.fromEntries(students.map(s => [s.registration_id, { status: 'absent' as AttendanceStatus, notes: '' }]))
                   setAttendance(bulk)
                 }} className="bg-red-500 hover:bg-red-600 text-white border-0 shadow-sm shadow-red-500/20 flex-1 sm:flex-none min-w-[120px]">
                   <XCircle size={14} className="mr-1" /> All Absent
@@ -745,7 +876,7 @@ export default function TeacherAttendance() {
             ) : (
               <div className="divide-y divide-[var(--card-border)]">
                 {paginatedStudents.map((s, i) => {
-                  const entry = attendance[s.id] ?? { status: 'present', notes: '' }
+                  const entry = attendance[s.registration_id] ?? { status: 'present', notes: '' }
                   const statusColors: Record<string, string> = {
                     present: '#10B981', absent: '#EF4444', late: '#F59E0B', excused: '#6366F1'
                   }
@@ -753,7 +884,7 @@ export default function TeacherAttendance() {
 
                   return (
                     <motion.div
-                      key={s.id}
+                      key={s.registration_id}
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       transition={{ delay: i * 0.02 }}
@@ -767,7 +898,14 @@ export default function TeacherAttendance() {
                           {s.full_name.split(' ').slice(0, 2).map(n => n[0]).join('')}
                         </div>
                         <div className="min-w-0">
-                          <div className="font-bold text-sm truncate" style={{ color: 'var(--text)' }}>{s.full_name}</div>
+                          <div className="font-bold text-sm truncate" style={{ color: 'var(--text)' }}>
+                            {s.full_name}
+                            {!s.id && (
+                              <span className="ml-2 text-[8px] font-black uppercase text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded-lg border border-amber-500/20">
+                                Unlinked
+                              </span>
+                            )}
+                          </div>
                           <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{s.admission_number}</div>
                         </div>
                       </div>
@@ -776,7 +914,7 @@ export default function TeacherAttendance() {
                         {(['present', 'absent', 'late', 'excused'] as AttendanceStatus[]).map(status => (
                           <button
                             key={status}
-                            onClick={() => setAttendance(prev => ({ ...prev, [s.id]: { ...prev[s.id], status } }))}
+                            onClick={() => setAttendance(prev => ({ ...prev, [s.registration_id]: { ...prev[s.registration_id], status } }))}
                             className="px-3 py-1.5 rounded-lg text-xs font-bold capitalize transition-all border"
                             style={{
                               background: entry.status === status ? statusColors[status] : 'transparent',
@@ -792,7 +930,7 @@ export default function TeacherAttendance() {
                           placeholder="Note..."
                           style={{ background: 'var(--input)', borderColor: 'var(--card-border)', color: 'var(--text)' }}
                           value={entry.notes}
-                          onChange={e => setAttendance(prev => ({ ...prev, [s.id]: { ...prev[s.id], notes: e.target.value } }))}
+                          onChange={e => setAttendance(prev => ({ ...prev, [s.registration_id]: { ...prev[s.registration_id], notes: e.target.value } }))}
                         />
                       </div>
                     </motion.div>
@@ -836,57 +974,64 @@ export default function TeacherAttendance() {
             <AnalyticsCard label="Excused Absences" value={analyticsStats.excused} icon={<Info size={20} />} subValue="Documented" color="#6366F1" />
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <Card className="lg:col-span-2 p-6 overflow-hidden">
-               <div className="flex items-center justify-between mb-6">
-                  <h3 className="font-bold flex items-center gap-2" style={{ color: 'var(--text)' }}><History size={18} /> Weekly Attendance Trend</h3>
-                  <Badge variant="muted">Current Week</Badge>
-               </div>
-               <div className="h-64 w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                     <AreaChart data={chartData}>
-                        <defs>
-                           <linearGradient id="colorPresent" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.3}/>
-                              <stop offset="95%" stopColor="var(--primary)" stopOpacity={0}/>
-                           </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--card-border)" />
-                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: 'var(--text-muted)' }} />
-                        <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: 'var(--text-muted)' }} />
-                        <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 30px rgba(0,0,0,0.1)', background: 'var(--card)', color: 'var(--text)' }} />
-                        <Area type="monotone" dataKey="present" stroke="var(--primary)" strokeWidth={3} fillOpacity={1} fill="url(#colorPresent)" />
-                     </AreaChart>
-                  </ResponsiveContainer>
-               </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Compliance Report: Gaps */}
+            <Card className="p-6 border-l-4 border-l-amber-500">
+               <h3 className="font-black text-sm mb-4 flex items-center gap-2" style={{ color: 'var(--text)' }}>
+                 <AlertTriangle size={18} className="text-amber-500" /> Compliance Audit: Missing Days
+               </h3>
+               {attendanceGaps.length === 0 ? (
+                 <div className="py-8 text-center bg-emerald-500/5 rounded-2xl border border-emerald-500/10">
+                   <CheckCircle2 size={32} className="text-emerald-500 mx-auto mb-2" />
+                   <p className="text-xs font-bold text-emerald-600">Great Job! All registers are up to date.</p>
+                 </div>
+               ) : (
+                 <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
+                   {attendanceGaps.map(date => (
+                     <div key={date} className="flex items-center justify-between p-3 rounded-xl bg-amber-500/5 border border-amber-500/10">
+                       <div className="flex items-center gap-3">
+                         <div className="w-2 h-2 rounded-full bg-amber-500" />
+                         <span className="text-xs font-bold" style={{ color: 'var(--text)' }}>{formatDate(date, 'long')}</span>
+                       </div>
+                       <Button size="sm" variant="ghost" className="h-7 text-[10px] font-black uppercase text-amber-600" onClick={() => { setSelectedDate(date); setActiveTab('mark') }}>
+                         Mark Now
+                       </Button>
+                     </div>
+                   ))}
+                 </div>
+               )}
             </Card>
 
-            <Card className="p-6">
-               <h3 className="font-bold mb-6 flex items-center gap-2" style={{ color: 'var(--text)' }}><Info size={18} /> Distribution</h3>
-               <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                     <PieChart>
-                        <Pie data={[
-                          { name: 'Present', value: analyticsStats.present, color: '#10B981' },
-                          { name: 'Absent', value: analyticsStats.absent, color: '#EF4444' },
-                          { name: 'Late', value: analyticsStats.late, color: '#F59E0B' },
-                          { name: 'Excused', value: analyticsStats.excused, color: '#6366F1' },
-                        ]} innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
-                           { [0,1,2,3].map((entry, index) => (
-                             <Cell key={`cell-${index}`} fill={['#10B981', '#EF4444', '#F59E0B', '#6366F1'][index]} />
-                           ))}
-                        </Pie>
-                        <Tooltip />
-                     </PieChart>
-                  </ResponsiveContainer>
-               </div>
-               <div className="grid grid-cols-2 gap-2 mt-4">
-                  {['Present', 'Absent', 'Late', 'Excused'].map((l, i) => (
-                    <div key={l} className="flex items-center gap-2 text-[10px] font-bold tracking-tighter uppercase" style={{ color: 'var(--text-muted)' }}>
-                       <div className="w-2 h-2 rounded-full" style={{ background: ['#10B981', '#EF4444', '#F59E0B', '#6366F1'][i] }} /> {l}
-                    </div>
-                  ))}
-               </div>
+            {/* Risk Analysis: Chronic Absentees */}
+            <Card className="p-6 border-l-4 border-l-red-500">
+               <h3 className="font-black text-sm mb-4 flex items-center gap-2" style={{ color: 'var(--text)' }}>
+                 <UserX size={18} className="text-red-500" /> High Concern: Below 10% Weekly
+               </h3>
+               {atRiskStudents.length === 0 ? (
+                 <div className="py-8 text-center bg-emerald-500/5 rounded-2xl border border-emerald-500/10">
+                   <UserCheck size={32} className="text-emerald-500 mx-auto mb-2" />
+                   <p className="text-xs font-bold text-emerald-600">No students currently in the critical zone.</p>
+                 </div>
+               ) : (
+                 <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
+                   {atRiskStudents.map(s => (
+                     <div key={s.registration_id} className="flex items-center justify-between p-3 rounded-xl bg-red-500/5 border border-red-500/10">
+                       <div className="flex items-center gap-3">
+                         <div className="w-8 h-8 rounded-full bg-red-500 flex items-center justify-center text-white text-[10px] font-black">
+                           {s.full_name[0]}
+                         </div>
+                         <div>
+                           <div className="text-xs font-bold" style={{ color: 'var(--text)' }}>{s.full_name}</div>
+                           <div className="text-[9px]" style={{ color: 'var(--text-muted)' }}>Chronically Absent</div>
+                         </div>
+                       </div>
+                       <Button size="sm" variant="ghost" className="h-7 text-[10px] font-black uppercase text-red-600" onClick={() => setSelectedRegistrationId(s.registration_id)}>
+                         Investigate
+                       </Button>
+                     </div>
+                   ))}
+                 </div>
+               )}
             </Card>
           </div>
 
@@ -909,10 +1054,10 @@ export default function TeacherAttendance() {
                    </thead>
                    <tbody className="divide-y divide-[var(--card-border)]">
                       {filteredStudents.map(s => {
-                         const sAtt = allAttendance.filter(a => a.student_id === s.id)
+                         const sAtt = allAttendance.filter(a => a.registration_id === s.registration_id)
                          const rate = calculateAttendancePercentage(sAtt.filter(a => a.status === 'present').length, sAtt.length || 1)
                          return (
-                            <tr key={s.id} className="hover:bg-[var(--input)] transition-colors cursor-pointer group" onClick={() => setSelectedStudentId(s.id)}>
+                            <tr key={s.registration_id} className="hover:bg-[var(--input)] transition-colors cursor-pointer group" onClick={() => setSelectedRegistrationId(s.registration_id)}>
                                <td className="px-4 py-4">
                                   <div className="flex items-center gap-2">
                                      <div className="w-7 h-7 rounded-lg flex items-center justify-center font-bold text-[10px] bg-primary/10 text-primary">
@@ -968,12 +1113,17 @@ export default function TeacherAttendance() {
 
           <div className="max-h-80 overflow-y-auto divide-y divide-[var(--card-border)] rounded-xl" style={{ border: '1px solid var(--card-border)' }}>
             {students.map(s => {
-              const entry = attendance[s.id] ?? { status: 'present', notes: '' }
+              const entry = attendance[s.registration_id] ?? { status: 'present', notes: '' }
               const icon = entry.status === 'present' ? '✅' : entry.status === 'absent' ? '❌' : entry.status === 'late' ? '🕐' : 'ℹ️'
               return (
-                <div key={s.id} className="flex items-center justify-between px-4 py-2.5">
+                <div key={s.registration_id} className="flex items-center justify-between px-4 py-2.5">
                   <div>
-                    <div className="font-semibold text-sm" style={{ color: 'var(--text)' }}>{s.full_name}</div>
+                    <div className="font-semibold text-sm" style={{ color: 'var(--text)' }}>
+                      {s.full_name}
+                      {!s.id && (
+                        <span className="ml-2 text-[8px] font-black uppercase text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded-lg">Unlinked</span>
+                      )}
+                    </div>
                     {entry.notes && <div className="text-[10px] italic" style={{ color: 'var(--text-muted)' }}>{entry.notes}</div>}
                   </div>
                   <span className="text-sm">{icon} <span className="capitalize text-xs font-bold" style={{ color: 'var(--text-muted)' }}>{entry.status}</span></span>
@@ -1013,12 +1163,25 @@ export default function TeacherAttendance() {
       </Modal>
 
       <StudentAnalyticsModal 
-         studentId={selectedStudentId} 
-         onClose={() => setSelectedStudentId(null)}
+         registrationId={selectedRegistrationId} 
+         onClose={() => setSelectedRegistrationId(null)}
          allAttendance={allAttendance}
          weeks={weeks}
-         studentName={students.find(s => s.id === selectedStudentId)?.full_name || ''}
+         studentName={students.find(s => s.registration_id === selectedRegistrationId)?.full_name || ''}
+         onPremiumExport={handlePremiumExport}
+         isGenerating={premiumGenerating}
       />
+
+      {/* Hidden Premium Export Template */}
+      <div style={{ position: 'absolute', left: '-9999px', top: 0, opacity: 0, pointerEvents: 'none' }}>
+        {premiumExportData && (
+          <AttendanceReportTemplate 
+            id="premium-attendance-report"
+            type={premiumExportData.type}
+            data={premiumExportData.data}
+          />
+        )}
+      </div>
     </div>
   )
 }
@@ -1039,7 +1202,7 @@ function AnalyticsCard({ label, value, icon, subValue, trend, color }: any) {
   )
 }
 
-function StudentAnalyticsModal({ studentId, onClose, allAttendance, weeks, studentName }: any) {
+function StudentAnalyticsModal({ registrationId, onClose, allAttendance, weeks, studentName, onPremiumExport, isGenerating }: any) {
   const [selectedWeekNum, setSelectedWeekNum] = useState(1)
   const [generatingPdf, setGeneratingPdf] = useState(false)
   const currentWeekNum = useMemo(() => {
@@ -1051,10 +1214,10 @@ function StudentAnalyticsModal({ studentId, onClose, allAttendance, weeks, stude
     })?.weekNumber || 1
   }, [weeks])
 
-  useEffect(() => { if (studentId) setSelectedWeekNum(currentWeekNum) }, [studentId, currentWeekNum])
+  useEffect(() => { if (registrationId) setSelectedWeekNum(currentWeekNum) }, [registrationId, currentWeekNum])
 
   const selectedWeek = weeks.find((w: any) => w.weekNumber === selectedWeekNum)
-  const weekAttendance = allAttendance.filter((a: any) => a.student_id === studentId && (selectedWeek?.activeDates || []).includes(a.date))
+  const weekAttendance = allAttendance.filter((a: any) => a.registration_id === registrationId && (selectedWeek?.activeDates || []).includes(a.date))
   
   const isFuture = selectedWeekNum > currentWeekNum
 
@@ -1066,8 +1229,8 @@ function StudentAnalyticsModal({ studentId, onClose, allAttendance, weeks, stude
   }, [weekAttendance])
 
   const allTimeAttendance = useMemo(() => {
-    return allAttendance.filter((a: any) => a.student_id === studentId)
-  }, [allAttendance, studentId])
+    return allAttendance.filter((a: any) => a.registration_id === registrationId)
+  }, [allAttendance, registrationId])
 
   const allTimeStats = useMemo(() => {
     const attended = allTimeAttendance.filter((a: any) => a.status === 'present').length
@@ -1081,7 +1244,7 @@ function StudentAnalyticsModal({ studentId, onClose, allAttendance, weeks, stude
     setGeneratingPdf(true)
     try {
       await new Promise(r => setTimeout(r, 800)) // ensure render
-      await exportTimetableToPDF('attendance-pdf-content', `${studentName.replace(/\s+/g, '_')}_Attendance.pdf`)
+      await exportTimetableToPDF(`pdf-content-${registrationId}`, `${studentName.replace(/\s+/g, '_')}_Attendance.pdf`)
     } catch (err) {
       console.error(err)
     } finally {
@@ -1090,9 +1253,9 @@ function StudentAnalyticsModal({ studentId, onClose, allAttendance, weeks, stude
   }
 
   return (
-    <Modal isOpen={!!studentId} onClose={onClose} title="Student Performance Deep-Dive" size="xl">
+    <Modal isOpen={!!registrationId} onClose={onClose} title="Student Performance Deep-Dive" size="xl">
        <div className="space-y-6">
-          <div id={`pdf-content-${studentId}`} className="space-y-6 p-4 -m-4 rounded-xl" style={{ background: 'var(--card)' }}>
+          <div id={`pdf-content-${registrationId}`} className="space-y-6 p-4 -m-4 rounded-xl" style={{ background: 'var(--card)' }}>
              <div className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 rounded-3xl bg-[var(--input)] border border-[var(--card-border)]">
              <div className="flex items-center gap-3 flex-1 min-w-0">
                 <div className="w-12 h-12 rounded-2xl bg-primary flex items-center justify-center text-white font-black text-xl shadow-lg shadow-primary/20 shrink-0">
@@ -1151,7 +1314,7 @@ function StudentAnalyticsModal({ studentId, onClose, allAttendance, weeks, stude
                                <div className="text-[10px] font-black uppercase text-[var(--text-muted)]">{new Date(date).toLocaleDateString('en-US', { weekday: 'short' })}</div>
                                <div className="w-8 h-8 rounded-full flex items-center justify-center shadow-sm" style={{ background: colors[status], color: 'white' }}>
                                   {status === 'present' ? <Check size={16} /> : status === 'absent' ? <UserX size={16} /> : status === 'unmarked' ? <Clock size={16} className="text-muted" /> : <Info size={16} />}
-                               </div>
+                                </div>
                                <div className="text-[10px] font-bold capitalize" style={{ color: colors[status] === 'var(--card-border)' ? 'var(--text-muted)' : colors[status] }}>{status}</div>
                             </div>
                          )
@@ -1162,15 +1325,26 @@ function StudentAnalyticsModal({ studentId, onClose, allAttendance, weeks, stude
           )}
           </div>
 
-          <div className="flex gap-3 pt-4">
-             <Button variant="secondary" className="flex-1 rounded-2xl font-black uppercase text-[10px]" onClick={onClose}>Close Intelligence</Button>
-             <Button className="flex-1 rounded-2xl font-black uppercase text-[10px]" onClick={handleDownloadPDF} isLoading={generatingPdf}>
-               {generatingPdf ? 'Building PDF...' : 'Generate Full PDF Report'}
+          <div className="flex flex-wrap gap-2 pt-4">
+             <Button variant="secondary" className="flex-1 rounded-2xl font-black uppercase text-[10px]" onClick={onClose}>Close</Button>
+             <Button 
+                className="flex-[1.5] rounded-2xl font-black uppercase text-[10px] bg-amber-500 hover:bg-amber-600 text-white" 
+                onClick={() => onPremiumExport('student-weekly', 'png', registrationId)}
+                isLoading={isGenerating}
+             >
+               <Share2 size={12} className="mr-1" /> Share Weekly PNG
+             </Button>
+             <Button 
+                className="flex-[1.5] rounded-2xl font-black uppercase text-[10px]" 
+                onClick={() => onPremiumExport('student-full', 'pdf', registrationId)}
+                isLoading={isGenerating}
+             >
+               <FileDown size={12} className="mr-1" /> Full PDF Report
              </Button>
           </div>
         </div>
 
-        {!!studentId && (
+        {!!registrationId && (
           <AttendancePDF 
             studentName={studentName}
             overallPercentage={allTimeStats.avg}
@@ -1179,5 +1353,5 @@ function StudentAnalyticsModal({ studentId, onClose, allAttendance, weeks, stude
           />
         )}
     </Modal>
-    )
+  )
 }

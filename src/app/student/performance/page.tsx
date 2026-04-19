@@ -271,9 +271,9 @@ export default function StudentPerformance() {
       }
       // Fallback: direct query
       const { data, error } = await supabase
-        .from('students').select('id, full_name, xp, avatar_url')
+        .from('students').select('id, full_name, xp')
         .eq('class_id', student.class_id).order('xp', { ascending: false }).limit(3)
-      return { data: data || [], error }
+      return { data: (data || []).map(s => ({ ...s, avatar_url: null, class_name: null })), error }
     },
     enabled: !!student?.class_id,
   })
@@ -316,9 +316,9 @@ export default function StudentPerformance() {
         console.warn('[CurrLB] RPC Catch:', e)
       }
       const { data, error } = await supabase
-        .from('students').select('id, full_name, xp, avatar_url')
+        .from('students').select('id, full_name, xp')
         .eq('curriculum_id', curriculumId).order('xp', { ascending: false }).limit(3)
-      return { data: data || [], error }
+      return { data: (data || []).map(s => ({ ...s, avatar_url: null, class_name: null })), error }
     },
     enabled: !!curriculumId,
   })
@@ -361,9 +361,9 @@ export default function StudentPerformance() {
         console.warn('[CenterLB] RPC Catch:', e)
       }
       const { data, error } = await supabase
-        .from('students').select('id, full_name, xp, avatar_url')
+        .from('students').select('id, full_name, xp')
         .eq('tuition_center_id', centerId).order('xp', { ascending: false }).limit(3)
-      return { data: data || [], error }
+      return { data: (data || []).map(s => ({ ...s, avatar_url: null, class_name: null })), error }
     },
     enabled: !!centerId,
   })

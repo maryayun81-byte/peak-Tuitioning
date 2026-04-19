@@ -26,6 +26,13 @@ export function useRealtimeNotifications() {
       
       if (!error && data) {
         setNotifications(data)
+
+        // Check for unread priority notification on initial load (Login/Refresh)
+        const priorityTypes = ['broadcast', 'alert', 'info', 'warning']
+        const latestUnreadPriority = data.find(n => !n.read && priorityTypes.includes(n.type))
+        if (latestUnreadPriority) {
+           useNotificationStore.getState().setActivePriorityNotification(latestUnreadPriority)
+        }
       }
     }
 
@@ -55,6 +62,20 @@ export function useRealtimeNotifications() {
             read: false,
             created_at: newNotif.created_at
           })
+
+          // Trigger priority modal if it's an admin broadcast
+          const adminTypes = ['broadcast', 'alert', 'info', 'warning']
+          if (adminTypes.includes(newNotif.type)) {
+             useNotificationStore.getState().setActivePriorityNotification({
+                id: newNotif.id,
+                user_id: profile.id,
+                title: newNotif.title,
+                body: newNotif.body,
+                type: newNotif.type,
+                read: false,
+                created_at: newNotif.created_at
+             })
+          }
 
           // Show browser-style toast
           toast.success(newNotif.title, {

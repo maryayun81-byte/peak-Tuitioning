@@ -16,8 +16,10 @@ interface NotificationState {
   notifications: Notification[]
   unreadCount: number
   preferences: NotificationPreferences
+  activePriorityNotification: Notification | null
   setNotifications: (notifications: Notification[]) => void
   addNotification: (notification: Notification) => void
+  setActivePriorityNotification: (notification: Notification | null) => void
   markRead: (id: string) => void
   markAllRead: () => void
   deleteNotification: (id: string) => void
@@ -30,6 +32,7 @@ export const useNotificationStore = create<NotificationState>()(
     (set) => ({
       notifications: [],
       unreadCount: 0,
+      activePriorityNotification: null,
       preferences: {
         soundEnabled: true,
         soundVariant: 'classic',
@@ -50,6 +53,9 @@ export const useNotificationStore = create<NotificationState>()(
           notifications: [notification, ...state.notifications],
           unreadCount: state.unreadCount + (notification.read ? 0 : 1),
         })),
+
+      setActivePriorityNotification: (notification) =>
+        set({ activePriorityNotification: notification }),
 
       markRead: (id) =>
         set((state) => ({

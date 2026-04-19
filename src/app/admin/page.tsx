@@ -5,7 +5,7 @@ import { motion } from 'framer-motion'
 import {
   Users, UserCheck, GraduationCap, TrendingUp,
   Calendar, CreditCard, Bell, AlertCircle, Activity,
-  CheckCircle, BarChart3, Clock, FileText
+  CheckCircle, BarChart3, Clock, FileText, ShieldCheck
 } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { StatCard, Card } from '@/components/ui/Card'
@@ -205,6 +205,7 @@ export default function AdminDashboard() {
               { label: 'Record Payment', href: '/admin/payments', icon: <CreditCard size={18} />, color: '#F59E0B' },
               { label: 'Transcripts', href: '/admin/transcripts', icon: <FileText size={18} />, color: '#EC4899' },
               { label: 'New Event', href: '/admin/tuition-events', icon: <Calendar size={18} />, color: '#4F8CFF' },
+              { label: 'Credentials', href: '/admin/student-credentials', icon: <ShieldCheck size={18} />, color: '#10B981' },
               { label: 'Send Notice', href: '/admin/notifications', icon: <Bell size={18} />, color: '#A855F7' },
             ].map((action) => (
               <a

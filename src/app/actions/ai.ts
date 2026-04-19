@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/server'
  */
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY
+const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY
 const SITE_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
 const SITE_NAME = 'Peak Performance Tutoring'
 
@@ -23,25 +24,24 @@ interface ChatContext {
 }
 
 const SYSTEM_PROMPT = `
-You are the "Interactive Peak Tutor" — an elite mentor for Kenyan students. Your goal is MASTERY through engagement.
+You are the "Senior KCSE Marking Machine" — the ultimate examiner-persona for Kenyan students. Your goal is to guide students to full marks using the exact structure of a KNEC Marking Scheme.
 
 STRICT PEDAGOGICAL BOUNDARIES:
-1. 🎨 VISUAL-FIRST: Every lesson MUST start with an "Actual Diagram" using Mermaid.js syntax (e.g., \`\`\`mermaid graph TD...\`\`\`).
-2. 🛑 NO CHATBOT FILLER: Never say "Absolutely!", "Sure!", or "Great idea!". Jump straight to visual/content.
-3. 🧱 5-LINE LIMIT: Total text explanation MUST NOT exceed 5 lines of high-impact scholarship.
-4. 🔍 SPECIFICITY FILTER: If a student provides a broad subject (e.g., "Biology"), do NOT teach. Ask for the specific Topic or Sub-strand.
+1. 🎨 VISUAL-FIRST: Every response MUST begin with a structural Mermaid.js diagram. Use alphanumeric IDs (A, B, C) and always put labels in double quotes.
+2. 🏛️ MARKING SCHEME RIGOR: Provide a "Deeper Lesson" (10-20 lines) structured with explicit marking points. Example: "1 Mark: Correct definition," "1 Mark: Identifying relationship."
+3. 🫧 EXAMINER BUBBLES: Provide examiner-only insights inside [EXAMINER_TIP] content here [/EXAMINER_TIP] blocks. DO NOT write titles like "Senior Examiner's Corner" inside the tags; the UI handles that.
+4. 🔍 SPECIFICITY FILTER: Always ask for the specific Topic or Sub-strand.
 
 DIAGRAM MASTERY (Mermaid Syntax):
-- **Flowcharts**: \`\`\`mermaid graph TD; A[Mouth] --> B[Stomach]; ... \`\`\`
-- **Mind Maps**: \`\`\`mermaid mindmap; root((Biology)); Topic1(Cells); ... \`\`\`
-- **State Diagrams**: \`\`\`mermaid stateDiagram-v2; [*] --> Solid; Solid --> Liquid; ... \`\`\`
-- **Requirement**: Use clear labels and a professional, top-down (TD) or left-to-right (LR) structure.
+- Start with 'flowchart TD'.
+- A["Label"] --> B["Label"]. Stay alphanumeric for IDs.
 
 MANDATORY RESPONSE STRUCTURE:
-1. 🔍 **Visual Aid** (Mermaid Diagram Block)
-2. 💡 **Micro-Lesson** (Max 5 exact lines)
-3. 🎯 **Task** (Prompt student with "👉 NOW YOUR TURN")
-4. 🚀 **Next Move Suggestions** (Mention 2 practical buttons)
+1. 🔍 **Visual Aid** (Mermaid Diagram)
+2. 💡 **Deeper Lesson** (Marking Scheme format with bulleted points and mark allocations)
+3. 🏛️ **Examiner's Corner** (Use [EXAMINER_TIP] [/EXAMINER_TIP] for marking traps and pitfall warnings)
+4. 🎯 **Task** (Prompt student with "👉 NOW YOUR TURN" to apply the marking scheme logic)
+5. 🚀 **Next Move Suggestions** (Mention 2 practical buttons)
 `.trim()
 
 /**
@@ -99,7 +99,7 @@ interface ChatResult {
   content?: string
   error?: string
   usage?: any
-  provider?: 'openrouter' | 'peak-core'
+  provider?: 'nvidia-nim' | 'openrouter' | 'peak-core'
 }
 
 export async function chatWithPeakAI(messages: Message[], context: ChatContext = {}): Promise<ChatResult> {
@@ -141,28 +141,28 @@ export async function chatWithPeakAI(messages: Message[], context: ChatContext =
     - TEACHING STYLE: ${style}`
   }
 
-  // First, try to use the LLM (OpenRouter)
-  if (OPENROUTER_API_KEY) {
+  // First, try to use the NVIDIA NIM (High Performance Llama 3.3)
+  if (NVIDIA_API_KEY) {
     try {
       const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 8000) // 8-second timeout for snappy AI
+      const timeoutId = setTimeout(() => controller.abort(), 12000)
 
-      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      const response = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+          'Authorization': `Bearer ${NVIDIA_API_KEY}`,
           'HTTP-Referer': SITE_URL,
           'X-Title': SITE_NAME,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'google/gemini-2.0-flash-lite-001', // User's preferred model ID
+          model: 'meta/llama-3.3-70b-instruct', 
           messages: [
             { role: 'system', content: SYSTEM_PROMPT + curriculumContext + (context.performanceIntel ? `\n\nCURRENT STUDENT INTEL:\n${context.performanceIntel}` : '') },
             ...messages
           ],
           temperature: 0.7,
-          max_tokens: 500,
+          max_tokens: 1000,
         }),
         signal: controller.signal
       })
@@ -174,16 +174,16 @@ export async function chatWithPeakAI(messages: Message[], context: ChatContext =
         return { 
           content: data.choices[0].message.content,
           usage: data.usage,
-          provider: 'openrouter'
+          provider: 'nvidia-nim'
         }
       }
       
-      console.warn('OpenRouter non-OK response, falling back to Peak Core:', data)
+      console.warn('NVIDIA NIM non-OK response, falling back to Peak Core:', data)
     } catch (error: any) {
-      console.error('OpenRouter connection failed, switching to Peak Core:', error.message)
+      console.error('NVIDIA NIM connection failed, switching to Peak Core:', error.message)
     }
   } else {
-    console.warn('OPENROUTER_API_KEY missing, using Peak Core.')
+    console.warn('NVIDIA_API_KEY missing, using Peak Core.')
   }
 
   // FALLBACK: Use Peak Core Engine (Local)
@@ -459,4 +459,5 @@ export async function getTrendingAILessons() {
 
   return sorted
 }
+
 

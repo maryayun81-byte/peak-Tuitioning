@@ -6,7 +6,7 @@ import {
   MessageSquare, X, Send, Sparkles, 
   Flame, Zap, ShieldAlert, Brain, 
   ChevronDown, MinusCircle, Maximize2,
-  Lock, Trash2, PlusCircle
+  Lock, Trash2, PlusCircle, GraduationCap
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Card'
@@ -278,11 +278,11 @@ export function PeakAIAssistant() {
                           if (res.success) setMessages(prev => [...prev, { role: 'assistant', content: res.insights || '' }]);
                       }}
                     ] : [
-                      { label: '➡️ Continue Lesson', prompt: "Please continue with the next step of this lesson." },
-                      { label: '❓ Quick Quiz', prompt: "Give me a quick 1-question quiz on what we just discussed." },
-                      { label: '💡 Explain Simpler', prompt: "I'm a bit lost. Can you explain that again using a simpler analogy?" },
-                      { label: '🔍 Show Example', prompt: "Show me another real-life example of this concept." },
-                      { label: '🧪 High-Stakes Test', prompt: "I'm ready for the real deal. Give me a tough exam-style question!" }
+                      { label: '➡️ Continue Lesson', prompt: "Please continue with the next step of this KCSE-level lesson." },
+                      { label: '❓ Quick Quiz', prompt: "Give me an examiner-style KCSE quiz question on what we just discussed. Use strict command words." },
+                      { label: '💡 Explain Simpler', prompt: "I'm a bit lost. Can you explain that again using a simpler analogy for better conceptual mastery?" },
+                      { label: '🔍 Show Example', prompt: "Show me another real-life example of this concept that frequently appears in exams." },
+                      { label: '🧪 High-Stakes Test', prompt: "I'm ready for a real KCSE exam simulation. Give me a tough, multi-part examiner-style question with a strict marking scheme!" }
                     ]).map((act, idx) => (
                       <button
                         key={idx}
@@ -441,6 +441,58 @@ export function PeakAIAssistant() {
  * Handles Bold, Lists, and Pipe Tables
  */
 function MarkdownRenderer({ content }: { content: string }) {
+  // 0. Detect Examiner Tips
+  if (content.includes('[EXAMINER_TIP]')) {
+    const parts = content.split('[EXAMINER_TIP]')
+    return (
+      <div className="space-y-6">
+        {parts.map((part, index) => {
+          if (index === 0) return <MarkdownRenderer key={index} content={part} />
+          
+          // Case: AI provided the tip content. We check for the closing tag.
+          // If missing, we take the entire part as the tip.
+          const [tip, ...remainingParts] = part.includes('[/EXAMINER_TIP]') 
+            ? part.split('[/EXAMINER_TIP]')
+            : [part, ''];
+
+          return (
+            <React.Fragment key={index}>
+              <div className="flex items-start gap-3 my-4">
+                <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-white shadow-lg shadow-amber-500/20 shrink-0 mt-1 border border-white/20">
+                   <GraduationCap size={20} />
+                </div>
+                <div className="relative flex-1 bg-amber-500/10 border-2 border-amber-500/30 rounded-2xl p-4 shadow-xl shadow-amber-500/5 group">
+                  <div className="absolute top-4 -left-[9px] w-4 h-4 bg-inherit border-l-2 border-b-2 border-amber-500/30 rotate-45" />
+                  
+                  <div className="flex items-center gap-2 mb-2">
+                     <span className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-500">
+                        Senior Examiner's Corner
+                     </span>
+                     <div className="h-px flex-1 bg-amber-500/20" />
+                  </div>
+                  
+                  <div className="text-[13px] font-bold text-amber-100/90 leading-relaxed italic pr-2">
+                     "{tip.trim()}"
+                  </div>
+                  
+                  <div className="mt-3 pt-2 border-t border-amber-500/10 text-[9px] font-black uppercase tracking-[0.15em] text-amber-500/60 flex items-center justify-between">
+                     <span className="flex items-center gap-1">
+                        <ShieldAlert size={10} /> Exam Standard
+                     </span>
+                     <span className="opacity-40">KNEC Marking Scheme</span>
+                  </div>
+                </div>
+              </div>
+              {remainingParts.join('[/EXAMINER_TIP]').trim() && (
+                <MarkdownRenderer content={remainingParts.join('[/EXAMINER_TIP]').trim()} />
+              )}
+            </React.Fragment>
+          )
+        })}
+      </div>
+    )
+  }
+
   // 1. Detect Mermaid Diagrams
   if (content.includes('```mermaid')) {
     const parts = content.split('```mermaid')

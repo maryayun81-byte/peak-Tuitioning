@@ -17,17 +17,32 @@ export function useStudentStats(studentId?: string) {
     cacheKey: ['student', 'stats', studentId || ''],
     enabled: isInitialRevalidationComplete && !!studentId,
     fetcher: async () => {
-      const [subs, certs, badges] = await Promise.all([
+      const [subs, certs, badges, eventRes] = await Promise.all([
         supabase.from('submissions').select('id', { count: 'exact', head: true }).eq('student_id', studentId),
         supabase.from('certificates').select('id', { count: 'exact', head: true }).eq('student_id', studentId),
-        supabase.from('study_badges').select('id', { count: 'exact', head: true }).eq('student_id', studentId)
+        supabase.from('study_badges').select('id', { count: 'exact', head: true }).eq('student_id', studentId),
+        supabase.from('tuition_events').select('id').eq('is_active', true).order('created_at', { ascending: false }).limit(1).maybeSingle()
       ])
       
+      let attendancePercent = 100
+      if (eventRes.data) {
+        const { data: attData } = await supabase
+          .from('attendance')
+          .select('status')
+          .eq('student_id', studentId)
+          .eq('tuition_event_id', eventRes.data.id)
+        
+        if (attData && attData.length > 0) {
+          const present = attData.filter(a => a.status === 'present' || a.status === 'late').length
+          attendancePercent = Math.round((present / attData.length) * 100)
+        }
+      }
+
       return {
         data: {
           tasks: subs.count || 0,
           awards: (certs.count || 0) + (badges.count || 0),
-          attendance: 98 // Placeholder for now
+          attendance: attendancePercent
         },
         error: subs.error || certs.error || badges.error
       }

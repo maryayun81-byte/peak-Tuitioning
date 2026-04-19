@@ -5,7 +5,8 @@ import { useParams, useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   ChevronLeft, ChevronRight, Send, Clock, BookOpen,
-  ChevronDown, ChevronUp, CheckCircle2, AlertCircle, Save, MessageSquare
+  ChevronDown, ChevronUp, CheckCircle2, AlertCircle, Save, MessageSquare,
+  Plus, X, Camera, Image as ImageIcon
 } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
@@ -72,6 +73,8 @@ export default function StudentWorksheetSolver() {
   const autosaveRef = useRef<NodeJS.Timeout | null>(null)
   const [lastSaved, setLastSaved] = useState<Date | null>(null)
   const [isDirty, setIsDirty] = useState(false)
+  const addPageInputRef = useRef<HTMLInputElement>(null)
+  const [addingPage, setAddingPage] = useState(false)
 
   useEffect(() => { loadAssignment() }, [assignmentId])
 
@@ -192,10 +195,27 @@ export default function StudentWorksheetSolver() {
     setIsDirty(true)
   }
 
+  // Uploads a file directly to Supabase storage and returns its public URL
+  const uploadFileToStorage = async (file: File): Promise<string | null> => {
+    const supabaseClient = getSupabaseBrowserClient()
+    const ext = file.name.split('.').pop() || 'jpg'
+    const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+    const { data, error } = await supabaseClient.storage
+      .from('assignment-uploads')
+      .upload(filename, file, { contentType: file.type, upsert: false })
+    if (error) { toast.error('Upload failed: ' + error.message); return null }
+    const { data: urlData } = supabaseClient.storage.from('assignment-uploads').getPublicUrl(data.path)
+    return urlData.publicUrl
+  }
+
   const handleSubmit = async () => {
-    // Workbook guard — must have a photo before submitting
-    if (assignment?.is_workbook && !answers.__workbook_photo__) {
-      toast.error('Please upload a photo of your workbook before submitting.')
+    // Workbook guard — must have at least one photo before submitting
+    const workbookPhotos: string[] = [
+      ...(Array.isArray(answers.__workbook_photos__) ? answers.__workbook_photos__ as string[] : []),
+      ...(answers.__workbook_photo__ ? [answers.__workbook_photo__ as string] : []),
+    ]
+    if (assignment?.is_workbook && workbookPhotos.length === 0) {
+      toast.error('Please upload at least one photo of your workbook before submitting.')
       setConfirmOpen(false)
       return
     }
@@ -277,8 +297,14 @@ export default function StudentWorksheetSolver() {
   const totalPages = isDocumentAssignment ? 1 : Math.ceil(questionBlocks.length / QUESTIONS_PER_PAGE)
   const pageBlocks = isDocumentAssignment ? [] : questionBlocks.slice(currentPage * QUESTIONS_PER_PAGE, (currentPage + 1) * QUESTIONS_PER_PAGE)
 
+  const workbookPhotos: string[] = [
+    ...(Array.isArray(answers.__workbook_photos__) ? answers.__workbook_photos__ as string[] : []),
+    ...(answers.__workbook_photo__ && !(answers.__workbook_photos__ as any)?.length ? [answers.__workbook_photo__ as string] : []),
+  ]
+  const hasWorkbookPhotos = workbookPhotos.length > 0
+
   const answeredCount = isWorkbook
-    ? (answers.__workbook_photo__ ? 1 : 0)
+    ? (hasWorkbookPhotos ? 1 : 0)
     : isDocumentAssignment
       ? (answers.__annotation__ ? 1 : 0)
       : questionBlocks.filter(b => {
@@ -481,88 +507,172 @@ export default function StudentWorksheetSolver() {
                })}
             </div>
 
-             {/* Workbook Submission — Photo Upload */}
+             {/* Workbook Submission — Multi-Photo Upload */}
             {isWorkbook && !resultMode && (
-               <Card className="p-6 space-y-4 border-2" style={{ background: 'var(--primary-dim)', borderColor: 'var(--primary)', borderStyle: 'dashed' }}>
-                  <div className="flex items-center justify-between">
-                     <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white" style={{ background: 'var(--primary)' }}>
-                           <BookOpen size={20} />
-                        </div>
-                        <div>
-                           <h3 className="text-sm font-black" style={{ color: 'var(--text)' }}>Upload Workbook Photo</h3>
-                           <p className="text-[10px] uppercase font-bold" style={{ color: 'var(--text-muted)' }}>Take a clear photo of your completed work</p>
-                        </div>
+               <Card className="p-5 space-y-4 border-2" style={{ background: 'var(--primary-dim)', borderColor: 'var(--primary)', borderStyle: 'dashed' }}>
+                  {/* Header */}
+                  <div className="flex items-center gap-3">
+                     <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white shrink-0" style={{ background: 'var(--primary)' }}>
+                        <BookOpen size={20} />
                      </div>
-                     {answers.__workbook_photo__ && (
-                        <button
-                           onClick={() => updateAnswer('__workbook_photo__', null)}
-                           className="text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-xl transition-all"
-                           style={{ background: 'var(--input)', color: 'var(--text-muted)', border: '1px solid var(--card-border)' }}
-                        >
-                           Re-take Photo
-                        </button>
-                     )}
+                     <div className="flex-1">
+                        <h3 className="text-sm font-black" style={{ color: 'var(--text)' }}>Workbook Photos</h3>
+                        <p className="text-[10px] uppercase font-bold" style={{ color: 'var(--text-muted)' }}>
+                           {workbookPhotos.length > 0
+                             ? `${workbookPhotos.length} page${workbookPhotos.length > 1 ? 's' : ''} uploaded · tap + to add more`
+                             : 'Upload clear photos of each completed page'}
+                        </p>
+                     </div>
                   </div>
-                  
-                  <div className="flex items-center gap-2 p-3 rounded-xl bg-white/50 border border-primary/10">
-                     <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+
+                  <div className="flex items-center gap-2 p-3 rounded-xl" style={{ background: 'rgba(255,255,255,0.5)', border: '1px solid rgba(var(--primary-rgb, 99,102,241),0.15)' }}>
+                     <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: 'var(--primary)' }} />
                      <p className="text-[11px] font-medium" style={{ color: 'var(--text)' }}>
-                        📝 Study the questions below carefully. Solve them in your physical workbook, then capture a photo to submit.
+                        📝 Solve in your physical workbook, then upload {workbookPhotos.length === 0 ? 'photos' : 'more pages'} here.
                      </p>
                   </div>
 
-                  {/* Show preview if uploaded */}
-                  {answers.__workbook_photo__ ? (
-                     <div className="relative rounded-2xl overflow-hidden border-2" style={{ borderColor: 'var(--primary)' }}>
-                        <img
-                           src={answers.__workbook_photo__ as string}
-                           alt="Your workbook"
-                           className="w-full max-h-80 object-contain rounded-xl"
-                           style={{ background: 'var(--input)' }}
-                        />
-                        <div className="absolute bottom-3 left-3 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-white" style={{ background: 'var(--primary)' }}>
-                           ✓ Photo Ready to Submit
-                        </div>
+                  {/* Uploaded photos grid */}
+                  {workbookPhotos.length > 0 && (
+                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        {workbookPhotos.map((url, idx) => (
+                           <motion.div
+                              key={url}
+                              layout
+                              initial={{ opacity: 0, scale: 0.9 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              className="relative group rounded-2xl overflow-hidden border-2"
+                              style={{ borderColor: 'var(--primary)', aspectRatio: '3/4' }}
+                           >
+                              <img
+                                 src={url}
+                                 alt={`Page ${idx + 1}`}
+                                 className="w-full h-full object-cover"
+                              />
+                              {/* Page badge */}
+                              <div className="absolute top-2 left-2 w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black text-white"
+                                 style={{ background: 'var(--primary)' }}>
+                                 {idx + 1}
+                              </div>
+                              {/* Remove button */}
+                              <button
+                                 onClick={() => {
+                                    const updated = workbookPhotos.filter((_, i) => i !== idx)
+                                    updateAnswer('__workbook_photos__', updated)
+                                    if (updated.length === 0) updateAnswer('__workbook_photo__', null)
+                                 }}
+                                 className="absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
+                                 style={{ background: '#EF4444', color: 'white' }}
+                              >
+                                 <X size={14} />
+                              </button>
+                              {/* ✓ overlay */}
+                              <div className="absolute bottom-0 left-0 right-0 px-2 py-1.5 text-[9px] font-black uppercase tracking-widest text-white text-center"
+                                 style={{ background: 'linear-gradient(transparent, rgba(0,0,0,0.7))' }}>
+                                 Page {idx + 1}
+                              </div>
+                           </motion.div>
+                        ))}
+
+                        {/* Add more button — up to 8 pages */}
+                        {workbookPhotos.length < 8 && (
+                           <motion.div
+                              layout
+                              className="rounded-2xl border-2 border-dashed flex flex-col items-center justify-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
+                              style={{ borderColor: 'var(--primary)', aspectRatio: '3/4', background: addingPage ? 'var(--primary-dim)' : 'var(--input)', color: 'var(--primary)' }}
+                              onClick={() => addPageInputRef.current?.click()}>
+                              {addingPage
+                                ? <div className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: 'var(--primary)' }} />
+                                : <Plus size={24} />}
+                              <span className="text-[10px] font-black uppercase tracking-wider">
+                                {addingPage ? 'Uploading…' : 'Add Page'}
+                              </span>
+                              <span className="text-[9px] opacity-60">{workbookPhotos.length}/8</span>
+                           </motion.div>
+                        )}
                      </div>
-                  ) : (
+                  )}
+
+                  {/* Initial upload zone when no photos yet */}
+                  {workbookPhotos.length === 0 && (
                      <FileUploadZone
                         value={null}
-                        onChange={url => updateAnswer('__workbook_photo__', url)}
+                        onChange={url => {
+                           if (url) {
+                              updateAnswer('__workbook_photos__', [url])
+                              updateAnswer('__workbook_photo__', url) // backward compat
+                           }
+                        }}
                         bucket="assignment-uploads"
                         captureCamera={true}
                      />
                   )}
+
+                  {/* Hidden native file input for 'Add Page' — avoids FileUploadZone id prop error */}
+                  <input
+                     ref={addPageInputRef}
+                     type="file"
+                     accept="image/*"
+                     className="hidden"
+                     onChange={async e => {
+                        const file = e.target.files?.[0]
+                        if (!file) return
+                        setAddingPage(true)
+                        const url = await uploadFileToStorage(file)
+                        if (url) {
+                           const updated = [...workbookPhotos, url]
+                           updateAnswer('__workbook_photos__', updated)
+                           if (workbookPhotos.length === 0) updateAnswer('__workbook_photo__', url)
+                           toast.success(`Page ${updated.length} added!`)
+                        }
+                        setAddingPage(false)
+                        // Reset so same file can be re-selected if needed
+                        e.target.value = ''
+                     }}
+                  />
+
+                  {workbookPhotos.length > 0 && (
+                     <p className="text-[10px] text-center" style={{ color: 'var(--text-muted)' }}>
+                        ✅ {workbookPhotos.length} page{workbookPhotos.length > 1 ? 's' : ''} ready · tap a page to remove · tap + to add more
+                     </p>
+                  )}
                </Card>
             )}
 
-               {/* Workbook Result Mode — show photo + teacher annotations */}
+               {/* Workbook Result Mode — show all photos + teacher annotations */}
                {isWorkbook && resultMode && (
                   <div className="space-y-4">
                      <div className="flex items-center gap-3 px-1">
                         <BookOpen size={16} style={{ color: 'var(--primary)' }} />
                         <span className="text-xs font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Your Marked Workbook</span>
                      </div>
-                     {answers.__workbook_photo__ ? (
-                        <Card className="p-0 overflow-hidden border-4 border-white shadow-2xl rounded-[2.5rem] bg-white">
-                           <AnnotationCanvas
-                              backgroundImageUrl={answers.__workbook_photo__ as string}
-                              initialJson={(() => {
-                                 try {
-                                    const ann = typeof returnedSub?.annotations === 'string'
-                                       ? JSON.parse(returnedSub.annotations)
-                                       : (returnedSub?.annotations ?? {})
-                                    return ann['doc_0'] || ann['0'] || undefined
-                                 } catch { return undefined }
-                              })()}
-                              readOnly={true}
-                              onSave={() => {}}
-                              defaultColor="#EF4444"
-                           />
-                        </Card>
+                     {workbookPhotos.length > 0 ? (
+                        workbookPhotos.map((photo, idx) => {
+                           let teacherAnn: string | undefined
+                           try {
+                              const ann = typeof returnedSub?.annotations === 'string'
+                                 ? JSON.parse(returnedSub.annotations)
+                                 : (returnedSub?.annotations ?? {})
+                              teacherAnn = ann[`doc_${idx}`] || ann[idx.toString()] || ann['doc_0'] || ann['0']
+                           } catch { teacherAnn = undefined }
+                           return (
+                              <div key={idx} className="space-y-2">
+                                 <div className="text-[10px] font-black uppercase tracking-widest px-1" style={{ color: 'var(--text-muted)' }}>Page {idx + 1}</div>
+                                 <Card className="p-0 overflow-hidden border-4 border-white shadow-2xl rounded-[2.5rem] bg-white">
+                                    <AnnotationCanvas
+                                       backgroundImageUrl={photo}
+                                       initialJson={teacherAnn}
+                                       readOnly={true}
+                                       onSave={() => {}}
+                                       defaultColor="#EF4444"
+                                    />
+                                 </Card>
+                              </div>
+                           )
+                        })
                      ) : (
                         <Card className="p-8 text-center">
-                           <p className="text-sm" style={{ color: 'var(--text-muted)' }}>No workbook photo found in this submission.</p>
+                           <p className="text-sm" style={{ color: 'var(--text-muted)' }}>No workbook photos found in this submission.</p>
                         </Card>
                      )}
                      {returnedSub?.feedback && (
@@ -758,17 +868,25 @@ export default function StudentWorksheetSolver() {
           {isWorkbook ? (
             // Workbook-specific confirmation
             <>
-              {answers.__workbook_photo__ ? (
-                <div className="rounded-2xl overflow-hidden border-2" style={{ borderColor: 'var(--primary)' }}>
-                  <img src={answers.__workbook_photo__ as string} alt="Workbook" className="w-full max-h-48 object-contain" style={{ background: 'var(--input)' }} />
-                  <div className="p-3 text-center">
-                    <span className="text-xs font-black text-emerald-500">✓ Workbook photo attached and ready</span>
+              {workbookPhotos.length > 0 ? (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-3 gap-2">
+                    {workbookPhotos.map((url, idx) => (
+                      <div key={idx} className="relative rounded-xl overflow-hidden border-2" style={{ borderColor: 'var(--primary)', aspectRatio: '3/4' }}>
+                        <img src={url} alt={`Page ${idx + 1}`} className="w-full h-full object-cover" />
+                        <div className="absolute top-1 left-1 w-5 h-5 rounded-md flex items-center justify-center text-[9px] font-black text-white"
+                          style={{ background: 'var(--primary)' }}>{idx + 1}</div>
+                      </div>
+                    ))}
                   </div>
+                  <p className="text-center text-xs font-black text-emerald-500">
+                    ✓ {workbookPhotos.length} page{workbookPhotos.length > 1 ? 's' : ''} ready to submit
+                  </p>
                 </div>
               ) : (
                 <div className="flex items-center gap-3 p-4 rounded-2xl" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}>
                   <AlertCircle size={18} className="text-red-500 shrink-0" />
-                  <p className="text-xs font-bold" style={{ color: '#EF4444' }}>No workbook photo uploaded. Please go back and take a photo first.</p>
+                  <p className="text-xs font-bold" style={{ color: '#EF4444' }}>No workbook photos uploaded. Please go back and take photos first.</p>
                 </div>
               )}
             </>
@@ -793,7 +911,7 @@ export default function StudentWorksheetSolver() {
                className="flex-1"
                onClick={handleSubmit}
                isLoading={submitting}
-               disabled={isWorkbook && !answers.__workbook_photo__}
+               disabled={isWorkbook && workbookPhotos.length === 0}
              >
                {isWorkbook ? '📓 Submit Workbook' : 'Confirm Submit'}
              </Button>

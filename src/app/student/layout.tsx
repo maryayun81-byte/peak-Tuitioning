@@ -18,6 +18,7 @@ import { InstallPWAButton } from '@/components/InstallPWAButton'
 import { useNotificationStore } from '@/stores/notificationStore'
 import { useRealtimeNotifications } from '@/hooks/useRealtimeNotifications'
 import { LevelUpManager } from '@/components/student/gamification/LevelUpManager'
+import { QuickInfoModal } from '@/components/notifications/QuickInfoModal'
 import { calculateLevel } from '@/lib/gamification'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { PageErrorBoundary } from '@/components/ui/PageErrorBoundary'
@@ -233,6 +234,7 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
           </motion.div>
         </div>
         <LevelUpManager />
+        <QuickInfoModal />
       </main>
 
       {!isPendingOnboarding && (

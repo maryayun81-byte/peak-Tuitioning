@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState, useId } from 'react';
+import React, { useEffect, useState, useId } from 'react';
 import mermaid from 'mermaid';
 
 interface MermaidDiagramProps {
@@ -8,11 +8,17 @@ interface MermaidDiagramProps {
   id?: string;
 }
 
-// Global initialization
-if (typeof window !== 'undefined') {
+// Lazy singleton — prevents version text being injected into the DOM at module load.
+// The old pattern of calling mermaid.initialize() at module scope caused Mermaid to
+// write its version string directly to the page before any diagram was requested.
+let mermaidInitialized = false;
+function ensureMermaidInitialized() {
+  if (mermaidInitialized) return;
+  mermaidInitialized = true;
   mermaid.initialize({
     startOnLoad: false,
     theme: 'dark',
+    logLevel: 5,
     securityLevel: 'loose',
     fontFamily: 'Inter, sans-serif',
     themeVariables: {
@@ -27,40 +33,59 @@ if (typeof window !== 'undefined') {
 }
 
 const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart, id }) => {
-  const elementRef = useRef<HTMLDivElement>(null);
   const [svg, setSvg] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
-  const uniqueId = useId().replace(/:/g, ''); // Mermaid doesn't like colons in IDs
+  const uniqueId = useId().replace(/:/g, '');
 
   useEffect(() => {
     const renderDiagram = async () => {
       if (!chart) return;
-      
+
       try {
+        // Initialize lazily — only runs once, safely inside the browser
+        ensureMermaidInitialized();
         setError(null);
-        // Step 1: Strip Markdown artifacts
+
+        // Step 1: Strip Markdown code fence artifacts
         let cleanChart = chart
           .replace(/```mermaid/g, '')
           .replace(/```/g, '')
           .trim();
 
-        // Step 2: Advanced Syntax Normalization
-        // 1. Force 'flowchart' instead of 'graph' (more support for modern features)
+        // Step 2: Force 'flowchart' instead of legacy 'graph'
         if (cleanChart.startsWith('graph')) {
           cleanChart = 'flowchart' + cleanChart.substring(5);
         }
-        
-        // 2. Clear out common header artifacts like 'flowchart TD;' 
-        const lines = cleanChart.split('\n');
-        if (lines.length > 0) {
-          lines[0] = lines[0].replace(/;$/, '').trim();
-          cleanChart = lines.join('\n');
+
+        // Step 3: Clear trailing semicolons from the first line (e.g. 'flowchart TD;')
+        const headerLines = cleanChart.split('\n');
+        if (headerLines.length > 0) {
+          headerLines[0] = headerLines[0].replace(/;$/, '').trim();
+          cleanChart = headerLines.join('\n');
         }
 
-        // 3. Scrub trailing semicolons from every line (Mermaid 11+ killer)
+        // Step 4: Scrub trailing semicolons from every line (Mermaid 11+ killer)
         cleanChart = cleanChart.split('\n')
           .map(line => line.trim().endsWith(';') ? line.trim().slice(0, -1) : line)
           .join('\n');
+
+        // Step 5: The Syntax Doctor — auto-quote unquoted node labels
+        // Fixes patterns like A[Label] -> A["Label"] and A(Label) -> A("Label")
+        const chartLines = cleanChart.split('\n');
+        const sanitizedLines = chartLines.map(line => {
+          let l = line.trim();
+          if (!l || l.startsWith('flowchart') || l.startsWith('graph') || l.startsWith('subgraph') || l === 'end') {
+            return l;
+          }
+          // Auto-quote rectangular nodes: A[Label] -> A["Label"]
+          l = l.replace(/^([a-zA-Z0-9_-]+)\s*\[\s*([^"\]]+?)\s*\]/g, '$1["$2"]');
+          // Auto-quote round nodes: A(Label) -> A("Label")
+          l = l.replace(/^([a-zA-Z0-9_-]+)\s*\(\s*([^")]+?)\s*\)/g, '$1("$2")');
+          // Fix bare double-dash arrows: A -- B -> A --> B
+          l = l.replace(/\s+--\s+/g, ' --> ');
+          return l;
+        });
+        cleanChart = sanitizedLines.join('\n');
 
         const { svg: renderedSvg } = await mermaid.render(`mermaid-${id || uniqueId}`, cleanChart);
         setSvg(renderedSvg);
@@ -90,11 +115,24 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart, id }) => {
   }
 
   return (
-    <div 
+    <div
       className="mermaid-wrapper overflow-x-auto overflow-y-hidden p-4 bg-white/5 border border-white/10 rounded-2xl my-4 flex justify-center"
       dangerouslySetInnerHTML={{ __html: svg }}
     />
   );
 };
+
+// Global style to suppress any accidental versions injected by Mermaid 11+
+if (typeof document !== 'undefined') {
+  const style = document.createElement('style');
+  style.innerHTML = `
+    #mermaid-version, 
+    .mermaid-version,
+    [id*="mermaid-version"] { 
+      display: none !important; 
+    }
+  `;
+  document.head.appendChild(style);
+}
 
 export default MermaidDiagram;

@@ -7,8 +7,9 @@ import {
   Trash2, MailOpen, Clock, ArrowLeft,
   ShieldAlert, CheckCheck, XCircle, Search,
   Filter, Calendar, MoreVertical, Trash,
-  Zap, BookOpen, CreditCard, Award
+  Zap, BookOpen, CreditCard, Award, ArrowRight
 } from 'lucide-react'
+import { Modal } from '@/components/ui/Modal'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Card, Badge } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -39,6 +40,7 @@ export function NotificationsView({ role, backLink }: NotificationsViewProps) {
   
   const [filter, setFilter] = useState<'all' | 'unread'>('all')
   const [typeFilter, setTypeFilter] = useState<string>('all')
+  const [selectedNotification, setSelectedNotification] = useState<any>(null)
 
   const filteredNotifications = notifications.filter(n => {
     if (filter === 'unread' && n.read) return false
@@ -205,7 +207,8 @@ export function NotificationsView({ role, backLink }: NotificationsViewProps) {
               transition={{ duration: 0.2, delay: i * 0.05 }}
               onClick={() => {
                 handleMarkAsRead(n.id)
-                if (n.data?.link) router.push(n.data.link as string)
+                setSelectedNotification(n)
+                // if (n.data?.link) router.push(n.data.link as string)
               }}
               className="group cursor-pointer"
             >
@@ -284,6 +287,68 @@ export function NotificationsView({ role, backLink }: NotificationsViewProps) {
           </motion.div>
         )}
       </div>
+
+      {/* Detail Modal */}
+      <Modal 
+        isOpen={!!selectedNotification} 
+        onClose={() => setSelectedNotification(null)}
+        title={selectedNotification?.title}
+        size="md"
+      >
+        {selectedNotification && (
+          <div className="space-y-6 py-2">
+            <div className="flex items-center gap-4">
+               <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${getTypeColor(selectedNotification.type, selectedNotification.title)} shadow-lg`}>
+                  {getIcon(selectedNotification.type, selectedNotification.title)}
+               </div>
+               <div>
+                  <h3 className="text-lg font-black" style={{ color: 'var(--text)' }}>Intel Received</h3>
+                  <p className="text-[10px] font-black uppercase tracking-widest opacity-40">
+                     {formatDate(selectedNotification.created_at, 'long')}
+                  </p>
+               </div>
+            </div>
+
+            <div className="p-5 rounded-3xl border border-[var(--card-border)] bg-[var(--input)] shadow-inner">
+               <p className="text-sm font-medium leading-relaxed whitespace-pre-wrap" style={{ color: 'var(--text)' }}>
+                  {selectedNotification.body}
+               </p>
+            </div>
+
+            {selectedNotification.data?.link && (
+               <Button 
+                  className="w-full rounded-2xl h-12 font-black uppercase text-xs tracking-widest"
+                  onClick={() => {
+                    setSelectedNotification(null)
+                    router.push(selectedNotification.data.link as string)
+                  }}
+               >
+                  Go to Resource <ArrowRight size={14} className="ml-2" />
+               </Button>
+            )}
+
+            <div className="flex gap-3">
+               <Button 
+                  variant="secondary" 
+                  className="flex-1 rounded-2xl h-12 font-black uppercase text-xs tracking-widest"
+                  onClick={() => setSelectedNotification(null)}
+               >
+                  Close
+               </Button>
+               <Button 
+                  variant="ghost" 
+                  className="flex-1 rounded-2xl h-12 font-black uppercase text-xs tracking-widest text-rose-500 hover:bg-rose-500/5"
+                  onClick={() => {
+                    handleDelete(selectedNotification.id)
+                    setSelectedNotification(null)
+                  }}
+               >
+                  Delete Log
+               </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   )
 }

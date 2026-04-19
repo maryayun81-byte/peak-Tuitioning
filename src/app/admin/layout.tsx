@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Users, UserCheck, GraduationCap, BookOpen,
   Calendar, CalendarDays, ClipboardList, BarChart3, Bell,
   Settings, LogOut, CreditCard, FileText, BookMarked,
-  TrendingUp, Library, Layers, Award, School, MapPin, DollarSign, FileCheck
+  TrendingUp, Library, Layers, Award, School, MapPin, DollarSign, FileCheck, ShieldCheck
 } from 'lucide-react'
 import { Sidebar, BottomNav } from '@/components/layout/Sidebar'
 import { useAuthStore } from '@/stores/authStore'
@@ -19,6 +19,7 @@ import { SplashScreen } from '@/components/SplashScreen'
 const NAV_ITEMS = [
   { label: 'Dashboard', href: '/admin', icon: <LayoutDashboard size={18} /> },
   { label: 'Students', href: '/admin/students', icon: <GraduationCap size={18} /> },
+  { label: 'Credentials', href: '/admin/student-credentials', icon: <ShieldCheck size={18} /> },
   { label: 'Teachers', href: '/admin/teachers', icon: <UserCheck size={18} /> },
   { label: 'Parents', href: '/admin/parents', icon: <Users size={18} /> },
   { label: 'Centers', href: '/admin/centers', icon: <MapPin size={18} /> },

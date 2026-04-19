@@ -10,7 +10,7 @@ const withPWA = require('@ducanh2912/next-pwa').default({
 
 const nextConfig: NextConfig = {
   turbopack: {
-    root: './',
+    root: process.cwd(),
   },
   images: {
     remotePatterns: [

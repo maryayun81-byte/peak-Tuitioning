@@ -116,7 +116,92 @@ export default function AdminEventRegistrations() {
   const paginatedRegistrations = filteredRegistrations.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
   const totalPages = Math.max(1, Math.ceil(filteredRegistrations.length / PAGE_SIZE))
 
+  const [isBulk, setIsBulk] = useState(false)
+  const [bulkRows, setBulkRows] = useState<string[]>([''])
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      const text = event.target?.result as string
+      let names: string[] = []
+      
+      if (file.name.endsWith('.csv')) {
+        names = text.split(/\r?\n/).map(line => {
+          const parts = line.split(',')
+          return parts[0].trim()
+        }).filter(name => name.length > 2 && name.toLowerCase() !== 'name' && name.toLowerCase() !== 'student name')
+      } else {
+        names = text.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 2)
+      }
+      
+      if (names.length > 0) {
+        setBulkRows([...bulkRows.filter(r => r.trim() !== ''), ...names])
+        toast.success(`Imported ${names.length} names`)
+      }
+    }
+    reader.readAsText(file)
+  }
+
+  const addBulkRow = () => setBulkRows([...bulkRows, ''])
+  const removeBulkRow = (index: number) => {
+    const newRows = [...bulkRows]
+    newRows.splice(index, 1)
+    setBulkRows(newRows.length ? newRows : [''])
+  }
+  const updateBulkRow = (index: number, val: string) => {
+    const newRows = [...bulkRows]
+    newRows[index] = val
+    setBulkRows(newRows)
+  }
+
+  const onBulkSubmit = async (data: RegistrationForm) => {
+    const names = bulkRows.map(r => r.trim()).filter(r => r.length > 2)
+    if (names.length === 0) {
+      toast.error('Enter at least one student name')
+      return
+    }
+
+    setLoading(true)
+    try {
+      const records = names.map(name => ({
+        student_name: name,
+        tuition_event_id: data.tuition_event_id,
+        class_id: data.class_id || null,
+        tuition_center_id: data.tuition_center_id || null,
+        notes: data.notes || null,
+        status: data.status,
+      }))
+
+      // Batch insert
+      const { error } = await supabase.from('event_registrations').insert(records)
+      
+      if (error) {
+        if (error.code === '23505') toast.error('Some students in this list are already registered.')
+        else throw error
+      } else {
+        toast.success(`Successfully registered ${names.length} students!`)
+        setAddOpen(false)
+        reset()
+        setBulkRows([''])
+        loadData()
+      }
+    } catch (err) {
+      console.error(err)
+      toast.error('Bulk registration failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const onSubmit = async (data: RegistrationForm) => {
+    if (isBulk && !editing) {
+      await onBulkSubmit(data)
+      return
+    }
+
     setLoading(true)
     try {
       if (editing) {
@@ -164,12 +249,16 @@ export default function AdminEventRegistrations() {
     }
   }
 
-  const openAdd = () => {
+  const openAdd = (isBulkMode: boolean) => {
     try {
+      setIsBulk(isBulkMode)
+      if (isBulkMode) setBulkRows([''])
       reset({
+        student_name: '',
         tuition_event_id: filterEvent || (events && events.length > 0 ? events[0].id : ''),
         curriculum_id: filterCurriculum || '',
-        status: 'active'
+        status: 'active',
+        notes: ''
       })
       setEditing(null)
       setAddOpen(true)
@@ -180,6 +269,7 @@ export default function AdminEventRegistrations() {
   }
 
   const openEdit = (reg: any) => {
+    setIsBulk(false) // editing is always single
     setEditing(reg)
     reset({
       student_name: reg.student_name,
@@ -217,9 +307,14 @@ export default function AdminEventRegistrations() {
           <h1 className="text-2xl font-black" style={{ color: 'var(--text)' }}>Event Registrations</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>Manage student enrollments for tuition events</p>
         </div>
-        <Button onClick={openAdd} className="whitespace-nowrap">
-          <Plus size={16} /> Register Student
-        </Button>
+        <div className="flex gap-2">
+           <Button variant="secondary" onClick={() => openAdd(true)} className="whitespace-nowrap">
+             <Plus size={16} /> Bulk Register
+           </Button>
+           <Button onClick={() => openAdd(false)} className="whitespace-nowrap">
+             <Plus size={16} /> Register Student
+           </Button>
+        </div>
       </div>
 
       {/* Stats row */}
@@ -373,30 +468,71 @@ export default function AdminEventRegistrations() {
       )}
 
       {/* Add/Edit Modal */}
-      <Modal isOpen={addOpen} onClose={() => setAddOpen(false)} title={editing ? "Edit Registration" : "Register Student"}>
-        <form onSubmit={handleSubmit(onSubmit, (errs) => {
-          console.error("Validation failed:", errs);
-          toast.error("Please fill in all required fields correctly.");
-        })} className="space-y-4">
-          <Input label="Student Name" placeholder="Full name of student" error={errors.student_name?.message} {...register('student_name')} />
+      <Modal 
+        isOpen={addOpen} 
+        onClose={() => setAddOpen(false)} 
+        title={editing ? "Edit Registration" : isBulk ? "Bulk Register Students" : "Register Student"}
+        size={isBulk && !editing ? "lg" : "md"}
+      >
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <Select label="Tuition Event" error={errors.tuition_event_id?.message} {...register('tuition_event_id')}>
             <option value="">Select Event...</option>
             {events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
           </Select>
-          <Select label="Curriculum (Optional)" error={errors.curriculum_id?.message} {...register('curriculum_id')}>
-            <option value="">No Curriculum Filter</option>
-            {curriculums.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </Select>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Select label="Curriculum (Optional)" error={errors.curriculum_id?.message} {...register('curriculum_id')}>
+              <option value="">No Curriculum Filter</option>
+              {curriculums.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </Select>
              <Select label="Class (Optional)" error={errors.class_id?.message} {...register('class_id')}>
                <option value="">No Class</option>
                {formClasses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
              </Select>
-             <Select label="Center (Optional)" error={errors.tuition_center_id?.message} {...register('tuition_center_id')}>
-               <option value="">No Center</option>
-               {centers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-             </Select>
           </div>
+          
+          <Select label="Center (Optional)" error={errors.tuition_center_id?.message} {...register('tuition_center_id')}>
+            <option value="">No Center</option>
+            {centers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </Select>
+
+          {!isBulk || editing ? (
+             <Input label="Student Name" placeholder="Full name of student" error={errors.student_name?.message} {...register('student_name')} />
+          ) : (
+             <div className="space-y-3">
+               <div className="flex justify-between items-center">
+                 <label className="text-sm font-bold" style={{ color: 'var(--text)' }}>Student Names (Dynamic Rows)</label>
+                 <div className="flex gap-2">
+                   <label className="cursor-pointer text-xs font-bold text-emerald-500 hover:underline">
+                     📁 Upload CSV/TXT
+                     <input type="file" className="hidden" accept=".csv,.txt" onChange={handleFileUpload} />
+                   </label>
+                 </div>
+               </div>
+               
+               <div className="max-h-[300px] overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                 {bulkRows.map((row, idx) => (
+                   <div key={idx} className="flex gap-2 items-center">
+                     <div className="flex-1">
+                       <Input 
+                         placeholder={`Student ${idx + 1} Name`} 
+                         value={row}
+                         onChange={(e) => updateBulkRow(idx, e.target.value)}
+                         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addBulkRow(); } }}
+                       />
+                     </div>
+                     <button type="button" onClick={() => removeBulkRow(idx)} className="p-2.5 rounded-xl bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white transition-all mt-1">
+                       <Trash2 size={16} />
+                     </button>
+                   </div>
+                 ))}
+               </div>
+               
+               <Button type="button" variant="secondary" className="w-full border-dashed" onClick={addBulkRow}>
+                 <Plus size={14} className="mr-2" /> Add Another Student
+               </Button>
+             </div>
+          )}
+
           <Select label="Status" error={errors.status?.message} {...register('status')}>
             <option value="active">Active</option>
             <option value="suspended">Suspended</option>
@@ -406,7 +542,9 @@ export default function AdminEventRegistrations() {
           
           <div className="flex gap-3 justify-end pt-2">
             <Button type="button" variant="secondary" onClick={() => setAddOpen(false)}>Cancel</Button>
-            <Button type="submit">{editing ? 'Update Registration' : 'Register Student'}</Button>
+            <Button type="submit" disabled={loading}>
+               {loading ? 'Processing...' : editing ? 'Update Registration' : isBulk ? `Register ${bulkRows.filter(r => r.trim()).length} Students` : 'Register Student'}
+            </Button>
           </div>
         </form>
       </Modal>

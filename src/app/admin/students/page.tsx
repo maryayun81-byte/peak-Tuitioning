@@ -123,10 +123,152 @@ export default function AdminStudents() {
     ? classes.filter(c => c.curriculum_id === watchCurriculum)
     : classes
 
-  const onSubmit = async (data: StudentForm) => {
+  const [isBulk, setIsBulk] = useState(false)
+  const [bulkRows, setBulkRows] = useState<string[]>([''])
+
+  const openAddModal = (isBulkMode: boolean) => {
+    setIsBulk(isBulkMode)
+    if (isBulkMode) setBulkRows([''])
+    reset({
+      full_name: '',
+      curriculum_id: '',
+      class_id: '',
+      tuition_center_id: '',
+    })
+    setAddOpen(true)
+  }
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      const text = event.target?.result as string
+      let names: string[] = []
+      
+      if (file.name.endsWith('.csv')) {
+        // Simple CSV parsing (split by comma or line)
+        names = text.split(/\r?\n/).map(line => {
+          const parts = line.split(',')
+          return parts[0].trim() // Assume first column is name
+        }).filter(name => name.length > 2 && name.toLowerCase() !== 'name' && name.toLowerCase() !== 'full name')
+      } else {
+        // Plain text parsing (one per line)
+        names = text.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 2)
+      }
+      
+      if (names.length > 0) {
+        setBulkRows([...bulkRows.filter(r => r.trim() !== ''), ...names])
+        toast.success(`Imported ${names.length} names from ${file.name}`)
+      }
+    }
+    reader.readAsText(file)
+  }
+
+  const addBulkRow = () => setBulkRows([...bulkRows, ''])
+  const removeBulkRow = (index: number) => {
+    const newRows = [...bulkRows]
+    newRows.splice(index, 1)
+    setBulkRows(newRows.length ? newRows : [''])
+  }
+  const updateBulkRow = (index: number, val: string) => {
+    const newRows = [...bulkRows]
+    newRows[index] = val
+    setBulkRows(newRows)
+  }
+
+  const onBulkSubmit = async (data: StudentForm) => {
+    const names = bulkRows.map(r => r.trim()).filter(r => r.length > 2)
+    if (names.length === 0) {
+      toast.error('Please enter at least one valid name')
+      return
+    }
+
+    setLoading(true)
+    let createdCount = 0
+    let lastAdmission = ''
+
+    try {
+      // Get current max admission index
+      const { data: lastStudents } = await supabase
+        .from('students')
+        .select('admission_number')
+        .order('admission_number', { ascending: false })
+        .limit(1)
+      
+      let nextNum = 1
+      if (lastStudents && lastStudents.length > 0) {
+        const parts = lastStudents[0].admission_number.split('-')
+        const lastSeq = parseInt(parts[parts.length - 1])
+        if (!isNaN(lastSeq)) nextNum = lastSeq + 1
+      }
+
+      let currentNextNum = nextNum
+
+      for (const name of names) {
+        let success = false
+        let authProvision: any = null
+        let finalAdmissionNumber = ''
+        const tempPwd = generateTempPassword()
+
+        // Reuse the collision prevention logic
+        while (!success && currentNextNum < nextNum + 200) {
+          finalAdmissionNumber = generateAdmissionNumber(currentNextNum)
+          authProvision = await createStudentUser(
+            finalAdmissionNumber, 
+            `${finalAdmissionNumber.toLowerCase()}@student.peak.edu`, 
+            tempPwd, 
+            name
+          )
+
+          if (authProvision.success) {
+            success = true
+          } else {
+            currentNextNum++
+          }
+        }
+
+        if (success) {
+          await supabase.from('students').insert({
+            user_id: authProvision.user_id,
+            full_name: name,
+            class_id: data.class_id,
+            curriculum_id: data.curriculum_id,
+            tuition_center_id: data.tuition_center_id || null,
+            admission_number: finalAdmissionNumber,
+            temp_password: tempPwd,
+            onboarded: false,
+            created_by_admin: true,
+          })
+          createdCount++
+          lastAdmission = finalAdmissionNumber
+          currentNextNum++
+        }
+      }
+
+      toast.success(`Successfully created ${createdCount} students! Last Admission: ${lastAdmission}`, { duration: 6000 })
+      setAddOpen(false)
+      setBulkRows([''])
+      reset()
+      loadData()
+    } catch (err) {
+      console.error(err)
+      toast.error('Bulk creation partially failed. Please check the list.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Consolidated submission handler
+  const handleCombinedSubmit = async (data: StudentForm) => {
+    if (isBulk) {
+       await onBulkSubmit(data);
+       return;
+    }
+
     setLoading(true)
     try {
-      // Get max admission number to prevent collisions after deletions
       const { data: lastStudents } = await supabase
         .from('students')
         .select('admission_number')
@@ -141,18 +283,13 @@ export default function AdminStudents() {
       }
       
       const tempPwd = generateTempPassword()
-
       let success = false
       let authProvision: any = null
       let currentNextNum = nextNum
       let finalAdmissionNumber = ''
 
-      // Retry loop to handle "ghost" Auth users with the same admission number
-      // We try up to 50 increments to find a clear spot
       while (!success && currentNextNum < nextNum + 50) {
         finalAdmissionNumber = generateAdmissionNumber(currentNextNum)
-        console.log(`Attempting to provision student with admission: ${finalAdmissionNumber}`)
-        
         authProvision = await createStudentUser(
           finalAdmissionNumber, 
           `${finalAdmissionNumber.toLowerCase()}@student.peak.edu`, 
@@ -160,54 +297,34 @@ export default function AdminStudents() {
           data.full_name
         )
 
-        if (authProvision.success) {
-          success = true
-        } else if (
-          authProvision.error?.includes('already been registered') || 
-          authProvision.code === 'email_exists'
-        ) {
-          console.warn(`Admission ${finalAdmissionNumber} already exists in Auth, skipping...`)
-          currentNextNum++
-        } else {
-          // Other error, break and show
-          toast.error(authProvision.error || 'Auth provisioning failed')
-          setLoading(false)
-          return
-        }
+        if (authProvision.success) success = true
+        else currentNextNum++
       }
 
-      if (!success) {
-        toast.error('Failed to find a unique admission number. Please try again or check Auth logs.')
-        setLoading(false)
-        return
+      if (success) {
+        await supabase.from('students').insert({
+          user_id: authProvision.user_id,
+          full_name: data.full_name,
+          class_id: data.class_id,
+          curriculum_id: data.curriculum_id,
+          tuition_center_id: data.tuition_center_id || null,
+          admission_number: finalAdmissionNumber,
+          temp_password: tempPwd,
+          onboarded: false,
+          created_by_admin: true,
+        })
+        toast.success(`Student created! Admission: ${finalAdmissionNumber}`)
+        setAddOpen(false)
+        reset()
+        loadData()
+      } else {
+        toast.error('Failed to generate a unique admission number. Please try again.')
       }
 
-      // 2. Insert Student Database Record
-      const { error } = await supabase.from('students').insert({
-        user_id: authProvision.user_id,
-        full_name: data.full_name,
-        class_id: data.class_id,
-        curriculum_id: data.curriculum_id,
-        tuition_center_id: data.tuition_center_id || null,
-        admission_number: finalAdmissionNumber,
-        temp_password: tempPwd,
-        onboarded: false,
-        created_by_admin: true,
-      })
-
-      if (error) {
-        console.error('DB Insert Error:', error)
-        toast.error('Failed to create student record: ' + error.message)
-        setLoading(false)
-        return
-      }
-
-      toast.success(`Student created! Admission: ${finalAdmissionNumber} | Temp password: ${tempPwd}`, { duration: 8000 })
-      reset()
-      setAddOpen(false)
-      loadData()
-    } catch {
-      toast.error('Something went wrong')
+    } catch (err: any) {
+      console.error(err)
+      toast.error(err.message || 'Something went wrong')
+    } finally {
       setLoading(false)
     }
   }
@@ -229,9 +346,14 @@ export default function AdminStudents() {
           <h1 className="text-2xl font-black" style={{ color: 'var(--text)' }}>Students</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>{filteredStudents.length} students matching criteria</p>
         </div>
-        <Button onClick={() => setAddOpen(true)} className="whitespace-nowrap">
-          <Plus size={16} /> Add Student
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={() => openAddModal(true)} className="whitespace-nowrap">
+            <Plus size={16} /> Bulk Add
+          </Button>
+          <Button onClick={() => openAddModal(false)} className="whitespace-nowrap">
+            <Plus size={16} /> Add Student
+          </Button>
+        </div>
       </div>
 
       <div className="flex flex-col md:flex-row flex-wrap gap-3">
@@ -361,16 +483,16 @@ export default function AdminStudents() {
 
                           <div className="flex gap-2">
                              <Button
-                               variant="secondary"
-                               className="flex-1 text-xs"
-                               onClick={() => { setSelected(student); setViewOpen(true) }}
+                                variant="secondary"
+                                className="flex-1 text-xs"
+                                onClick={() => { setSelected(student); setViewOpen(true) }}
                              >
                                <Eye size={14} className="mr-2" /> Details
                              </Button>
                              <Button
-                               variant="outline"
-                               className="text-red-500 hover:bg-red-50 border-red-100"
-                               onClick={() => { setSelected(student); setDeleteOpen(true) }}
+                                variant="outline"
+                                className="text-red-500 hover:bg-red-50 border-red-100"
+                                onClick={() => { setSelected(student); setDeleteOpen(true) }}
                              >
                                <Trash2 size={14} />
                              </Button>
@@ -400,27 +522,85 @@ export default function AdminStudents() {
       )}
 
       {/* Add Student Modal */}
-      <Modal isOpen={addOpen} onClose={() => setAddOpen(false)} title="Add Student">
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          <Input label="Full Name" placeholder="Student full name" error={errors.full_name?.message} {...register('full_name')} />
-          <Select label="Curriculum" error={errors.curriculum_id?.message} {...register('curriculum_id')}>
-            <option value="">Select curriculum</option>
-            {curriculums.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </Select>
-          <Select label="Class" error={errors.class_id?.message} {...register('class_id')}>
-            <option value="">Select class</option>
-            {filteredClasses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </Select>
-          <Select label="Tuition Center" {...register('tuition_center_id')}>
+      <Modal 
+        isOpen={addOpen} 
+        onClose={() => setAddOpen(false)} 
+        title={isBulk ? "Bulk Create Students" : "Add Student"}
+        size={isBulk ? "lg" : "md"}
+      >
+        <form onSubmit={handleSubmit(handleCombinedSubmit)} className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Select label="Curriculum" error={errors.curriculum_id?.message} {...register('curriculum_id')}>
+              <option value="">Select curriculum</option>
+              {curriculums.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </Select>
+            <Select label="Class" error={errors.class_id?.message} {...register('class_id')}>
+              <option value="">Select class</option>
+              {filteredClasses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </Select>
+          </div>
+          
+          <Select label="Tuition Center (Optional)" {...register('tuition_center_id')}>
             <option value="">All Centers (Default)</option>
             {centers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </Select>
-          <div className="p-3 rounded-xl text-sm" style={{ background: 'rgba(79,140,255,0.1)', color: '#4F8CFF' }}>
-            💡 Admission number and temporary password will be auto-generated. Share these with the student to log in.
-          </div>
+
+          {!isBulk ? (
+            <Input label="Student Full Name" placeholder="Student full name" error={errors.full_name?.message} {...register('full_name')} />
+          ) : (
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <label className="text-sm font-bold" style={{ color: 'var(--text)' }}>Student Names (Dynamic Rows)</label>
+                <div className="flex gap-2">
+                  <label className="cursor-pointer text-xs font-bold text-emerald-500 hover:underline">
+                    📁 Upload CSV/TXT
+                    <input type="file" className="hidden" accept=".csv,.txt" onChange={handleFileUpload} />
+                  </label>
+                </div>
+              </div>
+              
+              <div className="max-h-[300px] overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                {bulkRows.map((row, idx) => (
+                  <div key={idx} className="flex gap-2 items-center">
+                    <div className="flex-1">
+                      <Input 
+                        placeholder={`Student ${idx + 1} Name`} 
+                        value={row}
+                        onChange={(e) => updateBulkRow(idx, e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            addBulkRow();
+                          }
+                        }}
+                      />
+                    </div>
+                    <button 
+                      type="button" 
+                      onClick={() => removeBulkRow(idx)}
+                      className="p-2.5 rounded-xl bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white transition-all mt-1"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              
+              <Button type="button" variant="secondary" className="w-full border-dashed" onClick={addBulkRow}>
+                <Plus size={14} className="mr-2" /> Add Another Row
+              </Button>
+
+              <div className="p-3 rounded-xl text-[11px] leading-relaxed" style={{ background: 'rgba(16,185,129,0.05)', color: '#10B981' }}>
+                💡 Pro-Tip: Press <b>Enter</b> in any row to quickly add a new one. You can also upload a list.
+              </div>
+            </div>
+          )}
+
           <div className="flex gap-3 justify-end pt-2">
             <Button type="button" variant="secondary" onClick={() => setAddOpen(false)}>Cancel</Button>
-            <Button type="submit">Create Student</Button>
+            <Button type="submit" disabled={loading}>
+              {loading ? 'Processing...' : isBulk ? `Create ${bulkRows.filter(r => r.trim()).length} Students` : 'Create Student'}
+            </Button>
           </div>
         </form>
       </Modal>

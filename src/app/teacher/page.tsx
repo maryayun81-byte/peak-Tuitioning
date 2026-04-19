@@ -1,7 +1,8 @@
 'use client'
 
-import { useMemo } from 'react'
-import { motion } from 'framer-motion'
+import { useState, useEffect, useMemo } from 'react'
+import { useRouter } from 'next/navigation'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useQuery } from '@tanstack/react-query'
 import { 
   Users, Clock, ClipboardCheck, BookOpen, 
@@ -12,9 +13,10 @@ import {
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Card, StatCard, Badge } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
+import { Modal } from '@/components/ui/Modal'
 import { SkeletonDashboard } from '@/components/ui/Skeleton'
 import { useAuthStore } from '@/stores/authStore'
-import { formatDate } from '@/lib/utils'
+import { formatDate, getEventWeeks, getLocalISODate } from '@/lib/utils'
 import { ExamEventBanner } from '@/components/dashboard/ExamEventBanner'
 import { TuitionEventBanner } from '@/components/dashboard/TuitionEventBanner'
 import { TimetableWidget } from '@/components/dashboard/TimetableWidget'
@@ -24,8 +26,13 @@ import { usePageData } from '@/hooks/usePageData'
 import { ShimmerSkeleton } from '@/components/ui/ShimmerSkeleton'
 
 export default function TeacherDashboard() {
+  const router = useRouter()
   const supabase = getSupabaseBrowserClient()
   const { profile, teacher } = useAuthStore()
+
+  const [missingDates, setMissingDates] = useState<string[]>([])
+  const [showReminder, setShowReminder] = useState(false)
+  const [checkedGaps, setCheckedGaps] = useState(false)
 
   // Stats Data Stream
   const { data: stats, status: statsStatus } = usePageData({
@@ -57,6 +64,88 @@ export default function TeacherDashboard() {
     enabled: !!teacher?.id,
   })
 
+  // Attendance Gap Detection
+  useEffect(() => {
+    if (teacher?.id && !checkedGaps) {
+      checkAttendanceGaps()
+    }
+  }, [teacher?.id, checkedGaps])
+
+  const checkAttendanceGaps = async () => {
+    if (!teacher?.id) return
+    const hour = new Date().getHours()
+    
+    try {
+      // 1. Get primary class
+      const { data: primary } = await supabase
+        .from('teacher_assignments')
+        .select('class_id, tuition_center_id')
+        .eq('teacher_id', teacher.id)
+        .eq('is_class_teacher', true)
+        .maybeSingle()
+      
+      if (!primary) {
+        setCheckedGaps(true)
+        return
+      }
+
+      // 2. Get active tuition event
+      const { data: event } = await supabase
+        .from('tuition_events')
+        .select('*')
+        .eq('is_active', true)
+        .maybeSingle()
+      
+      if (!event) {
+        setCheckedGaps(true)
+        return
+      }
+
+      // 3. Get current week's active days
+      const weeks = getEventWeeks(event.start_date, event.end_date, event.active_days || [])
+      const today = getLocalISODate()
+      const currentWeek = weeks.find(w => {
+        const wStart = getLocalISODate(w.startDate)
+        const wEnd = getLocalISODate(w.endDate)
+        return today >= wStart && today <= wEnd
+      })
+      
+      if (!currentWeek) {
+        setCheckedGaps(true)
+        return
+      }
+
+      // 4. Filter dates that should have been marked
+      // Should mark if date < today OR (date == today AND hour >= 9)
+      const daysToCheck = currentWeek.activeDates.filter(d => d < today || (d === today && hour >= 9))
+      
+      if (daysToCheck.length === 0) {
+        setCheckedGaps(true)
+        return
+      }
+
+      // 5. Check which ones are already in DB (check for ANY record for this class on these dates)
+      const { data: marked } = await supabase
+        .from('attendance')
+        .select('date')
+        .eq('class_id', primary.class_id)
+        .in('date', daysToCheck)
+      
+      // Use a Set for distinct marked dates
+      const markedDates = new Set(marked?.map(m => m.date) || [])
+      const missing = daysToCheck.filter(d => !markedDates.has(d))
+      
+      if (missing.length > 0) {
+        setMissingDates(missing)
+        setShowReminder(true)
+      }
+    } catch (e) {
+      console.error('Gap check failed:', e)
+    } finally {
+      setCheckedGaps(true)
+    }
+  }
+
   // Notifications Data Stream
   const { data: notifications } = usePageData<any[]>({
     cacheKey: ['teacher-notifications', profile?.id || 'anon'],
@@ -86,6 +175,65 @@ export default function TeacherDashboard() {
 
   return (
     <div className="p-6 space-y-6 pb-12">
+      <Modal 
+        isOpen={showReminder} 
+        onClose={() => setShowReminder(false)} 
+        title="Attendance Reminder 📝"
+        size="md"
+      >
+        <div className="space-y-6 py-4">
+          <div className="flex items-start gap-4 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20">
+            <div className="w-12 h-12 rounded-xl bg-amber-500 flex items-center justify-center text-white shrink-0 shadow-lg shadow-amber-500/20">
+              <ClipboardCheck size={28} />
+            </div>
+            <div className="space-y-1">
+              <h4 className="font-black text-amber-700">Registers Pending!</h4>
+              <p className="text-sm text-amber-700/80 leading-relaxed">
+                Attendance hasn&apos;t been marked for your primary class on the following days:
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            {missingDates.map(date => (
+              <div 
+                key={date}
+                className="flex items-center justify-between p-3 rounded-xl bg-[var(--input)] border border-[var(--card-border)]"
+              >
+                <div className="flex items-center gap-3">
+                  <Calendar size={16} className="text-primary" />
+                  <span className="text-sm font-bold" style={{ color: 'var(--text)' }}>
+                    {formatDate(date, 'long')}
+                  </span>
+                </div>
+                <Badge variant={date === getLocalISODate() ? 'danger' : 'muted'} className="text-[10px] uppercase">
+                  {date === getLocalISODate() ? 'Today' : 'Past Due'}
+                </Badge>
+              </div>
+            ))}
+          </div>
+
+          <div className="pt-2">
+            <Button 
+              className="w-full py-6 text-lg" 
+              onClick={() => {
+                setShowReminder(false)
+                router.push('/teacher/attendance')
+              }}
+            >
+              Mark Attendance Now
+            </Button>
+            <button 
+              onClick={() => setShowReminder(false)}
+              className="w-full py-3 text-xs font-bold opacity-50 hover:opacity-100 transition-opacity"
+              style={{ color: 'var(--text)' }}
+            >
+              I&apos;ll do it later
+            </button>
+          </div>
+        </div>
+      </Modal>
+
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
