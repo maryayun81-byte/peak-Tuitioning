@@ -27,8 +27,7 @@ export default function AdminSettings() {
     signature_type: 'draw',
     signature_font: '',
     school_name: 'Peak Performance Tutoring',
-    transcript_watermark: 'OFFICIAL TRANSCRIPT',
-    default_remarks: 'Excellent performance. Keep it up!',
+    watermark_text: 'PEAK PERFORMANCE TUTORING',
     apply_transcripts: true,
     apply_certificates: false,
     apply_badges: false,
@@ -45,22 +44,53 @@ export default function AdminSettings() {
       const { data } = await supabase.from('transcript_config').select('*').single()
       
       if (data) {
-        setBranding({
-          ...branding,
-          ...data,
+        setBranding(prev => ({
+          ...prev,
+          logo_url: data.logo_url || '',
+          stamp_url: data.stamp_url || '',
+          school_name: data.school_name || prev.school_name,
+          watermark_text: data.watermark_text || prev.watermark_text,
+          director_name: data.director_name || prev.director_name,
           signature_data: data.signature_data || '',
           signature_type: data.signature_type || 'draw',
           signature_font: data.signature_font || '',
           apply_transcripts: data.apply_transcripts ?? true,
           apply_certificates: data.apply_certificates ?? false,
           apply_badges: data.apply_badges ?? false,
-        })
+        }))
       }
     } catch (error) {
       console.error('Failed to load settings:', error)
       toast.error('Failed to load settings.')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'logo_url' | 'stamp_url') => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const toastId = toast.loading(`Uploading ${type === 'logo_url' ? 'Logo' : 'Stamp'}...`)
+    try {
+      const fileExt = file.name.split('.').pop()
+      const fileName = `${type}_${Math.random()}.${fileExt}`
+      const filePath = `${fileName}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('branding')
+        .upload(filePath, file)
+
+      if (uploadError) throw uploadError
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('branding')
+        .getPublicUrl(filePath)
+
+      setBranding(prev => ({ ...prev, [type]: publicUrl }))
+      toast.success('Uploaded successfully!', { id: toastId })
+    } catch (err: any) {
+      toast.error('Upload failed: ' + err.message, { id: toastId })
     }
   }
 
@@ -80,6 +110,7 @@ export default function AdminSettings() {
           apply_transcripts: branding.apply_transcripts,
           apply_certificates: branding.apply_certificates,
           apply_badges: branding.apply_badges,
+          watermark_text: branding.watermark_text,
           updated_at: new Date().toISOString()
         })
       
@@ -136,10 +167,19 @@ export default function AdminSettings() {
                <span className="text-sm font-bold" style={{ color: 'var(--text)' }}>School Logo</span>
                <Badge variant="info">TRANSCRIPTS</Badge>
             </div>
-            <div className="aspect-square w-24 mx-auto rounded-2xl flex items-center justify-center border-2 border-dashed" style={{ borderColor: 'var(--card-border)' }}>
-              <ImageIcon size={32} className="text-muted" />
+            <div className="aspect-square w-24 mx-auto rounded-2xl flex items-center justify-center border-2 border-dashed overflow-hidden" style={{ borderColor: 'var(--card-border)' }}>
+              {branding.logo_url ? (
+                <img src={branding.logo_url} alt="Logo" className="w-full h-full object-contain" />
+              ) : (
+                <ImageIcon size={32} className="text-muted" />
+              )}
             </div>
-            <Button size="sm" variant="secondary" className="w-full"><Upload size={14} className="mr-2" /> Upload Logo</Button>
+            <label className="cursor-pointer">
+               <div className="w-full h-9 flex items-center justify-center rounded-xl bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors text-sm font-medium">
+                  <Upload size={14} className="mr-2" /> Upload Logo
+               </div>
+               <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, 'logo_url')} />
+            </label>
             <p className="text-[10px] text-center" style={{ color: 'var(--text-muted)' }}>Appears on all dashboards and reports.</p>
           </Card>
 
@@ -148,10 +188,19 @@ export default function AdminSettings() {
                <span className="text-sm font-bold" style={{ color: 'var(--text)' }}>Official Stamp</span>
                <Badge variant="warning">STAMP</Badge>
             </div>
-            <div className="aspect-square w-24 mx-auto rounded-full flex items-center justify-center border-2 border-dashed" style={{ borderColor: 'var(--card-border)' }}>
-              <Stamp size={32} className="text-muted" />
+            <div className="aspect-square w-24 mx-auto rounded-full flex items-center justify-center border-2 border-dashed overflow-hidden" style={{ borderColor: 'var(--card-border)' }}>
+              {branding.stamp_url ? (
+                <img src={branding.stamp_url} alt="Stamp" className="w-full h-full object-contain" />
+              ) : (
+                <Stamp size={32} className="text-muted" />
+              )}
             </div>
-            <Button size="sm" variant="secondary" className="w-full"><Upload size={14} className="mr-2" /> Upload Stamp</Button>
+            <label className="cursor-pointer">
+               <div className="w-full h-9 flex items-center justify-center rounded-xl bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors text-sm font-medium">
+                  <Upload size={14} className="mr-2" /> Upload Stamp
+               </div>
+               <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, 'stamp_url')} />
+            </label>
             <p className="text-[10px] text-center" style={{ color: 'var(--text-muted)' }}>Appears as watermark and footer on transcripts.</p>
           </Card>
 
@@ -249,13 +298,11 @@ export default function AdminSettings() {
            <h3 className="font-bold mb-6 flex items-center gap-2" style={{ color: 'var(--text)' }}>
               <Settings size={18} /> General Configuration
            </h3>
-           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <Input label="School Name" value={branding.school_name} onChange={e => setBranding({...branding, school_name: e.target.value})} />
-              <Input label="Transcript Watermark Text" value={branding.transcript_watermark} onChange={e => setBranding({...branding, transcript_watermark: e.target.value})} />
-              <div className="md:col-span-2">
-                 <Textarea label="Default Transcript Remarks" rows={3} value={branding.default_remarks} onChange={e => setBranding({...branding, default_remarks: e.target.value})} />
-              </div>
-           </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+               <Input label="School Name" value={branding.school_name} onChange={e => setBranding({...branding, school_name: e.target.value})} />
+               <Input label="Watermark Text" value={branding.watermark_text} onChange={e => setBranding({...branding, watermark_text: e.target.value})} />
+               <Input label="Director / Signatory Name" value={branding.director_name} onChange={e => setBranding({...branding, director_name: e.target.value})} />
+            </div>
            <Button className="mt-6" onClick={saveBranding}><Save size={16} className="mr-2" /> Save Changes</Button>
          </Card>
       </section>

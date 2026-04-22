@@ -28,14 +28,15 @@ interface TranscriptListProps {
   transcripts: Transcript[]
   onPreview: (t: Transcript) => void
   onDownload: (t: Transcript) => void
-  onDelete: (t: Transcript) => void
+  onDelete?: (t: Transcript) => void
   onRegenerate: (t: Transcript) => void
   onBulkRegenerate: () => void
-  onBulkDelete: () => void
-  onUpdateRemark: (t: Transcript) => void
-  onPublishIndividual: (t: Transcript) => void
-  onBulkPublish: () => void
+  onBulkDelete?: () => void
+  onUpdateRemark?: (t: Transcript) => void
+  onPublishIndividual?: (t: Transcript) => void
+  onBulkPublish?: () => void
   isLoading?: boolean
+  hideAdminPowers?: boolean
 }
 
 export function TranscriptList({ 
@@ -49,7 +50,8 @@ export function TranscriptList({
   onUpdateRemark,
   onPublishIndividual,
   onBulkPublish,
-  isLoading 
+  isLoading,
+  hideAdminPowers = false
 }: TranscriptListProps) {
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list')
   const [search, setSearch] = useState('')
@@ -102,15 +104,19 @@ export function TranscriptList({
         </div>
 
         <div className="flex items-center gap-2 w-full md:w-auto">
-          <Button variant="success" size="sm" onClick={onBulkPublish} className="rounded-xl font-bold uppercase tracking-widest text-[10px]">
-            <Send size={14} className="mr-2" /> Publish All
-          </Button>
+          {!hideAdminPowers && (
+            <Button variant="success" size="sm" onClick={onBulkPublish} className="rounded-xl font-bold uppercase tracking-widest text-[10px]">
+              <Send size={14} className="mr-2" /> Publish All
+            </Button>
+          )}
           <Button variant="outline" size="sm" onClick={onBulkRegenerate} className="rounded-xl font-bold uppercase tracking-widest text-[10px]">
             <RefreshCw size={14} className="mr-2" /> Regenerate All
           </Button>
-          <Button variant="outline" size="sm" onClick={onBulkDelete} className="rounded-xl font-bold uppercase tracking-widest text-[10px] text-red-500 hover:text-red-600 border-red-100 hover:bg-red-50">
-            <Trash2 size={14} className="mr-2" /> Delete All
-          </Button>
+          {!hideAdminPowers && (
+            <Button variant="outline" size="sm" onClick={onBulkDelete} className="rounded-xl font-bold uppercase tracking-widest text-[10px] text-red-500 hover:text-red-600 border-red-100 hover:bg-red-50">
+              <Trash2 size={14} className="mr-2" /> Delete All
+            </Button>
+          )}
         </div>
       </div>
 
@@ -163,10 +169,20 @@ export function TranscriptList({
                     <div className="flex justify-end items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button onClick={() => onPreview(t)} className="p-2 rounded-lg hover:bg-[var(--input)] text-[var(--text-muted)] hover:text-[var(--text)] transition-all" title="Preview"><Eye size={18} /></button>
                       <button onClick={() => onDownload(t)} className="p-2 rounded-lg hover:bg-[var(--input)] text-[var(--text-muted)] hover:text-[var(--text)] transition-all" title="Download"><Printer size={18} /></button>
-                      <button onClick={() => onPublishIndividual(t)} className={`p-2 rounded-lg transition-all ${t.is_published ? 'hover:bg-amber-500/10 text-amber-500' : 'hover:bg-emerald-500/10 text-emerald-500'}`} title={t.is_published ? 'Unpublish' : 'Publish'}><Send size={18} /></button>
-                      <button onClick={() => onUpdateRemark(t)} className="p-2 rounded-lg hover:bg-[var(--input)] text-[var(--text-muted)] hover:text-[var(--text)] transition-all" title="Edit Remarks"><MessageSquare size={18} /></button>
+                      
+                      {!hideAdminPowers && onPublishIndividual && (
+                        <button onClick={() => onPublishIndividual(t)} className={`p-2 rounded-lg transition-all ${t.is_published ? 'hover:bg-amber-500/10 text-amber-500' : 'hover:bg-emerald-500/10 text-emerald-500'}`} title={t.is_published ? 'Unpublish' : 'Publish'}><Send size={18} /></button>
+                      )}
+                      
+                      {onUpdateRemark && (
+                        <button onClick={() => onUpdateRemark(t)} className="p-2 rounded-lg hover:bg-[var(--input)] text-[var(--text-muted)] hover:text-[var(--text)] transition-all" title="Edit Remarks"><MessageSquare size={18} /></button>
+                      )}
+                      
                       <button onClick={() => onRegenerate(t)} className="p-2 rounded-lg hover:bg-[var(--input)] text-[var(--text-muted)] hover:text-[var(--text)] transition-all" title="Regenerate"><RefreshCw size={18} /></button>
-                      <button onClick={() => onDelete(t)} className="p-2 rounded-lg hover:bg-red-500/10 text-red-500 transition-all" title="Delete"><Trash2 size={18} /></button>
+                      
+                      {!hideAdminPowers && onDelete && (
+                        <button onClick={() => onDelete(t)} className="p-2 rounded-lg hover:bg-red-500/10 text-red-500 transition-all" title="Delete"><Trash2 size={18} /></button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -205,8 +221,12 @@ export function TranscriptList({
               <div className="pt-4 border-t border-[var(--card-border)] flex items-center justify-between">
                 <div className="flex gap-1">
                    <button onClick={() => onPreview(t)} className="p-2 rounded-lg hover:bg-[var(--input)] text-[var(--text-muted)] hover:text-[var(--primary)] transition-all"><Eye size={18} /></button>
-                   <button onClick={() => onPublishIndividual(t)} className={`p-2 rounded-lg transition-all ${t.is_published ? 'hover:bg-amber-500/10 text-amber-500' : 'hover:bg-emerald-500/10 text-emerald-500'}`}><Send size={18} /></button>
-                   <button onClick={() => onUpdateRemark(t)} className="p-2 rounded-lg hover:bg-[var(--input)] text-[var(--text-muted)] hover:text-[var(--primary)] transition-all"><MessageSquare size={18} /></button>
+                   {!hideAdminPowers && onPublishIndividual && (
+                     <button onClick={() => onPublishIndividual(t)} className={`p-2 rounded-lg transition-all ${t.is_published ? 'hover:bg-amber-500/10 text-amber-500' : 'hover:bg-emerald-500/10 text-emerald-500'}`}><Send size={18} /></button>
+                   )}
+                   {onUpdateRemark && (
+                     <button onClick={() => onUpdateRemark(t)} className="p-2 rounded-lg hover:bg-[var(--input)] text-[var(--text-muted)] hover:text-[var(--primary)] transition-all"><MessageSquare size={18} /></button>
+                   )}
                 </div>
                 <button onClick={() => onDownload(t)} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[var(--input)] text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] hover:bg-[var(--primary)] hover:text-white transition-all shadow-sm">
                    <Printer size={14} /> Download

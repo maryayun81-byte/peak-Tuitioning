@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo, Suspense } from 'react'
+import { useState, useEffect, useMemo, Suspense, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
   Zap, 
@@ -28,6 +28,7 @@ import { SkeletonList } from '@/components/ui/Skeleton'
 import { Card } from '@/components/ui/Card'
 import toast from 'react-hot-toast'
 import type { Transcript, ExamEvent, TuitionEvent, GradingSystem } from '@/types/database'
+import { ClassPerformanceSummary } from '@/components/admin/ClassPerformanceSummary'
 import { useSearchParams, useRouter } from 'next/navigation'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
@@ -55,6 +56,41 @@ function AdminTranscriptsContent() {
   const [remarkOpen, setRemarkOpen] = useState(false)
   const [tempRemark, setTempRemark] = useState('')
   const [isSavingRemark, setIsSavingRemark] = useState(false)
+  const [previewScale, setPreviewScale] = useState(1)
+  const [previewContentHeight, setPreviewContentHeight] = useState(0)
+  const [isTranscriptReady, setIsTranscriptReady] = useState(false)
+  const [summaryOpen, setSummaryOpen] = useState(false)
+  const [isSummaryReady, setIsSummaryReady] = useState(false)
+  const previewContainerRef = useRef<HTMLDivElement>(null)
+  const summaryRef = useRef<HTMLDivElement>(null)
+  const transcriptRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const updateScale = () => {
+      if (previewContainerRef.current) {
+        const containerWidth = previewContainerRef.current.offsetWidth
+        const scale = Math.min(1, (containerWidth - 32) / 1000)
+        setPreviewScale(scale)
+      }
+    }
+    if (previewOpen) {
+      setTimeout(updateScale, 150)
+      window.addEventListener('resize', updateScale)
+    }
+    return () => window.removeEventListener('resize', updateScale)
+  }, [previewOpen])
+
+  // Measure real content height after transcript renders
+  useEffect(() => {
+    if (!transcriptRef.current) return
+    const ro = new ResizeObserver(() => {
+      if (transcriptRef.current) {
+        setPreviewContentHeight(transcriptRef.current.scrollHeight)
+      }
+    })
+    ro.observe(transcriptRef.current)
+    return () => ro.disconnect()
+  }, [selectedTranscript, previewOpen])
 
   useEffect(() => {
     loadCollections().then(() => {
@@ -299,6 +335,75 @@ function AdminTranscriptsContent() {
     }
   }
 
+  const downloadClassSummaryPDF = async () => {
+    const elementId = 'class-summary-preview'
+    const element = document.getElementById(elementId)
+    if (!element) return
+
+    const toastId = toast.loading('Brewing Class Summary PDF...')
+    try {
+      const canvas = await html2canvas(element, {
+        scale: 2, 
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        onclone: (clonedDoc) => {
+          const el = clonedDoc.getElementById(elementId)
+          if (el) {
+            el.style.width = 'fit-content'
+            el.style.transform = 'none'
+          }
+        }
+      })
+      
+      const imgData = canvas.toDataURL('image/png')
+      const pdf = new jsPDF({
+        orientation: 'landscape',
+        unit: 'mm',
+        format: 'a3', 
+      })
+      
+      const pdfWidth = pdf.internal.pageSize.getWidth()
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width
+      
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight)
+      pdf.save(`Class_Performance_Summary.pdf`)
+      toast.success('Summary Exported!', { id: toastId })
+    } catch (err) {
+      toast.error('Export Failed', { id: toastId })
+    }
+  }
+
+  const downloadClassSummaryImage = async () => {
+    const elementId = 'class-summary-preview'
+    const element = document.getElementById(elementId)
+    if (!element) return
+
+    const toastId = toast.loading('Capturing Class Summary...')
+    try {
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        onclone: (clonedDoc) => {
+          const el = clonedDoc.getElementById(elementId)
+          if (el) {
+            el.style.width = 'fit-content'
+            el.style.transform = 'none'
+          }
+        }
+      })
+
+      const imgData = canvas.toDataURL('image/png')
+      const link = document.createElement('a')
+      link.download = `Class_Performance_Summary.png`
+      link.href = imgData
+      link.click()
+      
+      toast.success('Image Saved!', { id: toastId })
+    } catch (err) {
+      toast.error('Capture Failed', { id: toastId })
+    }
+  }
+
   const downloadPDF = async (transcript: Transcript) => {
     const elementId = 'transcript-preview'
     let element = document.getElementById(elementId)
@@ -319,12 +424,18 @@ function AdminTranscriptsContent() {
         useCORS: true,
         logging: false,
         backgroundColor: '#ffffff',
-        windowWidth: 1200,
+        windowWidth: 1000,
         onclone: (clonedDoc) => {
           const el = clonedDoc.getElementById(elementId)
           if (el) {
-            el.style.width = '1200px'
-            el.style.padding = '20px'
+            el.style.width = '1000px'
+            el.style.maxWidth = '1000px'
+            el.style.minWidth = '1000px'
+            el.style.height = 'auto'
+            el.style.overflow = 'visible'
+            el.style.padding = '0px'
+            el.style.margin = '0px'
+            el.style.transform = 'none'
           }
         }
       })
@@ -341,18 +452,60 @@ function AdminTranscriptsContent() {
       const pdfHeight = (canvas.height * pdfWidth) / canvas.width
       
       pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST')
-      
-      // Sanitize filename: replace spaces and weird characters with underscores
       const safeName = (transcript.student?.full_name || 'Student').replace(/[^a-z0-9]/gi, '_')
-      const safeTitle = (transcript.title || 'Report').replace(/[^a-z0-9]/gi, '_')
-      const filename = `Transcript_${safeName}_${safeTitle}.pdf`
+      pdf.save(`Transcript_${safeName}.pdf`)
       
-      pdf.save(filename)
-      
-      toast.success('Delivered!', { id: toastId })
+      toast.success('PDF Delivered!', { id: toastId })
     } catch (err) {
       console.error('PDF error:', err)
       toast.error('PDF Failed', { id: toastId })
+    }
+  }
+
+  const downloadImage = async (transcript: Transcript) => {
+    const elementId = 'transcript-preview'
+    let element = document.getElementById(elementId)
+    
+    if (!element) {
+      setSelectedTranscript(transcript)
+      setPreviewOpen(true)
+      setTimeout(() => downloadImage(transcript), 500)
+      return
+    }
+
+    const toastId = toast.loading('Capturing high-res image...')
+    try {
+      const canvas = await html2canvas(element, {
+        scale: 3,
+        useCORS: true,
+        backgroundColor: '#FDFBF7',
+        windowWidth: 1000,
+        onclone: (clonedDoc) => {
+          const el = clonedDoc.getElementById(elementId)
+          if (el) {
+            el.style.width = '1000px'
+            el.style.maxWidth = '1000px'
+            el.style.minWidth = '1000px'
+            el.style.height = 'auto'
+            el.style.overflow = 'visible'
+            el.style.padding = '0px'
+            el.style.margin = '0px'
+            el.style.transform = 'none'
+          }
+        }
+      })
+
+      const imgData = canvas.toDataURL('image/png')
+      const link = document.createElement('a')
+      const safeName = (transcript.student?.full_name || 'Student').replace(/[^a-z0-9]/gi, '_')
+      link.download = `Transcript_${safeName}.png`
+      link.href = imgData
+      link.click()
+      
+      toast.success('Image Exported!', { id: toastId })
+    } catch (err) {
+      console.error('Image capture error:', err)
+      toast.error('Image Capture Failed', { id: toastId })
     }
   }
 
@@ -593,10 +746,19 @@ function AdminTranscriptsContent() {
                                 Please select an exam to view or generate transcripts.
                               </div>
                             )}
+                             {transcripts.length > 0 && selectedExamId && (
+                               <Button 
+                                onClick={() => setSummaryOpen(true)}
+                                variant="outline" 
+                                className="bg-white/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500 hover:text-white rounded-2xl px-6 font-black uppercase tracking-widest text-[10px]"
+                               >
+                                 <Award size={14} className="mr-2" /> Export Class Summary
+                               </Button>
+                             )}
                           </div>
-                       </div>
-                    </div>
-                 </div>
+                      </div>
+                   </div>
+                </div>
 
                   <TranscriptList 
                     transcripts={transcripts}
@@ -623,16 +785,92 @@ function AdminTranscriptsContent() {
         title="Transcript Mastery Preview" 
         size="lg"
       >
-        <div className="p-4 md:p-8 bg-[var(--bg)]/50 rounded-b-3xl">
-           <div id="transcript-preview">
-             {selectedTranscript && <PremiumTranscript transcript={selectedTranscript} />}
+        <div className="p-4 md:p-8 bg-[var(--bg)]/50 rounded-b-3xl overflow-hidden" ref={previewContainerRef}>
+           <div 
+             style={{ 
+               height: previewContentHeight ? `${previewContentHeight * previewScale}px` : 'auto',
+               overflow: 'hidden',
+               transition: 'height 0.3s ease'
+             }}
+           >
+             <div
+               ref={transcriptRef}
+               id="transcript-preview"
+               style={{ 
+                 transformOrigin: 'top left',
+                 transform: `scale(${previewScale})`,
+                 width: '1000px',
+               }}
+             >
+               {selectedTranscript && (
+                 <PremiumTranscript 
+                   transcript={selectedTranscript} 
+                   onReady={setIsTranscriptReady} 
+                 />
+               )}
+             </div>
            </div>
            <div className="mt-8 flex justify-end gap-3">
-              <Button variant="outline" onClick={() => setPreviewOpen(false)} className="rounded-2xl px-8 uppercase tracking-widest font-black text-xs text-[var(--text)] border-[var(--card-border)]">Close Preview</Button>
-              <Button onClick={() => downloadPDF(selectedTranscript!)} className="rounded-2xl px-8 uppercase tracking-widest font-black text-xs shadow-xl shadow-[var(--primary)]/20">
-                 <Printer size={16} className="mr-2" /> Download PDF
-              </Button>
+               <Button 
+                variant="outline" 
+                onClick={() => downloadImage(selectedTranscript!)} 
+                disabled={!isTranscriptReady}
+                className="rounded-2xl px-6 uppercase tracking-widest font-black text-xs text-[var(--text)] border-[var(--card-border)]"
+               >
+                  {!isTranscriptReady ? <RefreshCw size={14} className="mr-2 animate-spin" /> : null}
+                  Download PNG
+               </Button>
+               <Button 
+                onClick={() => downloadPDF(selectedTranscript!)} 
+                disabled={!isTranscriptReady}
+                className="rounded-2xl px-8 uppercase tracking-widest font-black text-xs shadow-xl shadow-[var(--primary)]/20"
+               >
+                  {!isTranscriptReady ? <RefreshCw size={14} className="mr-2 animate-spin" /> : (
+                    <Printer size={16} className="mr-2" />
+                  )}
+                  Download PDF
+               </Button>
            </div>
+        </div>
+      </Modal>
+
+      {/* CLASS PERFORMANCE SUMMARY MODAL */}
+      <Modal
+        isOpen={summaryOpen}
+        onClose={() => setSummaryOpen(false)}
+        title="Class Performance Master Summary"
+        size="lg"
+      >
+        <div className="p-4 overflow-auto bg-slate-100/50 rounded-b-3xl">
+          <div 
+            id="class-summary-preview"
+            className="w-fit mx-auto"
+          >
+            <ClassPerformanceSummary 
+              transcripts={transcripts} 
+              onReady={setIsSummaryReady}
+            />
+          </div>
+          
+          <div className="mt-8 flex justify-center gap-4 pb-6">
+             <Button 
+               variant="outline" 
+               onClick={downloadClassSummaryImage}
+               disabled={!isSummaryReady}
+               className="rounded-2xl px-8 uppercase tracking-widest font-black text-xs border-[var(--card-border)] bg-white text-[var(--text)]"
+             >
+               {!isSummaryReady && <RefreshCw size={14} className="mr-2 animate-spin" />}
+               Download as Image
+             </Button>
+             <Button 
+               onClick={downloadClassSummaryPDF}
+               disabled={!isSummaryReady}
+               className="rounded-2xl px-10 uppercase tracking-widest font-black text-xs shadow-xl shadow-[var(--primary)]/20"
+             >
+               {!isSummaryReady && <RefreshCw size={14} className="mr-2 animate-spin" />}
+               Download Luxury PDF (A3)
+             </Button>
+          </div>
         </div>
       </Modal>
 

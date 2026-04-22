@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Plus, Search, Edit, Trash2, GraduationCap, Eye, Copy } from 'lucide-react'
+import { Plus, Search, Edit, Trash2, GraduationCap, Eye, Copy, X } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
@@ -20,7 +20,7 @@ import type { Student, Class, Curriculum } from '@/types/database'
 import { createStudentUser } from '@/app/actions/student'
 
 const studentSchema = z.object({
-  full_name: z.string().min(2),
+  full_name: z.string().optional(),
   class_id: z.string().uuid(),
   curriculum_id: z.string().uuid(),
   tuition_center_id: z.string().optional().nullable(),
@@ -74,7 +74,7 @@ export default function AdminStudents() {
             class:classes(id, name),
             curriculum:curriculums(id, name),
             center:tuition_centers(id, name),
-            student_subjects(subject:subjects(name))
+            student_subjects(id, subject:subjects(name))
           `)
           .order('created_at', { ascending: false })
       console.log('Students fetched:', sRes)
@@ -267,6 +267,11 @@ export default function AdminStudents() {
        return;
     }
 
+    if (!data.full_name || data.full_name.trim().length < 2) {
+      toast.error('Student name is required');
+      return;
+    }
+
     setLoading(true)
     try {
       const { data: lastStudents } = await supabase
@@ -326,6 +331,33 @@ export default function AdminStudents() {
       toast.error(err.message || 'Something went wrong')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const removeSubject = async (studentId: string, ssId: string) => {
+    if (!confirm('Remove this subject?')) return
+    
+    try {
+      const { error } = await supabase
+        .from('student_subjects')
+        .delete()
+        .eq('id', ssId)
+
+      if (error) throw error
+      
+      setStudents(prev => prev.map(s => {
+        if (s.id === studentId) {
+          return {
+            ...s,
+            student_subjects: (s as any).student_subjects.filter((ss: any) => ss.id !== ssId)
+          }
+        }
+        return s
+      }))
+      
+      toast.success('Subject removed')
+    } catch (err: any) {
+      toast.error('Failed to remove: ' + err.message)
     }
   }
 
@@ -475,7 +507,19 @@ export default function AdminStudents() {
                              {(student as any).student_subjects?.length > 0 && (
                                 <div className="mt-3 flex flex-wrap gap-1">
                                   {(student as any).student_subjects.map((ss: any, idx: number) => (
-                                    <Badge key={idx} variant="info" className="text-[10px]">{ss.subject?.name}</Badge>
+                                    <Badge key={ss.id || idx} variant="info" className="text-[10px] pr-1 group/badge relative transition-all">
+                                      {ss.subject?.name}
+                                      <button 
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          removeSubject(student.id, ss.id);
+                                        }}
+                                        className="opacity-0 group-hover/badge:opacity-100 hover:bg-red-500/20 rounded-full p-0.5 ml-1 transition-all"
+                                        title="Remove subject"
+                                      >
+                                        <X size={10} />
+                                      </button>
+                                    </Badge>
                                   ))}
                                 </div>
                              )}

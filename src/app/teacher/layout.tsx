@@ -33,6 +33,7 @@ const NAV_ITEMS = [
   { label: 'Quizzes', href: '/teacher/quizzes', icon: <Award size={18} /> },
   { label: 'Marking', href: '/teacher/marking', icon: <PlusCircle size={18} /> },
   { label: 'Exam Marks', href: '/teacher/exam-marks', icon: <Award size={18} /> },
+  { label: 'Transcripts', href: '/teacher/transcripts', icon: <FileText size={18} /> },
   { label: 'Schedule', href: '/teacher/schedule', icon: <Calendar size={18} /> },
   { label: 'Study Monitor', href: '/teacher/study-monitor', icon: <BrainCircuit size={18} /> },
   { label: 'Students', href: '/teacher/students', icon: <Users size={18} /> },
