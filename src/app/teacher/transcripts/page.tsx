@@ -27,7 +27,7 @@ import { Modal } from '@/components/ui/Modal'
 import { SkeletonList } from '@/components/ui/Skeleton'
 import { Card } from '@/components/ui/Card'
 import toast from 'react-hot-toast'
-import type { Transcript, ExamEvent, TuitionEvent, GradingSystem } from '@/types/database'
+import type { Transcript, ExamEvent, TuitionEvent, GradingSystem, Curriculum, Class } from '@/types/database'
 import { ClassPerformanceSummary } from '@/components/admin/ClassPerformanceSummary'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useAuthStore } from '@/stores/authStore'
@@ -52,6 +52,13 @@ function TeacherTranscriptsContent() {
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
   const [selectedExamId, setSelectedExamId] = useState<string | null>(null)
   const [view, setView] = useState<'collections' | 'manager'>('collections')
+
+  // NEW FILTER STATES
+  const [curriculums, setCurriculums] = useState<Curriculum[]>([])
+  const [allClasses, setAllClasses] = useState<Class[]>([])
+  const [selectedCurriculumId, setSelectedCurriculumId] = useState<string | 'all'>('all')
+  const [selectedClassId, setSelectedClassId] = useState<string | 'all'>('all')
+  const [selectedSubject, setSelectedSubject] = useState<string | 'all'>('all')
   
   // MODAL STATE
   const [previewOpen, setPreviewOpen] = useState(false)
@@ -138,17 +145,20 @@ function TeacherTranscriptsContent() {
       setMyClassIds(classIds)
 
       // 2. Load global and specific data
-      const [te, ee, gs, counts] = await Promise.all([
+      const [te, ee, gs, counts, currs, cls] = await Promise.all([
         supabase.from('tuition_events').select('*').order('start_date', { ascending: false }),
         supabase.from('exam_events').select('*'),
         supabase.from('grading_systems').select('*, scales:grading_scales(*)'),
-        supabase.from('transcripts')
-          .select('id, tuition_event_id, student:students(class_id)')
+        supabase.from('transcripts').select('tuition_event_id, student:students(class_id)'),
+        supabase.from('curriculums').select('*').order('name'),
+        supabase.from('classes').select('*').order('name')
       ])
-
+      
       setTuitionEvents(te.data || [])
       setExamEvents(ee.data || [])
       setGradingSystems(gs.data || [])
+      setCurriculums(currs.data || [])
+      setAllClasses(cls.data || [])
       
       // Filter counts only to teacher's classes
       const countMap: Record<string, number> = {}
@@ -191,6 +201,9 @@ function TeacherTranscriptsContent() {
   const handleSelectCollection = (id: string) => {
     setSelectedEventId(id)
     setView('manager')
+    setSelectedCurriculumId('all')
+    setSelectedClassId('all')
+    setSelectedSubject('all')
     const collectionExams = examEvents.filter(e => e.tuition_event_id === id)
     const defaultExam = collectionExams.length > 0 ? collectionExams[0].id : null
     setSelectedExamId(defaultExam)
@@ -201,6 +214,24 @@ function TeacherTranscriptsContent() {
       setTranscripts([])
     }
   }
+
+  // FILTERED DATA
+  const filteredTranscripts = useMemo(() => {
+    return transcripts.filter(t => {
+      const student = t.student as any
+      const matchCurriculum = selectedCurriculumId === 'all' || student?.curriculum_id === selectedCurriculumId
+      const matchClass = selectedClassId === 'all' || student?.class_id === selectedClassId
+      return matchCurriculum && matchClass
+    })
+  }, [transcripts, selectedCurriculumId, selectedClassId])
+
+  const availableSubjects = useMemo(() => {
+    const subjects = new Set<string>()
+    filteredTranscripts.forEach(t => {
+      (t.subject_results as any[] || []).forEach(r => subjects.add(r.subject_name))
+    })
+    return Array.from(subjects).sort()
+  }, [filteredTranscripts])
 
   const handleBack = () => {
     setView('collections')
@@ -523,7 +554,47 @@ function TeacherTranscriptsContent() {
                              ))}
                            </select>
 
-                           {transcripts.length > 0 && selectedExamId && (
+                           {/* CURRICULUM FILTER */}
+                           <select 
+                             value={selectedCurriculumId} 
+                             onChange={e => setSelectedCurriculumId(e.target.value)}
+                             className="bg-white/10 border border-white/20 text-white text-xs font-bold rounded-2xl px-4 py-2 outline-none"
+                           >
+                             <option value="all" className="text-black">All Curriculums</option>
+                             {curriculums.map(c => (
+                               <option key={c.id} value={c.id} className="text-black">{c.name}</option>
+                             ))}
+                           </select>
+
+                           {/* CLASS FILTER */}
+                           <select 
+                             value={selectedClassId} 
+                             onChange={e => setSelectedClassId(e.target.value)}
+                             className="bg-white/10 border border-white/20 text-white text-xs font-bold rounded-2xl px-4 py-2 outline-none"
+                           >
+                             <option value="all" className="text-black">All Classes</option>
+                             {allClasses
+                               .filter(c => selectedCurriculumId === 'all' || c.curriculum_id === selectedCurriculumId)
+                               // Also filter by teacher's assigned classes if desired, but RLS handles it
+                               .map(c => (
+                                 <option key={c.id} value={c.id} className="text-black">{c.name}</option>
+                               ))
+                             }
+                           </select>
+
+                           {/* SUBJECT FILTER */}
+                           <select 
+                             value={selectedSubject} 
+                             onChange={e => setSelectedSubject(e.target.value)}
+                             className="bg-white/10 border border-white/20 text-white text-xs font-bold rounded-2xl px-4 py-2 outline-none"
+                           >
+                             <option value="all" className="text-black">All Subjects Summary</option>
+                             {availableSubjects.map(sub => (
+                               <option key={sub} value={sub} className="text-black">{sub}</option>
+                             ))}
+                           </select>
+
+                           {filteredTranscripts.length > 0 && selectedExamId && (
                              <Button 
                               onClick={() => setSummaryOpen(true)}
                               variant="outline" 
@@ -537,7 +608,7 @@ function TeacherTranscriptsContent() {
                   </div>
 
                   <TranscriptList 
-                    transcripts={transcripts}
+                    transcripts={filteredTranscripts}
                     onPreview={t => { setSelectedTranscript(t); setPreviewOpen(true) }}
                     onDownload={downloadPDF}
                     onRegenerate={regenerateAll}
@@ -612,7 +683,8 @@ function TeacherTranscriptsContent() {
             className="w-fit mx-auto"
           >
             <ClassPerformanceSummary 
-              transcripts={transcripts} 
+              transcripts={filteredTranscripts} 
+              filterSubject={selectedSubject !== 'all' ? selectedSubject : undefined}
               onReady={setIsSummaryReady}
             />
           </div>

@@ -31,7 +31,8 @@ export default function AdminSettings() {
     apply_transcripts: true,
     apply_certificates: false,
     apply_badges: false,
-    director_name: 'Director General'
+    director_name: 'Director General',
+    id: undefined as string | undefined
   })
   const [activeKey, setActiveKey] = useState<any>(null)
   const [keyLoading, setKeyLoading] = useState(false)
@@ -57,6 +58,7 @@ export default function AdminSettings() {
           apply_transcripts: data.apply_transcripts ?? true,
           apply_certificates: data.apply_certificates ?? false,
           apply_badges: data.apply_badges ?? false,
+          id: data.id
         }))
       }
     } catch (error) {
@@ -99,7 +101,7 @@ export default function AdminSettings() {
       const { error } = await supabase
         .from('transcript_config')
         .upsert({
-          id: (branding as any).id,
+          id: branding.id,
           school_name: branding.school_name,
           director_name: branding.director_name,
           logo_url: branding.logo_url,

@@ -6,6 +6,7 @@ import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 
 interface ClassPerformanceSummaryProps {
   transcripts: Transcript[]
+  filterSubject?: string
   onReady?: (ready: boolean) => void
 }
 
@@ -20,14 +21,16 @@ const SUBJECT_COLORS = [
   '#F43F5E', // Rose
 ]
 
-export function ClassPerformanceSummary({ transcripts, onReady }: ClassPerformanceSummaryProps) {
+export function ClassPerformanceSummary({ transcripts, filterSubject, onReady }: ClassPerformanceSummaryProps) {
   const supabase = getSupabaseBrowserClient()
   const [globalConfig, setGlobalConfig] = useState<any>(null)
   
   // Extract all unique subjects across all transcripts
-  const allSubjects = Array.from(new Set(
-    transcripts.flatMap(t => (t.subject_results as any[] || []).map(r => r.subject_name))
-  )).sort()
+  const allSubjects = filterSubject 
+    ? [filterSubject]
+    : Array.from(new Set(
+        transcripts.flatMap(t => (t.subject_results as any[] || []).map(r => r.subject_name))
+      )).sort()
 
   useEffect(() => {
     supabase.from('transcript_config').select('*').limit(1).maybeSingle().then(({ data }) => {

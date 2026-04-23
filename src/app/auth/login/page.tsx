@@ -186,6 +186,15 @@ function LoginForm() {
                 error={errors.password?.message}
                 {...register('password')}
               />
+              <div className="flex justify-end">
+                <Link 
+                  href={`/auth/forgot-password?role=${selectedRole}`}
+                  className="text-[10px] font-bold opacity-60 hover:opacity-100 transition-opacity"
+                  style={{ color: config.color }}
+                >
+                  Forgot your password?
+                </Link>
+              </div>
             </div>
 
             <Button

@@ -27,7 +27,7 @@ import { Modal } from '@/components/ui/Modal'
 import { SkeletonList } from '@/components/ui/Skeleton'
 import { Card } from '@/components/ui/Card'
 import toast from 'react-hot-toast'
-import type { Transcript, ExamEvent, TuitionEvent, GradingSystem } from '@/types/database'
+import type { Transcript, ExamEvent, TuitionEvent, GradingSystem, Curriculum, Class } from '@/types/database'
 import { ClassPerformanceSummary } from '@/components/admin/ClassPerformanceSummary'
 import { useSearchParams, useRouter } from 'next/navigation'
 import jsPDF from 'jspdf'
@@ -49,6 +49,13 @@ function AdminTranscriptsContent() {
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
   const [selectedExamId, setSelectedExamId] = useState<string | null>(null)
   const [view, setView] = useState<'collections' | 'manager'>('collections')
+  
+  // NEW FILTER STATES
+  const [curriculums, setCurriculums] = useState<Curriculum[]>([])
+  const [allClasses, setAllClasses] = useState<Class[]>([])
+  const [selectedCurriculumId, setSelectedCurriculumId] = useState<string | 'all'>('all')
+  const [selectedClassId, setSelectedClassId] = useState<string | 'all'>('all')
+  const [selectedSubject, setSelectedSubject] = useState<string | 'all'>('all')
   
   // MODAL EXCLUSIVE STATE
   const [previewOpen, setPreviewOpen] = useState(false)
@@ -124,16 +131,20 @@ function AdminTranscriptsContent() {
   const loadCollections = async () => {
     setLoading(true)
     try {
-      const [te, ee, gs, counts] = await Promise.all([
+      const [te, ee, gs, counts, currs, cls] = await Promise.all([
         supabase.from('tuition_events').select('*').order('start_date', { ascending: false }),
         supabase.from('exam_events').select('*'),
         supabase.from('grading_systems').select('*, scales:grading_scales(*)'),
-        supabase.from('transcripts').select('tuition_event_id')
+        supabase.from('transcripts').select('tuition_event_id'),
+        supabase.from('curriculums').select('*').order('name'),
+        supabase.from('classes').select('*').order('name')
       ])
 
       setTuitionEvents(te.data || [])
       setExamEvents(ee.data || [])
       setGradingSystems(gs.data || [])
+      setCurriculums(currs?.data || [])
+      setAllClasses(cls?.data || [])
       
       const countMap: Record<string, number> = {}
       counts.data?.forEach((t: any) => {
@@ -171,6 +182,9 @@ function AdminTranscriptsContent() {
   const handleSelectCollection = (id: string) => {
     setSelectedEventId(id)
     setView('manager')
+    setSelectedCurriculumId('all')
+    setSelectedClassId('all')
+    setSelectedSubject('all')
     const collectionExams = examEvents.filter(e => e.tuition_event_id === id)
     const defaultExam = collectionExams.length > 0 ? collectionExams[0].id : null
     setSelectedExamId(defaultExam)
@@ -190,6 +204,24 @@ function AdminTranscriptsContent() {
   }
 
   // --- LOGIC ---
+
+  // FILTERED DATA
+  const filteredTranscripts = useMemo(() => {
+    return transcripts.filter(t => {
+      const student = t.student as any
+      const matchCurriculum = selectedCurriculumId === 'all' || student?.curriculum_id === selectedCurriculumId
+      const matchClass = selectedClassId === 'all' || student?.class_id === selectedClassId
+      return matchCurriculum && matchClass
+    })
+  }, [transcripts, selectedCurriculumId, selectedClassId])
+
+  const availableSubjects = useMemo(() => {
+    const subjects = new Set<string>()
+    filteredTranscripts.forEach(t => {
+      (t.subject_results as any[] || []).forEach(r => subjects.add(r.subject_name))
+    })
+    return Array.from(subjects).sort()
+  }, [filteredTranscripts])
 
   const computeGrade = (score: number, curriculumId: string, subjectId?: string, classId?: string, isOverall = false) => {
     let system = null
@@ -740,28 +772,76 @@ function AdminTranscriptsContent() {
                               </select>
                               <Calendar size={14} className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none opacity-50" />
                             </div>
+
+                            {/* CURRICULUM FILTER */}
+                            <div className="relative w-full md:w-48">
+                              <select 
+                                value={selectedCurriculumId} 
+                                onChange={e => setSelectedCurriculumId(e.target.value)}
+                                className="w-full bg-white/10 border border-white/20 text-white text-xs font-bold rounded-2xl px-4 py-2 outline-none appearance-none focus:ring-2 ring-white/30"
+                              >
+                                <option value="all" className="text-black">All Curriculums</option>
+                                {curriculums.map(c => (
+                                  <option key={c.id} value={c.id} className="text-black">{c.name}</option>
+                                ))}
+                              </select>
+                              <Layers size={14} className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none opacity-50" />
+                            </div>
+
+                            {/* CLASS FILTER */}
+                            <div className="relative w-full md:w-48">
+                              <select 
+                                value={selectedClassId} 
+                                onChange={e => setSelectedClassId(e.target.value)}
+                                className="w-full bg-white/10 border border-white/20 text-white text-xs font-bold rounded-2xl px-4 py-2 outline-none appearance-none focus:ring-2 ring-white/30"
+                              >
+                                <option value="all" className="text-black">All Classes</option>
+                                {allClasses
+                                  .filter(c => selectedCurriculumId === 'all' || c.curriculum_id === selectedCurriculumId)
+                                  .map(c => (
+                                    <option key={c.id} value={c.id} className="text-black">{c.name}</option>
+                                  ))
+                                }
+                              </select>
+                              <Award size={14} className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none opacity-50" />
+                            </div>
+
+                            {/* SUBJECT FILTER */}
+                            <div className="relative w-full md:w-48">
+                              <select 
+                                value={selectedSubject} 
+                                onChange={e => setSelectedSubject(e.target.value)}
+                                className="w-full bg-white/10 border border-white/20 text-white text-xs font-bold rounded-2xl px-4 py-2 outline-none appearance-none focus:ring-2 ring-white/30"
+                              >
+                                <option value="all" className="text-black">All Subjects Summary</option>
+                                {availableSubjects.map(sub => (
+                                  <option key={sub} value={sub} className="text-black">{sub}</option>
+                                ))}
+                              </select>
+                              <Quote size={14} className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none opacity-50" />
+                            </div>
                             
                             {!selectedExamId && transcripts.length === 0 && (
                               <div className="text-xs font-medium text-amber-200 bg-amber-500/10 px-3 py-1.5 rounded-xl border border-amber-500/20">
                                 Please select an exam to view or generate transcripts.
                               </div>
                             )}
-                             {transcripts.length > 0 && selectedExamId && (
-                               <Button 
-                                onClick={() => setSummaryOpen(true)}
-                                variant="outline" 
-                                className="bg-white/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500 hover:text-white rounded-2xl px-6 font-black uppercase tracking-widest text-[10px]"
-                               >
-                                 <Award size={14} className="mr-2" /> Export Class Summary
-                               </Button>
-                             )}
+                              {filteredTranscripts.length > 0 && selectedExamId && (
+                                <Button 
+                                 onClick={() => setSummaryOpen(true)}
+                                 variant="outline" 
+                                 className="bg-white/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500 hover:text-white rounded-2xl px-6 font-black uppercase tracking-widest text-[10px]"
+                                >
+                                  <Award size={14} className="mr-2" /> Export Class Summary
+                                </Button>
+                              )}
                           </div>
                       </div>
                    </div>
                 </div>
 
                   <TranscriptList 
-                    transcripts={transcripts}
+                    transcripts={filteredTranscripts}
                     onPreview={t => { setSelectedTranscript(t); setPreviewOpen(true) }}
                     onDownload={downloadPDF}
                     onDelete={deleteTranscript}
@@ -847,7 +927,8 @@ function AdminTranscriptsContent() {
             className="w-fit mx-auto"
           >
             <ClassPerformanceSummary 
-              transcripts={transcripts} 
+              transcripts={filteredTranscripts} 
+              filterSubject={selectedSubject !== 'all' ? selectedSubject : undefined}
               onReady={setIsSummaryReady}
             />
           </div>

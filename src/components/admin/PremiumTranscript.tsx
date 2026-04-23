@@ -43,7 +43,7 @@ export function PremiumTranscript({ transcript, student: studentContext, onReady
   const showSignature = globalConfig?.apply_transcripts ?? snapshot.apply_transcripts ?? true
 
   useEffect(() => {
-    supabase.from('transcript_config').select('*').limit(1).maybeSingle().then(({ data, error }) => {
+    supabase.from('transcript_config').select('*').order('updated_at', { ascending: false }).limit(1).maybeSingle().then(({ data, error }) => {
       if (data) {
         setGlobalConfig(data)
         console.log('PremiumTranscript: Branding Loaded:', {
@@ -213,7 +213,7 @@ export function PremiumTranscript({ transcript, student: studentContext, onReady
                 </td>
                 <td className="px-8 py-4 border-r border-[#1D4477]/5 text-center font-black text-[#1D4477]/60 text-base">{res.marks}</td>
                 <td className="px-8 py-4 border-r border-[#1D4477]/5 text-center font-black text-[#1D4477] text-base">{res.grade}</td>
-                <td className="px-8 py-4 text-[#1D4477]/50 font-medium italic text-xs truncate max-w-[200px]">
+                <td className="px-8 py-4 text-[#1D4477] font-bold italic text-[11px]">
                   {res.remark || '-'}
                 </td>
               </tr>
@@ -275,7 +275,7 @@ export function PremiumTranscript({ transcript, student: studentContext, onReady
               Director's Remarks
             </div>
          </div>
-         <div className="relative p-10 bg-white border border-[#1D4477]/10 rounded-[3rem] shadow-inner">
+         <div className="relative p-10 bg-[#F9FBFF] border-2 border-[#1D4477]/20 rounded-[3rem] shadow-[inset_0_4px_12px_rgba(29,68,119,0.05)]">
             {/* Background lines like a notebook */}
             <div className="absolute inset-0 p-8 flex flex-col justify-between opacity-[0.05] pointer-events-none">
                {[...Array(6)].map((_, i) => (
