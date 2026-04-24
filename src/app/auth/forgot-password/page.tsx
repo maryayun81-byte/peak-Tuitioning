@@ -41,8 +41,12 @@ function ForgotPasswordForm() {
   const onSubmit = async (data: FormData) => {
     setLoading(true)
     try {
+      const origin = typeof window !== 'undefined' && window.location.origin.includes('localhost') 
+        ? 'https://www.peakcampus.co.ke' 
+        : window.location.origin
+        
       const { error } = await supabase.auth.resetPasswordForEmail(data.email, {
-        redirectTo: `${window.location.origin}/auth/reset-password?role=${selectedRole}`,
+        redirectTo: `${origin}/auth/reset-password?role=${selectedRole}`,
       })
 
       if (error) {

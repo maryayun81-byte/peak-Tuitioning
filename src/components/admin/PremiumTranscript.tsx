@@ -211,9 +211,13 @@ export function PremiumTranscript({ transcript, student: studentContext, onReady
                      <span className="font-bold text-sm text-[#1D4477] uppercase">{res.subject_name}</span>
                   </div>
                 </td>
-                <td className="px-8 py-4 border-r border-[#1D4477]/5 text-center font-black text-[#1D4477]/60 text-base">{res.marks}</td>
-                <td className="px-8 py-4 border-r border-[#1D4477]/5 text-center font-black text-[#1D4477] text-base">{res.grade}</td>
-                <td className="px-8 py-4 text-[#1D4477] font-bold italic text-[11px]">
+                <td className="px-8 py-4 border-r border-[#1D4477]/5 text-center font-black text-[#1D4477]/60 text-base">
+                  {res.marks === null || res.marks === undefined ? '-' : res.marks}
+                </td>
+                <td className="px-8 py-4 border-r border-[#1D4477]/5 text-center font-black text-[#1D4477] text-sm">
+                  {res.marks === null || res.marks === undefined ? (res.progress_summary || res.grade) : res.grade}
+                </td>
+                <td className="px-8 py-4 text-[#1D4477] font-bold italic text-[11px] max-w-[200px] break-words">
                   {res.remark || '-'}
                 </td>
               </tr>

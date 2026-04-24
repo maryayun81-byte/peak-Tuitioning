@@ -65,7 +65,7 @@ export default function TeacherExamMarks() {
 
   // Students & marks
   const [students, setStudents] = useState<Student[]>([])
-  const [marksData, setMarksData] = useState<Record<string, { marks: string; remarks: string; grade?: string; grading_system_id?: string; id?: string }>>({})
+  const [marksData, setMarksData] = useState<Record<string, { marks: string; remarks: string; progress: string; grade?: string; grading_system_id?: string; id?: string }>>({})
 
   // Compute curriculum for the selected class to feed the hook
   const selectedClassOption = useMemo(() => 
@@ -225,11 +225,12 @@ export default function TeacherExamMarks() {
 
       setStudents(studentsRes.data ?? [])
 
-      const map: Record<string, { marks: string; remarks: string; grade?: string; grading_system_id?: string; id?: string }> = {}
+      const map: Record<string, { marks: string; remarks: string; progress: string; grade?: string; grading_system_id?: string; id?: string }> = {}
       ;(marksRes.data ?? []).forEach((m: any) => {
         map[m.student_id] = {
           marks: m.marks != null ? String(m.marks) : '',
           remarks: m.teacher_remark ?? '',
+          progress: m.progress_summary ?? '',
           grade: m.grade ?? '',
           grading_system_id: m.grading_system_id ?? '',
           id: m.id,
@@ -244,9 +245,9 @@ export default function TeacherExamMarks() {
     }
   }
 
-  const handleMarkChange = (studentId: string, field: 'marks' | 'remarks', value: string) => {
+  const handleMarkChange = (studentId: string, field: 'marks' | 'remarks' | 'progress', value: string) => {
     setMarksData(prev => {
-      const current = prev[studentId] || { marks: '', remarks: '' }
+      const current = prev[studentId] || { marks: '', remarks: '', progress: '' }
       const updated = { ...current, [field]: value }
       
       // Real-time grade calculation
@@ -273,16 +274,21 @@ export default function TeacherExamMarks() {
     const upserts = students
       .map(s => {
         const data = marksData[s.id]
-        if (!data?.marks || data.marks.trim() === '') return null
+        const hasMarks = data?.marks && data.marks.trim() !== ''
+        const hasProgress = data?.progress && data.progress.trim() !== ''
+        
+        if (!hasMarks && !hasProgress) return null
+        
         return {
           ...(data.id ? { id: data.id } : {}),
           student_id: s.id,
-          student_name: s.full_name, // temporary for preview
+          student_name: s.full_name,
           subject_id: selectedSubjectId,
           class_id: selectedClassId,
           exam_event_id: selectedExamEventId,
           teacher_id: teacher!.id,
-          marks: parseFloat(data.marks),
+          marks: hasMarks ? parseFloat(data.marks) : -1, // -1 means no marks, using qualitative instead
+          progress_summary: hasProgress ? data.progress : null,
           grade: data.grade || null,
           grading_system_id: data.grading_system_id || null,
           teacher_remark: data.remarks || null,
@@ -467,7 +473,7 @@ export default function TeacherExamMarks() {
                 <table className="w-full text-sm">
                    <thead>
                     <tr style={{ background: 'var(--input)', borderBottom: '1px solid var(--card-border)' }}>
-                      {['Student', 'Admission No.', 'Marks', 'Grade', 'Remarks (optional)'].map(h => (
+                      {['Student', 'Admission No.', 'Marks', 'Grade / Progress', 'Remarks (optional)'].map(h => (
                         <th key={h} className="text-left px-5 py-3 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>{h}</th>
                       ))}
                     </tr>
@@ -514,13 +520,19 @@ export default function TeacherExamMarks() {
                             )}
                           </td>
                           <td className="px-5 py-3">
-                             {data.grade ? (
-                               <Badge variant="primary" className="font-black text-sm h-8 min-w-[32px] justify-center">
-                                 {data.grade}
-                               </Badge>
-                             ) : (
-                               <span className="text-xs opacity-20">—</span>
-                             )}
+                             <div className="flex flex-col gap-2">
+                               {data.grade && (
+                                 <Badge variant="primary" className="font-black text-sm h-8 min-w-[32px] justify-center">
+                                   {data.grade}
+                                 </Badge>
+                               )}
+                               <Input
+                                 placeholder="Or Progress..."
+                                 className="h-8 text-[10px] w-32"
+                                 value={data.progress}
+                                 onChange={e => handleMarkChange(s.id, 'progress', e.target.value)}
+                               />
+                             </div>
                           </td>
                           <td className="px-5 py-3">
                             <Input

@@ -12,21 +12,19 @@ import './globals.css'
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://www.peakcampus.co.ke'),
-  title: {
-    default: 'Peak Performance Campus',
-    template: '%s | Peak Campus',
-  },
-  description: 'Peak Performance Campus - Premium academic excellence and student tuition management portal.',
+  title: "Peak Performance Tutoring Kenya | KCSE & CBC Tuition Center",
+  description:
+    "Peak Performance Tutoring is a leading tutoring center in Kenya established in 2023, offering KCSE and CBC tuition, revision programs, and academic support for students.",
   manifest: '/manifest.json',
   icons: {
     icon: '/logo.png',
     apple: '/logo.png',
   },
   openGraph: {
-    title: 'Peak Performance Campus',
-    description: 'Academic excellence and student management portal.',
+    title: "Peak Performance Tutoring Kenya | KCSE & CBC Tuition Center",
+    description: "Peak Performance Tutoring is a leading tutoring center in Kenya offering KCSE and CBC tuition, revision programs, and academic support.",
     url: 'https://www.peakcampus.co.ke',
-    siteName: 'Peak Campus',
+    siteName: 'Peak Performance Tutoring',
     locale: 'en_KE',
     type: 'website',
   },

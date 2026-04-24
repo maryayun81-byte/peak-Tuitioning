@@ -301,7 +301,8 @@ function TeacherTranscriptsContent() {
         const subjResults = marks.map(m => ({
           subject_id: m.subject_id,
           subject_name: m.subject?.name || 'Unknown',
-          marks: Number(m.marks),
+          marks: m.marks === -1 ? null : Number(m.marks),
+          progress_summary: m.progress_summary || null,
           grade: m.grade || computeGrade(Number(m.marks), exam.curriculum_id || m.subject?.curriculum_id || '', m.subject_id, student.class_id),
           remark: m.teacher_remark || ''
         }))
