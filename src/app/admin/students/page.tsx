@@ -46,6 +46,7 @@ export default function AdminStudents() {
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [page, setPage] = useState(1)
   const PAGE_SIZE = 15
+  const [isBackfilling, setIsBackfilling] = useState(false)
 
   const { register, handleSubmit, reset, watch, formState: { errors } } = useForm<StudentForm>({
     resolver: zodResolver(studentSchema),
@@ -361,6 +362,25 @@ export default function AdminStudents() {
     }
   }
 
+  const handleBackfill844 = async () => {
+    if (!confirm('This will auto-register ALL 844 subjects for any 844 student who hasn\'t picked subjects yet. Continue?')) return
+    
+    setIsBackfilling(true)
+    try {
+      const res = await fetch('/api/admin/backfill-844-subjects', { method: 'POST' })
+      const data = await res.json()
+      
+      if (!res.ok) throw new Error(data.error || 'Backfill failed')
+      
+      toast.success(data.message + ` (${data.summary.students_backfilled} students)`, { duration: 5000 })
+      loadData()
+    } catch (err: any) {
+      toast.error(err.message)
+    } finally {
+      setIsBackfilling(false)
+    }
+  }
+
   const deleteStudent = async () => {
     if (!selected) return
     const { error } = await supabase.from('students').delete().eq('id', selected.id)
@@ -378,7 +398,10 @@ export default function AdminStudents() {
           <h1 className="text-2xl font-black" style={{ color: 'var(--text)' }}>Students</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>{filteredStudents.length} students matching criteria</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={handleBackfill844} isLoading={isBackfilling} className="whitespace-nowrap border-emerald-500/50 text-emerald-600 hover:bg-emerald-50">
+            🪄 844 Backfill
+          </Button>
           <Button variant="secondary" onClick={() => openAddModal(true)} className="whitespace-nowrap">
             <Plus size={16} /> Bulk Add
           </Button>
