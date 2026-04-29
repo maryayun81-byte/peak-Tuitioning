@@ -86,10 +86,16 @@ export default function AdminNotifications() {
     toast.success('Removed'); load()
   }
 
+  const [page, setPage] = useState(1)
+  const PAGE_SIZE = 15
+
   const filtered = notifications.filter(n => 
     n.title.toLowerCase().includes(search.toLowerCase()) || 
     n.body.toLowerCase().includes(search.toLowerCase())
   )
+
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
+  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
   const getRoleIcon = (role: string) => {
     if (role === 'admin') return <Shield size={14} />
@@ -130,8 +136,8 @@ export default function AdminNotifications() {
                      ))}
                   </tr>
                </thead>
-               <tbody>
-                  {filtered.map((n, i) => (
+                <tbody>
+                  {paginated.map((n, i) => (
                     <motion.tr key={n.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.02 }} style={{ borderBottom: '1px solid var(--card-border)' }}>
                        <td className="px-5 py-3">
                           <div className="flex items-center gap-2">
@@ -162,9 +168,28 @@ export default function AdminNotifications() {
                        </td>
                     </motion.tr>
                   ))}
+                  {paginated.length === 0 && (
+                    <tr><td colSpan={6} className="text-center py-12" style={{ color: 'var(--text-muted)' }}>No notifications found</td></tr>
+                  )}
                </tbody>
             </table>
           </div>
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-5 py-4" style={{ borderTop: '1px solid var(--card-border)', background: 'var(--input)' }}>
+              <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>
+                Page {page} of {totalPages}
+              </span>
+              <div className="flex gap-2">
+                <Button variant="secondary" size="sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
+                  Previous
+                </Button>
+                <Button variant="secondary" size="sm" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
         </Card>
       )}
 

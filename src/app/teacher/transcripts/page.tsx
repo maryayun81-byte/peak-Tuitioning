@@ -357,10 +357,11 @@ function TeacherTranscriptsContent() {
     const toastId = toast.loading('Brewing luxury PDF...')
     try {
       const canvas = await html2canvas(element, {
-        scale: 3,
+        scale: 4,
         useCORS: true,
         backgroundColor: '#ffffff',
-        windowWidth: 1000,
+        windowWidth: element.scrollWidth,
+        windowHeight: element.scrollHeight,
         onclone: (clonedDoc) => {
           const el = clonedDoc.getElementById(elementId)
           if (el) {
@@ -378,9 +379,26 @@ function TeacherTranscriptsContent() {
       
       const imgData = canvas.toDataURL('image/png', 1.0)
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true })
+      
       const pdfWidth = pdf.internal.pageSize.getWidth()
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width
-      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST')
+      const pdfHeight = pdf.internal.pageSize.getHeight()
+
+      const imgWidth = canvas.width
+      const imgHeight = canvas.height
+      const ratio = imgWidth / imgHeight
+
+      let width = pdfWidth
+      let height = pdfWidth / ratio
+
+      if (height > pdfHeight) {
+        height = pdfHeight
+        width = pdfHeight * ratio
+      }
+
+      const xOffset = (pdfWidth - width) / 2
+      const yOffset = (pdfHeight - height) / 2
+
+      pdf.addImage(imgData, 'PNG', xOffset, yOffset, width, height, undefined, 'FAST')
       const safeName = (transcript.student?.full_name || 'Student').replace(/[^a-z0-9]/gi, '_')
       pdf.save(`Transcript_${safeName}.pdf`)
       toast.success('PDF Exported!', { id: toastId })
@@ -400,10 +418,11 @@ function TeacherTranscriptsContent() {
     const toastId = toast.loading('Capturing image...')
     try {
       const canvas = await html2canvas(element, { 
-        scale: 3, 
+        scale: 4, 
         useCORS: true, 
         backgroundColor: '#FDFBF7', 
-        windowWidth: 1000,
+        windowWidth: element.scrollWidth,
+        windowHeight: element.scrollHeight,
         onclone: (clonedDoc) => {
           const el = clonedDoc.getElementById(elementId)
           if (el) {

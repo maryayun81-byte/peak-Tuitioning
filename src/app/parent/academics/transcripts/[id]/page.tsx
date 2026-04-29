@@ -65,16 +65,21 @@ export default function ParentTranscriptDetailPage() {
     const toastId = toast.loading('Brewing luxury PDF...')
     try {
       const canvas = await html2canvas(element, {
-        scale: 3,
+        scale: 4,
         useCORS: true,
         logging: false,
         backgroundColor: '#ffffff',
-        windowWidth: 1200,
+        windowWidth: element.scrollWidth,
+        windowHeight: element.scrollHeight,
         onclone: (clonedDoc) => {
           const el = clonedDoc.getElementById(elementId)
           if (el) {
             el.style.width = '1200px'
             el.style.padding = '20px'
+            el.style.height = 'auto'
+            el.style.overflow = 'visible'
+            el.style.margin = '0px'
+            el.style.transform = 'none'
           }
         }
       })
@@ -88,9 +93,24 @@ export default function ParentTranscriptDetailPage() {
       })
       
       const pdfWidth = pdf.internal.pageSize.getWidth()
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width
+      const pdfHeight = pdf.internal.pageSize.getHeight()
+
+      const imgWidth = canvas.width
+      const imgHeight = canvas.height
+      const ratio = imgWidth / imgHeight
+
+      let width = pdfWidth
+      let height = pdfWidth / ratio
+
+      if (height > pdfHeight) {
+        height = pdfHeight
+        width = pdfHeight * ratio
+      }
+
+      const xOffset = (pdfWidth - width) / 2
+      const yOffset = (pdfHeight - height) / 2
       
-      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST')
+      pdf.addImage(imgData, 'PNG', xOffset, yOffset, width, height, undefined, 'FAST')
       
       const safeName = (transcript?.student?.full_name || 'Student').replace(/[^a-z0-9]/gi, '_')
       const safeTitle = (transcript?.exam_event?.name || 'Report').replace(/[^a-z0-9]/gi, '_')

@@ -451,13 +451,15 @@ function AdminTranscriptsContent() {
 
     const toastId = toast.loading('Brewing luxury PDF...')
     try {
-      // Ensure images are loaded and fonts are ready
+      // 1. Capture the element with high scale for quality
+      // and explicit dimensions to prevent cutoff
       const canvas = await html2canvas(element, {
-        scale: 3,
-        useCORS: true,
+        scale: 4, // Fixes poor quality blurriness
+        useCORS: true, 
         logging: false,
         backgroundColor: '#ffffff',
-        windowWidth: 1000,
+        windowWidth: element.scrollWidth,
+        windowHeight: element.scrollHeight,
         onclone: (clonedDoc) => {
           const el = clonedDoc.getElementById(elementId)
           if (el) {
@@ -474,6 +476,8 @@ function AdminTranscriptsContent() {
       })
       
       const imgData = canvas.toDataURL('image/png', 1.0)
+      
+      // 2. Setup A4 Dimensions (in mm)
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
@@ -482,9 +486,29 @@ function AdminTranscriptsContent() {
       })
       
       const pdfWidth = pdf.internal.pageSize.getWidth()
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width
+      const pdfHeight = pdf.internal.pageSize.getHeight()
+
+      // 3. Calculate Scaling to Fit One Page
+      const imgWidth = canvas.width
+      const imgHeight = canvas.height
+      const ratio = imgWidth / imgHeight
+
+      // We set the width to fit the page, and calculate height based on ratio
+      let width = pdfWidth
+      let height = pdfWidth / ratio
+
+      // CRITICAL: If the calculated height is still longer than A4, 
+      // we scale the whole thing down to fit the height instead.
+      if (height > pdfHeight) {
+        height = pdfHeight
+        width = pdfHeight * ratio
+      }
+
+      // 4. Center it on the page
+      const xOffset = (pdfWidth - width) / 2
+      const yOffset = (pdfHeight - height) / 2
       
-      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST')
+      pdf.addImage(imgData, 'PNG', xOffset, yOffset, width, height, undefined, 'FAST')
       const safeName = (transcript.student?.full_name || 'Student').replace(/[^a-z0-9]/gi, '_')
       pdf.save(`Transcript_${safeName}.pdf`)
       
@@ -509,10 +533,11 @@ function AdminTranscriptsContent() {
     const toastId = toast.loading('Capturing high-res image...')
     try {
       const canvas = await html2canvas(element, {
-        scale: 3,
+        scale: 4,
         useCORS: true,
         backgroundColor: '#FDFBF7',
-        windowWidth: 1000,
+        windowWidth: element.scrollWidth,
+        windowHeight: element.scrollHeight,
         onclone: (clonedDoc) => {
           const el = clonedDoc.getElementById(elementId)
           if (el) {
