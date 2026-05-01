@@ -6,7 +6,7 @@ import { motion } from 'framer-motion'
 import {
   LayoutDashboard, BookOpen, ClipboardList, Calendar, 
   Library, GraduationCap, Award, Settings, LogOut,
-  PlusCircle, FileText, Bell, Users, Layers, BrainCircuit, HelpCircle, Trophy
+  PlusCircle, FileText, Zap, Bell, Users, Layers, BrainCircuit, HelpCircle, Trophy
 } from 'lucide-react'
 import { Sidebar, BottomNav } from '@/components/layout/Sidebar'
 import { useAuthStore } from '@/stores/authStore'
@@ -19,6 +19,7 @@ import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { TermsEnforcementModal } from '@/components/teacher/TermsEnforcementModal'
 import { PageErrorBoundary } from '@/components/ui/PageErrorBoundary'
 import { TeacherAIAssistant } from '@/components/teacher/TeacherAIAssistant'
+import { SessionHeartbeat } from '@/components/shared/SessionHeartbeat'
 
 import { useNotificationStore } from '@/stores/notificationStore'
 import { useRealtimeNotifications } from '@/hooks/useRealtimeNotifications'
@@ -26,6 +27,7 @@ import { useRealtimeNotifications } from '@/hooks/useRealtimeNotifications'
 const NAV_ITEMS = [
   { label: 'Dashboard', href: '/teacher', icon: <LayoutDashboard size={18} /> },
   { label: 'Attendance', href: '/teacher/attendance', icon: <ClipboardList size={18} /> },
+  { label: 'Live Studio', href: '/teacher/live', icon: <Zap size={18} className="text-emerald-500" /> },
   { label: 'Trivia', href: '/teacher/trivia', icon: <Trophy size={18} /> },
   { label: 'Assignments', href: '/teacher/assignments', icon: <FileText size={18} /> },
   { label: 'Worksheets', href: '/teacher/worksheets/new', icon: <Layers size={18} /> },
@@ -62,6 +64,14 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
   const router = useRouter()
   const pathname = usePathname()
 
+  // ─── STICKY ONBOARDING REF ──────────────────────────────────────────────────
+  // Once we confirm a teacher is onboarded (from either the teacher or profile row),
+  // we lock this ref to true for the entire session. This prevents NavigationRefetch
+  // or transient store updates from re-triggering the onboarding redirect mid-session.
+  const wasEverConfirmedOnboarded = useRef(false)
+  const teacherHasOnboarded = teacher?.onboarded === true || profile?.has_onboarded === true
+  if (teacherHasOnboarded) wasEverConfirmedOnboarded.current = true
+
   const [pendingTerm, setPendingTerm] = useState<any>(null)
   // Only check terms once per session — not on every layout mount
   const termsCheckedRef = useRef(false)
@@ -95,21 +105,20 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
     if (!isLoading && profile?.role && profile.role !== 'teacher') {
       router.push(`/${profile.role}`)
     }
-    // If the teacher DB record says onboarded=true, trust that over the stale Zustand cache
-    // and patch the profile in-store so future checks are consistent.
-    if (!isLoading && profile && teacher && teacher.onboarded && !profile.has_onboarded) {
-      console.log('[TeacherLayout] Teacher.onboarded=true but profile.has_onboarded=false — patching store')
-      setProfile({ ...profile, has_onboarded: true })
-      return
+    // CRITICAL: Use wasEverConfirmedOnboarded.current — NOT teacherHasOnboarded — as the gate.
+    // This ref is sticky: once set to true in any render, it stays true for the session.
+    // This prevents NavigationRefetch (query cache invalidation on route change) from
+    // transiently clearing teacher data and triggering a false redirect to /teacher/onboarding.
+    if (
+      isInitialRevalidationComplete &&
+      profile &&
+      profile.role === 'teacher' &&
+      !wasEverConfirmedOnboarded.current &&
+      pathname !== '/teacher/onboarding'
+    ) {
+      router.push('/teacher/onboarding')
     }
-    // Only redirect to onboarding if BOTH profile and teacher agree the teacher hasn't onboarded
-    // CRITICAL: We wait for isInitialRevalidationComplete to ensure we aren't using stale persisted data
-    const teacherHasOnboarded = teacher?.onboarded === true || profile?.has_onboarded === true
-    if (isInitialRevalidationComplete && profile && profile.role === 'teacher' && !teacherHasOnboarded && pathname !== '/teacher/onboarding') {
-       console.log('[TeacherLayout] Redirecting to onboarding...')
-       router.push('/teacher/onboarding')
-    }
-  }, [profile, teacher, isLoading, router, pathname, setProfile])
+  }, [profile, teacher, isLoading, router, pathname, isInitialRevalidationComplete])
 
 
   // Only block the UI if we are truly loading the first time (no persisted profile)
@@ -122,8 +131,8 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
       {pendingTerm && <TermsEnforcementModal assignment={pendingTerm} onSuccess={() => setPendingTerm(null)} />}
       <div className={`min-h-screen transition-all ${pendingTerm ? 'blur-md pointer-events-none' : ''}`} style={{ background: 'var(--bg)' }}>
         <SplashScreen storageKey="splash-teacher" role="teacher" />
-        <Sidebar
-        items={NAV_ITEMS.filter(item => item.label !== 'Attendance' || teacher?.is_class_teacher)}
+      <Sidebar
+        items={wasEverConfirmedOnboarded.current ? NAV_ITEMS.filter(item => item.label !== 'Attendance' || teacher?.is_class_teacher) : NAV_ITEMS.filter(i => i.label === 'Settings')}
         bottomItems={[
           { label: 'Sign Out', href: '#', icon: <LogOut size={18} />, onClick: () => signOut() },
         ]}
@@ -173,13 +182,20 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
       </main>
 
       <BottomNav 
-        items={NAV_ITEMS.filter(item => item.label !== 'Attendance' || teacher?.is_class_teacher).slice(0, 4)} 
-        moreItems={[
-          ...NAV_ITEMS.filter(item => item.label !== 'Attendance' || teacher?.is_class_teacher).slice(4),
-          { label: 'Sign Out', href: '#', icon: <LogOut size={18} />, onClick: signOut }
-        ]} 
+        items={wasEverConfirmedOnboarded.current 
+          ? NAV_ITEMS.filter(item => item.label !== 'Attendance' || teacher?.is_class_teacher).slice(0, 4)
+          : NAV_ITEMS.filter(i => i.label === 'Settings')
+        } 
+        moreItems={wasEverConfirmedOnboarded.current 
+          ? [
+              ...NAV_ITEMS.filter(item => item.label !== 'Attendance' || teacher?.is_class_teacher).slice(4),
+              { label: 'Sign Out', href: '#', icon: <LogOut size={18} />, onClick: signOut }
+            ]
+          : [{ label: 'Sign Out', href: '#', icon: <LogOut size={18} />, onClick: signOut }]
+        } 
       />
       <TeacherAIAssistant />
+      <SessionHeartbeat />
       </div>
     </>
   )

@@ -2,8 +2,12 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { createClient as createServerClient, createAdminClient } from '@/lib/supabase/server'
+import { requireAdmin } from '@/lib/auth-guards'
 
 export async function createStudentUser(admissionNumber: string, emailStr: string, tempPwd: string, fullName: string) {
+  // 0. Security Guard
+  await requireAdmin()
+
   // We use the service role key to bypass RLS and auth restrictions 
   // so the Admin doesn't get logged out of their current session
   const supabase = createClient(

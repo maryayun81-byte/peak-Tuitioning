@@ -12,21 +12,35 @@ import './globals.css'
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://www.peakcampus.co.ke'),
-  title: "Peak Performance Tutoring Kenya | KCSE & CBC Tuition Center",
+  title: "Peak Campus | Academic Excellence & Real-World Skills Ecosystem",
   description:
-    "Peak Performance Tutoring is a leading tutoring center in Kenya established in 2023, offering KCSE and CBC tuition, revision programs, and academic support for students.",
+    "Peak Campus is a complete student development ecosystem. A unified platform where academic excellence meets real-world skills through Peak Performance Tutoring and Peak Skills Academy.",
   manifest: '/manifest.json',
   icons: {
     icon: '/logo.png',
     apple: '/logo.png',
   },
   openGraph: {
-    title: "Peak Performance Tutoring Kenya | KCSE & CBC Tuition Center",
-    description: "Peak Performance Tutoring is a leading tutoring center in Kenya offering KCSE and CBC tuition, revision programs, and academic support.",
+    title: "Peak Campus | Academic Excellence & Real-World Skills Ecosystem",
+    description: "Peak Campus is a complete student development ecosystem. From KCSE & CBC mastery to digital literacy and innovation.",
     url: 'https://www.peakcampus.co.ke',
-    siteName: 'Peak Performance Tutoring',
+    siteName: 'Peak Campus',
     locale: 'en_KE',
     type: 'website',
+    images: [
+      {
+        url: '/logo.png',
+        width: 800,
+        height: 600,
+        alt: 'Peak Campus Logo',
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Peak Campus | Academic Excellence & Real-World Skills',
+    description: 'Empowering students to succeed both in school and in life through a unified learning ecosystem.',
+    images: ['/logo.png'],
   },
   robots: {
     index: true,

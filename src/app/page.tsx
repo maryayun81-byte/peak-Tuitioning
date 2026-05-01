@@ -1,27 +1,19 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { useState, useEffect, useRef } from 'react'
+import { motion, AnimatePresence, useScroll, useTransform, useSpring } from 'framer-motion'
 import Link from 'next/link'
 import {
-  GraduationCap, Users, UserCheck,
-  ChevronRight, Shield, CheckCircle,
-  Sparkles, Globe, ArrowUpRight, DollarSign,
-  BookOpen, Calculator, Atom, Microscope, Languages, History as HistoryIcon,
-  ChevronLeft, LayoutGrid, Info, Image as ImageIcon, MapPin
+  GraduationCap, Users, UserCheck, ChevronRight, Shield, CheckCircle,
+  Sparkles, ArrowUpRight, DollarSign, BookOpen, Calculator, Atom,
+  Microscope, Languages, Info, Image as ImageIcon, MapPin, Zap, Award, 
+  LayoutGrid, Heart, Beaker, Binary, Globe, MousePointer2, ExternalLink,
+  Target, TrendingUp, BarChart3, Clock, Lock, ArrowRight, Activity
 } from 'lucide-react'
 import { SplashScreen } from '@/components/SplashScreen'
-import { InstallPWAButton } from '@/components/InstallPWAButton'
+import { PremiumCarousel } from '@/components/ui/PremiumCarousel'
 
 const GALLERY_IMAGES = [
-  "/media__1776583920902.jpg",
-  "/media__1776583980277.jpg",
-  "/media__1776584038977.jpg",
-  "/media__1776865914262.png",
-  "/media__1776866448074.jpg",
-  "/media__1776866580234.png",
-  "/media__1776870071958.png",
-  "/media__1776887573372.png",
   "/media__1776963140035.jpg",
   "/media__1776963140037.jpg",
   "/media__1776963140335.jpg",
@@ -31,28 +23,37 @@ const GALLERY_IMAGES = [
   "/media__1776964680146.jpg",
   "/media__1776964680232.jpg",
   "/media__1776964680278.jpg",
-  "/media__1776964680330.jpg"
+  "/media__1776964680330.jpg",
+]
+
+const SUBJECTS_844 = [
+  { name: 'MATHEMATICS', icon: <Calculator size={22} />, color: 'from-slate-700 to-slate-900', desc: 'KCSE Mastery' },
+  { name: 'ENGLISH', icon: <Languages size={22} />, color: 'from-slate-700 to-slate-900', desc: 'Linguistic Arts' },
+  { name: 'KISWAHILI', icon: <Languages size={22} />, color: 'from-slate-700 to-slate-900', desc: 'National Dialect' },
+  { name: 'BIOLOGY', icon: <Microscope size={22} />, color: 'from-slate-700 to-slate-900', desc: 'Life Sciences' },
+  { name: 'CHEMISTRY', icon: <Atom size={22} />, color: 'from-slate-700 to-slate-900', desc: 'Molecular Logic' },
+  { name: 'PHYSICS', icon: <Zap size={22} />, color: 'from-slate-700 to-slate-900', desc: 'Universal Laws' },
+]
+
+const SUBJECTS_CBC = [
+  { name: 'CORE MATH', icon: <Calculator size={22} />, color: 'from-slate-700 to-slate-900', desc: 'STEM logic' },
+  { name: 'ENGLISH', icon: <Languages size={22} />, color: 'from-slate-700 to-slate-900', desc: 'Literacy Strands' },
+  { name: 'KISWAHILI', icon: <Languages size={22} />, color: 'from-slate-700 to-slate-900', desc: 'Lugha Teule' },
+  { name: 'CHEMISTRY', icon: <Atom size={22} />, color: 'from-slate-700 to-slate-900', desc: 'STEM Practical' },
+  { name: 'BIOLOGY', icon: <Microscope size={22} />, color: 'from-slate-700 to-slate-900', desc: 'STEM Systems' },
+  { name: 'CSL', icon: <Heart size={22} />, color: 'from-slate-700 to-slate-900', desc: 'Community Service' },
 ]
 
 export default function LandingPage() {
   const [splashDone, setSplashDone] = useState(false)
-  const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
+  const containerRef = useRef(null)
+  const { scrollYProgress } = useScroll({ target: containerRef })
+  const smoothY = useSpring(scrollYProgress, { stiffness: 100, damping: 30, restDelta: 0.001 })
+  const backgroundOpacity = useTransform(smoothY, [0, 0.2], [0.4, 0.1])
 
   useEffect(() => {
-    const t1 = setTimeout(() => setSplashDone(true), 1500)
-    
-    const handleMouseMove = (e: MouseEvent) => {
-      setMousePos({ 
-        x: (e.clientX / window.innerWidth - 0.5) * 40,
-        y: (e.clientY / window.innerHeight - 0.5) * 40
-      })
-    }
-    
-    window.addEventListener('mousemove', handleMouseMove)
-    return () => {
-      clearTimeout(t1)
-      window.removeEventListener('mousemove', handleMouseMove)
-    }
+    const t = setTimeout(() => setSplashDone(true), 1500)
+    return () => clearTimeout(t)
   }, [])
 
   return (
@@ -60,118 +61,189 @@ export default function LandingPage() {
       <SplashScreen done={splashDone} />
       <AnimatePresence>
         {splashDone && (
-          <motion.main
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.8 }}
-            className="min-h-screen flex flex-col relative overflow-hidden bg-[#0A0F1C]"
-          >
-            {/* Interactive Background */}
-            <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
-               <motion.div 
-                 animate={{ x: mousePos.x, y: mousePos.y }}
-                 transition={{ type: "spring", stiffness: 50, damping: 25 }}
-                 className="absolute -top-[10%] left-[10%] w-[60%] h-[60%] rounded-full opacity-20 blur-[120px]"
-                 style={{ background: 'radial-gradient(circle, rgba(56,189,248,0.4) 0%, transparent 70%)' }}
-               />
-               <motion.div 
-                 animate={{ x: mousePos.x * -1, y: mousePos.y * -1 }}
-                 transition={{ type: "spring", stiffness: 50, damping: 25 }}
-                 className="absolute bottom-[10%] right-[10%] w-[50%] h-[50%] rounded-full opacity-10 blur-[150px]"
-                 style={{ background: 'radial-gradient(circle, rgba(167,139,250,0.4) 0%, transparent 70%)' }}
-               />
-               <div className="absolute inset-0 bg-[url('/grid-pattern.svg')] opacity-[0.02] bg-[length:40px_40px]" />
+          <motion.main ref={containerRef} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 1.5 }}
+            className="relative min-h-screen bg-[#05070A] text-white overflow-hidden selection:bg-emerald-500/30">
+
+            {/* Premium Ambient Background */}
+            <div className="fixed inset-0 z-0">
+               <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,#0c1220_0%,#05070a_100%)]" />
+               <motion.div style={{ opacity: backgroundOpacity }}
+                  className="absolute top-0 right-0 w-[80%] h-[80%] rounded-full bg-emerald-500/5 blur-[160px]" />
             </div>
 
             <Navbar />
-            
-            {/* Hero Section */}
-            <section className="relative z-10 pt-44 pb-24 px-6 max-w-7xl mx-auto w-full">
-               <div className="text-center space-y-8 mb-24">
-                  <motion.div 
-                    initial={{ y: 20, opacity: 0 }}
-                    animate={{ y: 0, opacity: 1 }}
-                    className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-white/10 bg-white/5 backdrop-blur-md"
-                  >
-                     <Sparkles size={14} className="text-emerald-400" />
-                     <span className="text-xs font-black uppercase tracking-[0.2em] text-white/80">Established 2023 • Nairobi, Kenya</span>
-                  </motion.div>
-                  
-                  <h1 className="text-5xl md:text-8xl font-black tracking-tighter uppercase leading-[0.95] text-white">
-                    Peak Performance <br/>
-                    <span className="text-emerald-500 italic">Tutoring</span>
-                  </h1>
-                  
-                  <p className="text-lg md:text-xl font-medium text-white/50 max-w-3xl mx-auto leading-relaxed">
-                    Peak Performance Tutoring is a modern tutoring center in Kenya offering both <span className="text-white font-bold">KCSE and CBC</span> academic support. We help students excel through structured lessons, revision programs, and personalized learning across all key subjects.
-                  </p>
 
-                  <div className="pt-4 flex flex-wrap justify-center gap-4">
-                     <button onClick={() => document.getElementById('portals')?.scrollIntoView({ behavior: 'smooth' })} className="px-10 py-5 rounded-3xl bg-emerald-500 text-white font-black uppercase tracking-widest text-xs hover:bg-emerald-400 transition-all shadow-xl shadow-emerald-500/20 active:scale-95">
-                        Access Portals
-                     </button>
-                     <Link href="/about" className="px-10 py-5 rounded-3xl bg-white/5 border border-white/10 text-white font-black uppercase tracking-widest text-xs hover:bg-white/10 transition-all active:scale-95">
-                        Our Mission
-                     </Link>
-                  </div>
-               </div>
+            {/* ── HERO ── */}
+            <section className="relative z-10 min-h-screen flex flex-col items-center justify-center px-6 pt-20">
+              <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.2, duration: 0.8 }}
+                className="px-5 py-1.5 rounded-full border border-white/5 bg-white/[0.03] backdrop-blur-3xl mb-12 cursor-default">
+                <span className="text-[10px] font-bold uppercase tracking-[0.4em] text-emerald-500">Peak Performance Tutoring</span>
+              </motion.div>
 
-               {/* Subjects Quick Grid */}
-               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-32">
-                  {[
-                    { name: 'Mathematics', icon: <Calculator size={20} />, color: 'text-blue-400' },
-                    { name: 'English', icon: <Languages size={20} />, color: 'text-orange-400' },
-                    { name: 'Kiswahili', icon: <Languages size={20} />, color: 'text-emerald-400' },
-                    { name: 'Biology', icon: <Microscope size={20} />, color: 'text-rose-400' },
-                    { name: 'Chemistry', icon: <Atom size={20} />, color: 'text-indigo-400' },
-                    { name: 'Physics', icon: <Atom size={20} />, color: 'text-sky-400' },
-                  ].map((subject, idx) => (
-                    <div key={idx} className="p-6 rounded-3xl bg-white/5 border border-white/10 flex flex-col items-center gap-4 hover:bg-white/10 transition-all group">
-                       <div className={`${subject.color} group-hover:scale-110 transition-transform`}>
-                         {subject.icon}
-                       </div>
-                       <span className="text-xs font-black uppercase tracking-widest opacity-60 group-hover:opacity-100">{subject.name}</span>
-                    </div>
-                  ))}
-               </div>
+              <div className="relative max-w-7xl mx-auto text-center space-y-12">
+                <motion.h1 initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.4, duration: 1.2, ease: [0.16, 1, 0.3, 1] }}
+                  className="text-6xl md:text-[10rem] font-black tracking-tight leading-[0.9] uppercase">
+                  Strive. Achieve.<br />
+                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-white via-white to-white/40 italic">Excel.</span>
+                </motion.h1>
+
+                <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.8, duration: 1 }}
+                  className="text-lg md:text-2xl text-slate-400 max-w-3xl mx-auto font-medium leading-relaxed">
+                  Nairobi's premier educational ecosystem for <span className="text-white">KCSE Secondary</span> and <span className="text-emerald-500">CBC STEM Scholars</span>.
+                </motion.p>
+              </div>
+
+              <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 1, duration: 0.8 }}
+                className="mt-20 flex flex-col sm:flex-row gap-8 justify-center w-full px-6">
+                <button onClick={() => document.getElementById('portals')?.scrollIntoView({ behavior: 'smooth' })}
+                  className="px-14 py-6 rounded-2xl bg-white text-black font-bold uppercase tracking-widest text-[11px] hover:bg-emerald-500 hover:text-white transition-all shadow-2xl">
+                  Access Portal Hub
+                </button>
+                <Link href="/about"
+                  className="px-14 py-6 rounded-2xl bg-white/5 border border-white/10 font-bold uppercase tracking-widest text-[11px] hover:bg-white/10 transition-all backdrop-blur-3xl flex items-center gap-3 group">
+                  Our Mission <ChevronRight size={16} className="group-hover:translate-x-1 transition-transform" />
+                </Link>
+              </motion.div>
             </section>
 
-            {/* Gallery (Slideshow Overlay style) */}
-            <PhotoGallery />
+            {/* ── PORTAL SECTION: ENRICHED ── */}
+            <section id="portals" className="relative z-10 py-40 px-6 border-t border-white/5">
+              <div className="max-w-7xl mx-auto">
+                <div className="text-center space-y-6 mb-24">
+                  <h2 className="text-4xl md:text-7xl font-black uppercase tracking-tight text-white">
+                    Tutoring <span className="text-emerald-500">Portals</span>
+                  </h2>
+                  <p className="text-slate-500 max-w-xl mx-auto text-lg font-medium leading-relaxed">
+                    A centralized, secure digital ecosystem designed to streamline the academic journey for scholars, parents, and educators.
+                  </p>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                  <PortalCard 
+                    role="student" 
+                    label="Scholar" 
+                    icon={<GraduationCap size={32} />} 
+                    desc="Academic Command Center" 
+                    features={['Assignment Hub', 'Performance Analytics', 'Digital Library', 'Exam Schedule']}
+                  />
+                  <PortalCard 
+                    role="parent" 
+                    label="Parent" 
+                    icon={<Users size={32} />} 
+                    desc="Monitoring & Oversight" 
+                    features={['Real-time Progress', 'Billing & Finance', 'Teacher Insights', 'Activity Logs']}
+                  />
+                  <PortalCard 
+                    role="teacher" 
+                    label="Teacher" 
+                    icon={<UserCheck size={32} />} 
+                    desc="Instructional Hub" 
+                    features={['Class Management', 'Marking Systems', 'Student Intervention', 'Attendance']}
+                  />
+                  <PortalCard 
+                    role="admin" 
+                    label="Staff" 
+                    icon={<Shield size={32} />} 
+                    desc="Institutional Control" 
+                    features={['Center Operations', 'Credentialing', 'Curriculum Config', 'Global Metrics']}
+                  />
+                </div>
 
-            {/* Portal Navigation Section */}
-            <section id="portals" className="relative z-10 py-32 px-6 bg-emerald-500/5">
-              <div className="max-w-7xl mx-auto space-y-16">
-                 <div className="text-center space-y-4">
-                    <h2 className="text-4xl md:text-6xl font-black uppercase tracking-tight">Institutional <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-500">Portals</span></h2>
-                    <p className="text-white/40 max-w-xl mx-auto text-sm">Select your gateway to access structured academic tracking, reports, and revision nodes.</p>
-                 </div>
-                 <PortalSection />
+                <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
+                  className="mt-20 p-12 rounded-[3rem] bg-white/[0.01] border border-white/5 flex flex-col md:flex-row items-center justify-between gap-8 backdrop-blur-3xl">
+                   <div className="flex items-center gap-6">
+                      <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-500"><Lock size={28} /></div>
+                      <div>
+                        <h4 className="text-xl font-black uppercase tracking-tight">Enterprise Security</h4>
+                        <p className="text-slate-500 text-sm font-medium">End-to-end encrypted data handling and secure user authentication.</p>
+                      </div>
+                   </div>
+                   <div className="flex items-center gap-4">
+                      <div className="flex -space-x-3">
+                         {[1,2,3,4].map(i => <div key={i} className="w-10 h-10 rounded-full bg-slate-800 border-2 border-[#05070A]" />)}
+                      </div>
+                      <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Active ecosystem members</span>
+                   </div>
+                </motion.div>
               </div>
             </section>
 
-            {/* Final SEO Links Section */}
-            <section className="py-24 px-6 border-t border-white/5 bg-[#080C16]">
-               <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-12">
-                  <div className="space-y-4 text-center md:text-left">
-                     <h3 className="text-2xl font-bold uppercase tracking-tight">Leading Tutoring in Kenya</h3>
-                     <p className="text-white/40 text-sm max-w-md">Helping students across secondary school tuition programs and CBC levels in Nairobi and beyond.</p>
+            {/* ── ENTITIES ── */}
+            <section className="relative z-10 py-40 px-6 max-w-7xl mx-auto">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
+                  className="relative p-16 rounded-[3rem] bg-gradient-to-br from-white/[0.03] to-transparent border border-white/5 overflow-hidden group">
+                  <div className="absolute inset-0 bg-[url('/media__1776963140480.jpg')] bg-cover bg-center opacity-10 grayscale group-hover:opacity-20 transition-opacity duration-1000" />
+                  <div className="relative z-10 space-y-8">
+                    <div className="w-16 h-16 rounded-2xl bg-emerald-500 flex items-center justify-center text-white"><Award size={32} /></div>
+                    <h3 className="text-4xl font-black uppercase tracking-tight">Peak Performance<br />Tutoring</h3>
+                    <p className="text-slate-400 text-lg leading-relaxed font-medium">Academic mastery for KCSE and CBC pathways. Rigorous, result-oriented, and personalized.</p>
                   </div>
-                  <div className="flex flex-wrap justify-center gap-6">
-                     <Link href="/tuition-center-nairobi" className="text-xs font-black uppercase tracking-widest opacity-40 hover:opacity-100 transition-opacity flex items-center gap-2">
-                        Nairobi Center <ArrowUpRight size={14} />
-                     </Link>
-                     <Link href="/kcse-and-cbc-tutoring-kenya" className="text-xs font-black uppercase tracking-widest opacity-40 hover:opacity-100 transition-opacity flex items-center gap-2">
-                        KCSE & CBC Support <ArrowUpRight size={14} />
-                     </Link>
-                     <Link href="/about" className="text-xs font-black uppercase tracking-widest opacity-40 hover:opacity-100 transition-opacity flex items-center gap-2">
-                        About Us <ArrowUpRight size={14} />
-                     </Link>
+                </motion.div>
+
+                <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
+                  className="relative p-16 rounded-[3rem] bg-white/[0.01] border border-white/5 overflow-hidden flex flex-col justify-between">
+                  <div className="space-y-8">
+                    <div className="flex items-center justify-between">
+                       <div className="w-16 h-16 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400"><TrendingUp size={32} /></div>
+                       <span className="px-4 py-1 rounded-full bg-blue-500/10 text-blue-400 text-[10px] font-bold uppercase tracking-widest border border-blue-500/20">Coming 2026</span>
+                    </div>
+                    <h3 className="text-4xl font-black uppercase tracking-tight">Peak Skills<br />Academy</h3>
+                    <p className="text-slate-500 text-lg leading-relaxed font-medium">A distinct innovation hub for future-ready skills: AI, Robotics, and Digital Literacy.</p>
                   </div>
-               </div>
+                </motion.div>
+              </div>
             </section>
 
-            <Footer />
+            {/* ── SUBJECT MATRICES ── */}
+            <section className="relative z-10 py-40 bg-[#07090C]">
+              <div className="max-w-7xl mx-auto px-6">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-24">
+                  <div>
+                    <div className="space-y-6 mb-16">
+                      <span className="text-xs font-bold text-emerald-500 uppercase tracking-[0.4em]">Secondary Pathway</span>
+                      <h3 className="text-5xl font-black uppercase tracking-tight text-white">8-4-4 Core</h3>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {SUBJECTS_844.map((s, i) => <SubjectCard key={i} {...s} />)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="space-y-6 mb-16">
+                      <span className="text-xs font-bold text-blue-500 uppercase tracking-[0.4em]">STEM Stream</span>
+                      <h3 className="text-5xl font-black uppercase tracking-tight text-white">CBC Matrix</h3>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {SUBJECTS_CBC.map((s, i) => <SubjectCard key={i} {...s} />)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* ── GALLERY ── */}
+            <section className="relative z-10 py-48 px-6 max-w-7xl mx-auto">
+               <PremiumCarousel images={GALLERY_IMAGES} />
+            </section>
+
+            {/* ── FOOTER ── */}
+            <footer className="relative z-10 py-32 px-10 border-t border-white/5 bg-[#030507]">
+              <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-start gap-20">
+                <div className="space-y-8">
+                  <div className="font-black text-3xl text-white tracking-tighter uppercase">PEAK CAMPUS</div>
+                  <p className="text-slate-500 max-w-xs font-medium">The leading academic development ecosystem in Nairobi.</p>
+                </div>
+                <div className="flex gap-20">
+                  <FooterCol title="Navigation" links={['/about', '/kcse-and-cbc-tutoring-kenya', '/tuition-center-nairobi']} />
+                  <FooterCol title="Contact" links={['Main Campus, Nairobi', 'info@peakcampus.ke']} />
+                </div>
+              </div>
+              <div className="max-w-7xl mx-auto pt-20 mt-20 border-t border-white/5 flex justify-between text-[10px] font-bold text-slate-600 uppercase tracking-[0.4em]">
+                 <p>© {new Date().getFullYear()} PEAK PERFORMANCE TUTORING</p>
+                 <div className="flex gap-8"><Globe size={14} /> <Shield size={14} /></div>
+              </div>
+            </footer>
+
           </motion.main>
         )}
       </AnimatePresence>
@@ -180,229 +252,90 @@ export default function LandingPage() {
 }
 
 function Navbar() {
+  const [scrolled, setScrolled] = useState(false)
+  useEffect(() => {
+    const fn = () => setScrolled(window.scrollY > 50)
+    window.addEventListener('scroll', fn)
+    return () => window.removeEventListener('scroll', fn)
+  }, [])
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 px-6 lg:px-12 py-6 flex items-center justify-between bg-gradient-to-b from-[#0A0F1C]/80 to-transparent backdrop-blur-xl">
-      <Link href="/" className="flex items-center gap-4 group">
-        <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center shadow-2xl shadow-emerald-500/20 group-hover:scale-105 transition-transform">
-           <GraduationCap size={20} className="text-white" />
+    <nav className={`fixed top-0 left-0 right-0 z-50 px-8 lg:px-20 py-10 flex items-center justify-between transition-all duration-700 ${scrolled ? 'bg-[#05070A]/90 backdrop-blur-xl py-6 border-b border-white/5' : 'bg-transparent'}`}>
+      <Link href="/" className="flex items-center gap-4">
+        <div className="w-12 h-12 rounded-xl bg-white flex items-center justify-center text-black shadow-2xl">
+          <GraduationCap size={24} />
         </div>
-        <div className="flex flex-col">
-          <span className="font-black text-white text-sm tracking-[0.2em] uppercase">PEAK TUTORING</span>
-          <span className="text-[9px] font-black text-emerald-500 uppercase tracking-widest opacity-60">Success Unlocked</span>
+        <div className="hidden sm:block">
+          <div className="font-black text-white text-md tracking-tight uppercase leading-none">PEAK CAMPUS</div>
+          <div className="text-[9px] font-bold text-emerald-500 uppercase tracking-widest mt-1">Nairobi</div>
         </div>
       </Link>
-      <div className="hidden lg:flex items-center gap-8">
-         <Link href="/tuition-center-nairobi" className="text-[10px] font-black uppercase tracking-widest text-white/50 hover:text-white flex items-center gap-2 transition-all">
-           <MapPin size={12} className="text-emerald-400" /> Nairobi
-         </Link>
-         <Link href="/kcse-and-cbc-tutoring-kenya" className="text-[10px] font-black uppercase tracking-widest text-white/50 hover:text-white flex items-center gap-2 transition-all">
-           <BookOpen size={12} className="text-emerald-400" /> Programs
-         </Link>
-         <Link href="/about" className="text-[10px] font-black uppercase tracking-widest text-white/50 hover:text-white flex items-center gap-2 transition-all">
-           <Info size={12} className="text-emerald-400" /> About
-         </Link>
+      <div className="hidden lg:flex items-center gap-12">
+        {['Programs', 'Mission', 'Center'].map((l, i) => (
+          <Link key={i} href={l === 'Mission' ? '/about' : '/'} className="text-[10px] font-bold uppercase tracking-[0.4em] text-slate-400 hover:text-white transition-all">
+            {l}
+          </Link>
+        ))}
       </div>
-      <div className="flex items-center gap-4">
-        <InstallPWAButton />
-        <button onClick={() => document.getElementById('portals')?.scrollIntoView({ behavior: 'smooth' })} className="px-6 py-2.5 rounded-full bg-white text-[#0A0F1C] font-black uppercase tracking-widest text-[9px] hover:bg-emerald-400 hover:text-white transition-all shadow-xl active:scale-95">
-           Logan Portals
-        </button>
-      </div>
+      <button onClick={() => document.getElementById('portals')?.scrollIntoView({ behavior: 'smooth' })}
+        className="px-8 py-3.5 rounded-xl border border-white/10 bg-white/5 text-white font-bold uppercase tracking-widest text-[10px] hover:bg-white hover:text-black transition-all">
+        Portal Hub
+      </button>
     </nav>
   )
 }
 
-function PhotoGallery() {
-  const [index, setIndex] = useState(0)
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setIndex((prev) => (prev + 1) % GALLERY_IMAGES.length)
-    }, 5000)
-    return () => clearInterval(timer)
-  }, [])
-
+function PortalCard({ role, label, icon, desc, features }: { role: string, label: string, icon: React.ReactNode, desc: string, features: string[] }) {
   return (
-    <section className="relative z-10 py-12 mb-32 group">
-       <div className="max-w-[1400px] mx-auto px-6">
-          <div className="relative aspect-[21/9] md:aspect-[3/1] rounded-[3rem] overflow-hidden border border-white/10 shadow-2xl">
-             <AnimatePresence mode="wait">
-               <motion.img
-                 key={index}
-                 src={GALLERY_IMAGES[index]}
-                 initial={{ opacity: 0, scale: 1.1 }}
-                 animate={{ opacity: 1, scale: 1 }}
-                 exit={{ opacity: 0, scale: 0.95 }}
-                 transition={{ duration: 1.5, ease: "easeInOut" }}
-                 className="absolute inset-0 w-full h-full object-cover"
-               />
-             </AnimatePresence>
-             <div className="absolute inset-0 bg-gradient-to-t from-[#0A0F1C] via-transparent to-transparent opacity-80" />
-             
-             {/* Text Overlay */}
-             <div className="absolute bottom-12 left-12 right-12 flex flex-col md:flex-row items-end justify-between gap-8">
-                <div className="space-y-2">
-                   <div className="flex items-center gap-2 text-emerald-400 mb-4">
-                      <ImageIcon size={18} />
-                      <span className="text-xs font-black uppercase tracking-[0.3em]">Learning Sanctuary</span>
-                   </div>
-                   <h3 className="text-4xl md:text-5xl font-black uppercase tracking-tighter max-w-xl text-white">Our Modern Classes in Kenya</h3>
-                   <p className="text-white/60 max-w-md text-sm">Experience structured learning environments tailored for KCSE excellence and CBC growth.</p>
-                </div>
-                
-                {/* Dots */}
-                <div className="flex items-center gap-3 bg-black/20 backdrop-blur-md px-6 py-4 rounded-full border border-white/5">
-                   {GALLERY_IMAGES.map((_, i) => (
-                     <button
-                       key={i}
-                       onClick={() => setIndex(i)}
-                       className={`w-2 h-2 rounded-full transition-all ${index === i ? 'bg-emerald-500 w-8' : 'bg-white/20 hover:bg-white/40'}`}
-                     />
-                   ))}
-                </div>
-             </div>
+    <Link href={`/auth/login?role=${role}`}>
+      <div className="p-10 rounded-[2.5rem] bg-white/[0.02] border border-white/5 hover:bg-white/[0.05] hover:border-white/10 transition-all group flex flex-col h-full">
+        <div className="w-14 h-14 rounded-2xl bg-white/5 flex items-center justify-center text-slate-400 group-hover:bg-white group-hover:text-black transition-all mb-8">
+          {icon}
+        </div>
+        <h3 className="text-2xl font-black uppercase tracking-tight text-white mb-2">{label} Portal</h3>
+        <p className="text-[10px] text-emerald-500 font-bold uppercase tracking-[0.2em] mb-8">{desc}</p>
+        
+        <div className="space-y-3 mb-10 flex-1">
+          {features.map(f => (
+            <div key={f} className="flex items-center gap-3 text-white/30 group-hover:text-white/60 transition-colors">
+              <div className="w-1 h-1 rounded-full bg-white/20 group-hover:bg-emerald-500 transition-colors" />
+              <span className="text-[10px] font-bold uppercase tracking-widest">{f}</span>
+            </div>
+          ))}
+        </div>
 
-             {/* Arrows */}
-             <div className="absolute inset-y-0 left-6 flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
-                <button onClick={() => setIndex((index - 1 + GALLERY_IMAGES.length) % GALLERY_IMAGES.length)} className="w-12 h-12 rounded-full bg-black/20 backdrop-blur-md border border-white/10 flex items-center justify-center text-white hover:bg-white/10">
-                   <ChevronLeft size={24} />
-                </button>
-             </div>
-             <div className="absolute inset-y-0 right-6 flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
-                <button onClick={() => setIndex((index + 1) % GALLERY_IMAGES.length)} className="w-12 h-12 rounded-full bg-black/20 backdrop-blur-md border border-white/10 flex items-center justify-center text-white hover:bg-white/10">
-                   <ChevronRight size={24} />
-                </button>
-             </div>
-          </div>
-       </div>
-    </section>
+        <div className="pt-6 border-t border-white/5 flex items-center justify-between text-[10px] font-black text-white/20 group-hover:text-white transition-colors uppercase tracking-widest">
+           Access Portal <ArrowRight size={14} />
+        </div>
+      </div>
+    </Link>
   )
 }
 
-function PortalSection() {
-  const portals = [
-    {
-      role: 'student',
-      label: 'Student',
-      icon: <GraduationCap size={36} strokeWidth={1.5} />,
-      desc: 'Access KCSE revision, CBC assignments, and track your performance in real-time.',
-      gradient: 'from-emerald-400 to-teal-600',
-      glow: 'shadow-emerald-500/20',
-      border: 'border-emerald-500/30',
-      features: ['Assignments', 'Live Transcripts', 'Revision Nodes'],
-      delay: 0.1
-    },
-    {
-       role: 'parent',
-       label: 'Parent',
-       icon: <Users size={36} strokeWidth={1.5} />,
-       desc: "Monitor child's focus telemetry, academic transcripts, and secure billing portals.",
-       gradient: 'from-amber-400 to-orange-600',
-       glow: 'shadow-orange-500/20',
-       border: 'border-orange-500/30',
-       features: ['Live Tracking', 'Official Reports', 'Payment History'],
-       delay: 0.2
-     },
-     {
-       role: 'teacher',
-       label: 'Teacher',
-       icon: <UserCheck size={36} strokeWidth={1.5} />,
-       desc: 'Manage classrooms, grade KCSE exams, and curate specialized CBC practice banks.',
-       gradient: 'from-sky-400 to-blue-600',
-       glow: 'shadow-blue-500/20',
-       border: 'border-blue-500/30',
-       features: ['Grading Engine', 'Practice Bank', 'Curriculum Hub'],
-       delay: 0.3
-     },
-     {
-       role: 'admin',
-       label: 'Admin',
-       icon: <Shield size={36} strokeWidth={1.5} />,
-       desc: 'System oversight. Center management, verification, and institutional configurations.',
-       gradient: 'from-violet-400 to-fuchsia-600',
-       glow: 'shadow-violet-500/20',
-       border: 'border-violet-500/30',
-       features: ['Total Analytics', 'Staff Verify', 'System Config'],
-       delay: 0.4
-     },
-     {
-       role: 'finance',
-       label: 'Finance',
-       icon: <DollarSign size={36} strokeWidth={1.5} />,
-       desc: 'Financial command center. Weekly reports, ledgers, and institutional balance sheets.',
-       gradient: 'from-amber-400 to-yellow-600',
-       glow: 'shadow-amber-500/20',
-       border: 'border-amber-500/30',
-       features: ['Weekly Stats', 'Ledgers', 'PDF Reporting'],
-       delay: 0.5
-     },
-  ]
-
+function SubjectCard({ name, icon, desc }: { name: string, icon: React.ReactNode, desc: string }) {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
-      {portals.map((p) => (
-        <Link href={`/auth/login?role=${p.role}`} key={p.role} className="block group group outline-none">
-           <motion.div
-             initial={{ opacity: 0, y: 30 }}
-             whileInView={{ opacity: 1, y: 0 }}
-             viewport={{ once: true }}
-             transition={{ delay: p.delay }}
-             className={`relative h-full p-8 rounded-[2.5rem] bg-white/5 border border-white/10 backdrop-blur-xl overflow-hidden transition-all duration-500 hover:-translate-y-2 hover:bg-white/10 hover:${p.border} ${p.glow} hover:shadow-2xl`}
-           >
-              <div className={`absolute -top-32 -right-32 w-64 h-64 bg-gradient-to-br ${p.gradient} rounded-full blur-3xl opacity-0 group-hover:opacity-10 opacity-0 group-hover:opacity-20 transition-opacity duration-700`} />
-              
-              <div className="relative z-10 flex-1 flex flex-col h-full">
-                 <div className="flex justify-between items-start mb-8">
-                    <div className={`w-16 h-16 rounded-[1.5rem] flex items-center justify-center text-white bg-gradient-to-br ${p.gradient} shadow-lg shadow-black/20 group-hover:scale-110 transition-transform duration-500`}>
-                       {p.icon}
-                    </div>
-                    <div className="w-10 h-10 rounded-full border border-white/10 flex items-center justify-center text-white/30 group-hover:text-white group-hover:border-white/30 group-hover:bg-white/5 transition-all">
-                       <ArrowUpRight size={18} />
-                    </div>
-                 </div>
-                 <h3 className="text-xl font-black uppercase tracking-tight text-white mb-3">{p.label} Portal</h3>
-                 <p className="text-xs text-white/50 leading-relaxed mb-8 flex-1 font-medium">{p.desc}</p>
-                 <div className="space-y-3 pt-6 border-t border-white/10">
-                    {p.features.map((f, idx) => (
-                      <div key={idx} className="flex items-center gap-3 text-[10px] font-bold text-white/40 uppercase tracking-widest">
-                         <div className="w-1.5 h-1.5 rounded-full bg-emerald-500/40" />
-                         <span>{f}</span>
-                      </div>
-                    ))}
-                 </div>
-              </div>
-           </motion.div>
-        </Link>
-      ))}
+    <div className="p-8 rounded-[2rem] bg-white/[0.02] border border-white/5 flex items-center gap-6 group hover:bg-white/[0.04] transition-all">
+      <div className="w-12 h-12 rounded-xl bg-slate-800 flex items-center justify-center text-slate-400 group-hover:text-emerald-500 transition-colors shrink-0">
+        {icon}
+      </div>
+      <div>
+        <div className="text-sm font-black uppercase tracking-tight text-white">{name}</div>
+        <div className="text-[9px] font-bold uppercase tracking-widest text-slate-600 group-hover:text-slate-400 transition-colors">{desc}</div>
+      </div>
     </div>
   )
 }
 
-function Footer() {
+function FooterCol({ title, links }: { title: string, links: string[] }) {
   return (
-    <footer className="relative z-10 py-16 px-6 mt-12 w-full border-t border-white/5">
-      <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-12">
-         <div className="space-y-4 text-center md:text-left">
-            <div className="font-black text-xl text-white tracking-widest uppercase">PEAK PERFORMANCE</div>
-            <p className="text-white/30 text-[10px] uppercase tracking-[0.4em]">Strive · Achieve · Excel</p>
-         </div>
-         <div className="flex flex-wrap justify-center gap-12">
-            <div className="space-y-6">
-               <h4 className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Quick Links</h4>
-               <div className="flex flex-col gap-3">
-                  <Link href="/about" className="text-xs text-white/40 hover:text-white transition-colors">About Us</Link>
-                  <Link href="/tuition-center-nairobi" className="text-xs text-white/40 hover:text-white transition-colors">Contact Central</Link>
-                  <Link href="/auth/login?role=student" className="text-xs text-white/40 hover:text-white transition-colors">Student Entry</Link>
-               </div>
-            </div>
-            <div className="space-y-6 text-center md:text-right">
-               <h4 className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Copyright</h4>
-               <p className="text-xs text-white/20 font-black tracking-widest uppercase truncate max-w-[200px]">
-                  © {new Date().getFullYear()} PEAK PERFORMANCE TUTORING KENYA. ALL RIGHTS RESERVED.
-               </p>
-            </div>
-         </div>
+    <div className="space-y-8">
+      <h4 className="text-[10px] font-black uppercase tracking-[0.4em] text-emerald-500">{title}</h4>
+      <div className="flex flex-col gap-4">
+        {links.map(l => (
+          <Link key={l} href={l.startsWith('/') ? l : '#'} className="text-sm font-bold text-slate-500 hover:text-white transition-colors">
+            {l.replace('/', '')}
+          </Link>
+        ))}
       </div>
-    </footer>
+    </div>
   )
 }

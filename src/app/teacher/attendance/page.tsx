@@ -303,81 +303,131 @@ export default function TeacherAttendance() {
   }, [selectedClassId, selectedEventId, selectedDate])
 
   const loadStudents = async () => {
+    if (!selectedClassId || !selectedEventId) return
     setStudentsLoading(true)
     setPage(1)
 
-    const [regRes, attRes] = await Promise.all([
-      supabase
+    try {
+      // 1. Fetch all students who belong to this class primarily from the students table
+      // Narrowed down by class and tuition center as assigned to the teacher
+      let studentQuery = supabase
+        .from('students')
+        .select('id, full_name, admission_number')
+        .eq('class_id', selectedClassId)
+      
+      if (selectedCenterId) {
+        studentQuery = studentQuery.eq('tuition_center_id', selectedCenterId)
+      }
+
+      const { data: classStudents, error: stdError } = await studentQuery
+
+      if (stdError) throw stdError
+
+      // 2. Fetch registrations for this event to get registration IDs
+      let regQuery = supabase
         .from('event_registrations')
-        .select(`
-          id,
-          student_id,
-          student_name,
-          student:students(id, full_name, admission_number)
-        `)
+        .select('id, student_id, status')
         .eq('tuition_event_id', selectedEventId)
         .eq('class_id', selectedClassId)
-        .eq('tuition_center_id', selectedCenterId)
-        .eq('status', 'active'),
-      supabase
+      
+      if (selectedCenterId) {
+        regQuery = regQuery.eq('tuition_center_id', selectedCenterId)
+      }
+      const { data: registrations, error: regError } = await regQuery
+
+      if (regError) throw regError
+
+      // 3. Fetch existing attendance for this date
+      let attQuery = supabase
         .from('attendance')
         .select('student_id, registration_id, status, notes')
         .eq('tuition_event_id', selectedEventId)
         .eq('class_id', selectedClassId)
-        .eq('tuition_center_id', selectedCenterId)
-        .eq('date', selectedDate),
-    ])
+        .eq('date', selectedDate)
 
-    const registrations = regRes.data ?? []
-    const existing = attRes.data ?? []
+      if (selectedCenterId) {
+        attQuery = attQuery.eq('tuition_center_id', selectedCenterId)
+      }
+      const { data: existing, error: attError } = await attQuery
 
-    const studentList = registrations.map((r: any) => ({
-      id: r.student_id,
-      registration_id: r.id,
-      full_name: r.student?.full_name || r.student_name,
-      admission_number: r.student?.admission_number || 'PENDING'
-    })).sort((a, b) => a.full_name.localeCompare(b.full_name))
+      if (attError) throw attError
 
-    setStudents(studentList)
-    setAlreadyMarked(existing.length > 0)
+      // 4. Build the final student list, prioritising students from the students table
+      // and matching them with their event registrations if they exist
+      const studentList = (classStudents ?? []).map((s: any) => {
+        const reg = (registrations ?? []).find(r => r.student_id === s.id)
+        return {
+          id: s.id,
+          registration_id: reg?.id || `unregistered-${s.id}`, // Fallback if not registered for this event
+          full_name: s.full_name || 'Unknown Student',
+          admission_number: s.admission_number || 'PENDING',
+          is_registered: !!reg,
+          reg_status: reg?.status
+        }
+      }).sort((a, b) => a.full_name.localeCompare(b.full_name))
 
-    const map = studentList.reduce((acc, s) => {
-      const found = existing.find(e => e.registration_id === s.registration_id)
-      acc[s.registration_id] = { status: (found?.status as AttendanceStatus) ?? 'present', notes: found?.notes ?? '' }
-      return acc
-    }, {} as Record<string, AttendanceEntry>)
-    setAttendance(map)
-    setStudentsLoading(false)
+      setStudents(studentList)
+      setAlreadyMarked((existing ?? []).length > 0)
+
+      const map = studentList.reduce((acc, s) => {
+        const found = (existing ?? []).find(e => e.registration_id === s.registration_id || (e.student_id === s.id && e.student_id))
+        acc[s.registration_id] = { 
+          status: (found?.status as AttendanceStatus) ?? 'present', 
+          notes: found?.notes ?? '' 
+        }
+        return acc
+      }, {} as Record<string, AttendanceEntry>)
+      
+      setAttendance(map)
+    } catch (e) {
+      console.error('Failed to load students:', e)
+      toast.error('Could not load student list.')
+    } finally {
+      setStudentsLoading(false)
+    }
   }
 
   const confirmSubmit = async () => {
     setSaving(true)
     setPreviewOpen(false)
     try {
-      const items = Object.entries(attendance).map(([regId, data]) => {
-        const student = students.find(s => s.registration_id === regId)
-        return {
-          registration_id: regId,
-          student_id: student?.id, // Optional link
-          tuition_event_id: selectedEventId,
-          class_id: selectedClassId,
-          tuition_center_id: selectedCenterId,
-          teacher_id: teacher?.id,
-          date: selectedDate,
-          week_number: selectedWeekNum,
-          status: data.status,
-          notes: data.notes,
-        }
-      })
+      const validItems = Object.entries(attendance)
+        .filter(([regId]) => !regId.startsWith('unregistered-'))
+        .map(([regId, data]) => {
+          const student = students.find(s => s.registration_id === regId)
+          return {
+            registration_id: regId,
+            student_id: student?.id,
+            tuition_event_id: selectedEventId,
+            class_id: selectedClassId,
+            tuition_center_id: selectedCenterId,
+            teacher_id: teacher?.id,
+            date: selectedDate,
+            week_number: selectedWeekNum,
+            status: data.status,
+            notes: data.notes,
+          }
+        })
 
-      const { error } = await supabase.from('attendance').upsert(items, {
+      if (validItems.length === 0 && Object.keys(attendance).length > 0) {
+        toast.error('Cannot save: Students are not registered for this event.')
+        setSaving(false)
+        return
+      }
+
+      const { error } = await supabase.from('attendance').upsert(validItems, {
         onConflict: 'registration_id,date',
       })
 
       if (error) {
         toast.error('Failed to save: ' + error.message)
       } else {
-        toast.success('✅ Attendance saved successfully!')
+        const skipped = Object.keys(attendance).length - validItems.length
+        if (skipped > 0) {
+          toast.success(`✅ Saved ${validItems.length} records. ${skipped} students were skipped (unregistered).`)
+        } else {
+          toast.success('✅ Attendance saved successfully!')
+        }
         setAlreadyMarked(true)
         loadAllAttendance() // Refresh analytics
       }

@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
+import { requireAdmin } from '@/lib/auth-guards'
 
 export async function POST(req: NextRequest) {
+  // 0. Security Guard
+  try {
+    await requireAdmin()
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 403 })
+  }
+
   const supabase = await createAdminClient()
   
   try {

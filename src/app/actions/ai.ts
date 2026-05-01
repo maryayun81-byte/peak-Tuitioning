@@ -1,5 +1,7 @@
 'use server'
 import { createClient } from '@/lib/supabase/server'
+import { headers } from 'next/headers'
+import { rateLimit, getClientIp } from '@/lib/rate-limit'
 
 /**
  * Peak AI Core Actions
@@ -105,6 +107,19 @@ interface ChatResult {
 export async function chatWithPeakAI(messages: Message[], context: ChatContext = {}): Promise<ChatResult> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
+  
+  // Apply Rate Limiting (10 requests per minute)
+  const headerList = await headers()
+  const identifier = user?.id || getClientIp(headerList)
+  const { success, remaining, reset } = rateLimit(`ai_chat_${identifier}`, {
+    limit: 10,
+    windowMs: 60 * 1000 // 1 minute
+  })
+
+  if (!success) {
+    const waitSec = Math.ceil((reset - Date.now()) / 1000)
+    return { error: `Slow down! You've reached the peak of your rapid inquiries. Try again in ${waitSec}s.` }
+  }
   
   // Auto-detect curriculum and goal
   let curriculumContext = ""
@@ -266,6 +281,11 @@ export async function saveAIStudyPlan(plan: { name: string, start_date: string, 
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Unauthorized' }
 
+  // Rate limit: 2 plans per minute
+  const headerList = await headers()
+  const { success } = rateLimit(`save_plan_${user.id}`, { limit: 2, windowMs: 60 * 1000 })
+  if (!success) return { error: 'Exceeded plan generation limit. Try again in a minute.' }
+
   const { data: student } = await supabase.from('students').select('id').eq('user_id', user.id).single()
   if (!student) return { error: 'Student not found' }
 
@@ -321,6 +341,11 @@ export async function generateStudentInsights() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Unauthorized' }
+
+  // Rate limit: 5 insights per minute
+  const headerList = await headers()
+  const { success } = rateLimit(`gen_insights_${user.id}`, { limit: 5, windowMs: 60 * 1000 })
+  if (!success) return { error: 'Insight engine recharging. Try again in a minute.' }
 
   const { data: student } = await supabase
     .from('students')

@@ -8,7 +8,7 @@ import {
   Users, Clock, ClipboardCheck, BookOpen, 
   Calendar, ArrowRight, MessageSquare, 
   PlusCircle, FileText, LayoutDashboard,
-  CheckCircle2, AlertCircle, Award
+  CheckCircle2, AlertCircle, Award, TrendingUp
 } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Card, StatCard, Badge } from '@/components/ui/Card'
@@ -21,6 +21,7 @@ import { ExamEventBanner } from '@/components/dashboard/ExamEventBanner'
 import { TuitionEventBanner } from '@/components/dashboard/TuitionEventBanner'
 import { TimetableWidget } from '@/components/dashboard/TimetableWidget'
 import Link from 'next/link'
+import { ClassPulse, ClassInterventionPanel } from '@/components/teacher/ClassHub'
 
 import { usePageData } from '@/hooks/usePageData'
 import { ShimmerSkeleton } from '@/components/ui/ShimmerSkeleton'
@@ -39,7 +40,7 @@ export default function TeacherDashboard() {
     cacheKey: ['teacher-stats', teacher?.id || 'anon'],
     fetcher: async () => {
        if (!teacher?.id) return { data: null, error: 'No teacher ID' }
-       const { data: assignments } = await supabase.from('teacher_assignments').select('class_id, class:classes(name), tuition_center:tuition_centers(name)').eq('teacher_id', teacher.id)
+       const { data: assignments } = await supabase.from('teacher_assignments').select('class_id, is_class_teacher, class:classes(name), tuition_center:tuition_centers(name)').eq('teacher_id', teacher.id)
        const classIds = Array.from(new Set(assignments?.map(a => a.class_id).filter(Boolean) || []))
        
        const [subRes, classCountRes, stdCountRes] = await Promise.all([
@@ -50,7 +51,7 @@ export default function TeacherDashboard() {
 
        const { data: studentCounts } = classIds.length > 0 ? await supabase.from('students').select('class_id').in('class_id', classIds) : { data: [] }
        const countMap = (studentCounts || []).reduce((acc: any, s) => { acc[s.class_id] = (acc[s.class_id] || 0) + 1; return acc }, {})
-       const breakdown = (assignments || []).map(a => ({ name: (a.class as any)?.name || 'Unknown', center: (a.tuition_center as any)?.name || 'N/A', count: countMap[a.class_id] || 0 }))
+       const breakdown = (assignments || []).map(a => ({ name: (a.class as any)?.name || 'Unknown', center: (a.tuition_center as any)?.name || 'N/A', count: countMap[a.class_id] || 0, isPrimary: a.is_class_teacher }))
 
        return { data: { activeStudents: (stdCountRes as any).count ?? 0, classesToday: (classCountRes as any).count ?? 0, pendingMarks: (subRes as any).count ?? 0, attendanceRate: 0, breakdown }, error: null }
     },
@@ -171,10 +172,11 @@ export default function TeacherDashboard() {
   const statsDisplay = stats ?? { activeStudents: 0, classesToday: 0, pendingMarks: 0, attendanceRate: 0, breakdown: [] }
   const recentAssignments = pendingAssignments ?? []
   const recentNotifications = notifications ?? []
+  const primaryClass = stats?.breakdown.find((b: any) => b.isPrimary)
 
 
   return (
-    <div className="p-6 space-y-6 pb-12">
+    <div className="p-6 space-y-8 pb-12 bg-gradient-to-b from-transparent to-[var(--bg)] min-h-screen">
       <Modal 
         isOpen={showReminder} 
         onClose={() => setShowReminder(false)} 
@@ -234,137 +236,115 @@ export default function TeacherDashboard() {
         </div>
       </Modal>
 
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-           <h1 className="text-2xl font-black flex items-center gap-2" style={{ color: 'var(--text)' }}>
-              Welcome, {profile?.full_name.split(' ')[0]} <motion.span initial={{ rotate: 0 }} animate={{ rotate: [0, 20, 0] }} transition={{ repeat: Infinity, duration: 2 }}>👋</motion.span>
-           </h1>
-           <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>Here&apos;s what&apos;s happening with your classes today.</p>
-        </div>
-        <div className="flex gap-2">
-           <Link href="/teacher/assignments/new"><Button size="sm"><PlusCircle size={14} className="mr-2" /> New Assignment</Button></Link>
-        </div>
-      </div>
-
-      {/* Event Banners */}
-      <div className="space-y-3">
-        <ExamEventBanner />
-        <TuitionEventBanner />
-      </div>
-
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-         <StatCard 
-            title="Active Students" 
-            value={statsDisplay.activeStudents} 
-            icon={<Users size={20} />} 
-            subValue={
-              <div className="space-y-1 mt-1">
-                 {statsDisplay.breakdown.map((b, idx) => (
-                   <div key={idx} className="flex items-center justify-between text-[9px] border-b border-white/5 pb-0.5 last:border-0 last:pb-0">
-                      <span className="truncate opacity-75 font-medium">{b.name} ({b.center})</span>
-                      <span className="font-black text-primary">{b.count}</span>
-                   </div>
-                 ))}
-              </div>
-            }
-         />
-         <StatCard title="Classes Today" value={statsDisplay.classesToday} icon={<Clock size={20} />} />
-         <StatCard title="Pending Review" value={statsDisplay.pendingMarks} icon={<AlertCircle size={20} />} change="Urgent" changeType="down" />
-         {teacher?.is_class_teacher && (
-            <StatCard title="Attendance" value={`${statsDisplay.attendanceRate}%`} icon={<LayoutDashboard size={20} />} />
-         )}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-         <div className="lg:col-span-2 space-y-4">
-            {/* My Timetable replaces Today's Schedule */}
-            <TimetableWidget role="teacher" />
-
-            {/* Recent Materials */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4">
-               <Card className="p-5 flex flex-col gap-4">
-                  <div className="flex items-center justify-between">
-                     <h3 className="font-bold text-sm" style={{ color: 'var(--text)' }}>Active Assignments</h3>
-                  </div>
-                  <div className="space-y-3">
-                     {recentAssignments.length > 0 ? recentAssignments.map((a: any) => (
-                       <Link key={a.id} href={`/teacher/assignments/${a.id}/progress`}>
-                          <div className="flex items-center justify-between p-2 rounded-lg hover:bg-[var(--primary)] hover:text-white transition-all cursor-pointer" style={{ background: 'var(--bg)' }}>
-                             <div className="text-xs font-medium truncate pr-2 uppercase tracking-tighter">{a.title}</div>
-                             <Badge variant="muted" className="shrink-0">{a.class?.name}</Badge>
-                          </div>
-                       </Link>
-                     )) : <div className="text-xs italic" style={{ color: 'var(--text-muted)' }}>No active assignments.</div>}
-                  </div>
-                  <Link href="/teacher/assignments" className="mt-auto">
-                    <Button variant="secondary" size="sm" className="w-full">View All</Button>
-                  </Link>
-               </Card>
-
-               <Card className="p-5 flex flex-col gap-4">
-                  <h3 className="font-bold text-sm" style={{ color: 'var(--text)' }}>Quick Actions</h3>
-                  <div className="grid grid-cols-2 gap-2">
-                     <Link href="/teacher/assignments/new" passHref className="block w-full">
-                        <Button variant="ghost" size="sm" className="w-full h-16 flex flex-col gap-1 border border-[var(--card-border)]">
-                           <FileText size={16} /> <span className="text-[10px]">Add Assignment</span>
-                        </Button>
-                     </Link>
-                     <Link href="/teacher/students" passHref className="block w-full">
-                        <Button variant="ghost" size="sm" className="w-full h-16 flex flex-col gap-1 border border-[var(--card-border)] bg-amber-400/5 hover:bg-amber-400/10 transition-colors">
-                           <Award size={16} className="text-amber-500" /> <span className="text-[10px] font-bold">Award Badges</span>
-                        </Button>
-                     </Link>
-                     <Link href="/teacher/attendance" passHref className="block w-full">
-                        <Button variant="ghost" size="sm" className="w-full h-16 flex flex-col gap-1 border border-[var(--card-border)]">
-                           <Users size={16} /> <span className="text-[10px]">Attendance</span>
-                        </Button>
-                     </Link>
-                     <Link href="/teacher/quizzes/new" passHref className="block w-full">
-                        <Button variant="ghost" size="sm" className="w-full h-16 flex flex-col gap-1 border border-[var(--card-border)]">
-                           <ClipboardCheck size={16} /> <span className="text-[10px]">Create Quiz</span>
-                        </Button>
-                     </Link>
-                     <Link href="/teacher/schemes" passHref className="block w-full">
-                        <Button variant="ghost" size="sm" className="w-full h-16 flex flex-col gap-1 border border-[var(--card-border)]">
-                           <LayoutDashboard size={16} /> <span className="text-[10px]">Schemes</span>
-                        </Button>
-                     </Link>
-                  </div>
-               </Card>
-            </div>
-         </div>
-
-         {/* Side Column */}
-         <div className="space-y-6">
-            <Card className="p-5" style={{ background: 'linear-gradient(135deg, var(--primary), #3B82F6)', color: 'white' }}>
-               <h3 className="font-bold mb-2 flex items-center gap-2"><CheckCircle2 size={18} /> Performance Tip</h3>
-               <p className="text-xs opacity-90 leading-relaxed mb-4">You have {statsDisplay.pendingMarks} assignments pending feedback. Students perform better with timely feedback!</p>
-               <Link href="/teacher/marking"><Button size="sm" className="w-full bg-white text-primary border-none hover:bg-white/90">Go to Marking</Button></Link>
-            </Card>
-
-            <Card className="p-5">
-               <h3 className="font-bold mb-4 text-sm" style={{ color: 'var(--text)' }}>Notifications</h3>
-               <div className="space-y-4">
-                  {recentNotifications.length === 0 ? (
-                    <div className="py-4 text-center text-xs opacity-40">No new notifications.</div>
-                  ) : (
-                    recentNotifications.map((n: any, i: number) => (
-                      <div key={i} className="flex gap-3">
-                         <div className="w-1.5 h-1.5 rounded-full mt-1.5 bg-primary shrink-0" />
-                         <div className="flex-1">
-                            <div className="flex justify-between items-center mb-0.5">
-                               <span className="text-xs font-bold" style={{ color: 'var(--text)' }}>{n.title}</span>
-                               <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{formatDate(n.created_at, 'short')}</span>
-                            </div>
-                            <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{n.body}</p>
-                         </div>
-                      </div>
-                    ))
-                  )}
+      {/* Enhanced Hero / Command Center */}
+      <div className="relative p-8 rounded-[2.5rem] overflow-hidden border-4 border-primary/20 shadow-2xl group">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary via-primary/80 to-accent opacity-95" />
+        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20" />
+        <div className="absolute -top-24 -right-24 w-96 h-96 bg-white/10 rounded-full blur-3xl group-hover:scale-110 transition-transform duration-1000" />
+        
+        <div className="relative flex flex-col lg:flex-row lg:items-center justify-between gap-8">
+          <div className="space-y-2">
+             <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center border border-white/30 shadow-xl">
+                   <Users size={24} className="text-white" />
+                </div>
+                <Badge variant="secondary" className="bg-white/20 text-white border-white/30 backdrop-blur-md uppercase tracking-widest text-[9px] font-black">
+                   Academic Session 2026
+                </Badge>
+             </div>
+             <h1 className="text-4xl font-black text-white tracking-tight">
+                Welcome back, {profile?.full_name ? profile.full_name.split(' ')[0] : 'Teacher'} <motion.span initial={{ rotate: 0 }} animate={{ rotate: [0, 20, 0] }} transition={{ repeat: Infinity, duration: 2 }}>👋</motion.span>
+             </h1>
+             {primaryClass && (
+               <div className="flex items-center gap-2 text-white/90 font-bold bg-white/10 w-fit px-3 py-1 rounded-full border border-white/20 backdrop-blur-sm">
+                 <LayoutDashboard size={14} />
+                 <span className="text-[11px] uppercase tracking-wider">Class Teacher: {primaryClass.name}</span>
                </div>
-            </Card>
-         </div>
+             )}
+             <p className="text-white/70 font-bold max-w-md leading-relaxed text-sm pt-2">
+                Your digital classroom is synchronized and ready for the next peak performance mission.
+             </p>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+             {[
+               { icon: <PlusCircle size={20} />, label: 'New Assignment', href: '/teacher/assignments/new', color: 'bg-white/10' },
+               { icon: <ClipboardCheck size={20} />, label: 'Create Quiz', href: '/teacher/quizzes/new', color: 'bg-white/10' },
+               { icon: <MessageSquare size={20} />, label: 'Class Notice', href: '/teacher/notifications', color: 'bg-white/10' },
+               { icon: <TrendingUp size={20} />, label: 'Insights', href: '/teacher/students', color: 'bg-amber-400 text-black' }
+             ].map((btn, i) => (
+               <Link key={i} href={btn.href}>
+                 <button className={`flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border border-white/20 backdrop-blur-md hover:scale-105 hover:bg-white/30 transition-all w-full min-w-[120px] ${btn.color.includes('bg-white') ? btn.color : ''}`} style={!btn.color.includes('bg-white') ? { background: btn.color } : {}}>
+                    <div className={btn.color.includes('text-black') ? 'text-black' : 'text-white'}>{btn.icon}</div>
+                    <span className={`text-[10px] font-black uppercase tracking-widest text-center ${btn.color.includes('text-black') ? 'text-black' : 'text-white'}`}>{btn.label}</span>
+                 </button>
+               </Link>
+             ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Main Grid Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        
+        {/* Left Column: Pulse & Intervention (5 cols) */}
+        <div className="lg:col-span-5 space-y-8">
+           <ClassPulse teacherId={teacher.id} />
+           <ClassInterventionPanel teacherId={teacher.id} />
+        </div>
+
+        {/* Right Column: Timetable & Tasks (7 cols) */}
+        <div className="lg:col-span-7 space-y-8">
+           <TimetableWidget role="teacher" />
+           
+           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <Card className="p-6 border-2 border-primary/5 bg-gradient-to-br from-[var(--card)] to-[var(--bg)]">
+                 <div className="flex items-center justify-between mb-6">
+                    <h3 className="font-black text-xs uppercase tracking-widest flex items-center gap-2">
+                       <FileText size={14} className="text-primary" /> Active Assignments
+                    </h3>
+                    <Link href="/teacher/assignments">
+                       <Button variant="ghost" size="sm" className="text-[10px] font-black uppercase">All <ArrowRight size={12} /></Button>
+                    </Link>
+                 </div>
+                 <div className="space-y-3">
+                    {recentAssignments.length > 0 ? recentAssignments.map((a: any) => (
+                      <Link key={a.id} href={`/teacher/assignments/${a.id}/progress`}>
+                         <div className="p-3 rounded-2xl bg-[var(--input)] border border-[var(--card-border)] hover:border-primary/30 transition-all">
+                            <div className="flex justify-between items-center">
+                               <span className="text-xs font-black truncate max-w-[150px] uppercase tracking-tighter" style={{ color: 'var(--text)' }}>{a.title}</span>
+                               <Badge variant="info" className="text-[8px] uppercase">{a.class?.name}</Badge>
+                            </div>
+                         </div>
+                      </Link>
+                    )) : <div className="text-xs italic opacity-40">No active missions.</div>}
+                 </div>
+              </Card>
+
+              <Card className="p-6 border-2 border-amber-500/10 bg-gradient-to-br from-[var(--card)] to-[var(--bg)]">
+                 <div className="flex items-center justify-between mb-6">
+                    <h3 className="font-black text-xs uppercase tracking-widest flex items-center gap-2">
+                       <AlertCircle size={14} className="text-amber-500" /> System Alerts
+                    </h3>
+                 </div>
+                 <div className="space-y-4">
+                    {recentNotifications.length === 0 ? (
+                      <div className="py-4 text-center text-xs opacity-40 italic">Quiet day at Peak HQ...</div>
+                    ) : (
+                      recentNotifications.map((n: any, i: number) => (
+                        <div key={i} className="flex gap-3 p-2 rounded-xl hover:bg-white/5 transition-all">
+                           <div className="w-1.5 h-1.5 rounded-full mt-1.5 bg-amber-500 shrink-0 shadow-[0_0_8px_rgba(245,158,11,0.5)]" />
+                           <div className="flex-1 min-w-0">
+                              <p className="text-[11px] font-black truncate" style={{ color: 'var(--text)' }}>{n.title}</p>
+                              <p className="text-[9px] mt-0.5 opacity-60 line-clamp-1">{n.body}</p>
+                           </div>
+                        </div>
+                      ))
+                    )}
+                 </div>
+              </Card>
+           </div>
+        </div>
       </div>
     </div>
   )

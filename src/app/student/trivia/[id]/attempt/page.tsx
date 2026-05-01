@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import 'katex/dist/katex.min.css'
+import { sanitizeHTML } from '@/lib/sanitize'
 import {
   Trophy, Clock, Timer, CheckCircle2, AlertCircle,
   ChevronRight, ChevronLeft, Save, Zap, HelpCircle, Star, AlertTriangle, Volume2, VolumeX
@@ -796,7 +797,7 @@ export default function StudentTriviaAttemptPage() {
                       <div 
                          className="prose prose-sm md:prose-base max-w-none text-xl md:text-2xl font-black leading-tight tracking-tight" 
                          style={{ color: 'var(--text)' }}
-                         dangerouslySetInnerHTML={{ __html: activeQ.text }}
+                         dangerouslySetInnerHTML={{ __html: sanitizeHTML(activeQ.text) }}
                       />
                       
                       {activeQ.image_url && (

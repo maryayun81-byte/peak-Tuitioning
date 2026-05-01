@@ -66,6 +66,7 @@ export default function TeacherExamMarks() {
   // Students & marks
   const [students, setStudents] = useState<Student[]>([])
   const [marksData, setMarksData] = useState<Record<string, { marks: string; remarks: string; progress: string; grade?: string; grading_system_id?: string; id?: string }>>({})
+  const [initialMarksData, setInitialMarksData] = useState<Record<string, any>>({})
 
   // Compute curriculum for the selected class to feed the hook
   const selectedClassOption = useMemo(() => 
@@ -237,6 +238,8 @@ export default function TeacherExamMarks() {
         }
       })
       setMarksData(map)
+      // Store a deep copy to compare for dirty checking
+      setInitialMarksData(JSON.parse(JSON.stringify(map)))
     } catch (e) {
       console.error('Failed to load students/marks', e)
       toast.error('Failed to load students.')
@@ -274,10 +277,21 @@ export default function TeacherExamMarks() {
     const upserts = students
       .map(s => {
         const data = marksData[s.id]
+        const initial = initialMarksData[s.id]
+        
         const hasMarks = data?.marks && data.marks.trim() !== ''
         const hasProgress = data?.progress && data.progress.trim() !== ''
         
         if (!hasMarks && !hasProgress) return null
+
+        // Dirty Check: Skip if the data is identical to what was loaded from DB
+        const isModified = !initial || 
+          data.marks !== initial.marks || 
+          data.progress !== initial.progress || 
+          data.remarks !== initial.remarks ||
+          data.grade !== initial.grade
+
+        if (!isModified) return null
         
         return {
           ...(data.id ? { id: data.id } : {}),
@@ -287,7 +301,7 @@ export default function TeacherExamMarks() {
           class_id: selectedClassId,
           exam_event_id: selectedExamEventId,
           teacher_id: teacher!.id,
-          marks: hasMarks ? parseFloat(data.marks) : -1, // -1 means no marks, using qualitative instead
+          marks: hasMarks ? parseFloat(data.marks) : -1,
           progress_summary: hasProgress ? data.progress : null,
           grade: data.grade || null,
           grading_system_id: data.grading_system_id || null,

@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/Button'
 import { useAuthStore } from '@/stores/authStore'
 import toast from 'react-hot-toast'
 import html2canvas from 'html2canvas'
+import { sanitizeHTML } from '@/lib/sanitize'
 
 const AWARD_TYPES = {
   QUICKEST: { label: 'Quickest Draw', description: 'Lowest average response time!', icon: <Timer className="text-amber-500" /> },
@@ -381,7 +382,7 @@ export default function StudentTriviaResultsPage() {
                               {i + 1}
                            </div>
                            <div className="flex-1 min-w-0">
-                              <div className="text-sm font-black leading-tight uppercase tracking-tighter mb-2" style={{ color: 'var(--text)' }} dangerouslySetInnerHTML={{ __html: q.text }} />
+                              <div className="text-sm font-black leading-tight uppercase tracking-tighter mb-2" style={{ color: 'var(--text)' }} dangerouslySetInnerHTML={{ __html: sanitizeHTML(q.text) }} />
                               <div className="flex flex-wrap items-center gap-3">
                                  {isTimedOut ? (
                                     <span className="text-[10px] bg-amber-500/20 text-amber-600 px-2 py-1 rounded-lg font-black uppercase flex items-center gap-1"><Timer size={12} /> TIMEOUT</span>

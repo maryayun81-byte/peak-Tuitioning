@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import SignaturePad from 'signature_pad'
 import toast from 'react-hot-toast'
+import { sanitizeHTML } from '@/lib/sanitize'
 
 interface Assignment {
   id: string
@@ -213,7 +214,7 @@ export function TermsEnforcementModal({ assignment, onSuccess }: TermsEnforcemen
                     ) : (
                       <div 
                         className="terms-content text-[var(--text)] text-lg"
-                        dangerouslySetInnerHTML={{ __html: assignment.document.content }} 
+                        dangerouslySetInnerHTML={{ __html: sanitizeHTML(assignment.document.content) }} 
                       />
                     )}
                     <div className="mt-20 pt-10 border-t border-[var(--card-border)] text-center italic opacity-30 text-sm">

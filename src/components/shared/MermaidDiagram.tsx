@@ -19,7 +19,7 @@ function ensureMermaidInitialized() {
     startOnLoad: false,
     theme: 'dark',
     logLevel: 5,
-    securityLevel: 'loose',
+    securityLevel: 'strict',
     fontFamily: 'Inter, sans-serif',
     themeVariables: {
       primaryColor: '#4F8CFF',

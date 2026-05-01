@@ -44,7 +44,7 @@ export function useAuth() {
         // Profile Race with 4s timeout
         const profileResult = await Promise.race([
           supabase.from('profiles').select('*').eq('id', userId).single(),
-          new Promise<{ data: any; error: any }>((_, reject) => setTimeout(() => reject(new Error('Profile fetch timed out')), 4000))
+          new Promise<{ data: any; error: any }>((_, reject) => setTimeout(() => reject(new Error('Profile fetch timed out')), 8000))
         ])
 
         const { data: profileData, error: profileError } = profileResult
@@ -67,7 +67,7 @@ export function useAuth() {
             if (p.role === 'student') {
               const { data, error: fetchError } = await Promise.race([
                 supabase.from('students').select('*, class:classes(*), curriculum:curriculums(*)').eq('user_id', userId).single(),
-                new Promise<{ data: any; error: any }>((_, reject) => setTimeout(() => reject(new Error('Student data fetch timed out')), 4000))
+                new Promise<{ data: any; error: any }>((_, reject) => setTimeout(() => reject(new Error('Student data fetch timed out')), 8000))
               ])
               if (data) {
                 setStudent(data as Student)
@@ -78,7 +78,7 @@ export function useAuth() {
             } else if (p.role === 'parent') {
               const { data: parentListData } = await Promise.race([
                 supabase.from('parents').select('*').eq('user_id', userId),
-                new Promise<{ data: any; error: any }>((_, reject) => setTimeout(() => reject(new Error('Parent data fetch timed out')), 4000))
+                new Promise<{ data: any; error: any }>((_, reject) => setTimeout(() => reject(new Error('Parent data fetch timed out')), 8000))
               ])
               if (parentListData && parentListData.length > 0) {
                 const anyOnboarded = parentListData.some((r: any) => r.onboarded === true)
@@ -90,12 +90,18 @@ export function useAuth() {
             } else if (p.role === 'teacher') {
               const { data: teacherData, error: teacherError } = await Promise.race([
                 supabase.from('teachers').select('*, teacher_assignments(is_class_teacher)').eq('user_id', userId).single(),
-                new Promise<{ data: any; error: any }>((_, reject) => setTimeout(() => reject(new Error('Teacher data fetch timed out')), 4000))
+                new Promise<{ data: any; error: any }>((_, reject) => setTimeout(() => reject(new Error('Teacher data fetch timed out')), 8000))
               ])
               
               if (teacherData) {
                 const isClassTeacher = (teacherData as any).teacher_assignments?.some((a: any) => a.is_class_teacher) || false
-                setTeacher({ ...teacherData, is_class_teacher: isClassTeacher } as Teacher)
+                // Coerce onboarded: treat null/undefined as false so layout guard works correctly
+                const onboarded = teacherData.onboarded === true
+                setTeacher({ ...teacherData, onboarded, is_class_teacher: isClassTeacher } as Teacher)
+                // If teacher is onboarded, also sync the profile flag so the layout guard has two sources of truth
+                if (onboarded && !p.has_onboarded) {
+                  setProfile({ ...p, has_onboarded: true })
+                }
               } else {
                 console.warn('[useAuth] Teacher record expected but not found in DB.')
                 setTeacher(null)

@@ -22,11 +22,13 @@ import { QuickInfoModal } from '@/components/notifications/QuickInfoModal'
 import { calculateLevel } from '@/lib/gamification'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { PageErrorBoundary } from '@/components/ui/PageErrorBoundary'
+import { SessionHeartbeat } from '@/components/shared/SessionHeartbeat'
 import toast from 'react-hot-toast'
 import Link from 'next/link'
 
 const NAV_ITEMS = [
   { label: 'My Hub', href: '/student', icon: <LayoutDashboard size={18} /> },
+  { label: 'Live Campus', href: '/student/live', icon: <Zap size={18} className="text-emerald-500" /> },
   { label: 'Trivia', href: '/student/trivia', icon: <Trophy size={18} /> },
   { label: 'Assignments', href: '/student/assignments', icon: <FileText size={18} /> },
   { label: 'Quizzes', href: '/student/quizzes', icon: <BrainCircuit size={18} /> },
@@ -235,6 +237,7 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
         </div>
         <LevelUpManager />
         <QuickInfoModal />
+        <SessionHeartbeat />
       </main>
 
       {!isPendingOnboarding && (

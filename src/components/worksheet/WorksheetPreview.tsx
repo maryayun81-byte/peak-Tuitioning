@@ -3,6 +3,7 @@
 import { useMemo } from 'react'
 import type { WorksheetBlock } from '@/types/database'
 import { cn } from '@/lib/utils'
+import { sanitizeHTML } from '@/lib/sanitize'
 
 interface WorksheetPreviewProps {
   title: string
@@ -95,7 +96,7 @@ export function WorksheetPreview({ title, subject, class_name, blocks, passage, 
                     {block.section_instructions && (
                       <div 
                         className="text-xs text-gray-500 mt-1 italic prose prose-sm" 
-                        dangerouslySetInnerHTML={{ __html: block.section_instructions }} 
+                        dangerouslySetInnerHTML={{ __html: sanitizeHTML(block.section_instructions) }} 
                       />
                     )}
                   </div>
@@ -122,7 +123,7 @@ export function WorksheetPreview({ title, subject, class_name, blocks, passage, 
                       )}
                     >
                       {isHtml ? (
-                         <div dangerouslySetInnerHTML={{ __html: rawContent }} />
+                         <div dangerouslySetInnerHTML={{ __html: sanitizeHTML(rawContent) }} />
                       ) : (
                         rawContent
                       )}
@@ -153,7 +154,7 @@ export function WorksheetPreview({ title, subject, class_name, blocks, passage, 
                         {block.question ? (
                           <div 
                             className="prose prose-sm max-w-none text-sm leading-relaxed font-medium text-gray-900"
-                            dangerouslySetInnerHTML={{ __html: block.question }} 
+                            dangerouslySetInnerHTML={{ __html: sanitizeHTML(block.question) }} 
                           />
                         ) : (
                           <span className="italic text-gray-400 text-sm">Question text...</span>

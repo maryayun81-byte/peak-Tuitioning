@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
+import { requireAdmin } from '@/lib/auth-guards'
+import { rateLimit } from '@/lib/rate-limit'
 import { normalizeName, similarityScore, isPartialMatch } from '@/lib/admin/credentials'
 import { generateAdmissionNumber, generateTempPassword } from '@/lib/utils'
 import jsPDF from 'jspdf'
@@ -14,6 +16,21 @@ declare module 'jspdf' {
 }
 
 export async function POST(req: NextRequest) {
+  // 0. Security Guard
+  let user: any
+  try {
+    const auth = await requireAdmin()
+    user = auth.user
+    
+    // 0b. Rate Limiting (1 request per 30 seconds for this expensive op)
+    const limitRes = rateLimit(`gen_creds_${user.id}`, { limit: 1, windowMs: 30000 })
+    if (!limitRes.success) {
+      throw new Error('Too many requests. Please wait 30 seconds.')
+    }
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: error.message.includes('Too many') ? 429 : 403 })
+  }
+
   const supabase = await createAdminClient()
   
   try {

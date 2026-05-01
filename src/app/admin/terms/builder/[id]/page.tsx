@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import toast from 'react-hot-toast'
+import { sanitizeHTML } from '@/lib/sanitize'
 
 export default function DocumentBuilder({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params)
@@ -284,7 +285,7 @@ export default function DocumentBuilder({ params }: { params: Promise<{ id: stri
 
       <Modal isOpen={previewOpen} onClose={() => setPreviewOpen(false)} title={`Preview: ${title}`} size="xl">
         <div className="p-4 sm:p-8 md:p-12 min-h-[60vh] overflow-y-auto bg-[var(--bg)] border border-[var(--card-border)] rounded-2xl">
-          <div className="prose dark:prose-invert max-w-none prose-sm sm:prose lg:prose-lg" dangerouslySetInnerHTML={{ __html: editor.getHTML() }} />
+          <div className="prose dark:prose-invert max-w-none prose-sm sm:prose lg:prose-lg" dangerouslySetInnerHTML={{ __html: sanitizeHTML(editor.getHTML()) }} />
         </div>
       </Modal>
     </div>

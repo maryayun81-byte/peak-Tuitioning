@@ -12,6 +12,7 @@ import {
 import { cn } from '@/lib/utils'
 import { useWorksheetBuilderStore } from '@/stores/worksheetBuilderStore'
 import type { WorksheetBlock, QuestionType } from '@/types/database'
+import { sanitizeHTML } from '@/lib/sanitize'
 
 interface SortableBlockProps {
   block: WorksheetBlock
@@ -175,7 +176,7 @@ export function SortableBlock({ block, index, qNumber }: SortableBlockProps) {
                       <div className="whitespace-pre-wrap">
                         {block.question && (
                           block.question.includes('</') || block.question.includes('<br') ? (
-                            <div dangerouslySetInnerHTML={{ __html: block.question }} />
+                            <div dangerouslySetInnerHTML={{ __html: sanitizeHTML(block.question) }} />
                           ) : (
                             block.question
                           )

@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { sanitizeHTML } from '@/lib/sanitize'
 import { CheckSquare, Circle, ChevronDown, ChevronUp, Upload, BookOpen, Type as DrawIcon } from 'lucide-react'
 import type { WorksheetBlock, WorksheetAnswers } from '@/types/database'
 import { AnnotationCanvas } from '@/components/worksheet/AnnotationCanvas'
@@ -452,7 +453,7 @@ export function QuestionRenderer({ block, index, answer, onChange, readOnly, sho
           )}
         >
           {isHtml ? (
-            <div dangerouslySetInnerHTML={{ __html: rawContent }} />
+            <div dangerouslySetInnerHTML={{ __html: sanitizeHTML(rawContent) }} />
           ) : (
             rawContent
           )}

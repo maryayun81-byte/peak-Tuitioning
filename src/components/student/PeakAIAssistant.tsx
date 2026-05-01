@@ -15,6 +15,7 @@ import type { Message } from '@/app/actions/ai'
 import MermaidDiagram from '@/components/shared/MermaidDiagram'
 import { useAuthStore } from '@/stores/authStore'
 import toast from 'react-hot-toast'
+import { sanitizeHTML } from '@/lib/sanitize'
 
 export function PeakAIAssistant() {
   const { student, profile } = useAuthStore()
@@ -581,7 +582,8 @@ function MarkdownRenderer({ content }: { content: string }) {
   }
 
   // 4. Fallback to Simple Formatting (Bold, Lists)
-  const formattedLines = content
+  const sanitizedContent = sanitizeHTML(content)
+  const formattedLines = sanitizedContent
     .replace(/\*\*(.*?)\*\*/g, '<b class="font-black text-primary">$1</b>')
     .replace(/\n- (.*?)/g, '<br/>• $1')
     .split('\n')
