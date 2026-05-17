@@ -578,6 +578,11 @@ export default function ParentDashboard() {
                               Study Roadmap <ArrowRight size={16} />
                            </Button>
                         </Link>
+                        <Link href={`/parent/live`} className="w-full">
+                           <Button variant="secondary" className="w-full h-14 bg-emerald-500/20 text-white border-emerald-300/20 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-emerald-500/30 backdrop-blur-md gap-2">
+                              Live Campus <Zap size={16} />
+                           </Button>
+                        </Link>
                      </div>
                   </div>
 

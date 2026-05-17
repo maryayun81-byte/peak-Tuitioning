@@ -37,7 +37,7 @@ export async function nudgeStudent(studentId: string, type: 'assignment' | 'quiz
   const defaultMessages = {
     assignment: `Hey ${student.full_name.split(' ')[0]}, just a friendly nudge about your pending assignments. Let's get them to the Peak! 🏔️`,
     quiz: `Time to test your knowledge, ${student.full_name.split(' ')[0]}! You have some quizzes waiting for you. 🧠`,
-    motivation: `Keep pushing, ${student.full_name.split(' ')[0]}! Your Peak Coach and I are rooting for you. 🚀`
+    motivation: `Keep pushing, ${student.full_name.split(' ')[0]}! Your Peak Intelligence Coach and I are rooting for you.`
   }
 
   const { error } = await supabase.from('notifications').insert({

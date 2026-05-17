@@ -132,20 +132,20 @@ export default function LiveSessionCreator({ subjects, assignments, centers, onC
   return (
     <motion.div 
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-10 bg-black/80 backdrop-blur-md"
+      className="fixed inset-0 z-[100] flex items-stretch sm:items-center justify-center p-0 sm:p-4 lg:p-8 bg-black/80 backdrop-blur-md"
     >
       <motion.div 
         initial={{ y: 20, scale: 0.95 }} animate={{ y: 0, scale: 1 }} exit={{ y: 20, scale: 0.95 }}
-        className="relative w-full max-w-4xl h-[90vh] bg-[#0A0C10] border border-white/5 rounded-[2.5rem] overflow-hidden flex flex-col shadow-2xl"
+        className="relative w-full max-w-5xl h-[100dvh] sm:h-[92dvh] bg-[#0A0C10] border border-white/5 rounded-none sm:rounded-[2rem] overflow-hidden flex flex-col shadow-2xl"
       >
         {/* Header */}
-        <div className="px-10 py-8 border-b border-white/5 flex items-center justify-between bg-gradient-to-r from-emerald-500/5 to-transparent">
-          <div className="flex items-center gap-4">
-             <div className="w-12 h-12 rounded-xl bg-emerald-500 flex items-center justify-center text-black shadow-lg shadow-emerald-500/20">
+        <div className="px-5 sm:px-8 py-5 sm:py-6 border-b border-white/5 flex items-center justify-between gap-4 bg-gradient-to-r from-emerald-500/5 to-transparent shrink-0">
+          <div className="flex items-center gap-4 min-w-0">
+             <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-emerald-500 flex items-center justify-center text-black shadow-lg shadow-emerald-500/20 shrink-0">
                 <Zap size={24} />
              </div>
-             <div>
-                <h2 className="text-2xl font-black uppercase tracking-tight text-white">Create Live Session</h2>
+             <div className="min-w-0">
+                <h2 className="text-lg sm:text-2xl font-black uppercase tracking-tight text-white leading-tight">Create Live Session</h2>
                 <p className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">Intelligent Session Engine</p>
              </div>
           </div>
@@ -154,7 +154,7 @@ export default function LiveSessionCreator({ subjects, assignments, centers, onC
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto px-10 py-10 space-y-12">
+        <form id="live-session-create-form" onSubmit={handleSubmit} className="flex-1 min-h-0 overflow-y-auto px-5 sm:px-8 py-6 sm:py-8 space-y-8 sm:space-y-10">
           {/* Step 1: Destination Selection */}
           <div className="space-y-8">
             <div className="flex items-center gap-3">
@@ -162,7 +162,7 @@ export default function LiveSessionCreator({ subjects, assignments, centers, onC
               <h3 className="text-lg font-black uppercase tracking-tight">Destination Context</h3>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
               <div className="space-y-2">
                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 pl-1">Tuition Center</label>
                 <select 
@@ -248,7 +248,7 @@ export default function LiveSessionCreator({ subjects, assignments, centers, onC
           <div className="h-px bg-white/5" />
 
           {/* Step 2: Time & Duration */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
             <div className="space-y-6">
                <div className="space-y-2">
                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 pl-1">Scheduled Start Time</label>
@@ -334,7 +334,7 @@ export default function LiveSessionCreator({ subjects, assignments, centers, onC
               </div>
               <div className="space-y-4">
                 {formData.outcomes.map((outcome, idx) => (
-                  <div key={idx} className="flex items-center gap-4 group">
+                  <div key={idx} className="flex items-center gap-3 sm:gap-4 group">
                     <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-[10px] font-black text-slate-500 shrink-0">
                       {idx + 1}
                     </div>
@@ -343,7 +343,7 @@ export default function LiveSessionCreator({ subjects, assignments, centers, onC
                       value={outcome} 
                       onChange={e => updateOutcome(idx, e.target.value)}
                       placeholder={`Measurable Outcome (e.g., Identify 3 types of equations)`}
-                      className="flex-1 h-12 px-6 rounded-xl bg-white/[0.02] border border-white/5 text-sm text-white placeholder:text-slate-700 focus:border-emerald-500/30 outline-none"
+                      className="min-w-0 flex-1 h-12 px-4 sm:px-6 rounded-xl bg-white/[0.02] border border-white/5 text-sm text-white placeholder:text-slate-700 focus:border-emerald-500/30 outline-none"
                     />
                     <button type="button" onClick={() => removeOutcome(idx)} className="w-10 h-10 rounded-xl bg-red-500/5 text-red-500/30 hover:text-red-500 hover:bg-red-500/10 transition-all">
                        <Trash2 size={16} />
@@ -356,21 +356,22 @@ export default function LiveSessionCreator({ subjects, assignments, centers, onC
         </form>
 
         {/* Footer */}
-        <div className="px-10 py-8 border-t border-white/5 flex items-center justify-between bg-black/20">
-          <div className="space-y-1">
+        <div className="px-5 sm:px-8 py-4 sm:py-5 border-t border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-black/20 shrink-0">
+          <div className="space-y-1 min-w-0">
             <p className="text-[9px] font-bold text-slate-500 uppercase tracking-[0.3em]">
                Targeting: <span className="text-emerald-500">{formData.session_type === 'class' ? 'Entire Class' : 'Subject Group'}</span>
             </p>
             <p className="text-[8px] opacity-40 font-bold uppercase tracking-widest">LiveKit Node Deployment: Auto-Scaling</p>
           </div>
-          <div className="flex items-center gap-6">
-             <button type="button" onClick={onClose} className="text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-white transition-colors">
+          <div className="flex items-center justify-end gap-3 sm:gap-6">
+             <button type="button" onClick={onClose} className="h-11 px-3 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-white transition-colors">
                Cancel
              </button>
              <button 
-               onClick={handleSubmit} 
+               type="submit"
+               form="live-session-create-form"
                disabled={isSubmitting}
-               className="px-10 py-4 rounded-xl bg-white text-black font-black uppercase tracking-widest text-[10px] hover:bg-emerald-500 hover:text-white transition-all shadow-xl disabled:opacity-50 flex items-center gap-2"
+               className="h-11 sm:h-12 px-5 sm:px-8 rounded-xl bg-white text-black font-black uppercase tracking-widest text-[10px] hover:bg-emerald-500 hover:text-white transition-all shadow-xl disabled:opacity-50 flex items-center gap-2 whitespace-nowrap"
              >
                {isSubmitting ? (
                  <><Loader2 className="animate-spin" size={14} /> Initializing...</>

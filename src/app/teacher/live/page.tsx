@@ -123,7 +123,10 @@ export default function TeacherLivePage() {
   }
 
   const { subjects, assignments, centers, sessions } = pageData
+  const liveCount = sessions.filter(s => s.status === 'live').length
   const scheduledCount = sessions.filter(s => s.status === 'scheduled').length
+  const completedCount = sessions.filter(s => s.status === 'completed').length
+  const completionRate = sessions.length > 0 ? Math.round((completedCount / sessions.length) * 100) : 0
 
   const filteredSessions = sessions
     .filter(s => statusFilter === 'all' || s.status === statusFilter)
@@ -163,18 +166,18 @@ export default function TeacherLivePage() {
 
       {/* Quick Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard label="Live Now" value="0" icon={<Activity />} active />
+        <StatCard label="Live Now" value={liveCount.toString()} icon={<Activity />} active />
         <StatCard label="Scheduled" value={scheduledCount.toString()} icon={<Calendar />} />
         <StatCard label="Total Sessions" value={sessions.length.toString()} icon={<Target />} />
-        <StatCard label="Completion" value="98%" icon={<CheckCircle2 />} />
+        <StatCard label="Completion" value={`${completionRate}%`} icon={<CheckCircle2 />} />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
+      <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_320px] gap-8 xl:gap-10">
         {/* Session Pipeline */}
-        <div className="lg:col-span-8 space-y-6">
-          <div className="flex items-center justify-between">
+        <div className="min-w-0 space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <h3 className="text-xl font-black uppercase tracking-tight">Session Pipeline</h3>
-            <div className="h-px flex-1 mx-8 bg-white/5" />
+            <div className="hidden sm:block h-px flex-1 mx-8 bg-white/5" />
             <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{filteredSessions.length} sessions</span>
           </div>
 
@@ -251,20 +254,20 @@ export default function TeacherLivePage() {
         </div>
 
         {/* Side Panel */}
-        <div className="lg:col-span-4 space-y-8">
-          <div className="p-10 rounded-[2.5rem] bg-gradient-to-br from-emerald-500/10 to-transparent border border-emerald-500/10 space-y-8">
+        <div className="space-y-6">
+          <div className="p-6 rounded-[2rem] bg-gradient-to-br from-emerald-500/10 to-transparent border border-emerald-500/10 space-y-6">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 rounded-2xl bg-emerald-500 flex items-center justify-center text-black shadow-xl">
                 <Target size={24} />
               </div>
               <h4 className="font-black uppercase tracking-tight leading-none">Clarity <br />Strategy</h4>
             </div>
-            <p className="text-xs text-slate-400 font-medium leading-relaxed uppercase tracking-widest">
+            <p className="text-sm text-slate-400 font-medium leading-6">
               Every Peak Live session is optimized for clarity. Ensure your &quot;Key Outcomes&quot; are measurable and exam-focused for maximum impact.
             </p>
           </div>
 
-          <div className="p-10 rounded-[2.5rem] bg-white/[0.02] border border-white/5 space-y-8">
+          <div className="p-6 rounded-[2rem] bg-white/[0.02] border border-white/5 space-y-6">
             <h4 className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500">Upcoming Timeline</h4>
             <div className="space-y-6">
               {sessions.filter(s => s.status === 'scheduled').slice(0, 3).map(s => (
@@ -350,14 +353,17 @@ function SessionListItem({ session, onRefetch }: { session: any, onRefetch?: () 
     setIsSaving(true)
     try {
       const supabase = getSupabaseBrowserClient()
+      const nextScheduledAt = new Date(editData.scheduled_at)
+      const shouldRestoreUpcoming = session.status === 'completed' && nextScheduledAt.getTime() > Date.now()
       const { error } = await supabase
         .from('live_sessions')
         .update({
           title: editData.title,
           // Convert datetime-local (local time) → UTC ISO string for correct DB storage
-          scheduled_at: new Date(editData.scheduled_at).toISOString(),
+          scheduled_at: nextScheduledAt.toISOString(),
           duration_mins: editData.duration_mins,
           goal: editData.goal,
+          ...(shouldRestoreUpcoming ? { status: 'scheduled' } : {}),
         })
         .eq('id', session.id)
       
@@ -388,9 +394,9 @@ function SessionListItem({ session, onRefetch }: { session: any, onRefetch?: () 
   
   return (
     <>
-      <div className="p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] bg-white/[0.02] border border-white/5 hover:bg-white/[0.04] transition-all group">
+      <div className="p-5 md:p-7 rounded-[2rem] md:rounded-[2.5rem] bg-white/[0.02] border border-white/5 hover:bg-white/[0.04] transition-all group overflow-hidden">
         {/* Card body — stacks on mobile, row on md+ */}
-        <div className="flex flex-col md:flex-row md:items-center gap-6">
+        <div className="flex flex-col xl:flex-row xl:items-center gap-6">
           
           {/* Left side: Icon + Session Info */}
           <div className="flex items-start gap-4 md:gap-5 min-w-0 flex-1">
@@ -415,7 +421,7 @@ function SessionListItem({ session, onRefetch }: { session: any, onRefetch?: () 
               </div>
               
               {/* Title */}
-              <h4 className="text-base md:text-xl font-black uppercase tracking-tight text-white truncate block">
+              <h4 className="text-base md:text-xl font-black uppercase tracking-tight text-white leading-snug break-words overflow-hidden [display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical]">
                 {session.title}
               </h4>
               
@@ -442,23 +448,23 @@ function SessionListItem({ session, onRefetch }: { session: any, onRefetch?: () 
           </div>
 
           {/* Right side: Action Buttons */}
-          <div className="flex flex-wrap items-center gap-3 shrink-0">
-            <div className="flex items-center gap-2 flex-1 md:flex-none">
+          <div className="flex flex-wrap items-center gap-3 shrink-0 w-full xl:w-auto">
+            <div className="flex items-center gap-2 flex-1 xl:flex-none min-w-0 sm:min-w-[180px]">
               {isLive ? (
                 <Link
                   href={`/teacher/live/${session.id}/studio`}
-                  className="flex-1 md:flex-none px-6 py-3 rounded-xl bg-white text-black font-black uppercase tracking-widest text-[9px] text-center hover:bg-emerald-500 hover:text-white transition-all shadow-xl whitespace-nowrap"
+                  className="flex-1 xl:flex-none px-6 py-3 rounded-xl bg-white text-black font-black uppercase tracking-widest text-[9px] text-center hover:bg-emerald-500 hover:text-white transition-all shadow-xl whitespace-nowrap"
                 >
                   Enter Studio
                 </Link>
               ) : (
-                <div className="flex items-center gap-2 flex-1 md:flex-none">
+                <div className="flex items-center gap-2 flex-1 xl:flex-none min-w-0">
                   {/* Start Session — makes it go live */}
                   {isScheduled && (
                     <button
                       onClick={handleStart}
                       disabled={isStarting}
-                      className="flex-1 md:flex-none px-6 py-3 rounded-xl bg-emerald-500 text-black font-black uppercase tracking-widest text-[9px] hover:bg-white transition-all shadow-lg shadow-emerald-500/20 whitespace-nowrap disabled:opacity-60"
+                      className="flex-1 xl:flex-none px-6 py-3 rounded-xl bg-emerald-500 text-black font-black uppercase tracking-widest text-[9px] hover:bg-white transition-all shadow-lg shadow-emerald-500/20 whitespace-nowrap disabled:opacity-60"
                     >
                       {isStarting ? '⚡ ...' : '⚡ Start'}
                     </button>
@@ -466,7 +472,7 @@ function SessionListItem({ session, onRefetch }: { session: any, onRefetch?: () 
                   {/* Manage / Edit */}
                   <button
                     onClick={() => setIsEditing(true)}
-                    className="flex-1 md:flex-none px-6 py-3 rounded-xl bg-white/5 border border-white/10 text-white font-black uppercase tracking-widest text-[9px] hover:bg-white hover:text-black transition-all whitespace-nowrap"
+                    className="flex-1 xl:flex-none px-6 py-3 rounded-xl bg-white/5 border border-white/10 text-white font-black uppercase tracking-widest text-[9px] hover:bg-white hover:text-black transition-all whitespace-nowrap"
                   >
                     Manage
                   </button>
@@ -503,15 +509,15 @@ function SessionListItem({ session, onRefetch }: { session: any, onRefetch?: () 
 
       {/* Edit Modal */}
       {isEditing && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-          <div className="w-full max-w-xl bg-[#0A0C10] border border-white/10 rounded-[2rem] overflow-hidden shadow-2xl">
+        <div className="fixed inset-0 z-[100] flex items-stretch sm:items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-md">
+          <div className="w-full sm:max-w-2xl h-[100dvh] sm:h-auto sm:max-h-[92dvh] bg-[#0A0C10] border border-white/10 rounded-none sm:rounded-[2rem] overflow-hidden shadow-2xl flex flex-col">
             <div className="px-8 py-6 border-b border-white/5 flex items-center justify-between">
               <h3 className="text-lg font-black uppercase tracking-tight">Edit Session</h3>
               <button onClick={() => setIsEditing(false)} className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-slate-400 hover:text-white transition-all">
                 ✕
               </button>
             </div>
-            <div className="p-8 space-y-6">
+            <div className="p-5 sm:p-8 space-y-6 overflow-y-auto min-h-0 flex-1">
               <div className="space-y-2">
                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Session Title</label>
                 <input
@@ -520,7 +526,7 @@ function SessionListItem({ session, onRefetch }: { session: any, onRefetch?: () 
                   className="w-full h-12 px-5 rounded-xl bg-white/[0.03] border border-white/10 text-white outline-none focus:border-emerald-500/50"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Scheduled Time</label>
                   <input
@@ -556,7 +562,7 @@ function SessionListItem({ session, onRefetch }: { session: any, onRefetch?: () 
                 />
               </div>
             </div>
-            <div className="px-8 py-6 border-t border-white/5 flex justify-end gap-4">
+            <div className="px-5 sm:px-8 py-5 border-t border-white/5 flex justify-end gap-4 shrink-0">
               <button onClick={() => setIsEditing(false)} className="px-6 py-3 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-white transition-colors">
                 Cancel
               </button>

@@ -8,7 +8,7 @@ import {
   LineChart, ClipboardList, Bell, 
   Settings, LogOut, ChevronDown, 
   GraduationCap as Logo, ShieldCheck, BookOpen,
-  Sparkles, FileText
+  Sparkles, FileText, Zap
 } from 'lucide-react'
 import { Sidebar, BottomNav } from '@/components/layout/Sidebar'
 import { useAuthStore } from '@/stores/authStore'
@@ -20,6 +20,7 @@ import Link from 'next/link'
 
 const NAV_ITEMS = [
   { label: 'Overview', href: '/parent', icon: <LayoutDashboard size={18} /> },
+  { label: 'Live Campus', href: '/parent/live', icon: <Zap size={18} /> },
   { label: 'My Students', href: '/parent/students', icon: <Users size={18} /> },
   { label: 'Academics', href: '/parent/academics', icon: <LineChart size={18} /> },
   { label: 'Study Tracker', href: '/parent/academics/study', icon: <BookOpen size={18} /> },

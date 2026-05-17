@@ -1,216 +1,302 @@
-'use client'
-
-import { useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { 
-  Calculator, Atom, Microscope, Languages, 
-  Beaker, Binary, Zap, Heart, Star, 
-  CheckCircle2, ArrowRight, BookOpen, 
-  Globe, LayoutGrid, Quote, GraduationCap
-} from 'lucide-react'
 import Link from 'next/link'
+import {
+  ArrowRight,
+  BookOpenCheck,
+  BrainCircuit,
+  CheckCircle2,
+  Clock3,
+  FlaskConical,
+  GraduationCap,
+  Layers3,
+  LineChart,
+  PenTool,
+  Target,
+} from 'lucide-react'
+import { PremiumCarousel } from '@/components/ui/PremiumCarousel'
+import { PublicPortalMenu } from '@/components/ui/PublicPortalMenu'
 
-const PROGRAMS = {
-  '844': {
-    title: '8-4-4 High Achievement',
-    subtitle: 'Pure KCSE Secondary Stream',
-    color: 'emerald',
-    description: 'Precision-led revision modules for Form 1 through Form 4, focusing on exam intelligence and subject mastery.',
-    subjects: [
-      { name: 'Mathematics', code: 'MATH', icon: <Calculator size={28} />, focus: ['Calculus', 'Trigonometry', 'Pure Logic'], intensity: 100 },
-      { name: 'Physics', code: 'PHYC', icon: <Zap size={28} />, focus: ['Mechanics', 'Electronics', 'Modern Physics'], intensity: 95 },
-      { name: 'Chemistry', code: 'CHEM', icon: <Beaker size={28} />, focus: ['Organic Chem', 'Stoichiometry', 'Analysis'], intensity: 90 },
-      { name: 'Biology', code: 'BIO', icon: <Microscope size={28} />, focus: ['Genetics', 'Evolution', 'Physiology'], intensity: 85 },
-      { name: 'English', code: 'ENG', icon: <Languages size={28} />, focus: ['Analytical Literature', 'Grammar'], intensity: 80 },
-      { name: 'Kiswahili', code: 'KISWA', icon: <Languages size={28} />, focus: ['Fasihi simulizi', 'Insha'], intensity: 80 },
-    ]
+const cbcGalleryImages = [
+  '/cbc-hands-on-01.jpeg',
+  '/cbc-hands-on-02.jpeg',
+  '/cbc-hands-on-03.jpeg',
+  '/cbc-hands-on-04.jpeg',
+  '/cbc-hands-on-05.jpeg',
+  '/cbc-hands-on-06.jpeg',
+  '/cbc-hands-on-07.jpeg',
+  '/cbc-hands-on-08.jpeg',
+  '/cbc-hands-on-09.jpeg',
+  '/cbc-hands-on-10.jpeg',
+  '/cbc-hands-on-11.jpeg',
+  '/cbc-hands-on-12.jpeg',
+  '/cbc-hands-on-13.jpeg',
+]
+
+const streams = [
+  {
+    name: '8-4-4 KCSE',
+    principle: 'Every lesson moves the learner closer to exam conditions.',
+    focus: ['Past papers as the primary tool', 'KNEC marking scheme language', 'Timing per mark', 'High-yield topic recovery'],
+    image: '/media__1776964680146.jpg',
   },
-  'cbc': {
-    title: 'CBC STEM Pathway',
-    subtitle: 'Competency-Based Innovation',
-    color: 'blue',
-    description: 'Specialized support for the STEM track of the CBC curriculum, bridging practical skills with theoretical depth.',
-    subjects: [
-      { name: 'Core Mathematics', code: 'C-MATH', icon: <Calculator size={28} />, focus: ['Algorithmic Thinking', 'Data Science'], intensity: 100 },
-      { name: 'Chemistry', code: 'CHEM', icon: <Atom size={28} />, focus: ['Industrial Apps', 'Chemical Systems'], intensity: 90 },
-      { name: 'Biology', code: 'BIO', icon: <Microscope size={28} />, focus: ['Environmental Sci', 'Bio-Tech'], intensity: 85 },
-      { name: 'English', code: 'ENG', icon: <Languages size={28} />, focus: ['Media Literacy', 'Critical Writing'], intensity: 80 },
-      { name: 'Kiswahili', code: 'KISWA', icon: <Languages size={28} />, focus: ['Lugha na Mawasiliano'], intensity: 80 },
-      { name: 'Community Service', code: 'CSL', icon: <Globe size={28} />, focus: ['Social Innovation', 'Leadership'], intensity: 75 },
-    ]
-  }
-}
+]
 
-export default function ProgramsPage() {
-  const [activeStream, setActiveStream] = useState<'844' | 'cbc'>('844')
+const cbcFocus = ['Scenario discussion', 'Practical tasks', 'Rubric-based feedback', 'Real-world Kenyan examples']
 
+const tierStrategy = [
+  {
+    tier: 'The Climbers',
+    movement: 'D to C',
+    problem: 'Foundation gaps, anxiety, and subject phobia.',
+    kcse: 'High-yield fundamentals, mark hunting, formulas, first correct steps, and confidence.',
+    cbc: 'Numbered practical steps, local examples, visual aids, micro-tasks, and immediate feedback.',
+  },
+  {
+    tier: 'The Momentum Builders',
+    movement: 'C to B',
+    problem: 'They know the basics but fail when the question changes shape.',
+    kcse: 'Same concept in five formats, petty mistake audits, Section B work, and marking-scheme mastery.',
+    cbc: 'Guided scenarios, troubleshooting, mini-projects, and explaining why each decision works.',
+  },
+  {
+    tier: 'The Peak Performers',
+    movement: 'B to A',
+    problem: 'They know the content but lose the final precision marks.',
+    kcse: 'Hard Section B and C questions, strict timing, self-marking, and examiner phrasing.',
+    cbc: 'Advanced rubrics, leadership in practical tasks, evaluation, critique, and cross-strand problems.',
+  },
+]
+
+const subjectGroups = [
+  {
+    title: '8-4-4 Form 3 and Form 4',
+    subtitle: 'KCSE exam-focused mastery',
+    subjects: ['Mathematics', 'Chemistry', 'Biology', 'Physics', 'English', 'Kiswahili'],
+  },
+  {
+    title: 'CBC Grades 6 to 9',
+    subtitle: 'Competency and hands-on foundation',
+    subjects: ['Mathematics', 'Integrated Science', 'English', 'Kiswahili', 'Social Studies', 'Pre-Technical', 'Agriculture'],
+  },
+  {
+    title: 'CBC Grade 10 STEM',
+    subtitle: 'Senior school STEM pathway support',
+    subjects: ['Core Mathematics', 'Kiswahili', 'Chemistry', 'Biology', 'Physics', 'English', 'CSL'],
+  },
+]
+
+const sessionFlow = [
+  ['0-10 min', 'Recall check', 'The learner produces before the guide explains.'],
+  ['10-35 min', 'Targeted intervention', 'The exact gap is repaired through questioning, modeling, or scaffolded practice.'],
+  ['35-70 min', 'Pressure practice', 'Students attempt timed or practical tasks matched to their tier.'],
+  ['70-90 min', 'Correction and next step', 'Mistakes are audited, marks are explained, and the next action is clear.'],
+]
+
+export default function ProgrammesPage() {
   return (
-    <main className="relative min-h-screen bg-[#03050C] text-white overflow-hidden selection:bg-emerald-500/30">
-      {/* Background Dynamics */}
-      <div className="fixed inset-0 z-0">
-        <div className={`absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,${activeStream === '844' ? '#0a1a14' : '#0a141a'} 0%,#03050c 100%)] transition-colors duration-1000`} />
-        <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03] mix-blend-overlay pointer-events-none" />
-      </div>
+    <main className="min-h-screen bg-[#f6f3ed] text-slate-950">
+      <section className="relative overflow-hidden bg-slate-950 text-white">
+        <img src="/media__1776963140037.jpg" alt="Peak Performance programme session" className="absolute inset-0 h-full w-full object-cover" />
+        <div className="absolute inset-0 bg-slate-950/72" />
+        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(2,6,23,.94),rgba(2,6,23,.68),rgba(2,6,23,.18))]" />
 
-      {/* ── HEADER ── */}
-      <header className="relative z-50 px-8 lg:px-16 py-12 flex items-center justify-between">
-        <Link href="/" className="flex items-center gap-4 group">
-          <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center text-white shadow-2xl group-hover:rotate-12 transition-transform">
-             <LayoutGrid size={20} />
+        <nav className="relative z-50 mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
+          <Link href="/" className="flex items-center gap-3">
+            <img src="/logo.png" alt="Peak Performance logo" className="h-10 w-10 rounded-md bg-white object-contain p-1" />
+            <span className="text-sm font-black uppercase tracking-[0.24em]">Peak Performance</span>
+          </Link>
+          <div className="flex items-center gap-4">
+            <Link href="/about" className="hidden text-sm font-bold text-white/75 hover:text-white sm:inline">About</Link>
+            <PublicPortalMenu />
           </div>
-          <span className="font-black uppercase tracking-widest text-[10px]">Ecosystem Hub</span>
-        </Link>
-        <div className="flex bg-white/5 p-1.5 rounded-2xl border border-white/10 backdrop-blur-3xl">
-          {(['844', 'cbc'] as const).map(s => (
-            <button key={s} onClick={() => setActiveStream(s)}
-              className={`px-10 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeStream === s ? 'bg-white text-[#03050C] shadow-2xl' : 'text-white/40 hover:text-white'}`}>
-              {s} Stream
-            </button>
-          ))}
-        </div>
-      </header>
+        </nav>
 
-      {/* ── HERO ── */}
-      <section className="relative z-10 pt-16 pb-24 px-6">
-        <div className="max-w-7xl mx-auto space-y-8">
-           <AnimatePresence mode="wait">
-             <motion.div key={activeStream} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.6 }}
-               className="space-y-6">
-                <span className={`px-4 py-1.5 rounded-full border ${activeStream === '844' ? 'border-emerald-500/20 text-emerald-500 bg-emerald-500/5' : 'border-blue-500/20 text-blue-500 bg-blue-500/5'} text-[10px] font-black uppercase tracking-[0.4em]`}>
-                   {PROGRAMS[activeStream].subtitle}
-                </span>
-                <h1 className="text-6xl md:text-9xl font-black uppercase tracking-tighter leading-[0.9]">
-                  {activeStream === '844' ? 'Academic' : 'Innovation'}<br />
-                  <span className={`text-transparent bg-clip-text bg-gradient-to-r ${activeStream === '844' ? 'from-emerald-400 to-teal-600' : 'from-blue-400 to-indigo-600'} italic`}>Matrices.</span>
-                </h1>
-                <p className="text-xl md:text-2xl text-white/40 max-w-2xl font-medium leading-relaxed">
-                  {PROGRAMS[activeStream].description}
-                </p>
-             </motion.div>
-           </AnimatePresence>
+        <div className="relative z-10 mx-auto max-w-7xl px-4 pb-16 pt-20 sm:px-6 lg:px-8 lg:pt-28">
+          <p className="text-sm font-black uppercase tracking-[0.24em] text-emerald-300">KCSE and CBC tutoring in Kenya</p>
+          <h1 className="mt-4 max-w-4xl text-5xl font-black leading-[0.98] tracking-tight sm:text-7xl">
+            One academic engine. Two curriculum strategies.
+          </h1>
+          <p className="mt-6 max-w-2xl text-lg leading-8 text-white/78">
+            Peak supports Kenyan learners through exam-centric KCSE preparation and application-led CBC development, without treating the two systems as the same problem.
+          </p>
+          <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+            <Link href="/enroll" className="inline-flex items-center justify-center gap-2 rounded-full bg-emerald-400 px-6 py-3 text-sm font-black uppercase tracking-[0.16em] text-slate-950 hover:bg-emerald-300">
+              Start diagnostic <ArrowRight size={17} />
+            </Link>
+            <Link href="/about" className="inline-flex items-center justify-center gap-2 rounded-full border border-white/25 px-6 py-3 text-sm font-bold text-white hover:bg-white/10">
+              Read the method
+            </Link>
+          </div>
         </div>
       </section>
 
-      {/* ── SUBJECT GRID ── */}
-      <section className="relative z-10 py-12 pb-32 px-6">
-        <div className="max-w-7xl mx-auto">
-           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-             <AnimatePresence mode="popLayout">
-                {PROGRAMS[activeStream].subjects.map((s, i) => (
-                  <motion.div key={`${activeStream}-${s.code}`} layout initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: i * 0.05, duration: 0.5 }}
-                    className="group relative p-10 rounded-[3rem] bg-white/[0.02] border border-white/5 overflow-hidden hover:bg-white/[0.05] hover:border-white/10 transition-all shadow-2xl">
-                    <div className={`absolute -top-10 -right-10 w-40 h-40 rounded-full blur-[80px] opacity-10 group-hover:opacity-30 transition-opacity ${activeStream === '844' ? 'bg-emerald-500' : 'bg-blue-500'}`} />
-                    
-                    <div className="relative z-10 space-y-8">
-                       <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-white bg-gradient-to-br ${activeStream === '844' ? 'from-emerald-500 to-teal-600 shadow-emerald-500/20' : 'from-blue-500 to-indigo-600 shadow-blue-500/20'} shadow-2xl group-hover:rotate-6 transition-transform`}>
-                          {s.icon}
-                       </div>
-                       
-                       <div className="space-y-2">
-                          <h3 className="text-3xl font-black uppercase tracking-tighter leading-none">{s.name}</h3>
-                          <p className="text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">{s.code} • Core Module</p>
-                       </div>
-
-                       <div className="space-y-4">
-                          <div className="text-[10px] font-black uppercase tracking-widest text-white/40 flex justify-between">
-                             <span>Focus Areas</span>
-                             <span>Intensity {s.intensity}%</span>
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                             {s.focus.map((f, idx) => (
-                               <span key={idx} className="px-3 py-1 rounded-lg bg-white/5 border border-white/5 text-[9px] font-bold text-white/60 group-hover:text-white transition-colors">{f}</span>
-                             ))}
-                          </div>
-                       </div>
-
-                       <div className="pt-4 border-t border-white/5 flex items-center justify-between">
-                          <div className="flex gap-1">
-                             {[1,2,3,4,5].map(star => (
-                               <Star key={star} size={10} className={star <= 4 ? (activeStream === '844' ? 'fill-emerald-500 text-emerald-500' : 'fill-blue-500 text-blue-500') : 'text-white/10'} />
-                             ))}
-                          </div>
-                          <span className="text-[9px] font-black uppercase tracking-widest text-white/20 group-hover:text-white transition-colors">Advanced Tier</span>
-                       </div>
-                    </div>
-                  </motion.div>
-                ))}
-             </AnimatePresence>
-           </div>
-        </div>
-      </section>
-
-      {/* ── METHODOLOGY BREAKDOWN ── */}
-      <section className="relative z-10 py-32 px-6 border-y border-white/5 bg-white/[0.01]">
-         <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-32 items-center">
-            <div className="space-y-12">
-               <div className="space-y-6">
-                  <span className="text-[10px] font-black uppercase tracking-[0.6em] text-emerald-500">The Methodology</span>
-                  <h2 className="text-5xl md:text-7xl font-black uppercase tracking-tighter">Beyond the <span className="text-white/20 italic">Classroom.</span></h2>
-                  <p className="text-xl text-white/40 font-medium leading-relaxed">We employ a three-tier delivery model designed for long-term retention and exam dominance.</p>
-               </div>
-               
-               <div className="space-y-10">
-                  {[
-                    { t: 'Intensive Concept Labs', d: 'Breakdown of complex STEM theories into visual, manageable modules.', icon: <Beaker size={24} className="text-emerald-400" /> },
-                    { t: 'Exam Intelligence', d: 'Strategic training on paper interpretation, time management, and marking scheme logic.', icon: <CheckCircle2 size={24} className="text-blue-400" /> },
-                    { t: 'Performance Feedback', d: 'Weekly digital transcripts for parents and students to monitor trajectory.', icon: <ArrowRight size={24} className="text-purple-400" /> },
-                  ].map((item, i) => (
-                    <div key={i} className="flex gap-8 group">
-                       <div className="w-14 h-14 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
-                          {item.icon}
-                       </div>
-                       <div className="space-y-2">
-                          <h4 className="text-xl font-black uppercase tracking-tighter">{item.t}</h4>
-                          <p className="text-sm text-white/40 font-medium leading-relaxed">{item.d}</p>
-                       </div>
+      <section className="border-y border-slate-200 bg-white px-4 py-12 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-7xl">
+          <div className="mb-6 max-w-3xl">
+            <p className="text-sm font-black uppercase tracking-[0.24em] text-emerald-800">KCSE stream</p>
+            <h2 className="mt-3 text-3xl font-black tracking-tight sm:text-5xl">Exam preparation has its own rhythm.</h2>
+          </div>
+          {streams.map((stream) => (
+            <article key={stream.name} className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+              <img src={stream.image} alt={`${stream.name} learning stream`} className="h-56 w-full object-cover" />
+              <div className="p-6">
+                <h2 className="text-3xl font-black tracking-tight">{stream.name}</h2>
+                <p className="mt-3 text-lg font-semibold leading-7 text-slate-700">{stream.principle}</p>
+                <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                  {stream.focus.map((item) => (
+                    <div key={item} className="flex gap-3 text-sm text-slate-600">
+                      <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" />
+                      <span>{item}</span>
                     </div>
                   ))}
-               </div>
-            </div>
-
-            <div className="relative">
-               <div className="absolute inset-0 bg-emerald-500/10 blur-[150px] rounded-full" />
-               <div className="relative p-12 rounded-[4rem] bg-gradient-to-br from-white/5 to-white/[0.01] border border-white/10 backdrop-blur-3xl shadow-2xl space-y-12">
-                  <div className="w-20 h-20 rounded-[2rem] bg-emerald-500 flex items-center justify-center text-white shadow-2xl">
-                     <GraduationCap size={40} />
-                  </div>
-                  <blockquote className="text-3xl md:text-4xl font-black uppercase tracking-tighter italic leading-none text-white/90">
-                    "Peak Performance is not just a tuition center; it is a refinery where potential is processed into mastery."
-                  </blockquote>
-                  <div className="flex items-center gap-6">
-                     <div className="w-16 h-16 rounded-2xl bg-emerald-500/20" />
-                     <div>
-                        <div className="text-lg font-black uppercase tracking-tighter">Academic Board</div>
-                        <div className="text-[10px] font-black uppercase tracking-widest text-emerald-500">STEM Strategy Hub</div>
-                     </div>
-                  </div>
-               </div>
-            </div>
-         </div>
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
       </section>
 
-      {/* ── CALL TO ACTION ── */}
-      <section className="relative z-10 py-48 px-6 text-center">
-         <div className="max-w-4xl mx-auto space-y-16">
-            <div className="space-y-8">
-               <h2 className="text-6xl md:text-8xl font-black uppercase tracking-tighter">Ready to secure your <span className="text-emerald-500">A-Rank?</span></h2>
-               <p className="text-xl text-white/30 font-medium">Limited slots available for the 2026 Academic Season. Secure your position today.</p>
+      <section className="px-4 py-14 sm:px-6 lg:px-8">
+        <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.82fr_1.18fr] lg:items-start">
+          <div>
+            <p className="text-sm font-black uppercase tracking-[0.24em] text-emerald-800">CBC competency and hands-on learning</p>
+            <h2 className="mt-3 text-3xl font-black tracking-tight sm:text-5xl">Every question moves from "what is this?" to "how do we use this?"</h2>
+            <p className="mt-5 text-lg leading-8 text-slate-600">
+              Students build, test, observe, explain, and correct. CBC works best when learners handle materials, discuss observations, troubleshoot, and connect science to visible evidence.
+            </p>
+            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+              {cbcFocus.map((item) => (
+                <div key={item} className="flex gap-3 rounded-lg border border-slate-200 bg-white p-4 text-sm font-bold text-slate-700 shadow-sm">
+                  <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" />
+                  <span>{item}</span>
+                </div>
+              ))}
             </div>
-            <div className="flex flex-col sm:flex-row gap-6 justify-center">
-               <Link href="/" className="px-16 py-8 rounded-[2rem] bg-emerald-500 text-white font-black uppercase tracking-widest text-[11px] shadow-2xl hover:scale-105 active:scale-95 transition-all">
-                  Join the Ecosystem
-               </Link>
-               <button onClick={() => window.history.back()} className="px-16 py-8 rounded-[2rem] bg-white/5 border border-white/10 text-white font-black uppercase tracking-widest text-[11px] hover:bg-white/10 transition-all">
-                  Go Back
-               </button>
+          </div>
+          <div>
+            <PremiumCarousel images={cbcGalleryImages} autoPlayInterval={4300} />
+            <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {cbcGalleryImages.slice(0, 4).map((image, index) => (
+                <img
+                  key={image}
+                  src={image}
+                  alt={`CBC hands-on classroom moment ${index + 1}`}
+                  className="h-28 w-full rounded-lg border border-white object-cover shadow-sm sm:h-36"
+                />
+              ))}
             </div>
-         </div>
+          </div>
+        </div>
       </section>
 
-      {/* Footer Minimal */}
-      <footer className="relative z-10 py-20 px-10 border-t border-white/5 text-center">
-         <p className="text-[10px] text-white/20 font-black tracking-[0.4em] uppercase">PEAK CAMPUS KENYA • STEM MATRICES • ALL RIGHTS RESERVED</p>
-      </footer>
+      <section className="px-4 py-14 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-7xl">
+          <div className="mb-8 max-w-3xl">
+            <p className="text-sm font-black uppercase tracking-[0.24em] text-emerald-800">Tier by tier strategy</p>
+            <h2 className="mt-4 text-3xl font-black tracking-tight sm:text-5xl">Every grade band receives a different kind of help.</h2>
+          </div>
+          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+            <div className="hidden grid-cols-[1fr_0.75fr_1.2fr_1.2fr] border-b border-slate-200 bg-slate-950 px-5 py-4 text-sm font-black uppercase tracking-[0.14em] text-white md:grid">
+              <div>Tier</div>
+              <div>Movement</div>
+              <div>KCSE strategy</div>
+              <div>CBC strategy</div>
+            </div>
+            {tierStrategy.map((tier) => (
+              <div key={tier.tier} className="grid gap-4 border-b border-slate-200 p-5 last:border-b-0 md:grid-cols-[1fr_0.75fr_1.2fr_1.2fr]">
+                <div>
+                  <h3 className="text-xl font-black tracking-tight">{tier.tier}</h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">{tier.problem}</p>
+                </div>
+                <div>
+                  <span className="inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-800">{tier.movement}</span>
+                </div>
+                <p className="text-sm leading-6 text-slate-600">{tier.kcse}</p>
+                <p className="text-sm leading-6 text-slate-600">{tier.cbc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="border-y border-slate-200 bg-slate-950 px-4 py-14 text-white sm:px-6 lg:px-8">
+        <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.8fr_1.2fr] lg:items-start">
+          <div>
+            <p className="text-sm font-black uppercase tracking-[0.24em] text-emerald-300">90 minute lesson design</p>
+            <h2 className="mt-4 text-3xl font-black tracking-tight sm:text-5xl">Short enough to stay sharp. Structured enough to change marks.</h2>
+            <p className="mt-5 text-lg leading-8 text-white/70">
+              The session rhythm keeps learners active. Listening is never the main event.
+            </p>
+          </div>
+          <div className="grid gap-px overflow-hidden rounded-lg bg-white/10">
+            {sessionFlow.map(([time, title, body]) => (
+              <div key={time} className="grid gap-3 bg-slate-950 p-5 sm:grid-cols-[110px_190px_1fr]">
+                <div className="flex items-center gap-2 text-sm font-black text-emerald-300"><Clock3 size={16} /> {time}</div>
+                <div className="font-black tracking-tight">{title}</div>
+                <div className="text-sm leading-6 text-white/65">{body}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="px-4 py-14 sm:px-6 lg:px-8">
+        <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[1.05fr_0.95fr] lg:items-start">
+          <div>
+            <p className="text-sm font-black uppercase tracking-[0.24em] text-amber-700">Subjects by curriculum</p>
+            <h2 className="mt-4 text-3xl font-black tracking-tight sm:text-5xl">Clear subject pathways for KCSE, CBC junior school, and CBC Grade 10 STEM.</h2>
+            <div className="mt-7 grid gap-4">
+              {subjectGroups.map((group) => (
+                <div key={group.title} className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <h3 className="text-xl font-black tracking-tight">{group.title}</h3>
+                    <span className="text-xs font-black uppercase tracking-[0.16em] text-emerald-700">{group.subtitle}</span>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {group.subjects.map((subject) => (
+                      <span key={subject} className="rounded-full border border-slate-200 bg-[#f8f6f1] px-3 py-2 text-sm font-bold text-slate-800">
+                        {subject}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="grid gap-3">
+            {[
+              [Target, 'Mark hunting', 'Students learn how to earn marks even when they cannot finish a full question.'],
+              [PenTool, 'Petty mistake audit', 'Repeated error types are named, tracked, and removed from the next paper.'],
+              [FlaskConical, 'Real-world anchors', 'CBC tasks connect to local observations, household items, community issues, and practical demonstrations.'],
+              [BrainCircuit, 'Application pressure', 'Learners practise the same concept in multiple formats so understanding survives change.'],
+              [Layers3, 'Scaffolded tasks', 'Complex work is divided into a clear sequence of correct, confidence-building steps.'],
+              [LineChart, 'Progress evidence', 'Students and parents see movement through corrections, reflections, and performance records.'],
+            ].map(([Icon, title, body]) => {
+              const TypedIcon = Icon as typeof Target
+              return (
+                <div key={title as string} className="flex gap-4 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                  <TypedIcon className="mt-1 h-6 w-6 shrink-0 text-emerald-700" />
+                  <div>
+                    <h3 className="font-black tracking-tight">{title as string}</h3>
+                    <p className="mt-1 text-sm leading-6 text-slate-600">{body as string}</p>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </section>
+
+      <section className="bg-white px-4 py-12 sm:px-6 lg:px-8">
+        <div className="mx-auto flex max-w-7xl flex-col gap-6 rounded-lg border border-slate-200 bg-[#f8f6f1] p-6 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="flex items-center gap-2 text-sm font-bold text-emerald-800"><GraduationCap size={17} /> April, August, and December programmes</div>
+            <h2 className="mt-2 text-3xl font-black tracking-tight">Place the learner where the strategy matches the gap.</h2>
+          </div>
+          <Link href="/enroll" className="inline-flex items-center justify-center gap-2 rounded-full bg-slate-950 px-6 py-3 text-sm font-black uppercase tracking-[0.16em] text-white transition hover:bg-emerald-800">
+            Enroll now <ArrowRight size={17} />
+          </Link>
+        </div>
+      </section>
     </main>
   )
 }

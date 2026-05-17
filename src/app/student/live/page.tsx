@@ -1,315 +1,429 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { 
-  Zap, Calendar, Clock, Target, 
-  ChevronRight, Play, Lock, BookOpen, Users, Search, Loader2
+import {
+  BadgeCheck,
+  BookOpen,
+  Calendar,
+  CheckCircle2,
+  ChevronRight,
+  Clock,
+  Headphones,
+  Loader2,
+  MonitorPlay,
+  Play,
+  Search,
+  ShieldCheck,
+  Sparkles,
+  Target,
+  Users,
+  Video,
+  Wifi,
+  Zap,
 } from 'lucide-react'
-import Link from 'next/link'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/authStore'
 
-const PAGE_SIZE = 10
+const PAGE_SIZE = 8
+
+type SessionStatus = 'all' | 'live' | 'scheduled' | 'completed'
+
+function formatSessionTime(value?: string) {
+  if (!value) return 'Time not set'
+  return new Date(value).toLocaleString([], {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function getTimeHint(value?: string) {
+  if (!value) return 'Time pending'
+  const minutes = Math.round((new Date(value).getTime() - Date.now()) / 60000)
+  if (minutes < -5) return 'Started earlier'
+  if (minutes <= 0) return 'Starting now'
+  if (minutes < 60) return `Starts in ${minutes} min`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `Starts in ${hours} hr`
+  return `Starts in ${Math.round(hours / 24)} days`
+}
 
 export default function StudentLivePage() {
   const router = useRouter()
-  const supabase = getSupabaseBrowserClient()
+  const supabase = useMemo(() => getSupabaseBrowserClient(), [])
   const { student, profile, isLoading } = useAuthStore()
 
   const [sessions, setSessions] = useState<any[]>([])
   const [isLoadingData, setIsLoadingData] = useState(true)
-
-  // Search, filter, pagination
   const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState<'all' | 'live' | 'scheduled' | 'completed'>('all')
+  const [statusFilter, setStatusFilter] = useState<SessionStatus>('all')
   const [page, setPage] = useState(1)
 
   const fetchSessions = useCallback(async () => {
-    if (!student?.class_id) return
+    if (!student?.class_id) {
+      setIsLoadingData(false)
+      return
+    }
+
     try {
       const { data } = await supabase
         .from('live_sessions')
-        .select(`*, subject:subjects(name), class:classes(name), teacher:teachers(full_name)`)
+        .select('*, subject:subjects(name), class:classes(name), teacher:teachers(full_name), outcomes:live_session_outcomes(*)')
         .eq('class_id', student.class_id)
         .order('scheduled_at', { ascending: true })
+
       setSessions(data || [])
     } catch (err) {
       console.error('[StudentLivePage] Fetch error:', err)
     } finally {
       setIsLoadingData(false)
     }
-  }, [student?.class_id])
+  }, [student?.class_id, supabase])
 
   useEffect(() => {
     if (isLoading) return
-    if (!profile) { router.push('/auth/login'); return }
-    if (!student?.class_id) return
-    
+    if (!profile) {
+      router.push('/auth/login')
+      return
+    }
+
     fetchSessions()
-    
-    // Auto-refresh every 30 seconds to catch new sessions/status changes
     const interval = setInterval(fetchSessions, 30000)
     return () => clearInterval(interval)
-  }, [isLoading, profile, student?.class_id, fetchSessions])
+  }, [isLoading, profile, fetchSessions, router])
+
+  const filteredSessions = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    return sessions
+      .filter((session) => statusFilter === 'all' || session.status === statusFilter)
+      .filter((session) => {
+        if (!query) return true
+        return [session.title, session.subject?.name, session.teacher?.full_name, session.class?.name]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(query))
+      })
+  }, [sessions, search, statusFilter])
+
+  const liveSessions = sessions.filter((session) => session.status === 'live')
+  const scheduledSessions = sessions.filter((session) => session.status === 'scheduled')
+  const completedSessions = sessions.filter((session) => session.status === 'completed')
+  const nextSession = liveSessions[0] || scheduledSessions[0] || sessions[0]
+
+  const totalPages = Math.max(1, Math.ceil(filteredSessions.length / PAGE_SIZE))
+  const pagedSessions = filteredSessions.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
   if (isLoading || isLoadingData) {
     return (
-      <div className="min-h-screen bg-[#05070A] flex items-center justify-center">
-        <div className="flex flex-col items-center gap-6">
-          <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-            <Loader2 size={32} className="text-emerald-500 animate-spin" />
+      <div className="min-h-[80vh] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+            <Loader2 size={28} className="text-emerald-500 animate-spin" />
           </div>
-          <p className="text-[10px] font-black uppercase tracking-[0.4em] text-emerald-500">Loading Sessions...</p>
+          <p className="text-xs font-black uppercase tracking-[0.25em] text-emerald-600">Loading live campus</p>
         </div>
       </div>
     )
   }
 
-  const filteredSessions = sessions
-    .filter(s => statusFilter === 'all' || s.status === statusFilter)
-    .filter(s => !search || 
-      s.title?.toLowerCase().includes(search.toLowerCase()) || 
-      s.subject?.name?.toLowerCase().includes(search.toLowerCase()) ||
-      s.teacher?.full_name?.toLowerCase().includes(search.toLowerCase())
-    )
-
-  const totalPages = Math.max(1, Math.ceil(filteredSessions.length / PAGE_SIZE))
-  const pagedSessions = filteredSessions.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
-
-  const liveCount = sessions.filter(s => s.status === 'live').length
-  const scheduledCount = sessions.filter(s => s.status === 'scheduled').length
-
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      className="min-h-screen bg-[#05070A] text-white p-6 md:p-12 space-y-16"
-    >
-      {/* Header */}
-      <div className="space-y-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-500 border border-emerald-500/20">
-            <Zap size={20} />
-          </div>
-          <span className="text-[10px] font-black uppercase tracking-[0.4em] text-emerald-500">Peak Campus Live</span>
-        </div>
-        <h1 className="text-4xl md:text-6xl font-black uppercase tracking-tight">Scholar <br /><span className="text-slate-500">Session Hub</span></h1>
-      </div>
-
-      {/* Quick Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-        <div className="p-6 rounded-[1.5rem] bg-emerald-500 text-black border border-emerald-500">
-          <div className="text-2xl font-black mb-1">{liveCount}</div>
-          <div className="text-[9px] font-black uppercase tracking-[0.2em] text-black/60">Live Now</div>
-        </div>
-        <div className="p-6 rounded-[1.5rem] bg-white/[0.02] border border-white/5">
-          <div className="text-2xl font-black mb-1">{scheduledCount}</div>
-          <div className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500">Upcoming</div>
-        </div>
-        <div className="p-6 rounded-[1.5rem] bg-white/[0.02] border border-white/5">
-          <div className="text-2xl font-black mb-1">{sessions.length}</div>
-          <div className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500">Total</div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
-        {/* Sessions List */}
-        <div className="lg:col-span-8 space-y-6">
-          <div className="flex items-center gap-4">
-            <h3 className="text-xl font-black uppercase tracking-tight text-white/40">Sessions</h3>
-            <div className="h-px flex-1 bg-white/5" />
-            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{filteredSessions.length} found</span>
-          </div>
-
-          {/* Search + Filter */}
-          <div className="flex flex-col sm:flex-row gap-3">
-            <div className="relative flex-1">
-              <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
-              <input
-                value={search}
-                onChange={e => { setSearch(e.target.value); setPage(1) }}
-                placeholder="Search by title, subject or teacher..."
-                className="w-full h-11 pl-10 pr-4 rounded-xl bg-white/[0.03] border border-white/5 text-white placeholder:text-slate-600 text-[11px] outline-none focus:border-emerald-500/40"
-              />
-            </div>
-            <div className="flex gap-2 flex-wrap">
-              {(['all', 'live', 'scheduled', 'completed'] as const).map(s => (
-                <button
-                  key={s}
-                  onClick={() => { setStatusFilter(s); setPage(1) }}
-                  className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${
-                    statusFilter === s
-                      ? s === 'live' ? 'bg-emerald-500 text-black' : 'bg-white text-black'
-                      : 'bg-white/5 text-slate-400 hover:text-white'
-                  }`}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Cards */}
-          <div className="space-y-4">
-            {pagedSessions.length === 0 ? (
-              <div className="p-20 rounded-[3rem] border border-dashed border-white/10 flex flex-col items-center justify-center text-center space-y-6">
-                <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center text-slate-700">
-                  <BookOpen size={32} />
-                </div>
-                <p className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">
-                  {search || statusFilter !== 'all' ? 'No sessions match your filters.' : 'No sessions scheduled for your class yet.'}
-                </p>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-4 sm:p-6 lg:p-10 space-y-8 pb-28">
+      <section className="overflow-hidden rounded-[2rem] border border-[var(--card-border)] bg-[var(--card)] shadow-xl shadow-black/5">
+        <div className="grid gap-0 lg:grid-cols-[1.25fr_0.75fr]">
+          <div className="p-6 sm:p-8 lg:p-10 space-y-8">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-2xl bg-emerald-500 text-white flex items-center justify-center shadow-lg shadow-emerald-500/20">
+                <MonitorPlay size={22} />
               </div>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.25em] text-emerald-600">Live Campus</p>
+                <h1 className="text-3xl sm:text-5xl font-black tracking-tight" style={{ color: 'var(--text)' }}>
+                  Join class without confusion.
+                </h1>
+              </div>
+            </div>
+
+            <p className="max-w-2xl text-sm sm:text-base leading-7 font-medium" style={{ color: 'var(--text-muted)' }}>
+              Your live lessons, start times, teachers, goals, and join buttons are kept in one place. When a teacher starts a room, your next step becomes obvious.
+            </p>
+
+            <div className="grid grid-cols-3 gap-3 sm:max-w-xl">
+              <MetricCard label="Live now" value={liveSessions.length} tone="emerald" />
+              <MetricCard label="Upcoming" value={scheduledSessions.length} />
+              <MetricCard label="Completed" value={completedSessions.length} />
+            </div>
+          </div>
+
+          <div className="border-t lg:border-l lg:border-t-0 border-[var(--card-border)] bg-emerald-500/[0.06] p-6 sm:p-8 lg:p-10">
+            {nextSession ? (
+              <NextSessionPanel session={nextSession} />
             ) : (
-              pagedSessions.map(session => (
-                <StudentSessionCard key={session.id} session={session} />
-              ))
+              <div className="h-full min-h-[260px] flex flex-col justify-center gap-5">
+                <div className="w-14 h-14 rounded-2xl bg-white/70 flex items-center justify-center text-emerald-600">
+                  <BookOpen size={26} />
+                </div>
+                <div>
+                  <h2 className="text-xl font-black" style={{ color: 'var(--text)' }}>No live lessons yet</h2>
+                  <p className="text-sm mt-2 leading-6" style={{ color: 'var(--text-muted)' }}>
+                    Scheduled lessons will appear here as soon as your teacher publishes them.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <section className="grid gap-6 lg:grid-cols-[1fr_320px]">
+        <div className="space-y-5">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div>
+              <h2 className="text-xl font-black" style={{ color: 'var(--text)' }}>Your sessions</h2>
+              <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>{filteredSessions.length} lessons found for your class</p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="relative sm:w-72">
+                <Search size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={search}
+                  onChange={(event) => {
+                    setSearch(event.target.value)
+                    setPage(1)
+                  }}
+                  placeholder="Search title, subject, teacher"
+                  className="w-full h-12 pl-10 pr-4 rounded-2xl border border-[var(--card-border)] bg-[var(--card)] text-sm outline-none focus:border-emerald-500"
+                  style={{ color: 'var(--text)' }}
+                />
+              </div>
+
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {(['all', 'live', 'scheduled', 'completed'] as const).map((status) => (
+                  <button
+                    key={status}
+                    onClick={() => {
+                      setStatusFilter(status)
+                      setPage(1)
+                    }}
+                    className={`h-12 px-4 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${
+                      statusFilter === status
+                        ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
+                        : 'bg-[var(--card)] text-[var(--text-muted)] border border-[var(--card-border)] hover:text-[var(--text)]'
+                    }`}
+                  >
+                    {status}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {pagedSessions.length === 0 ? (
+              <EmptyState search={search} status={statusFilter} />
+            ) : (
+              pagedSessions.map((session) => <StudentSessionCard key={session.id} session={session} />)
             )}
           </div>
 
-          {/* Pagination */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-center gap-2 pt-4">
+            <div className="flex items-center justify-center gap-2 pt-2">
               <button
-                onClick={() => setPage(p => Math.max(1, p - 1))}
+                onClick={() => setPage((value) => Math.max(1, value - 1))}
                 disabled={page === 1}
-                className="px-4 py-2 rounded-xl bg-white/5 text-slate-400 text-[9px] font-black uppercase tracking-widest hover:text-white hover:bg-white/10 transition-all disabled:opacity-30"
-              >Prev</button>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
-                <button
-                  key={p}
-                  onClick={() => setPage(p)}
-                  className={`w-9 h-9 rounded-xl text-[9px] font-black transition-all ${
-                    page === p ? 'bg-emerald-500 text-black' : 'bg-white/5 text-slate-400 hover:text-white'
-                  }`}
-                >{p}</button>
-              ))}
+                className="h-10 px-4 rounded-xl bg-[var(--card)] border border-[var(--card-border)] text-xs font-bold disabled:opacity-40"
+                style={{ color: 'var(--text)' }}
+              >
+                Previous
+              </button>
+              <span className="text-xs font-black px-3" style={{ color: 'var(--text-muted)' }}>
+                {page} of {totalPages}
+              </span>
               <button
-                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
                 disabled={page === totalPages}
-                className="px-4 py-2 rounded-xl bg-white/5 text-slate-400 text-[9px] font-black uppercase tracking-widest hover:text-white hover:bg-white/10 transition-all disabled:opacity-30"
-              >Next</button>
+                className="h-10 px-4 rounded-xl bg-[var(--card)] border border-[var(--card-border)] text-xs font-bold disabled:opacity-40"
+                style={{ color: 'var(--text)' }}
+              >
+                Next
+              </button>
             </div>
           )}
         </div>
 
-        {/* Side Panel */}
-        <div className="lg:col-span-4 space-y-8">
-          <div className="p-10 rounded-[2.5rem] bg-white/[0.02] border border-white/5 space-y-8">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center text-emerald-500">
-                <Target size={24} />
-              </div>
-              <h4 className="font-black uppercase tracking-tight leading-none text-white">Clarity <br />Commitment</h4>
+        <aside className="space-y-4">
+          <ChecklistCard />
+          <div className="rounded-[1.5rem] border border-[var(--card-border)] bg-[var(--card)] p-6 shadow-sm">
+            <div className="flex items-center gap-3 mb-4">
+              <ShieldCheck size={18} className="text-indigo-500" />
+              <h3 className="font-black" style={{ color: 'var(--text)' }}>How parents see it</h3>
             </div>
-            <p className="text-xs text-slate-500 font-medium leading-relaxed uppercase tracking-widest">
-              In every Peak Live session, you will see a clear goal and outcomes. Your goal is to move those bars to 100% by the end of the session.
+            <p className="text-sm leading-6" style={{ color: 'var(--text-muted)' }}>
+              Parents can see the lesson schedule and live status, but only students enter the classroom.
             </p>
           </div>
+        </aside>
+      </section>
+    </motion.div>
+  )
+}
 
-          <div className="p-10 rounded-[2.5rem] bg-gradient-to-br from-emerald-500/10 to-transparent border border-emerald-500/10 space-y-8">
-            <h4 className="text-[10px] font-black uppercase tracking-[0.3em] text-emerald-500">Join Instructions</h4>
-            <div className="space-y-4">
-              <div className="flex items-start gap-4">
-                <div className="w-6 h-6 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-500 text-[10px] font-black shrink-0">1</div>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Join 5 minutes before the scheduled time.</p>
-              </div>
-              <div className="flex items-start gap-4">
-                <div className="w-6 h-6 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-500 text-[10px] font-black shrink-0">2</div>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Ensure your audio/video are tested.</p>
-              </div>
-              <div className="flex items-start gap-4">
-                <div className="w-6 h-6 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-500 text-[10px] font-black shrink-0">3</div>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Have your notes and questions ready.</p>
-              </div>
-            </div>
-          </div>
+function MetricCard({ label, value, tone = 'slate' }: { label: string; value: number; tone?: 'emerald' | 'slate' }) {
+  return (
+    <div className={`rounded-2xl border p-4 ${tone === 'emerald' ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-[var(--input)] border-[var(--card-border)]'}`}>
+      <div className="text-2xl font-black">{value}</div>
+      <div className={`text-[10px] font-black uppercase tracking-widest ${tone === 'emerald' ? 'text-white/75' : 'text-[var(--text-muted)]'}`}>{label}</div>
+    </div>
+  )
+}
+
+function NextSessionPanel({ session }: { session: any }) {
+  const isLive = session.status === 'live'
+  return (
+    <div className="h-full min-h-[260px] flex flex-col justify-between gap-8">
+      <div className="space-y-5">
+        <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest ${
+          isLive ? 'bg-emerald-500 text-white' : 'bg-white/70 text-emerald-700'
+        }`}>
+          {isLive ? <Wifi size={12} /> : <Calendar size={12} />}
+          {isLive ? 'Live now' : getTimeHint(session.scheduled_at)}
+        </div>
+        <div>
+          <h2 className="text-2xl font-black leading-tight" style={{ color: 'var(--text)' }}>{session.title}</h2>
+          <p className="mt-3 text-sm leading-6" style={{ color: 'var(--text-muted)' }}>
+            {session.goal || 'Your teacher will guide the lesson goals when class begins.'}
+          </p>
         </div>
       </div>
-    </motion.div>
+
+      <div className="space-y-3">
+        <InfoRow icon={<Users size={15} />} label={session.teacher?.full_name || 'Teacher'} />
+        <InfoRow icon={<BookOpen size={15} />} label={session.subject?.name || 'Class session'} />
+        <InfoRow icon={<Clock size={15} />} label={`${formatSessionTime(session.scheduled_at)}${session.duration_mins ? `, ${session.duration_mins} min` : ''}`} />
+      </div>
+
+      {isLive ? (
+        <Link href={`/student/live/${session.id}`} className="h-14 rounded-2xl bg-emerald-500 text-white font-black flex items-center justify-center gap-2 shadow-xl shadow-emerald-500/25 hover:bg-emerald-600 transition-colors">
+          <Play size={18} /> Join classroom
+        </Link>
+      ) : (
+        <div className="h-14 rounded-2xl bg-white/70 border border-white text-emerald-700 font-black flex items-center justify-center gap-2">
+          <Headphones size={18} /> Prepare your device
+        </div>
+      )}
+    </div>
   )
 }
 
 function StudentSessionCard({ session }: { session: any }) {
   const isLive = session.status === 'live'
-
-  const formatScheduledTime = (isoString: string) => {
-    if (!isoString) return 'Time not set'
-    return new Date(isoString).toLocaleString([], {
-      weekday: 'short', month: 'short', day: 'numeric',
-      hour: '2-digit', minute: '2-digit',
-    })
-  }
+  const isCompleted = session.status === 'completed'
+  const outcomes = session.outcomes || []
 
   return (
-    <div className={`p-6 md:p-8 rounded-[2rem] border transition-all group ${
-      isLive 
-        ? 'bg-emerald-500/5 border-emerald-500/20 shadow-2xl shadow-emerald-500/5' 
-        : 'bg-white/[0.02] border-white/5'
-    }`}>
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
-        {/* Left: info */}
-        <div className="flex items-start gap-5 min-w-0">
-          <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${
-            isLive ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/30 animate-pulse' : 'bg-white/5 text-slate-500'
-          }`}>
-            {isLive ? <Play size={18} /> : <Clock size={18} />}
+    <article className="rounded-[1.5rem] border border-[var(--card-border)] bg-[var(--card)] p-5 sm:p-6 shadow-sm hover:shadow-xl hover:shadow-black/5 transition-all">
+      <div className="flex flex-col md:flex-row md:items-center gap-5">
+        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${
+          isLive ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/25' : isCompleted ? 'bg-indigo-500/10 text-indigo-500' : 'bg-[var(--input)] text-[var(--text-muted)]'
+        }`}>
+          {isLive ? <Video size={22} /> : isCompleted ? <CheckCircle2 size={22} /> : <Calendar size={22} />}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2 mb-2">
+            <StatusPill status={session.status} />
+            {session.subject?.name && <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600 bg-emerald-500/10 px-2.5 py-1 rounded-full">{session.subject.name}</span>}
+            <span className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">{session.class?.name || 'Your class'}</span>
           </div>
-          <div className="min-w-0 flex-1 space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              {session.subject?.name && (
-                <span className="text-[9px] font-black uppercase tracking-[0.2em] text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded-full whitespace-nowrap">{session.subject.name}</span>
-              )}
-              {session.session_type === 'class' && (
-                <span className="text-[9px] font-black uppercase tracking-[0.2em] text-sky-400 bg-sky-400/10 px-2 py-0.5 rounded-full whitespace-nowrap">Entire Class</span>
-              )}
-              {isLive && (
-                <span className="text-[9px] font-black uppercase tracking-[0.2em] text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full animate-pulse whitespace-nowrap">● Live</span>
-              )}
-              <span className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 whitespace-nowrap">{session.class?.name || 'Live Campus'}</span>
-            </div>
-            <h4 className="text-base md:text-lg font-black uppercase tracking-tight text-white truncate">{session.title}</h4>
-            <div className="flex flex-wrap items-center gap-3 text-slate-500">
-              <div className="flex items-center gap-1.5">
-                <Users size={11} />
-                <span className="text-[9px] font-bold uppercase tracking-widest">{session.teacher?.full_name || 'Staff'}</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <Calendar size={11} />
-                <span className="text-[9px] font-bold uppercase tracking-widest whitespace-nowrap">{formatScheduledTime(session.scheduled_at)}</span>
-              </div>
-              {session.duration_mins && (
-                <div className="flex items-center gap-1.5">
-                  <Clock size={11} />
-                  <span className="text-[9px] font-bold uppercase tracking-widest">{session.duration_mins} min</span>
-                </div>
-              )}
-            </div>
+          <h3 className="text-lg font-black leading-snug break-words overflow-hidden [display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical]" style={{ color: 'var(--text)' }}>{session.title}</h3>
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2 text-xs font-bold" style={{ color: 'var(--text-muted)' }}>
+            <span className="inline-flex items-center gap-1.5"><Users size={13} /> {session.teacher?.full_name || 'Peak teacher'}</span>
+            <span className="inline-flex items-center gap-1.5"><Clock size={13} /> {formatSessionTime(session.scheduled_at)}</span>
+            {session.duration_mins ? <span className="inline-flex items-center gap-1.5"><Target size={13} /> {session.duration_mins} min</span> : null}
+            {outcomes.length ? <span className="inline-flex items-center gap-1.5"><BadgeCheck size={13} /> {outcomes.length} outcomes</span> : null}
           </div>
         </div>
 
-        {/* Right: action */}
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="md:w-44">
           {isLive ? (
-            <Link
-              href={`/student/live/${session.id}`}
-              className="flex-1 md:flex-none px-6 py-3 rounded-xl bg-emerald-500 text-black font-black uppercase tracking-widest text-[9px] text-center hover:bg-white transition-all shadow-xl shadow-emerald-500/20 whitespace-nowrap"
-            >
-              Join Now
+            <Link href={`/student/live/${session.id}`} className="h-12 w-full rounded-2xl bg-emerald-500 text-white font-black text-sm flex items-center justify-center gap-2 hover:bg-emerald-600 transition-colors">
+              Join now <ChevronRight size={16} />
             </Link>
           ) : (
-            <div className="flex items-center gap-2 text-slate-600 px-3">
-              <Lock size={13} />
-              <span className="text-[9px] font-black uppercase tracking-widest whitespace-nowrap">Not Live Yet</span>
+            <div className="h-12 w-full rounded-2xl bg-[var(--input)] border border-[var(--card-border)] flex items-center justify-center text-xs font-black" style={{ color: 'var(--text-muted)' }}>
+              {isCompleted ? 'Review complete' : getTimeHint(session.scheduled_at)}
             </div>
           )}
-          <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-slate-700 group-hover:text-white transition-colors shrink-0">
-            <ChevronRight size={18} />
-          </div>
         </div>
       </div>
+    </article>
+  )
+}
+
+function StatusPill({ status }: { status: string }) {
+  const styles = {
+    live: 'bg-emerald-500 text-white',
+    scheduled: 'bg-amber-500/10 text-amber-600',
+    completed: 'bg-indigo-500/10 text-indigo-600',
+  } as Record<string, string>
+
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${styles[status] || 'bg-[var(--input)] text-[var(--text-muted)]'}`}>
+      {status === 'live' ? <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" /> : null}
+      {status || 'scheduled'}
+    </span>
+  )
+}
+
+function InfoRow({ icon, label }: { icon: React.ReactNode; label: string }) {
+  return (
+    <div className="flex items-center gap-3 text-sm font-bold" style={{ color: 'var(--text-muted)' }}>
+      <span className="w-8 h-8 rounded-xl bg-white/70 flex items-center justify-center text-emerald-600">{icon}</span>
+      <span className="min-w-0 truncate">{label}</span>
+    </div>
+  )
+}
+
+function ChecklistCard() {
+  const items = [
+    { icon: <Wifi size={15} />, text: 'Stable internet' },
+    { icon: <Headphones size={15} />, text: 'Audio ready' },
+    { icon: <BookOpen size={15} />, text: 'Notebook open' },
+    { icon: <Sparkles size={15} />, text: 'One question prepared' },
+  ]
+
+  return (
+    <div className="rounded-[1.5rem] border border-[var(--card-border)] bg-[var(--card)] p-6 shadow-sm">
+      <div className="flex items-center gap-3 mb-5">
+        <Zap size={18} className="text-emerald-500" />
+        <h3 className="font-black" style={{ color: 'var(--text)' }}>Before you join</h3>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        {items.map((item) => (
+          <div key={item.text} className="rounded-2xl bg-[var(--input)] border border-[var(--card-border)] p-3">
+            <div className="text-emerald-500 mb-2">{item.icon}</div>
+            <p className="text-xs font-black" style={{ color: 'var(--text)' }}>{item.text}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function EmptyState({ search, status }: { search: string; status: SessionStatus }) {
+  return (
+    <div className="rounded-[1.5rem] border-2 border-dashed border-[var(--card-border)] bg-[var(--card)] p-12 text-center">
+      <div className="w-14 h-14 mx-auto rounded-2xl bg-[var(--input)] flex items-center justify-center text-[var(--text-muted)] mb-4">
+        <BookOpen size={26} />
+      </div>
+      <h3 className="font-black" style={{ color: 'var(--text)' }}>No sessions found</h3>
+      <p className="text-sm mt-2" style={{ color: 'var(--text-muted)' }}>
+        {search || status !== 'all' ? 'Try a different search or filter.' : 'Your teacher has not scheduled a live lesson for your class yet.'}
+      </p>
     </div>
   )
 }

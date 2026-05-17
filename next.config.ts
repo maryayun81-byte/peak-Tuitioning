@@ -9,6 +9,12 @@ const withPWA = require('@ducanh2912/next-pwa').default({
 })
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: ['jsdom'],
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '10mb',
+    },
+  },
   turbopack: {
     root: process.cwd(),
   },

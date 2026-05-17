@@ -17,6 +17,67 @@ import { useAuthStore } from '@/stores/authStore'
 import toast from 'react-hot-toast'
 import { sanitizeHTML } from '@/lib/sanitize'
 
+function buildCoachGreeting(firstName: string) {
+  return `Hello ${firstName}! I'm your Peak Intelligence Coach. I can teach CBC and 8-4-4 with diagrams, worked examples, examiner tips, rubric guidance, and practice questions. What subject and topic should we master today?`
+}
+
+function isTrackableLearningTopic(value: string) {
+  const text = value.toLowerCase().trim()
+  if (text.length < 8) return false
+  if (/^(hi|hello|hey|thanks|thank you|ok|okay)\b/.test(text)) return false
+  return /\b(teach|learn|lesson|explain|revise|revision|chem|biology|physics|math|science|english|kiswahili|history|geography|business|agriculture|pretechnical|integrated|topic|sub-strand|strand)\b/.test(text)
+}
+
+function getCoachTarget(student: any) {
+  const curriculumName = Array.isArray(student?.curriculum)
+    ? student.curriculum[0]?.name
+    : student?.curriculum?.name
+  const classLevel = Number(student?.class?.level || 0)
+  const curriculumKey = String(curriculumName || '').toLowerCase()
+
+  if (curriculumKey.includes('8-4-4') || curriculumKey.includes('844')) return 'KCSE'
+  if (curriculumKey.includes('cbc') || curriculumKey.includes('cbe')) {
+    if (classLevel <= 6) return 'KPSEA'
+    if (classLevel <= 9) return 'KJSEA'
+    return 'CBC Senior'
+  }
+
+  return curriculumName || 'Curriculum'
+}
+
+function getCoachActionLabel(label: string) {
+  if (label.includes('Continue Lesson')) return 'Next Lesson'
+  if (label.includes('Quick Quiz')) return 'Quick Quiz'
+  if (label.includes('Explain Simpler')) return 'Explain Simpler'
+  if (label.includes('Show Example')) return 'Show Example'
+  if (label.includes('High-Stakes Test')) return 'High-Stakes Test'
+  if (label.includes('Help Me Study')) return 'Help Me Study'
+  if (label.includes('Test Me')) return 'Test Me'
+  if (label.includes('Study Plan')) return 'Study Plan'
+  if (label.includes('Intelligence')) return 'Intelligence'
+  return label
+}
+
+function getCoachActionPrompt(label: string, prompt: string) {
+  const cleanLabel = getCoachActionLabel(label)
+  if (cleanLabel === 'Next Lesson') {
+    return 'Continue lesson. Teach the next small step for my exact curriculum and current topic.'
+  }
+  if (cleanLabel === 'Quick Quiz') {
+    return 'Quick quiz mode. Ask me one question only from the current topic. Do not show the answer, marking scheme, or solution until I reply.'
+  }
+  if (cleanLabel === 'High-Stakes Test') {
+    return 'High-stakes test mode. Give me a challenging curriculum-matched question set with marks or competency target only. Do not reveal answers or marking scheme until I submit my attempt.'
+  }
+  if (cleanLabel === 'Show Example') {
+    return 'Show one more curriculum-matched worked example from the current topic, then ask me one similar question.'
+  }
+  if (cleanLabel === 'Explain Simpler') {
+    return 'Explain the current idea more simply using one analogy, one diagram map, and one tiny task.'
+  }
+  return prompt
+}
+
 export function PeakAIAssistant() {
   const { student, profile } = useAuthStore()
   const [isOpen, setIsOpen] = useState(false)
@@ -28,6 +89,7 @@ export function PeakAIAssistant() {
   const [intel, setIntel] = useState('')
   const [isInitializing, setIsInitializing] = useState(true)
   const [trendingTopics, setTrendingTopics] = useState<{label: string, topic: string}[]>([])
+  const [dragPosition, setDragPosition] = useState<{ x: number; y: number } | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -49,8 +111,7 @@ export function PeakAIAssistant() {
           }
         } else if (messages.length === 0) {
           const firstName = profile?.full_name?.split(' ')[0] || 'Scholar'
-          const greeting = `Hello ${firstName}! I'm your Peak Coach. 🚀 I'm here for your academic wins AND your mental well-being. Whether you're feeling on top of the world or just need to talk, I've got your back! ✨ How are we feeling today?`
-          setMessages([{ role: 'assistant', content: greeting }])
+          setMessages([{ role: 'assistant', content: buildCoachGreeting(firstName) }])
         }
         
         // Fetch performance intel silently
@@ -103,9 +164,9 @@ export function PeakAIAssistant() {
     const userMsg = input.trim()
     setInput('')
     
-    // Log topic for trending if it looks like a lesson start
-    if (messages.length === 1 && messages[0].role === 'assistant' && messages[0].content.includes('topic')) {
-       logAILearningRequest(userMsg)
+    // Log meaningful learning demand so the "Most learned" strip reflects real curriculum interest.
+    if (isTrackableLearningTopic(userMsg)) {
+      logAILearningRequest(userMsg)
     }
 
     const newMessages: Message[] = [...messages, { role: 'user', content: userMsg }]
@@ -141,12 +202,73 @@ export function PeakAIAssistant() {
   const handleRestart = () => {
     if (window.confirm('This will clear our current conversation. Ready for a fresh start?')) {
       const firstName = profile?.full_name?.split(' ')[0] || 'Scholar'
-      const greeting = `Hello ${firstName}! I'm your Peak Coach. 🚀 Ready for a fresh mission! How can I help you today?`
-      setMessages([{ role: 'assistant', content: greeting }])
+      setMessages([{ role: 'assistant', content: buildCoachGreeting(firstName) }])
       if (student) {
         localStorage.removeItem(`peak_ai_history_${student.id}`)
       }
     }
+  }
+
+  const sendPromptToCoach = async (prompt: string, label = prompt) => {
+    if (isLoading) return
+
+    const displayMessages: Message[] = [...messages, { role: 'user', content: label }]
+    const aiMessages: Message[] = [...messages, { role: 'user', content: prompt }]
+    setMessages(displayMessages)
+    setIsLoading(true)
+
+    if (isTrackableLearningTopic(prompt)) {
+      logAILearningRequest(prompt)
+    }
+
+    try {
+      const response = await chatWithPeakAI(
+        aiMessages.map(m => ({
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+        })),
+        {
+          studentName: profile?.full_name?.split(' ')[0],
+          streak: student?.streak_count,
+          performanceIntel: intel,
+        },
+      )
+
+      if (response.error) toast.error(response.error)
+      if (response.content) {
+        setMessages(prev => [...prev, { role: 'assistant', content: response.content as string }])
+      }
+    } catch (err) {
+      toast.error('Connection to Peak HQ lost. Try again!')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleDragStart = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (isFullScreen || window.innerWidth < 640) return
+
+    const panel = event.currentTarget.closest('[data-peak-coach-panel]') as HTMLElement | null
+    if (!panel) return
+
+    const rect = panel.getBoundingClientRect()
+    const offsetX = event.clientX - rect.left
+    const offsetY = event.clientY - rect.top
+    setDragPosition({ x: rect.left, y: rect.top })
+
+    const onMove = (moveEvent: PointerEvent) => {
+      const nextX = Math.min(Math.max(12, moveEvent.clientX - offsetX), window.innerWidth - panel.offsetWidth - 12)
+      const nextY = Math.min(Math.max(12, moveEvent.clientY - offsetY), window.innerHeight - panel.offsetHeight - 12)
+      setDragPosition({ x: nextX, y: nextY })
+    }
+
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp, { once: true })
   }
 
   return (
@@ -194,6 +316,7 @@ export function PeakAIAssistant() {
         {isOpen && (
           <motion.div
             key="chat-modal"
+            data-peak-coach-panel
             initial={{ opacity: 0, scale: 0.95, y: 16 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 16 }}
@@ -211,10 +334,18 @@ export function PeakAIAssistant() {
                     'sm:w-[450px] sm:h-[600px] sm:max-h-[85vh]'
                   ].join(' ')
             ].join(' ')}
-            style={{ background: 'var(--card)' }}
+            style={{
+              background: 'var(--card)',
+              ...(!isFullScreen && dragPosition
+                ? { left: dragPosition.x, top: dragPosition.y, right: 'auto', bottom: 'auto' }
+                : {}),
+            }}
           >
             {/* Header */}
-            <div className={`p-5 bg-gradient-to-r from-primary to-accent text-white flex items-center justify-between flex-shrink-0 ${isFullScreen ? 'px-8 py-6' : ''}`}>
+            <div
+              onPointerDown={handleDragStart}
+              className={`p-5 bg-gradient-to-r from-primary to-accent text-white flex items-center justify-between flex-shrink-0 ${isFullScreen ? 'px-8 py-6' : 'sm:cursor-grab active:cursor-grabbing'}`}
+            >
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center border border-white/30">
                   <Brain size={20} className="text-white" />
@@ -223,22 +354,17 @@ export function PeakAIAssistant() {
                   <div className="flex items-center gap-2">
                     <div className={`w-2 h-2 rounded-full animate-pulse ${isProactive ? 'bg-amber-400' : 'bg-emerald-500'}`} />
                     <h3 className="text-[10px] font-black uppercase tracking-[0.2em] truncate max-w-[120px] xs:max-w-[180px]">
-                      Peak Performance AI Coach
+                      Peak Intelligence Coach
                     </h3>
                   </div>
                   <div className="flex items-center gap-2 mt-0.5">
                     <Badge variant="secondary" className="text-[7px] border-white/20 text-white/60 px-1 py-0 h-auto font-black uppercase tracking-widest leading-none">
-                      {isProactive ? 'Intelligence Report' : (
-                        `Target: ${
-                          (student?.curriculum as any)?.name?.includes('8-4-4') ? 'KCSE' :
-                          (student?.class as any)?.level <= 6 ? 'KPSEA' : 'KJSEA'
-                        }`
-                      )}
+                      {isProactive ? 'Intelligence Report' : `Target: ${getCoachTarget(student)}`}
                     </Badge>
                   </div>
                 </div>
               </div>
-                <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                <div className="flex items-center gap-1.5 shrink-0 ml-2" onPointerDown={(event) => event.stopPropagation()}>
                   <button
                     onClick={() => setIsFullScreen(!isFullScreen)}
                     className="w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all shrink-0 sm:flex"
@@ -279,38 +405,27 @@ export function PeakAIAssistant() {
                           if (res.success) setMessages(prev => [...prev, { role: 'assistant', content: res.insights || '' }]);
                       }}
                     ] : [
-                      { label: '➡️ Continue Lesson', prompt: "Please continue with the next step of this KCSE-level lesson." },
-                      { label: '❓ Quick Quiz', prompt: "Give me an examiner-style KCSE quiz question on what we just discussed. Use strict command words." },
+                      { label: '➡️ Continue Lesson', prompt: "Continue with the next curriculum-matched step. If I am CBC, use strand/sub-strand, practical evidence, and rubric language. If I am 8-4-4, use KCSE marking points and examiner command words." },
+                      { label: '❓ Quick Quiz', prompt: "Give me one curriculum-matched quiz question on what we just discussed. If I am CBC, include rubric evidence. If I am 8-4-4, include a strict KCSE marking scheme." },
                       { label: '💡 Explain Simpler', prompt: "I'm a bit lost. Can you explain that again using a simpler analogy for better conceptual mastery?" },
                       { label: '🔍 Show Example', prompt: "Show me another real-life example of this concept that frequently appears in exams." },
-                      { label: '🧪 High-Stakes Test', prompt: "I'm ready for a real KCSE exam simulation. Give me a tough, multi-part examiner-style question with a strict marking scheme!" }
+                      { label: '🧪 High-Stakes Test', prompt: "I'm ready for a challenging curriculum-matched task. If I am CBC, give a competency-based practical scenario and rubric. If I am 8-4-4, give a tough multi-part KCSE-style question with a strict marking scheme." }
                     ]).map((act, idx) => (
                       <button
                         key={idx}
                         disabled={isLoading}
                         onClick={act.action ? act.action : () => {
                           if (act.prompt) {
-                            if (messages.length <= 1) {
-                              setMessages(prev => [...prev, { role: 'user', content: act.label }, { role: 'assistant', content: act.prompt! }])
-                              return
-                            }
-                            setMessages(prev => [...prev, { role: 'user', content: act.label }])
-                            const sendToAI = async () => {
-                              setIsLoading(true)
-                              if (act.label.includes('Study') || act.label.includes('Quiz')) logAILearningRequest(act.label)
-                              const newMsgs: Message[] = [...messages, { role: 'user', content: act.prompt! }]
-                              const response = await chatWithPeakAI(newMsgs.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })), { studentName: profile?.full_name?.split(' ')[0], streak: student?.streak_count })
-                              if (response.content) setMessages(prev => [...prev, { role: 'assistant', content: response.content as string }])
-                              setIsLoading(false)
-                            }
-                            sendToAI()
+                            const actionLabel = getCoachActionLabel(act.label)
+                            const actionPrompt = getCoachActionPrompt(act.label, act.prompt)
+                            sendPromptToCoach(actionPrompt, actionLabel)
                           }
                         }}
                         className={`px-4 py-2 rounded-xl border text-[9px] font-black uppercase tracking-widest whitespace-nowrap transition-all flex items-center gap-2 ${
                           isLoading ? 'opacity-50 cursor-not-allowed' : 'bg-primary/5 border-primary/10 text-primary hover:bg-primary shadow-sm'
                         }`}
                       >
-                        {act.label}
+                        {getCoachActionLabel(act.label)}
                       </button>
                     ))}
                   </div>
@@ -318,7 +433,7 @@ export function PeakAIAssistant() {
                   {/* 2. Persistent Trending Topics Scroller */}
                   <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
                     <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[9px] font-black text-amber-500 uppercase tracking-wider shrink-0 shadow-inner">
-                      <Sparkles size={10} /> Trending
+                      <Sparkles size={10} /> Most Learned
                     </div>
                     {(trendingTopics.length > 0 ? trendingTopics : [
                       { label: '🧬 Genetics', topic: 'Biology: Genetics' },
@@ -375,6 +490,22 @@ export function PeakAIAssistant() {
                       <>
                         <MarkdownRenderer content={m.content} />
                         <SavePlanButton content={m.content} />
+                        {i === messages.length - 1 && !isLoading && (
+                          <div className="mt-4 flex flex-wrap gap-2">
+                            <button
+                              onClick={() => sendPromptToCoach('Continue lesson. Move to the next small step and keep it curriculum-matched.', 'Next Lesson')}
+                              className="px-3 py-2 rounded-xl bg-primary/15 text-primary border border-primary/25 text-[10px] font-black uppercase tracking-widest hover:bg-primary hover:text-white transition-colors"
+                            >
+                              Next lesson
+                            </button>
+                            <button
+                              onClick={() => sendPromptToCoach('Quick quiz mode. Ask one question only and wait for my answer before marking.', 'Quick Quiz')}
+                              className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-widest hover:border-primary hover:text-primary transition-colors"
+                            >
+                              Quiz me
+                            </button>
+                          </div>
+                        )}
                       </>
                     )}
                   </div>
@@ -382,11 +513,20 @@ export function PeakAIAssistant() {
               ))}
               {isLoading && (
                 <div className="flex justify-start">
-                  <div className="bg-[var(--bg)] border border-[var(--card-border)] p-4 rounded-3xl rounded-tl-none">
-                    <div className="flex gap-1.5">
-                      <motion.div animate={{ opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1 }} className="w-2 h-2 rounded-full bg-primary" />
-                      <motion.div animate={{ opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1, delay: 0.2 }} className="w-2 h-2 rounded-full bg-primary" />
-                      <motion.div animate={{ opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1, delay: 0.4 }} className="w-2 h-2 rounded-full bg-primary" />
+                  <div className="bg-[var(--bg)] border border-primary/20 p-4 rounded-3xl rounded-tl-none shadow-xl shadow-primary/5 min-w-[240px]">
+                    <div className="flex items-center gap-3">
+                      <div className="relative h-9 w-9 rounded-2xl bg-primary/15 flex items-center justify-center">
+                        <Brain size={16} className="text-primary" />
+                        <motion.span
+                          className="absolute inset-0 rounded-2xl border border-primary/40"
+                          animate={{ scale: [1, 1.25, 1], opacity: [0.6, 0, 0.6] }}
+                          transition={{ repeat: Infinity, duration: 1.4 }}
+                        />
+                      </div>
+                      <div>
+                        <p className="text-xs font-black uppercase tracking-widest text-primary">Thinking through it</p>
+                        <p className="text-[11px] font-bold text-[var(--text-muted)]">Checking curriculum, visual map, and marking logic...</p>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -495,23 +635,38 @@ function MarkdownRenderer({ content }: { content: string }) {
   }
 
   // 1. Detect Mermaid Diagrams
-  if (content.includes('```mermaid')) {
-    const parts = content.split('```mermaid')
+  const mermaidFenceRegex = /```mermaid\s*([\s\S]*?)```/i
+  const bareMermaidRegex = /^\s*(flowchart|graph)\s+(TD|LR|BT|RL)\b/im
+  if (mermaidFenceRegex.test(content) || bareMermaidRegex.test(content)) {
+    const normalizedContent = mermaidFenceRegex.test(content)
+      ? content
+      : content.replace(
+          /^(\s*(?:flowchart|graph)\s+(?:TD|LR|BT|RL)\b[\s\S]*?)(?=\n\n|\n[A-Z][A-Za-z ]+:|$)/im,
+          '```mermaid\n$1\n```',
+        )
+    const parts: React.ReactNode[] = []
+    const regex = /```mermaid\s*([\s\S]*?)```/gi
+    let lastIndex = 0
+    let match: RegExpExecArray | null
+
+    while ((match = regex.exec(normalizedContent)) !== null) {
+      const before = normalizedContent.slice(lastIndex, match.index).trim()
+      if (before) {
+        parts.push(<MarkdownRenderer key={`text-${lastIndex}`} content={before} />)
+      }
+
+      parts.push(<MermaidDiagram key={`diagram-${match.index}`} chart={match[1].trim()} />)
+      lastIndex = regex.lastIndex
+    }
+
+    const after = normalizedContent.slice(lastIndex).trim()
+    if (after) {
+      parts.push(<MarkdownRenderer key={`text-${lastIndex}`} content={after} />)
+    }
+
     return (
       <div className="space-y-4">
-        {parts.map((part, index) => {
-          if (index === 0) return <MarkdownRenderer key={index} content={part} />
-          
-          const [chart, ...remaining] = part.split('```')
-          return (
-            <React.Fragment key={index}>
-              <MermaidDiagram chart={chart.trim()} id={`msg-diag-${index}`} />
-              {remaining.join('```').trim() && (
-                <MarkdownRenderer content={remaining.join('```').trim()} />
-              )}
-            </React.Fragment>
-          )
-        })}
+        {parts}
       </div>
     )
   }

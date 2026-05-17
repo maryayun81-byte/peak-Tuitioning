@@ -12,19 +12,19 @@ import './globals.css'
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://www.peakcampus.co.ke'),
-  title: "Peak Campus | Academic Excellence & Real-World Skills Ecosystem",
+  title: "Peak Performance Tutoring | KCSE and CBC Tutoring Kenya",
   description:
-    "Peak Campus is a complete student development ecosystem. A unified platform where academic excellence meets real-world skills through Peak Performance Tutoring and Peak Skills Academy.",
+    "Peak Performance Tutoring is a diagnostic, tiered tutoring system for Kenyan 8-4-4 and CBC learners, built around targeted intervention, active recall, and visible progress.",
   manifest: '/manifest.json',
   icons: {
     icon: '/logo.png',
     apple: '/logo.png',
   },
   openGraph: {
-    title: "Peak Campus | Academic Excellence & Real-World Skills Ecosystem",
-    description: "Peak Campus is a complete student development ecosystem. From KCSE & CBC mastery to digital literacy and innovation.",
+    title: "Peak Performance Tutoring | KCSE and CBC Tutoring Kenya",
+    description: "Diagnostic-first KCSE and CBC tutoring for Kenyan learners, with tiered groups, guided practice, active recall, and parent-visible progress.",
     url: 'https://www.peakcampus.co.ke',
-    siteName: 'Peak Campus',
+    siteName: 'Peak Performance Tutoring',
     locale: 'en_KE',
     type: 'website',
     images: [
@@ -32,14 +32,14 @@ export const metadata: Metadata = {
         url: '/logo.png',
         width: 800,
         height: 600,
-        alt: 'Peak Campus Logo',
+        alt: 'Peak Performance Tutoring Logo',
       },
     ],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Peak Campus | Academic Excellence & Real-World Skills',
-    description: 'Empowering students to succeed both in school and in life through a unified learning ecosystem.',
+    title: 'Peak Performance Tutoring | KCSE and CBC Tutoring Kenya',
+    description: 'Diagnostic-first tutoring that helps students move from potential to performance.',
     images: ['/logo.png'],
   },
   robots: {

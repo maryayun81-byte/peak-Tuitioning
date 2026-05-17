@@ -1,4 +1,4 @@
-import { AccessToken } from "livekit-server-sdk"
+import { AccessToken, TrackSource } from "livekit-server-sdk"
 import { createClient } from "@/lib/supabase/server"
 
 const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY!
@@ -68,6 +68,7 @@ export async function generateLiveKitToken(sessionId: string, role: 'teacher' | 
   const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
     identity: participantIdentity,
     name: participantName,
+    metadata: JSON.stringify({ role, sessionId }),
     ttl: '4h', // 4-hour token validity
   })
 
@@ -77,6 +78,12 @@ export async function generateLiveKitToken(sessionId: string, role: 'teacher' | 
     canPublish: true,        // Both teachers and students can publish (audio/video)
     canSubscribe: true,      // Both can receive streams
     canPublishData: true,    // Both can send data channel messages (chat, etc.)
+    canPublishSources: [
+      TrackSource.CAMERA,
+      TrackSource.MICROPHONE,
+      TrackSource.SCREEN_SHARE,
+      TrackSource.SCREEN_SHARE_AUDIO,
+    ],
     canUpdateOwnMetadata: true,
   })
 

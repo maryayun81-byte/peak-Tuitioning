@@ -137,7 +137,7 @@ export function TeacherAIAssistant() {
                     <Brain size={22} className="text-white" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-black uppercase tracking-widest">Peak Creator AI</h3>
+                    <h3 className="text-sm font-black uppercase tracking-widest">Peak Intelligence Creator</h3>
                     <div className="flex items-center gap-2 mt-0.5">
                       <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                       <span className="text-[10px] font-bold opacity-80">Form Operator Active</span>
@@ -244,7 +244,7 @@ export function TeacherAIAssistant() {
                   )}
                 </Button>
                 <div className="mt-4 flex items-center justify-center gap-2 text-[9px] font-black uppercase tracking-widest text-[var(--text-muted)] opacity-50">
-                   Proprietary AI Engine • High Fidelity Synthesis
+                   DeepSeek + Qwen fallback engine • High Fidelity Synthesis
                 </div>
               </div>
             </motion.div>

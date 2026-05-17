@@ -3,15 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { AIIntent } from '@/stores/aiFormStore'
 import { extractTextFromPDF, extractTextFromDOCX } from '@/lib/utils/file-parser'
-
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY
-const SITE_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-const SITE_NAME = 'Peak Teacher Assistant'
-
-interface Message {
-  role: 'system' | 'user' | 'assistant'
-  content: string
-}
+import { callHuggingFaceChat, hasHuggingFaceToken } from '@/lib/huggingface-chat'
 
 const TEACHER_AI_SYSTEM_PROMPT = `
 You are the "Peak Teacher Assistant" — an expert educational content architect and form operator.
@@ -117,33 +109,20 @@ export async function processTeacherInstruction(
     If any media file name matches a question (e.g., "image1 for question 1"), include its URL in the question object as "image_url".
   `
 
-  if (!OPENROUTER_API_KEY) return { error: 'AI Service Config Missing' }
+  if (!hasHuggingFaceToken()) return { error: 'AI Service Config Missing' }
 
   try {
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-        'HTTP-Referer': SITE_URL,
-        'X-Title': SITE_NAME,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.0-flash-lite-001',
-        messages: [
-          { role: 'system', content: TEACHER_AI_SYSTEM_PROMPT },
-          { role: 'user', content: fullPrompt }
-        ],
-        temperature: 0.1, // Low temperature for deterministic JSON
-        response_format: { type: 'json_object' }
-      })
-    })
+    const response = await callHuggingFaceChat(
+      [
+        { role: 'system', content: TEACHER_AI_SYSTEM_PROMPT },
+        { role: 'user', content: fullPrompt }
+      ],
+      { temperature: 0.1, maxTokens: 1800, responseFormat: { type: 'json_object' } },
+    )
 
-    const data = await response.json()
-    const content = data.choices?.[0]?.message?.content
-    if (!content) throw new Error('AI returned empty response')
-
-    const parsedData = JSON.parse(content)
+    const content = response.content
+    const jsonText = content.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```$/i, '').trim()
+    const parsedData = JSON.parse(jsonText)
 
     // 3. Save to ai_jobs
     const { data: job } = await supabase.from('ai_jobs').insert({

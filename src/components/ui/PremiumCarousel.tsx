@@ -1,8 +1,8 @@
 'use client'
 
-import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { motion, AnimatePresence, Variants } from 'framer-motion'
-import { ChevronLeft, ChevronRight, Play, Pause } from 'lucide-react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { AnimatePresence, motion, Variants } from 'framer-motion'
+import { ChevronLeft, ChevronRight, Pause, Play } from 'lucide-react'
 
 interface PremiumCarouselProps {
   images: string[]
@@ -10,141 +10,151 @@ interface PremiumCarouselProps {
   className?: string
 }
 
-export function PremiumCarousel({ images, autoPlayInterval = 6000, className = '' }: PremiumCarouselProps) {
+const slideVariants: Variants = {
+  enter: (direction: number) => ({ x: direction > 0 ? '100%' : '-100%', opacity: 0 }),
+  center: { x: 0, opacity: 1 },
+  exit: (direction: number) => ({
+    x: direction < 0 ? '100%' : '-100%',
+    opacity: 0,
+    transition: { duration: 0.35, ease: [0.4, 0, 0.2, 1] },
+  }),
+}
+
+export function PremiumCarousel({
+  images,
+  autoPlayInterval = 5200,
+  className = '',
+}: PremiumCarouselProps) {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [isPlaying, setIsPlaying] = useState(true)
-  const [direction, setDirection] = useState(0)
+  const [direction, setDirection] = useState(1)
   const touchStartX = useRef<number | null>(null)
 
+  const count = images.length
+
+  const goTo = useCallback(
+    (nextIndex: number) => {
+      if (!count) return
+      setDirection(nextIndex > currentIndex ? 1 : -1)
+      setCurrentIndex((nextIndex + count) % count)
+    },
+    [count, currentIndex]
+  )
+
   const nextSlide = useCallback(() => {
+    if (!count) return
     setDirection(1)
-    setCurrentIndex((prev) => (prev + 1) % images.length)
-  }, [images.length])
+    setCurrentIndex((prev) => (prev + 1) % count)
+  }, [count])
 
   const prevSlide = useCallback(() => {
+    if (!count) return
     setDirection(-1)
-    setCurrentIndex((prev) => (prev - 1 + images.length) % images.length)
-  }, [images.length])
+    setCurrentIndex((prev) => (prev - 1 + count) % count)
+  }, [count])
 
   useEffect(() => {
-    if (!isPlaying) return
-    const timer = setInterval(nextSlide, autoPlayInterval)
-    return () => clearInterval(timer)
-  }, [isPlaying, nextSlide, autoPlayInterval])
+    if (!isPlaying || count < 2) return
+    const timer = window.setInterval(nextSlide, autoPlayInterval)
+    return () => window.clearInterval(timer)
+  }, [autoPlayInterval, count, isPlaying, nextSlide])
 
-  const handleTouchStart = (e: React.TouchEvent) => {
-    touchStartX.current = e.touches[0].clientX
-  }
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    if (touchStartX.current === null) return
-    const diff = touchStartX.current - e.changedTouches[0].clientX
-    if (Math.abs(diff) > 40) diff > 0 ? nextSlide() : prevSlide()
-    touchStartX.current = null
-  }
-
-  const variants: Variants = {
-    enter: (d: number) => ({ x: d > 0 ? '100%' : '-100%', opacity: 0 }),
-    center: { x: 0, opacity: 1, zIndex: 1 },
-    exit: (d: number) => ({
-      x: d < 0 ? '100%' : '-100%',
-      opacity: 0,
-      zIndex: 0,
-      transition: { duration: 0.5, ease: [0.4, 0, 0.2, 1] as const }
-    }),
+  if (!count) {
+    return (
+      <div className={`relative grid aspect-[4/3] place-items-center rounded-lg border border-slate-200 bg-slate-100 text-sm text-slate-500 ${className}`}>
+        Gallery images unavailable
+      </div>
+    )
   }
 
   return (
     <div
-      className={`relative overflow-hidden rounded-2xl sm:rounded-[2.5rem] border border-white/5 bg-black/20 shadow-2xl ${className}`}
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
+      className={`group relative overflow-hidden rounded-lg border border-white/15 bg-slate-950 shadow-2xl ${className}`}
+      onMouseEnter={() => setIsPlaying(false)}
+      onMouseLeave={() => setIsPlaying(true)}
+      onTouchStart={(event) => {
+        touchStartX.current = event.touches[0].clientX
+        setIsPlaying(false)
+      }}
+      onTouchEnd={(event) => {
+        if (touchStartX.current === null) return
+        const diff = touchStartX.current - event.changedTouches[0].clientX
+        if (Math.abs(diff) > 42) {
+          diff > 0 ? nextSlide() : prevSlide()
+        }
+        touchStartX.current = null
+        setIsPlaying(true)
+      }}
     >
-      {/* Slide area — taller on mobile, cinematic on desktop */}
-      <div className="relative w-full aspect-[4/3] sm:aspect-[16/9] md:aspect-[2.5/1] overflow-hidden">
-        <AnimatePresence initial={false} custom={direction} mode="popLayout">
-          <motion.div
-            key={currentIndex}
+      <div className="relative aspect-[4/3] w-full overflow-hidden sm:aspect-[16/9] lg:aspect-[21/9]">
+        <AnimatePresence initial={false} custom={direction} mode="wait">
+          <motion.img
+            key={images[currentIndex]}
+            src={images[currentIndex]}
+            alt={`Peak Performance gallery image ${currentIndex + 1}`}
             custom={direction}
-            variants={variants}
+            variants={slideVariants}
             initial="enter"
             animate="center"
             exit="exit"
-            transition={{
-              x: { type: 'spring', stiffness: 280, damping: 32 },
-              opacity: { duration: 0.5 },
-            }}
-            className="absolute inset-0"
-          >
-            <img
-              src={images[currentIndex]}
-              alt={`Slide ${currentIndex + 1}`}
-              className="w-full h-full object-cover"
-            />
-            {/* Gradient overlays */}
-            <div className="absolute inset-0 bg-gradient-to-t from-[#050810]/90 via-[#050810]/20 to-transparent" />
-            <div className="absolute inset-0 bg-gradient-to-r from-[#050810]/50 via-transparent to-[#050810]/50 hidden md:block" />
-          </motion.div>
+            transition={{ x: { type: 'spring', stiffness: 260, damping: 30 }, opacity: { duration: 0.25 } }}
+            className="absolute inset-0 h-full w-full object-cover"
+            draggable={false}
+          />
         </AnimatePresence>
+        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/70 via-slate-950/10 to-transparent" />
+      </div>
 
-        {/* Content overlay — mobile-safe padding */}
-        <div className="absolute bottom-0 left-0 right-0 z-20 p-4 sm:p-8 md:p-10 flex flex-col sm:flex-row items-start sm:items-end justify-between gap-4">
-          <motion.div
-            key={`txt-${currentIndex}`}
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.25, duration: 0.5 }}
-            className="space-y-2 sm:space-y-3 max-w-lg"
-          >
-            <div className="flex items-center gap-2">
-              <div className="w-6 h-[2px] bg-emerald-500" />
-              <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.3em] text-emerald-400">
-                Excellence in Motion
-              </span>
+      {count > 1 && (
+        <>
+          <div className="absolute inset-x-3 bottom-3 z-10 flex items-center justify-between gap-3 sm:inset-x-5 sm:bottom-5">
+            <div className="flex max-w-[58%] items-center gap-1.5">
+              {images.map((image, index) => (
+                <button
+                  key={image}
+                  type="button"
+                  aria-label={`Show gallery image ${index + 1}`}
+                  onClick={() => goTo(index)}
+                  className={`h-1.5 rounded-full transition-all ${
+                    index === currentIndex ? 'w-8 bg-white' : 'w-3 bg-white/45 hover:bg-white/75'
+                  }`}
+                />
+              ))}
             </div>
-            <h3 className="text-xl sm:text-3xl md:text-5xl font-black uppercase tracking-tighter text-white leading-none">
-              Empowering the{' '}
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-400">
-                Next Generation
-              </span>
-            </h3>
-            <p className="text-white/55 text-[11px] sm:text-sm leading-relaxed font-medium hidden sm:block">
-              State-of-the-art learning in Nairobi for KCSE revision and CBC development.
-            </p>
-          </motion.div>
 
-          {/* Prev / Play / Next controls */}
-          <div className="flex items-center gap-2 bg-white/5 backdrop-blur-xl p-1.5 rounded-full border border-white/10 shrink-0">
-            <button onClick={prevSlide} aria-label="Previous"
-              className="w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 active:scale-90 transition-all">
-              <ChevronLeft size={16} />
-            </button>
-            <button onClick={() => setIsPlaying(!isPlaying)} aria-label={isPlaying ? 'Pause' : 'Play'}
-              className="w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 active:scale-90 transition-all">
-              {isPlaying ? <Pause size={14} /> : <Play size={14} />}
-            </button>
-            <button onClick={nextSlide} aria-label="Next"
-              className="w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 active:scale-90 transition-all">
-              <ChevronRight size={16} />
-            </button>
+            <div className="flex items-center gap-1 rounded-full border border-white/15 bg-slate-950/65 p-1 backdrop-blur-md">
+              <button
+                type="button"
+                onClick={prevSlide}
+                aria-label="Previous gallery image"
+                className="grid h-9 w-9 place-items-center rounded-full text-white/80 transition hover:bg-white/15 hover:text-white"
+              >
+                <ChevronLeft size={18} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsPlaying((value) => !value)}
+                aria-label={isPlaying ? 'Pause gallery carousel' : 'Play gallery carousel'}
+                className="grid h-9 w-9 place-items-center rounded-full text-white/80 transition hover:bg-white/15 hover:text-white"
+              >
+                {isPlaying ? <Pause size={15} /> : <Play size={15} />}
+              </button>
+              <button
+                type="button"
+                onClick={nextSlide}
+                aria-label="Next gallery image"
+                className="grid h-9 w-9 place-items-center rounded-full text-white/80 transition hover:bg-white/15 hover:text-white"
+              >
+                <ChevronRight size={18} />
+              </button>
+            </div>
           </div>
-        </div>
-      </div>
 
-      {/* Progress bar — full-width thin bar at very bottom, replaces dots (10 dots = overflow on mobile) */}
-      <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-white/5 z-30">
-        <motion.div
-          key={currentIndex}
-          className="h-full bg-emerald-500"
-          initial={{ width: '0%' }}
-          animate={{ width: '100%' }}
-          transition={{ duration: autoPlayInterval / 1000, ease: 'linear' }}
-        />
-      </div>
-
-      {/* Slide counter — top right */}
-      <div className="absolute top-4 right-4 sm:top-6 sm:right-6 z-30 px-3 py-1.5 rounded-full bg-black/40 backdrop-blur-sm border border-white/10 text-[10px] font-black text-white/60 tabular-nums">
-        {String(currentIndex + 1).padStart(2, '0')} / {String(images.length).padStart(2, '0')}
-      </div>
+          <div className="absolute left-4 top-4 rounded-full border border-white/15 bg-slate-950/60 px-3 py-1 text-xs font-semibold text-white/80 backdrop-blur-md">
+            {currentIndex + 1} / {count}
+          </div>
+        </>
+      )}
     </div>
   )
 }

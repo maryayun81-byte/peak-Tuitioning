@@ -1,327 +1,211 @@
-'use client'
-
-import { useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { 
-  Target, Award, Users, BookOpen, ShieldCheck, 
-  Sparkles, Zap, ChevronRight, ArrowUpRight, 
-  MapPin, Clock, Heart, Globe, Quote, Microscope,
-  Brain, Rocket, Lightbulb, CheckCircle2, Star,
-  Shield, Laptop, Code, Cpu, GraduationCap,
-  TrendingUp, BarChart3, PenTool, CheckCircle,
-  Activity, UserCheck
-} from 'lucide-react'
 import Link from 'next/link'
+import { PublicPortalMenu } from '@/components/ui/PublicPortalMenu'
+import {
+  ArrowRight,
+  Award,
+  BookOpenCheck,
+  Brain,
+  CheckCircle2,
+  ClipboardCheck,
+  GraduationCap,
+  Lightbulb,
+  LineChart,
+  Target,
+  Users,
+} from 'lucide-react'
 
-type MissionTab = 'campus' | 'performance' | 'academy'
+const principles = [
+  {
+    title: 'We guide before we teach',
+    body: 'Peak is built around the belief that a learner needs a guide who understands how they learn, where they lose marks, and what confidence looks like for them.',
+    icon: Lightbulb,
+  },
+  {
+    title: 'We diagnose the real problem',
+    body: 'Transcripts, habits, weak subjects, temperament, and behaviour patterns are reviewed before the first serious intervention begins.',
+    icon: ClipboardCheck,
+  },
+  {
+    title: 'We group by goal, not age alone',
+    body: 'Every student is placed where the strategy matches the gap: foundations, application, or high-grade precision.',
+    icon: Users,
+  },
+]
+
+const tiers = [
+  {
+    name: 'The Peak Performers',
+    movement: 'B to A',
+    role: 'Consultant',
+    focus: 'Deliberate pressure, examiner language, advanced rubrics, speed, and precision.',
+  },
+  {
+    name: 'The Momentum Builders',
+    movement: 'C to B',
+    role: 'Coach',
+    focus: 'Varied practice, active recall, Feynman explanations, and application in unfamiliar formats.',
+  },
+  {
+    name: 'The Climbers',
+    movement: 'D to C',
+    role: 'Mentor',
+    focus: 'High-yield fundamentals, scaffolded wins, mark hunting, and rebuilding confidence.',
+  },
+]
+
+const techniques = [
+  ['Socratic Shift', 'Guides answer questions with better questions so students learn how to think through the next step.'],
+  ['Active Recall', 'Students retrieve ideas without notes, then mark the true knowledge gap in front of them.'],
+  ['Feynman Technique', 'Learners explain a concept simply; confusion becomes visible and fixable.'],
+  ['Scaffolded Wins', 'Large concepts are broken into small correct steps so confidence grows with evidence.'],
+  ['Deliberate Practice', 'Strong learners train under time pressure and marking-scheme expectations.'],
+]
+
+const promises = [
+  'Move every learner at least one grade band upward within the programme.',
+  'Make the first diagnostic profile matter in every lesson.',
+  'Keep students producing more than they consume.',
+  'Never let a D-grade student finish without a C-minus floor as the target.',
+]
 
 export default function AboutPage() {
-  const [activeTab, setActiveTab] = useState<MissionTab>('campus')
-
   return (
-    <main className="relative min-h-screen bg-[#05070A] text-white overflow-hidden selection:bg-emerald-500/30">
-      {/* Premium Ambient Background */}
-      <div className="fixed inset-0 z-0">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,#0c1220_0%,#05070a_100%)]" />
-        <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-emerald-500/5 blur-[120px] rounded-full -translate-y-1/2 translate-x-1/3" />
-      </div>
+    <main className="min-h-screen bg-[#f6f3ed] text-slate-950">
+      <section className="relative overflow-hidden bg-slate-950 text-white">
+        <img src="/media__1776964680330.jpg" alt="Peak Performance learners in a guided academic setting" className="absolute inset-0 h-full w-full object-cover" />
+        <div className="absolute inset-0 bg-slate-950/72" />
+        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(2,6,23,.94),rgba(2,6,23,.68),rgba(2,6,23,.2))]" />
 
-      <nav className="relative z-50 px-8 lg:px-20 py-10 flex items-center justify-between border-b border-white/5 bg-[#05070A]/50 backdrop-blur-xl">
-        <Link href="/" className="flex items-center gap-4 group">
-          <div className="w-12 h-12 rounded-xl bg-white flex items-center justify-center text-black shadow-2xl">
-             <GraduationCap size={24} />
-          </div>
+        <nav className="relative z-50 mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
+          <Link href="/" className="flex items-center gap-3">
+            <img src="/logo.png" alt="Peak Performance logo" className="h-10 w-10 rounded-md bg-white object-contain p-1" />
+            <span className="text-sm font-black uppercase tracking-[0.24em]">Peak Performance</span>
+          </Link>
+          <PublicPortalMenu />
+        </nav>
+
+        <div className="relative z-10 mx-auto grid max-w-7xl gap-10 px-4 pb-16 pt-20 sm:px-6 lg:grid-cols-[1fr_420px] lg:px-8 lg:pt-28">
           <div>
-            <span className="block font-black uppercase tracking-tight text-lg leading-none">Peak Campus</span>
-            <span className="text-[9px] font-bold text-emerald-500 uppercase tracking-widest mt-1">Institutional Profile</span>
-          </div>
-        </Link>
-        <Link href="/" className="px-8 py-3 rounded-xl border border-white/10 bg-white/5 text-white font-bold uppercase tracking-widest text-[10px] hover:bg-white hover:text-black transition-all">
-          Return Home
-        </Link>
-      </nav>
-
-      {/* ── HERO ── */}
-      <section className="relative z-10 pt-32 pb-20 px-6">
-        <div className="max-w-6xl mx-auto text-center space-y-10">
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8 }}>
-            <span className="text-[11px] font-bold uppercase tracking-[0.4em] text-emerald-500 mb-8 inline-block">
-               Our Professional Mission
-            </span>
-            <h1 className="text-5xl md:text-9xl font-black text-white tracking-tight leading-[0.85] mb-10 uppercase">
-              Defined by<br />
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-white via-white to-white/40 italic">Mastery.</span>
+            <p className="text-sm font-black uppercase tracking-[0.24em] text-emerald-300">About Peak Performance</p>
+            <h1 className="mt-4 max-w-4xl text-5xl font-black leading-[0.98] tracking-tight sm:text-7xl">
+              We do not teach subjects. We build scholars.
             </h1>
-            <p className="text-lg md:text-2xl text-slate-400 max-w-3xl mx-auto font-medium leading-relaxed">
-              Academic success is not an accident; it is the result of structured guidance, disciplined effort, and clear vision.
+            <p className="mt-6 max-w-2xl text-lg leading-8 text-white/78">
+              Founded in 2023, Peak Performance Tutoring exists for the learner who needs more than syllabus coverage. We diagnose, group, guide, and measure progress until potential becomes performance.
             </p>
-          </motion.div>
-        </div>
-      </section>
-
-      {/* ── TAB SELECTOR ── */}
-      <section className="relative z-10 py-12 px-6 max-w-5xl mx-auto">
-        <div className="flex flex-wrap items-center justify-center gap-2 p-2 rounded-[2rem] bg-white/[0.03] border border-white/5 backdrop-blur-3xl mb-24 shadow-2xl">
-          <TabButton 
-            active={activeTab === 'campus'} 
-            onClick={() => setActiveTab('campus')}
-            label="Peak Campus"
-          />
-          <TabButton 
-            active={activeTab === 'performance'} 
-            onClick={() => setActiveTab('performance')}
-            label="Peak Performance Tutoring"
-          />
-          <TabButton 
-            active={activeTab === 'academy'} 
-            onClick={() => setActiveTab('academy')}
-            label="Peak Skills Academy"
-          />
-        </div>
-
-        <AnimatePresence mode="wait">
-          {activeTab === 'campus' && <CampusSection key="campus" />}
-          {activeTab === 'performance' && <PerformanceSection key="performance" />}
-          {activeTab === 'academy' && <AcademySection key="academy" />}
-        </AnimatePresence>
-      </section>
-
-      {/* ── FOOTER ── */}
-      <footer className="relative z-10 py-24 px-10 border-t border-white/5 bg-[#030507] text-center mt-32">
-         <div className="max-w-4xl mx-auto space-y-12">
-            <div className="font-black text-3xl text-white tracking-tighter uppercase">PEAK CAMPUS</div>
-            <div className="pt-10 flex items-center justify-center gap-12 text-[9px] font-bold text-slate-600 uppercase tracking-[0.4em] border-t border-white/5">
-              <span>Nairobi, Kenya</span>
-              <span>Est. 2020</span>
-              <span>Performance First</span>
-            </div>
-         </div>
-      </footer>
-    </main>
-  )
-}
-
-function TabButton({ active, onClick, label }: { active: boolean, onClick: () => void, label: string }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`px-8 py-4 rounded-2xl text-[10px] font-bold uppercase tracking-widest transition-all ${
-        active 
-          ? 'bg-white text-black shadow-2xl' 
-          : 'text-slate-500 hover:text-white hover:bg-white/5'
-      }`}
-    >
-      {label}
-    </button>
-  )
-}
-
-function CampusSection() {
-  return (
-    <motion.div 
-      initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }}
-      className="space-y-24"
-    >
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-20 items-center">
-        <div className="space-y-10">
-          <h2 className="text-4xl md:text-6xl font-black uppercase tracking-tight leading-none">A Unified <span className="text-emerald-500">Eco-system.</span></h2>
-          <p className="text-xl text-slate-400 leading-relaxed font-medium">
-            At Peak Campus, our mission is to develop complete, future-ready individuals by transforming how students learn, grow, and prepare for life.
-          </p>
-          <div className="space-y-6">
-            <div className="p-6 rounded-2xl bg-white/[0.02] border border-white/5">
-               <h4 className="text-xs font-black uppercase tracking-widest text-emerald-500 mb-2">Our Unified Purpose</h4>
-               <p className="text-sm text-slate-400 leading-relaxed font-medium">
-                 Together, our pillars form a complete system where students Learn, Build, and Become confident, capable, and self-driven individuals.
-               </p>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {['Academic Mastery', 'Real-world Readiness', 'Practical Development', 'Personal Growth'].map(l => (
-                <div key={l} className="flex items-center gap-4">
-                  <CheckCircle size={14} className="text-emerald-500" />
-                  <span className="text-[10px] font-bold text-slate-200 uppercase tracking-widest">{l}</span>
+          </div>
+          <div className="self-end rounded-lg border border-white/15 bg-white/10 p-6 backdrop-blur-md">
+            <div className="text-sm font-bold uppercase tracking-[0.2em] text-white/60">Peak promise</div>
+            <div className="mt-4 space-y-4">
+              {promises.map((promise) => (
+                <div key={promise} className="flex gap-3 text-sm leading-6 text-white/80">
+                  <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-300" />
+                  <span>{promise}</span>
                 </div>
               ))}
             </div>
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="aspect-square p-10 rounded-[2.5rem] bg-white/[0.02] border border-white/5 flex flex-col justify-between group hover:bg-white/[0.04] transition-all">
-            <BookOpen className="text-emerald-500" size={32} />
-            <h4 className="font-black uppercase tracking-tight text-white/40 group-hover:text-white transition-colors">Learn</h4>
+      </section>
+
+      <section className="border-y border-slate-200 bg-white px-4 py-12 sm:px-6 lg:px-8">
+        <div className="mx-auto grid max-w-7xl gap-px overflow-hidden rounded-lg bg-slate-200 md:grid-cols-3">
+          {principles.map(({ title, body, icon: Icon }) => (
+            <div key={title} className="bg-white p-6">
+              <Icon className="h-7 w-7 text-emerald-700" />
+              <h2 className="mt-6 text-2xl font-black tracking-tight">{title}</h2>
+              <p className="mt-3 text-sm leading-6 text-slate-600">{body}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="px-4 py-14 sm:px-6 lg:px-8">
+        <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
+          <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-900">
+            <img src="/media__1776963140480.jpg" alt="Focused lesson at Peak Performance" className="h-[420px] w-full object-cover" />
           </div>
-          <div className="aspect-square p-10 rounded-[2.5rem] bg-emerald-500 text-white flex flex-col justify-between mt-12 shadow-2xl">
-            <Zap size={32} />
-            <h4 className="font-black uppercase tracking-tight">Build</h4>
-          </div>
-        </div>
-      </div>
-    </motion.div>
-  )
-}
-
-function PerformanceSection() {
-  return (
-    <motion.div 
-      initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
-      className="space-y-32"
-    >
-      {/* Primary Mission */}
-      <div className="text-center space-y-10 max-w-4xl mx-auto">
-         <h2 className="text-4xl md:text-7xl font-black uppercase tracking-tight leading-none">Redefining <span className="text-emerald-500 italic">Education.</span></h2>
-         <div className="space-y-6">
-           <p className="text-xl md:text-2xl text-slate-200 font-medium leading-relaxed">
-             Our mission is to transform students into confident, high-performing, and self-driven learners by redefining how they understand and approach education.
-           </p>
-           <p className="text-lg text-slate-500 font-medium leading-relaxed max-w-3xl mx-auto">
-             We go beyond traditional tutoring—focusing not only on covering the syllabus, but on building deep understanding, critical thinking, and lasting academic confidence.
-           </p>
-         </div>
-      </div>
-
-      {/* What We Stand For */}
-      <div className="space-y-16">
-        <div className="flex items-center gap-8">
-           <h3 className="text-2xl font-black uppercase tracking-tighter shrink-0 text-emerald-500">What We Stand For</h3>
-           <div className="h-px flex-1 bg-white/5" />
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          <MissionValue 
-            title="Clarity Over Cramming" 
-            desc="We break down complex concepts in Mathematics, Sciences, and Languages into simple, understandable steps—ensuring students truly understand instead of memorizing."
-            icon={<Brain />}
-          />
-          <MissionValue 
-            title="Consistency Over Shortcuts" 
-            desc="We believe real success comes from disciplined effort. Through structured programs, we help students build habits that lead to long-term success."
-            icon={<Activity />}
-          />
-          <MissionValue 
-            title="Confidence Through Mastery" 
-            desc="Confidence is built. By helping students master topics step by step, we eliminate doubt and empower them to approach exams with certainty."
-            icon={<ShieldCheck />}
-          />
-          <MissionValue 
-            title="Personalized Learning" 
-            desc="We identify individual strengths and weaknesses, then tailor our teaching methods to ensure each student reaches their full potential."
-            icon={<UserCheck />}
-          />
-          <MissionValue 
-            title="Results That Matter" 
-            desc="From better grades to stronger problem-solving skills, our systems are designed to produce visible and consistent academic progress."
-            icon={<BarChart3 />}
-          />
-        </div>
-      </div>
-
-      {/* How We Fulfill */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
-        <div className="lg:col-span-7 space-y-12">
-          <h3 className="text-3xl font-black uppercase tracking-tight">How We Fulfill Our Mission</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-8">
-            {[
-              { label: 'Structured Learning Systems', desc: 'Clear lesson pathways that build understanding progressively.' },
-              { label: 'Targeted Practice & Revision', desc: 'Exposure to different question types and exam patterns.' },
-              { label: 'Performance Tracking', desc: 'Continuous assessment to monitor and improve progress.' },
-              { label: 'Mentorship & Guidance', desc: 'Supporting students academically and mentally.' },
-              { label: 'Exam Prep Strategies', desc: 'Teaching students how to think and solve effectively.' }
-            ].map(v => (
-              <div key={v.label} className="space-y-2">
-                <div className="flex items-center gap-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                  <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-200">{v.label}</h4>
+          <div>
+            <div className="mb-4 h-1 w-14 bg-emerald-600" />
+            <p className="text-sm font-black uppercase tracking-[0.24em] text-emerald-800">Why grouping changes everything</p>
+            <h2 className="mt-4 text-3xl font-black tracking-tight sm:text-5xl">The curriculum stays the same. The approach changes completely.</h2>
+            <p className="mt-5 text-lg leading-8 text-slate-600">
+              A crowded classroom must move one pace for everyone. Peak separates learners by performance pattern, then gives teachers a clear role, a clear goal, and a proven intervention for that group.
+            </p>
+            <div className="mt-7 grid gap-3">
+              {tiers.map((tier) => (
+                <div key={tier.name} className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-xl font-black tracking-tight">{tier.name}</h3>
+                    <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-800">{tier.movement}</span>
+                  </div>
+                  <p className="mt-2 text-sm font-bold text-slate-500">Guide role: {tier.role}</p>
+                  <p className="mt-3 text-sm leading-6 text-slate-600">{tier.focus}</p>
                 </div>
-                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest pl-4">{v.desc}</p>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="border-y border-slate-200 bg-slate-950 px-4 py-14 text-white sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-7xl">
+          <div className="max-w-3xl">
+            <p className="text-sm font-black uppercase tracking-[0.24em] text-emerald-300">The pedagogy</p>
+            <h2 className="mt-4 text-3xl font-black tracking-tight sm:text-5xl">Students must produce more than they consume.</h2>
+            <p className="mt-5 text-lg leading-8 text-white/70">
+              Peak's classroom rule is direct: no guide speaks for more than 15 consecutive minutes without the student performing a task.
+            </p>
+          </div>
+          <div className="mt-9 grid gap-px overflow-hidden rounded-lg bg-white/10 md:grid-cols-5">
+            {techniques.map(([name, description]) => (
+              <div key={name} className="bg-slate-950 p-5">
+                <Brain className="h-6 w-6 text-emerald-300" />
+                <h3 className="mt-5 text-lg font-black tracking-tight">{name}</h3>
+                <p className="mt-3 text-sm leading-6 text-white/60">{description}</p>
               </div>
             ))}
           </div>
         </div>
-        <div className="lg:col-span-5 p-12 rounded-[3rem] bg-white/[0.01] border border-white/5 space-y-10">
-           <h3 className="text-3xl font-black uppercase tracking-tight text-emerald-500">Our Commitment</h3>
-           <div className="space-y-6">
-              {[
-                'Feel supported, motivated, and understood',
-                'Challenged to grow beyond their limits',
-                'Develop discipline, focus, and resilience',
-                'Gain the confidence to perform under pressure'
-              ].map(c => (
-                <div key={c} className="flex items-center gap-4 group">
-                  <div className="w-5 h-5 rounded bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-500 group-hover:bg-emerald-500 group-hover:text-black transition-all">
-                    <CheckCircle2 size={12} />
-                  </div>
-                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 group-hover:text-slate-200 transition-colors">{c}</span>
-                </div>
-              ))}
-           </div>
-           <div className="pt-8 border-t border-white/5">
-              <div className="text-[9px] font-black text-emerald-500/40 uppercase tracking-[0.5em] mb-4">Our Purpose</div>
-              <p className="text-xl font-black uppercase tracking-tighter leading-tight italic text-white/80">
-                To help every student reach their peak performance—and sustain it.
-              </p>
-           </div>
-        </div>
-      </div>
-    </motion.div>
-  )
-}
+      </section>
 
-function AcademySection() {
-  return (
-    <motion.div 
-      initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
-      className="space-y-20"
-    >
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-20 items-center">
-        <div className="space-y-10">
-           <h2 className="text-4xl md:text-6xl font-black uppercase tracking-tight leading-tight">Future <span className="text-blue-500 italic">Workforce.</span></h2>
-           <p className="text-xl text-slate-400 font-medium leading-relaxed">
-             Equipping students with practical, real-world skills that go beyond the classroom. Preparing for a technology-driven world.
-           </p>
-           <div className="grid grid-cols-2 gap-8">
-              {[
-                { title: 'Independent Thinking', icon: <Lightbulb /> },
-                { title: 'Income-Generating', icon: <TrendingUp /> },
-                { title: 'Adaptability', icon: <Rocket /> },
-                { title: 'Modern Tech', icon: <Laptop /> }
-              ].map(s => (
-                <div key={s.title} className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center">{s.icon}</div>
-                  <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest">{s.title}</span>
-                </div>
-              ))}
-           </div>
-        </div>
-        <div className="p-16 rounded-[3rem] bg-gradient-to-br from-white/[0.03] to-transparent border border-white/5 space-y-8">
-          <h3 className="text-4xl font-black uppercase tracking-tight text-white">Our Skills Vision</h3>
-          <ul className="space-y-6">
+      <section className="px-4 py-14 sm:px-6 lg:px-8">
+        <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-3">
+          <div className="lg:col-span-1">
+            <p className="text-sm font-black uppercase tracking-[0.24em] text-amber-700">What families feel</p>
+            <h2 className="mt-4 text-3xl font-black tracking-tight">Clearer goals. Calmer learners. Better evidence.</h2>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:col-span-2">
             {[
-              'Hands-on applied learning',
-              'Digital and creative media',
-              'Professional skills training',
-              'Robotics and AI orientation'
-            ].map(l => (
-              <li key={l} className="flex items-center gap-4 text-xs font-bold uppercase tracking-widest text-slate-500">
-                <div className="w-1 h-1 rounded-full bg-blue-500" /> {l}
-              </li>
-            ))}
-          </ul>
+              [Target, 'Every lesson has a reason', 'Teachers know the student profile before entering the room.'],
+              [BookOpenCheck, 'Practice is not random', 'Tasks are matched to the learner tier and curriculum need.'],
+              [LineChart, 'Progress is visible', 'Mistake audits, timed drills, and rubric checks show movement.'],
+              [Award, 'Confidence is designed', 'Small wins are used deliberately, especially for anxious learners.'],
+            ].map(([Icon, title, body]) => {
+              const TypedIcon = Icon as typeof Target
+              return (
+                <div key={title as string} className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+                  <TypedIcon className="h-6 w-6 text-emerald-700" />
+                  <h3 className="mt-5 text-xl font-black tracking-tight">{title as string}</h3>
+                  <p className="mt-3 text-sm leading-6 text-slate-600">{body as string}</p>
+                </div>
+              )
+            })}
+          </div>
         </div>
-      </div>
-    </motion.div>
+      </section>
+
+      <section className="bg-white px-4 py-12 sm:px-6 lg:px-8">
+        <div className="mx-auto flex max-w-7xl flex-col gap-6 rounded-lg border border-slate-200 bg-[#f8f6f1] p-6 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="flex items-center gap-2 text-sm font-bold text-emerald-800"><GraduationCap size={17} /> 8-4-4 and CBC programmes</div>
+            <h2 className="mt-2 text-3xl font-black tracking-tight">See how the model changes by curriculum.</h2>
+          </div>
+          <Link href="/kcse-and-cbc-tutoring-kenya" className="inline-flex items-center justify-center gap-2 rounded-full bg-slate-950 px-6 py-3 text-sm font-black uppercase tracking-[0.16em] text-white transition hover:bg-emerald-800">
+            Explore methodology <ArrowRight size={17} />
+          </Link>
+        </div>
+      </section>
+    </main>
   )
 }
-
-function MissionValue({ title, desc, icon }: { title: string, desc: string, icon: React.ReactNode }) {
-  return (
-    <div className="p-10 rounded-[2.5rem] bg-white/[0.02] border border-white/5 hover:bg-white/[0.04] transition-all space-y-6 group">
-      <div className="w-14 h-14 rounded-2xl bg-white/5 flex items-center justify-center text-emerald-500 group-hover:bg-emerald-500 group-hover:text-black transition-all shadow-xl">
-         {icon}
-      </div>
-      <h4 className="text-xl font-black uppercase tracking-tight leading-none text-white">{title}</h4>
-      <p className="text-[10px] text-slate-500 group-hover:text-slate-300 transition-colors font-bold uppercase tracking-widest leading-relaxed">
-        {desc}
-      </p>
-    </div>
-  )
-}
-

@@ -2,16 +2,14 @@
 import { createClient } from '@/lib/supabase/server'
 import { headers } from 'next/headers'
 import { rateLimit, getClientIp } from '@/lib/rate-limit'
+import { callHuggingFaceChat, hasHuggingFaceToken, type HFChatProvider } from '@/lib/huggingface-chat'
+import { generateHuggingFaceLessonImage, hasHuggingFaceImageToken } from '@/lib/huggingface-image'
+import { isAcademicRequest, shouldGenerateLessonImage, buildLessonImagePrompt } from '@/lib/ai-utils'
 
 /**
- * Peak AI Core Actions
- * Powering the Peak Performance Assistant with OpenRouter LLMs.
+ * Peak Intelligence Core Actions
+ * Powering the Peak Performance Assistant with Hugging Face model fallbacks.
  */
-
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY
-const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY
-const SITE_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-const SITE_NAME = 'Peak Performance Tutoring'
 
 export interface Message {
   role: 'system' | 'user' | 'assistant'
@@ -26,38 +24,201 @@ interface ChatContext {
 }
 
 const SYSTEM_PROMPT = `
-You are the "Senior KCSE Marking Machine" — the ultimate examiner-persona for Kenyan students. Your goal is to guide students to full marks using the exact structure of a KNEC Marking Scheme.
+You are Peak Intelligence Coach, an elite Kenyan academic tutor for CBC/CBE and 8-4-4 learners.
+Your job is to help a student understand deeply, practise correctly, and score the highest possible grade for their curriculum.
 
-STRICT PEDAGOGICAL BOUNDARIES:
-1. 🎨 VISUAL-FIRST: Every response MUST begin with a structural Mermaid.js diagram. Use alphanumeric IDs (A, B, C) and always put labels in double quotes.
-2. 🏛️ MARKING SCHEME RIGOR: Provide a "Deeper Lesson" (10-20 lines) structured with explicit marking points. Example: "1 Mark: Correct definition," "1 Mark: Identifying relationship."
-3. 🫧 EXAMINER BUBBLES: Provide examiner-only insights inside [EXAMINER_TIP] content here [/EXAMINER_TIP] blocks. DO NOT write titles like "Senior Examiner's Corner" inside the tags; the UI handles that.
-4. 🔍 SPECIFICITY FILTER: Always ask for the specific Topic or Sub-strand.
+CORE OPERATING RULES:
+1. Curriculum first. Use the STUDENT ACADEMIC CONTEXT to choose the right teaching mode. Ensure every lesson aligns perfectly with the current KICD/KNEC syllabus for that grade.
+2. Visual excellence for academic teaching. You are encouraged to generate multiple visuals for a complex lesson. For every major concept, worked example, or lab apparatus, include a visual request using the tag: [VISUAL: brief but descriptive prompt for the visual].
+3. Put the [VISUAL: ...] tag precisely where you want the image to appear (usually before the explanation or example).
+4. **STRICT PERSONALITY**: Do not include internal monologue, "Thinking" text, or meta-commentary like "Okay, let me start by recalling..." or "The user is in Form 2...". Speak directly and professionally as the Peak Intelligence Coach from the very first word.
+5. Do not use emojis inside Mermaid diagrams. Mermaid node IDs must be alphanumeric only: A, B, C, D.
+6. Keep Mermaid labels short, quoted, and plain text: A["Key idea"] --> B["Evidence"].
+7. If the learner has not given a subject/topic, ask for one clear topic, but still include a small learning-route diagram.
+8. Teach with retrieval practice: explain, show an example, ask the learner to try, then give a marking or rubric guide.
+9. Be warm but honest. Do not flatter weak answers; identify the exact gap, explain the mark or rubric consequence, and give one correction task.
+10. Do not mix curriculums. If the student context is 8-4-4/KCSE, do not mention CBC rubrics. If the context is CBC/CBE, do not mention KCSE marking unless the student explicitly asks to compare.
 
-DIAGRAM MASTERY (Mermaid Syntax):
-- Start with 'flowchart TD'.
-- A["Label"] --> B["Label"]. Stay alphanumeric for IDs.
+ASSESSMENT PROTOCOL:
+- Lesson mode: teach, show one worked example, then give one short practice task.
+- Quick quiz mode: give ONE curriculum-matched question only. Do not reveal answers, marking scheme, rubric evidence, or solutions. End with: "Reply with your answer and I will mark it."
+- High-stakes test mode: give a serious question set with marks/rubric totals only. Do not reveal answers or marking scheme before the learner attempts it.
+- Marking mode: if the previous assistant message asked a quiz/test and the learner now answers, mark the attempt strictly, give score, missed marks, corrected answer, and one next drill.
 
-MANDATORY RESPONSE STRUCTURE:
-1. 🔍 **Visual Aid** (Mermaid Diagram)
-2. 💡 **Deeper Lesson** (Marking Scheme format with bulleted points and mark allocations)
-3. 🏛️ **Examiner's Corner** (Use [EXAMINER_TIP] [/EXAMINER_TIP] for marking traps and pitfall warnings)
-4. 🎯 **Task** (Prompt student with "👉 NOW YOUR TURN" to apply the marking scheme logic)
-5. 🚀 **Next Move Suggestions** (Mention 2 practical buttons)
+MERMAID FORMAT, EXACTLY:
+\`\`\`mermaid
+flowchart TD
+A["Topic"] --> B["Key idea"]
+B --> C["Example"]
+C --> D["Practice"]
+\`\`\`
+
+CURRICULUM ROUTER:
+- 8-4-4 / KCSE mode: ADHERE STRICTLY to the official KICD Syllabus for the student's specific Form. Use exact sub-topic names, terminal objectives, and KNEC-style command words. Focus on preparation for KCSE marking precision.
+- CBC Grades 6-9 mode: ADHERE STRICTLY to the official Strands and Sub-strands for the specific Grade. Use competency-based language: strands, sub-strands, learning outcomes, inquiry questions, and practical reflection.
+- CBC Senior School Grades 10-12 mode: ADHERE STRICTLY to the specific pathway syllabus. Use pathway-aware teaching, project-based evidence, and career-aligned mastery.
+- If curriculum is unknown, teach using a balanced Kenyan tutor style and ask one question to confirm curriculum/grade.
+
+MANDATORY ACADEMIC RESPONSE STRUCTURE:
+1. **Visual Map**: Briefly explain the lesson flow and include Mermaid as the structure map.
+2. **What You Must Understand**: Put a [VISUAL: ...] tag for the core concept here. Then 5-8 clear lines, simple but rigorous.
+3. **Worked Example**: Put a [VISUAL: ...] tag for the example or apparatus here. One curriculum-matched example using Kenyan context where useful.
+4. **Score Booster**:
+   - KCSE: marking points and examiner traps.
+   - CBC: competency/rubric evidence and reflection prompt.
+5. [EXAMINER_TIP]One concise high-value tip. For CBC, make this a rubric/competency tip.[/EXAMINER_TIP]
+6. **Now Your Turn**: One short task the learner can answer immediately.
+7. **Next Move Suggestions**: Two short actions the learner can request next.
+
+SUBJECT VISUAL GUIDANCE:
+- Chemistry: include [VISUAL: ...] tags for reactions, separation setups, bonding models, electrolysis, or organic families.
+- Biology: include [VISUAL: ...] tags for labelled process diagrams for systems, classification, genetics, or cell function.
+- Physics: include [VISUAL: ...] tags for cause-effect diagrams, electricity circuits, waves, pressure, energy, or practical setup.
+- Mathematics: include method-flow diagrams and worked steps; use tables for patterns.
+- Languages/Humanities: use argument maps, story structure, timeline, cause-effect, or comparison diagrams.
 `.trim()
+
+function getModeInstruction(messages: Message[], lastUserMessage: string) {
+  const text = lastUserMessage.toLowerCase()
+  const previousAssistant = [...messages].reverse().find(m => m.role === 'assistant')?.content?.toLowerCase() || ''
+
+  if (
+    previousAssistant.includes('reply with your answer and i will mark it') &&
+    !/\b(quick quiz|high-stakes|new question|another question)\b/.test(text)
+  ) {
+    return `
+
+CURRENT MODE: MARKING MODE.
+The learner is answering the previous quiz/test. Mark only this attempt. Do not create a new lesson unless you first finish the marking.
+Output:
+1. Score
+2. What you got right
+3. Exact mistake
+4. Correct answer
+5. One next drill`
+  }
+
+  if (/\b(quick quiz|quiz question|test me|short quiz)\b/.test(text)) {
+    return `
+
+CURRENT MODE: QUICK QUIZ.
+Ask exactly one question matched to the student's curriculum and level. Do not include the answer, marking scheme, rubric evidence, or explanation yet. Include marks or competency target only. End with: "Reply with your answer and I will mark it."`
+  }
+
+  if (/\b(high-stakes|exam simulation|challenging task|tough|past paper|mock exam)\b/.test(text)) {
+    return `
+
+CURRENT MODE: HIGH-STAKES TEST.
+Ask a serious curriculum-matched question set. Show total marks or competency evidence required, but do not reveal answers, marking scheme, or rubric scoring yet. End with: "Reply with your full attempt and I will mark it strictly."`
+  }
+
+  if (/\b(continue lesson|next lesson|next step)\b/.test(text)) {
+    return `
+
+CURRENT MODE: CONTINUE LESSON.
+Continue the same topic as a guided sequence. Name the lesson step, connect it to the previous idea, teach one new point, then give one tiny task.`
+  }
+
+  return ''
+}
+
+function ensureVisualFirst(content: string, lastUserMessage: string) {
+  if (!isAcademicRequest(lastUserMessage)) return content
+  if (/!\[Peak lesson visual\]/i.test(content)) return content
+  if (/```mermaid/i.test(content)) return content
+
+  const bareDiagram = content.match(/(?:^|\n)(flowchart|graph)\s+(?:TD|LR|BT|RL)[\s\S]*?(?=\n\n[A-Z#*_]|\n(?:What|Worked|Score|Now|Next)\b|$)/i)
+  if (bareDiagram?.[0]) {
+    const diagram = bareDiagram[0].trim()
+    return content.replace(bareDiagram[0], `\n\`\`\`mermaid\n${diagram}\n\`\`\`\n`)
+  }
+
+  return `\`\`\`mermaid
+flowchart TD
+A["Student question"] --> B["Key idea"]
+B --> C["Worked example"]
+C --> D["Practice task"]
+\`\`\`
+
+${content}`
+}
+
+// Logic moved to src/lib/ai-utils.ts
+
+async function attachLessonImage(content: string, lastUserMessage: string, curriculumContext: string) {
+  if (!shouldGenerateLessonImage(lastUserMessage) || !hasHuggingFaceImageToken()) return content
+
+  try {
+    // 1. Find all [VISUAL: ...] placeholders
+    const visualRegex = /\[VISUAL:\s*([^\]]+)\]/gi
+    const matches = Array.from(content.matchAll(visualRegex))
+
+    if (matches.length > 0) {
+      let updatedContent = content
+      // Limit to 3 images to prevent excessive loading times
+      const maxVisuals = matches.slice(0, 3)
+
+      for (const match of maxVisuals) {
+        const fullTag = match[0]
+        const conceptDescription = match[1]
+
+        try {
+          const image = await generateHuggingFaceLessonImage(
+            buildLessonImagePrompt(lastUserMessage, curriculumContext, conceptDescription),
+          )
+          
+          const imageMarkdown = `![Peak lesson visual](${image.dataUri})\n<small>Visual: ${conceptDescription} (via ${image.model})</small>`
+          updatedContent = updatedContent.replace(fullTag, imageMarkdown)
+        } catch (imgErr) {
+          console.warn(`Failed to generate specific visual for "${conceptDescription}":`, imgErr)
+          updatedContent = updatedContent.replace(fullTag, '') // Remove the tag if it fails
+        }
+      }
+      return updatedContent
+    }
+
+    // 2. Fallback: If no tags were used, generate one at the top (classic behavior)
+    const image = await generateHuggingFaceLessonImage(
+      buildLessonImagePrompt(lastUserMessage, curriculumContext, content),
+    )
+
+    return `![Peak lesson visual](${image.dataUri})\n\n${content}\n\n<small>Visual generated with ${image.model}; Mermaid remains available as the fallback map.</small>`
+  } catch (error: any) {
+    console.warn('Hugging Face lesson image generation failed; using Mermaid fallback:', error?.message || error)
+    return content
+  }
+}
 
 /**
  * Peak Core Engine: Local Deterministic Assistant
- * Used when OpenRouter is offline or for specific platform personality.
+ * Used when the Hugging Face model chain is offline or for specific platform personality.
  */
 function getPeakCoreResponse(input: string, context: ChatContext): string {
   const text = input.toLowerCase()
   const name = context.studentName || 'Scholar'
   const streak = context.streak || 0
 
+  if (text.includes('chem')) {
+    return `Chemistry works best when we move from particles, to evidence, to exam wording.
+
+\`\`\`mermaid
+flowchart TD
+A["Chemistry topic"] --> B["Particles"]
+B --> C["Evidence"]
+C --> D["Equation"]
+D --> E["Exam answer"]
+\`\`\`
+
+Tell me the exact topic, for example "Form 2 structure and bonding", "moles", "electrolysis", or "organic chemistry". I will teach it visually, give one worked example, then test you without revealing the answer first.`
+  }
+
+  if (text.includes('diagram') || text.includes('visual') || text.includes('draw')) {
+    return `Send the exact topic and I will build a visual map first, then explain each part. For example: "CBC Grade 8 Integrated Science: acids and bases" or "8-4-4 Form 4 Chemistry: electrolysis".`
+  }
+
   // 1. GREETINGS
   if (text.includes('hello') || text.includes('hi ') || text.trim() === 'hi') {
-    return `Hello ${name}! 🚀 Your Peak Coach is here. I see that solid ${streak}-day streak! Ready to level up your studies today?`
+    return `Hello ${name}! Peak Intelligence Coach is here. I see that solid ${streak}-day streak. Ready to level up your studies today?`
   }
 
   // 2. STREAKS & CONSISTENCY
@@ -92,7 +253,7 @@ function getPeakCoreResponse(input: string, context: ChatContext): string {
   const defaults = [
     `That's a great point, ${name}. 🚀 In Peak Tutoring, we focus on continuous improvement. What's one small win you can achieve in the next 30 minutes?`,
     `I'm tuned in! 🧠 Remember, your potential is unlimited. Let's focus on the discipline needed to reach the Peak today.`,
-    `As your Peak Coach, I'm backing you 100%. 📈 Small steps every day lead to massive results over time. How can I help you sharpen your focus right now?`
+    `As your Peak Intelligence Coach, I'm backing you 100%. Small steps every day lead to massive results over time. How can I help you sharpen your focus right now?`
   ]
   return defaults[Math.floor(Math.random() * defaults.length)]
 }
@@ -101,7 +262,8 @@ interface ChatResult {
   content?: string
   error?: string
   usage?: any
-  provider?: 'nvidia-nim' | 'openrouter' | 'peak-core'
+  provider?: HFChatProvider | 'peak-core'
+  model?: string
 }
 
 export async function chatWithPeakAI(messages: Message[], context: ChatContext = {}): Promise<ChatResult> {
@@ -131,87 +293,84 @@ export async function chatWithPeakAI(messages: Message[], context: ChatContext =
       .single()
     
     const currName = (student?.curriculum as any)?.name || ''
+    const currKey = currName.toLowerCase()
     const level = (student?.class as any)?.level || 0
     
-    let goal = "KCSE"
-    let style = "Rigorous & Exam-Focused"
+    let goal = "Kenyan academic mastery"
+    let stage = "Unconfirmed"
+    let style = "Visual, rigorous and learner-adaptive"
     
-    if (currName.includes('CBC')) {
+    if (currKey.includes('cbc') || currKey.includes('cbe') || currKey.includes('competency')) {
       if (level <= 6) {
         goal = "KPSEA"
-        style = "Foundational, Simple, Story-based & Highly Visual"
-      } else {
+        stage = "CBC Upper Primary"
+        style = "Competency-based, practical, simple, visual and reflection-led"
+      } else if (level <= 9) {
         goal = "KJSEA"
-        style = "Competency-based, Sub-strand focused & Practical"
+        stage = "CBC Junior School"
+        style = "Strand/sub-strand, practical evidence, inquiry, rubric feedback"
+      } else {
+        goal = "CBC Senior School pathway readiness"
+        stage = "CBC Senior School"
+        style = "Pathway-aware, project/lab evidence, portfolio quality and mastery"
       }
-    } else if (currName.includes('8-4-4')) {
+    } else if (currKey.includes('8-4-4') || currKey.includes('844')) {
       goal = "KCSE"
-      style = "Strict Examiner Marking & Keyword Mastery"
+      stage = `8-4-4 Form ${level || 'unknown'}`
+      style = "Strict examiner marking, keyword mastery, worked examples and past-paper strategy"
     }
 
     curriculumContext = `\nSTUDENT ACADEMIC CONTEXT:
     - SYSTEM: ${currName}
     - GRADE LEVEL: ${level}
+    - STAGE: ${stage}
     - ACTIVE GOAL: ${goal}
     - TEACHING STYLE: ${style}`
   }
 
-  // First, try to use the NVIDIA NIM (High Performance Llama 3.3)
-  if (NVIDIA_API_KEY) {
+  const lastUserMessage = [...messages].reverse().find(m => m.role === 'user')?.content || ''
+  const modeInstruction = getModeInstruction(messages, lastUserMessage)
+
+  if (hasHuggingFaceToken()) {
     try {
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 12000)
+      const response = await callHuggingFaceChat(
+        [
+          { role: 'system', content: SYSTEM_PROMPT + curriculumContext + modeInstruction + (context.performanceIntel ? `\n\nCURRENT STUDENT INTEL:\n${context.performanceIntel}` : '') },
+          ...messages
+        ],
+        { temperature: 0.35, maxTokens: 1600 },
+      )
+      const visualFirstContent = ensureVisualFirst(response.content, lastUserMessage)
+      const contentWithLessonImage = await attachLessonImage(
+        visualFirstContent,
+        lastUserMessage,
+        curriculumContext,
+      )
 
-      const response = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${NVIDIA_API_KEY}`,
-          'HTTP-Referer': SITE_URL,
-          'X-Title': SITE_NAME,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'meta/llama-3.3-70b-instruct', 
-          messages: [
-            { role: 'system', content: SYSTEM_PROMPT + curriculumContext + (context.performanceIntel ? `\n\nCURRENT STUDENT INTEL:\n${context.performanceIntel}` : '') },
-            ...messages
-          ],
-          temperature: 0.7,
-          max_tokens: 1000,
-        }),
-        signal: controller.signal
-      })
-
-      clearTimeout(timeoutId)
-      const data = await response.json()
-
-      if (response.ok && data.choices?.[0]?.message?.content) {
-        return { 
-          content: data.choices[0].message.content,
-          usage: data.usage,
-          provider: 'nvidia-nim'
-        }
+      return {
+        content: contentWithLessonImage,
+        usage: response.usage,
+        provider: response.provider,
+        model: response.model,
       }
-      
-      console.warn('NVIDIA NIM non-OK response, falling back to Peak Core:', data)
     } catch (error: any) {
-      console.error('NVIDIA NIM connection failed, switching to Peak Core:', error.message)
+      console.error('Hugging Face AI chain failed, switching to Peak Core:', error.message)
     }
   } else {
-    console.warn('NVIDIA_API_KEY missing, using Peak Core.')
+    console.warn('HUGGINGFACE_API_TOKEN/HF_TOKEN missing, using Peak Core.')
   }
 
   // FALLBACK: Use Peak Core Engine (Local)
   try {
-    const lastUserMessage = [...messages].reverse().find(m => m.role === 'user')?.content || ''
     const fallbackResponse = getPeakCoreResponse(lastUserMessage, context)
+    const visualFirstFallback = ensureVisualFirst(fallbackResponse, lastUserMessage)
 
     return {
-      content: fallbackResponse,
+      content: await attachLessonImage(visualFirstFallback, lastUserMessage, curriculumContext),
       provider: 'peak-core'
     }
   } catch (err) {
-    return { error: 'The Peak Coach is having a moment of silence. Try again shortly!' }
+    return { error: 'Peak Intelligence Coach is having a moment of silence. Try again shortly!' }
   }
 }
 
@@ -386,7 +545,7 @@ export async function generateStudentInsights() {
 
   // 4. Call AI for Behavioral Insights
   const prompt = `
-  You are an "AI Behavioral Data Scientist" and the student's personal Peak Coach. 
+  You are an "AI Behavioral Data Scientist" and the student's personal Peak Intelligence Coach.
   
   Analyze the following data context and provide a personal "Daily Intelligence Report."
   Focus on:
@@ -412,6 +571,27 @@ export async function generateStudentInsights() {
 /**
  * Logs a student's request to learn a specific topic.
  */
+function inferSubjectFromTopic(topic: string) {
+  const text = topic.toLowerCase()
+  const subjects = [
+    'mathematics',
+    'chemistry',
+    'biology',
+    'physics',
+    'english',
+    'kiswahili',
+    'integrated science',
+    'social studies',
+    'pretechnical',
+    'agriculture',
+    'history',
+    'geography',
+    'business',
+  ]
+
+  return subjects.find(subject => text.includes(subject)) || null
+}
+
 export async function logAILearningRequest(topic: string) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -430,7 +610,8 @@ export async function logAILearningRequest(topic: string) {
     student_id: student.id,
     curriculum_id: student.curriculum_id,
     class_id: student.class_id,
-    topic: topic.trim()
+    topic: topic.trim(),
+    subject: inferSubjectFromTopic(topic)
   })
 }
 
@@ -451,11 +632,11 @@ export async function getTrendingAILessons() {
   if (!student) return []
 
   // Get most frequent topics in this curriculum (top 6)
-  // We use a simple select for now, sorting by most common
   const { data: trendingLogs } = await supabase
     .from('ai_learning_logs')
-    .select('topic')
+    .select('topic, subject, created_at')
     .eq('curriculum_id', student.curriculum_id)
+    .order('created_at', { ascending: false })
     .limit(50)
 
   if (!trendingLogs || trendingLogs.length === 0) {
@@ -467,7 +648,7 @@ export async function getTrendingAILessons() {
       .order('created_at', { ascending: false })
       .limit(6)
     
-    return (recentAssignments || []).map(a => ({ label: `🎓 ${a.title}`, topic: a.title }))
+    return (recentAssignments || []).map(a => ({ label: a.title, topic: a.title }))
   }
 
   // Count frequencies
@@ -480,9 +661,7 @@ export async function getTrendingAILessons() {
   const sorted = Object.entries(counts)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 6)
-    .map(([topic]) => ({ label: `🔥 ${topic}`, topic }))
+    .map(([topic, count]) => ({ label: `${topic} (${count})`, topic }))
 
   return sorted
 }
-
-

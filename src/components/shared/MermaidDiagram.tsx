@@ -48,13 +48,14 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart, id }) => {
 
         // Step 1: Strip Markdown code fence artifacts
         let cleanChart = chart
-          .replace(/```mermaid/g, '')
+          .replace(/```mermaid/gi, '')
           .replace(/```/g, '')
           .trim();
+        cleanChart = cleanChart.replace(/^mermaid\s*\n/i, '').trim();
 
         // Step 2: Force 'flowchart' instead of legacy 'graph'
-        if (cleanChart.startsWith('graph')) {
-          cleanChart = 'flowchart' + cleanChart.substring(5);
+        if (/^graph\b/i.test(cleanChart)) {
+          cleanChart = cleanChart.replace(/^graph\b/i, 'flowchart');
         }
 
         // Step 3: Clear trailing semicolons from the first line (e.g. 'flowchart TD;')
@@ -74,13 +75,13 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart, id }) => {
         const chartLines = cleanChart.split('\n');
         const sanitizedLines = chartLines.map(line => {
           let l = line.trim();
-          if (!l || l.startsWith('flowchart') || l.startsWith('graph') || l.startsWith('subgraph') || l === 'end') {
+          if (!l || /^flowchart\b/i.test(l) || /^graph\b/i.test(l) || /^subgraph\b/i.test(l) || l === 'end') {
             return l;
           }
           // Auto-quote rectangular nodes: A[Label] -> A["Label"]
-          l = l.replace(/^([a-zA-Z0-9_-]+)\s*\[\s*([^"\]]+?)\s*\]/g, '$1["$2"]');
+          l = l.replace(/([a-zA-Z0-9_-]+)\s*\[\s*([^"\]]+?)\s*\]/g, '$1["$2"]');
           // Auto-quote round nodes: A(Label) -> A("Label")
-          l = l.replace(/^([a-zA-Z0-9_-]+)\s*\(\s*([^")]+?)\s*\)/g, '$1("$2")');
+          l = l.replace(/([a-zA-Z0-9_-]+)\s*\(\s*([^")]+?)\s*\)/g, '$1("$2")');
           // Fix bare double-dash arrows: A -- B -> A --> B
           l = l.replace(/\s+--\s+/g, ' --> ');
           return l;
@@ -124,7 +125,10 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart, id }) => {
 
 // Global style to suppress any accidental versions injected by Mermaid 11+
 if (typeof document !== 'undefined') {
+  const existingStyle = document.getElementById('peak-mermaid-style');
+  if (!existingStyle) {
   const style = document.createElement('style');
+  style.id = 'peak-mermaid-style';
   style.innerHTML = `
     #mermaid-version, 
     .mermaid-version,
@@ -133,6 +137,7 @@ if (typeof document !== 'undefined') {
     }
   `;
   document.head.appendChild(style);
+  }
 }
 
 export default MermaidDiagram;

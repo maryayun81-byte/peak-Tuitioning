@@ -236,47 +236,46 @@ export default function TeacherDashboard() {
         </div>
       </Modal>
 
-      {/* Enhanced Hero / Command Center */}
-      <div className="relative p-8 rounded-[2.5rem] overflow-hidden border-4 border-primary/20 shadow-2xl group">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary via-primary/80 to-accent opacity-95" />
-        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20" />
-        <div className="absolute -top-24 -right-24 w-96 h-96 bg-white/10 rounded-full blur-3xl group-hover:scale-110 transition-transform duration-1000" />
+      {/* Command Center */}
+      <div className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 shadow-2xl">
+        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/60 to-transparent" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_20%,rgba(34,197,94,0.16),transparent_28%),radial-gradient(circle_at_92%_15%,rgba(56,189,248,0.12),transparent_22%)]" />
         
-        <div className="relative flex flex-col lg:flex-row lg:items-center justify-between gap-8">
-          <div className="space-y-2">
+        <div className="relative flex flex-col xl:flex-row xl:items-center justify-between gap-8 p-6 sm:p-8 lg:p-10">
+          <div className="space-y-4 min-w-0">
              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center border border-white/30 shadow-xl">
+                <div className="w-11 h-11 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/15 shadow-xl">
                    <Users size={24} className="text-white" />
                 </div>
-                <Badge variant="secondary" className="bg-white/20 text-white border-white/30 backdrop-blur-md uppercase tracking-widest text-[9px] font-black">
+                <Badge variant="secondary" className="bg-white/10 text-white border-white/15 backdrop-blur-md uppercase tracking-widest text-[9px] font-black">
                    Academic Session 2026
                 </Badge>
              </div>
-             <h1 className="text-4xl font-black text-white tracking-tight">
+             <h1 className="max-w-2xl text-3xl sm:text-4xl lg:text-5xl font-black text-white tracking-tight leading-[1.05]">
                 Welcome back, {profile?.full_name ? profile.full_name.split(' ')[0] : 'Teacher'} <motion.span initial={{ rotate: 0 }} animate={{ rotate: [0, 20, 0] }} transition={{ repeat: Infinity, duration: 2 }}>👋</motion.span>
              </h1>
              {primaryClass && (
-               <div className="flex items-center gap-2 text-white/90 font-bold bg-white/10 w-fit px-3 py-1 rounded-full border border-white/20 backdrop-blur-sm">
+               <div className="flex items-center gap-2 text-white/90 font-bold bg-white/10 w-fit max-w-full px-3 py-1.5 rounded-full border border-white/15 backdrop-blur-sm">
                  <LayoutDashboard size={14} />
-                 <span className="text-[11px] uppercase tracking-wider">Class Teacher: {primaryClass.name}</span>
+                 <span className="text-[11px] uppercase tracking-wider truncate">Class Teacher: {primaryClass.name}</span>
                </div>
              )}
-             <p className="text-white/70 font-bold max-w-md leading-relaxed text-sm pt-2">
-                Your digital classroom is synchronized and ready for the next peak performance mission.
+             <p className="text-white/70 font-medium max-w-xl leading-7 text-sm sm:text-base">
+                Your classes, tasks, timetable, and live teaching tools are grouped into one calm workspace.
              </p>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full xl:w-auto xl:min-w-[560px]">
              {[
-               { icon: <PlusCircle size={20} />, label: 'New Assignment', href: '/teacher/assignments/new', color: 'bg-white/10' },
-               { icon: <ClipboardCheck size={20} />, label: 'Create Quiz', href: '/teacher/quizzes/new', color: 'bg-white/10' },
-               { icon: <MessageSquare size={20} />, label: 'Class Notice', href: '/teacher/notifications', color: 'bg-white/10' },
-               { icon: <TrendingUp size={20} />, label: 'Insights', href: '/teacher/students', color: 'bg-amber-400 text-black' }
+               { icon: <PlusCircle size={20} />, label: 'Assignment', href: '/teacher/assignments/new', className: 'bg-white/10 text-white hover:bg-white/20' },
+               { icon: <ClipboardCheck size={20} />, label: 'Quiz', href: '/teacher/quizzes/new', className: 'bg-white/10 text-white hover:bg-white/20' },
+               { icon: <MessageSquare size={20} />, label: 'Notice', href: '/teacher/notifications', className: 'bg-white/10 text-white hover:bg-white/20' },
+               { icon: <TrendingUp size={20} />, label: 'Insights', href: '/teacher/students', className: 'bg-amber-300 text-black hover:bg-white' }
              ].map((btn, i) => (
                <Link key={i} href={btn.href}>
-                 <button className={`flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border border-white/20 backdrop-blur-md hover:scale-105 hover:bg-white/30 transition-all w-full min-w-[120px] ${btn.color.includes('bg-white') ? btn.color : ''}`} style={!btn.color.includes('bg-white') ? { background: btn.color } : {}}>
-                    <div className={btn.color.includes('text-black') ? 'text-black' : 'text-white'}>{btn.icon}</div>
-                    <span className={`text-[10px] font-black uppercase tracking-widest text-center ${btn.color.includes('text-black') ? 'text-black' : 'text-white'}`}>{btn.label}</span>
+                 <button className={`min-h-24 w-full rounded-2xl border border-white/15 backdrop-blur-md transition-all flex flex-col items-center justify-center gap-2 px-3 py-4 shadow-lg ${btn.className}`}>
+                    <div>{btn.icon}</div>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-center leading-tight">{btn.label}</span>
                  </button>
                </Link>
              ))}

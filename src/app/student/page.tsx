@@ -877,6 +877,7 @@ function getGreeting(name: string) {
               </h2>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {[
+                  { emoji: <Zap size={20} className="text-emerald-500" />, label: 'Live Campus', href: '/student/live', color: '#10B981' },
                   { emoji: '📝', label: 'Assignments', href: '/student/assignments', color: 'var(--primary)' },
                   { emoji: '⚡', label: 'Quizzes', href: '/student/quizzes', color: '#F59E0B' },
                   { emoji: '🏆', label: 'Trivia', href: '/student/trivia', color: '#EF4444' },

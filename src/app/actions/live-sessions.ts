@@ -227,15 +227,43 @@ export async function startLiveSession(sessionId: string) {
 }
 
 export async function completeLiveSession(sessionId: string) {
-  const supabase = await createClient()
-  
-  const { error } = await supabase
+  const supabase = await createAdminClient()
+
+  // 1. Mark session as completed
+  const { data: session, error } = await supabase
     .from('live_sessions')
     .update({ status: 'completed' })
     .eq('id', sessionId)
+    .select('title, class_id')
+    .single()
 
   if (error) throw new Error("Failed to complete session")
-  
+
+  // 2. Notify students of the session wrap-up and summary availability
+  try {
+    const { data: students } = await supabase
+      .from('students')
+      .select('user_id')
+      .eq('class_id', session.class_id)
+
+    if (students && students.length > 0) {
+      const notifications = students.map(s => ({
+        user_id: s.user_id,
+        title: 'Session Summary Ready 📝',
+        body: `"${session.title}" has concluded. Your personalized summary and reflection are now available.`,
+        type: 'alert',
+        data: { session_id: sessionId, type: 'live_session_completed' }
+      }))
+
+      await supabase.from('notifications').insert(notifications)
+    }
+  } catch (notifErr) {
+    console.error('[completeLiveSession] Summary notification failed:', notifErr)
+  }
+
   revalidatePath('/teacher/live')
+  revalidatePath('/student/live')
+  revalidatePath(`/student/live/${sessionId}`)
+  
   return { success: true }
 }
