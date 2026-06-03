@@ -236,8 +236,19 @@ export default function TeacherDashboard() {
         </div>
       </Modal>
 
+      {/* Active Events */}
+      <div className="space-y-4">
+        <TuitionEventBanner />
+        <ExamEventBanner />
+      </div>
+
       {/* Command Center */}
-      <div className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 shadow-2xl">
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 shadow-2xl"
+      >
         <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/60 to-transparent" />
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_20%,rgba(34,197,94,0.16),transparent_28%),radial-gradient(circle_at_92%_15%,rgba(56,189,248,0.12),transparent_22%)]" />
         
@@ -281,10 +292,15 @@ export default function TeacherDashboard() {
              ))}
           </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* Main Grid Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.1 }}
+        className="grid grid-cols-1 lg:grid-cols-12 gap-8"
+      >
         
         {/* Left Column: Pulse & Intervention (5 cols) */}
         <div className="lg:col-span-5 space-y-8">
@@ -344,7 +360,7 @@ export default function TeacherDashboard() {
               </Card>
            </div>
         </div>
-      </div>
+      </motion.div>
     </div>
   )
 }

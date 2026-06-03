@@ -1,3 +1,5 @@
+import { fetchWithRetry, extractError } from './provider-utils'
+
 export type HFChatMessage = {
   role: 'system' | 'user' | 'assistant'
   content: string
@@ -24,20 +26,20 @@ const HUGGING_FACE_ENDPOINT =
 
 const MODEL_CHAIN: { provider: HFChatProvider; model: string }[] = [
   {
-    provider: 'reasoning',
-    model: process.env.HF_REASONING_MODEL || 'Qwen/Qwen3-32B',
+    provider: 'intelligence',
+    model: process.env.HF_INTELLIGENCE_MODEL || 'meta-llama/Llama-3.1-8B-Instruct',
   },
   {
     provider: 'qwen',
     model: process.env.HF_QWEN_MODEL || 'Qwen/Qwen2.5-72B-Instruct',
   },
   {
-    provider: 'deepseek',
-    model: process.env.HF_DEEPSEEK_MODEL || 'deepseek-ai/DeepSeek-V3-0324',
+    provider: 'reasoning',
+    model: process.env.HF_REASONING_MODEL || 'Qwen/Qwen3-32B',
   },
   {
-    provider: 'intelligence',
-    model: process.env.HF_INTELLIGENCE_MODEL || 'meta-llama/Llama-3.1-8B-Instruct',
+    provider: 'deepseek',
+    model: process.env.HF_DEEPSEEK_MODEL || 'deepseek-ai/DeepSeek-V3-0324',
   },
 ]
 
@@ -57,10 +59,7 @@ export async function callHuggingFaceChat(
 
   for (const candidate of MODEL_CHAIN) {
     try {
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 18000)
-
-      const response = await fetch(HUGGING_FACE_ENDPOINT, {
+      const response = await fetchWithRetry(HUGGING_FACE_ENDPOINT, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${HUGGING_FACE_TOKEN}`,
@@ -73,10 +72,8 @@ export async function callHuggingFaceChat(
           max_tokens: options.maxTokens ?? 1200,
           ...(options.responseFormat ? { response_format: options.responseFormat } : {}),
         }),
-        signal: controller.signal,
       })
 
-      clearTimeout(timeoutId)
       const data = await response.json().catch(() => ({}))
       const content = data?.choices?.[0]?.message?.content
 
@@ -89,7 +86,8 @@ export async function callHuggingFaceChat(
         }
       }
 
-      errors.push(`${candidate.provider}:${response.status}`)
+      const errDetail = await extractError(response)
+      errors.push(`${candidate.provider}:${response.status} (${errDetail})`)
     } catch (error: any) {
       errors.push(`${candidate.provider}:${error?.message || 'request failed'}`)
     }

@@ -78,16 +78,18 @@ export function useRealtimeNotifications() {
           }
 
           // Show browser-style toast
+          const isAcademic = newNotif.data?.source === 'academic_profile'
+          const toastIcon = isAcademic ? '🧠' : '🔔'
           toast.success(newNotif.title, {
-            icon: '🔔',
+            icon: toastIcon,
             position: 'top-right',
             duration: 5000,
             style: {
                background: 'var(--card)',
                color: 'var(--text)',
                borderRadius: '16px',
-               border: '1px solid var(--card-border)',
-               boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)'
+               border: isAcademic ? '1px solid rgba(251,191,36,0.2)' : '1px solid var(--card-border)',
+               boxShadow: isAcademic ? '0 20px 25px -5px rgba(251,191,36,0.08)' : '0 20px 25px -5px rgba(0, 0, 0, 0.1)'
             }
           })
 

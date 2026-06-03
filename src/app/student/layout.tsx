@@ -6,7 +6,7 @@ import { motion } from 'framer-motion'
 import {
   LayoutDashboard, BookOpen, FileText, BrainCircuit,
   Trophy, Calendar, Library, GraduationCap,
-  Award, Settings, LogOut, Bell, Zap, Star, Clock
+  Award, Settings, LogOut, Bell, Zap, Star, Clock, Receipt
 } from 'lucide-react'
 import { Sidebar, BottomNav } from '@/components/layout/Sidebar'
 import { useAuthStore } from '@/stores/authStore'
@@ -38,6 +38,7 @@ const NAV_ITEMS = [
   { label: 'Library', href: '/student/resources', icon: <Library size={18} /> },
   { label: 'Awards', href: '/student/awards', icon: <Star size={18} /> },
   { label: 'Transcripts', href: '/student/transcripts', icon: <Award size={18} /> },
+  { label: 'Billing', href: '/student/billing', icon: <Receipt size={18} /> },
   { label: 'Settings', href: '/student/settings', icon: <Settings size={18} /> },
 ]
 

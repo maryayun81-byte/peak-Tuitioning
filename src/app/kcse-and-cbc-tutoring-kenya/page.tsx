@@ -119,7 +119,7 @@ export default function ProgrammesPage() {
             Peak supports Kenyan learners through exam-centric KCSE preparation and application-led CBC development, without treating the two systems as the same problem.
           </p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <Link href="/enroll" className="inline-flex items-center justify-center gap-2 rounded-full bg-emerald-400 px-6 py-3 text-sm font-black uppercase tracking-[0.16em] text-slate-950 hover:bg-emerald-300">
+            <Link href="/auth/register" className="inline-flex items-center justify-center gap-2 rounded-full bg-emerald-400 px-6 py-3 text-sm font-black uppercase tracking-[0.16em] text-slate-950 hover:bg-emerald-300">
               Start diagnostic <ArrowRight size={17} />
             </Link>
             <Link href="/about" className="inline-flex items-center justify-center gap-2 rounded-full border border-white/25 px-6 py-3 text-sm font-bold text-white hover:bg-white/10">
@@ -292,7 +292,7 @@ export default function ProgrammesPage() {
             <div className="flex items-center gap-2 text-sm font-bold text-emerald-800"><GraduationCap size={17} /> April, August, and December programmes</div>
             <h2 className="mt-2 text-3xl font-black tracking-tight">Place the learner where the strategy matches the gap.</h2>
           </div>
-          <Link href="/enroll" className="inline-flex items-center justify-center gap-2 rounded-full bg-slate-950 px-6 py-3 text-sm font-black uppercase tracking-[0.16em] text-white transition hover:bg-emerald-800">
+          <Link href="/auth/register" className="inline-flex items-center justify-center gap-2 rounded-full bg-slate-950 px-6 py-3 text-sm font-black uppercase tracking-[0.16em] text-white transition hover:bg-emerald-800">
             Enroll now <ArrowRight size={17} />
           </Link>
         </div>

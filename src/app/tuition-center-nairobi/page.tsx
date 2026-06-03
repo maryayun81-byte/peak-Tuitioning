@@ -53,7 +53,7 @@ export default function NairobiCenterPage() {
               A calm, guided environment for diagnostics, small-group tutoring, KCSE revision, CBC support, live-session follow-up, and holiday programme work.
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <Link href="/enroll" className="inline-flex items-center justify-center gap-2 rounded-full bg-emerald-400 px-6 py-3 text-sm font-black uppercase tracking-[0.16em] text-slate-950 hover:bg-emerald-300">
+              <Link href="/auth/register" className="inline-flex items-center justify-center gap-2 rounded-full bg-emerald-400 px-6 py-3 text-sm font-black uppercase tracking-[0.16em] text-slate-950 hover:bg-emerald-300">
                 Schedule visit <ArrowRight size={17} />
               </Link>
               <Link href="/kcse-and-cbc-tutoring-kenya" className="inline-flex items-center justify-center gap-2 rounded-full border border-white/25 px-6 py-3 text-sm font-bold text-white hover:bg-white/10">
@@ -143,7 +143,7 @@ export default function NairobiCenterPage() {
             <div className="flex items-center gap-2 text-sm font-bold text-emerald-800"><BookOpenCheck size={17} /> Diagnostic-first placement</div>
             <h2 className="mt-2 text-3xl font-black tracking-tight">Bring the latest report and we will find the real academic gap.</h2>
           </div>
-          <Link href="/enroll" className="inline-flex items-center justify-center gap-2 rounded-full bg-slate-950 px-6 py-3 text-sm font-black uppercase tracking-[0.16em] text-white transition hover:bg-emerald-800">
+          <Link href="/auth/register" className="inline-flex items-center justify-center gap-2 rounded-full bg-slate-950 px-6 py-3 text-sm font-black uppercase tracking-[0.16em] text-white transition hover:bg-emerald-800">
             Book diagnostic <ArrowRight size={17} />
           </Link>
         </div>

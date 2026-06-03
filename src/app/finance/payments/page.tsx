@@ -6,13 +6,16 @@ import {
   DollarSign, Search, User, Calendar, CheckCircle, Loader2, 
   X, ChevronDown, Receipt, RefreshCw, AlertCircle, Plus, 
   Banknote, Smartphone, Building2, CreditCard, Filter,
-  ArrowRight, Info, Check, Clock, TrendingUp, HelpCircle
+  ArrowRight, Info, Check, Clock, TrendingUp, HelpCircle, Send,
+  Eye
 } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { formatCurrency, formatDate, getEventWeeks, calculateWeeklyStats, getArrearsStatus } from '@/lib/utils'
 import { Card, Badge } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { useAuthStore } from '@/stores/authStore'
+import { Modal } from '@/components/ui/Modal'
+import { Receipt as ReceiptViewer } from '@/components/Receipt'
 import toast from 'react-hot-toast'
 
 // --- Types ---
@@ -22,8 +25,9 @@ interface Registration {
   tuition_event_id: string
   class_id: string | null
   tuition_center_id: string | null
-  class?: { name: string }
+  class?: { id: string, name: string, curriculum_id: string }
   center?: { name: string }
+  student?: { id: string }
 }
 
 interface TuitionEvent {
@@ -40,12 +44,13 @@ interface DBPayment {
   id: string
   amount: number
   payment_date: string
-  paid_dates: string | null // CSV dates
+  paid_dates: string | null
   method: string
   receipt_number: string
   student_id: string | null
-  student_name?: string
+  student_name: string
   week_number: number | null
+  is_published?: boolean
 }
 
 const METHODS = [
@@ -73,13 +78,19 @@ export default function PaymentManagement() {
   
   const [registrations, setRegistrations] = useState<Registration[]>([])
   const [centers, setCenters] = useState<{id: string, name: string}[]>([])
+  const [curriculums, setCurriculums] = useState<{id: string, name: string}[]>([])
+  const [classes, setClasses] = useState<{id: string, name: string, curriculum_id: string}[]>([])
+  
   const [selectedCenterId, setSelectedCenterId] = useState<string>('')
+  const [selectedCurriculum, setSelectedCurriculum] = useState<string>('')
+  const [selectedClass, setSelectedClass] = useState<string>('')
+  
   const [studentSearch, setStudentSearch] = useState('')
   const [selectedReg, setSelectedReg] = useState<Registration | null>(null)
   
   const [studentPayments, setStudentPayments] = useState<DBPayment[]>([])
   const [loading, setLoading] = useState(true)
-  const [loadRef, setLoadRef] = useState(0) // increment to reload data
+  const [loadRef, setLoadRef] = useState(0)
 
   // --- Payment Form State ---
   const [paymentMode, setPaymentMode] = useState<'full' | 'daily' | 'multi'>('full')
@@ -92,9 +103,12 @@ export default function PaymentManagement() {
   const dropdownRef = useRef<HTMLDivElement>(null)
   const [showDropdown, setShowDropdown] = useState(false)
 
+  // --- Receipt Viewer State ---
+  const [viewingReceipt, setViewingReceipt] = useState<DBPayment | null>(null)
+  const [publishing, setPublishing] = useState<string | null>(null)
+
   // --- Initialization ---
   useEffect(() => {
-    // Fetch events
     supabase.from('tuition_events').select('*').order('start_date', { ascending: false }).limit(10)
       .then(({ data }) => {
         const events = data as TuitionEvent[]
@@ -103,57 +117,45 @@ export default function PaymentManagement() {
         setSelectedEvent(active ?? events?.[0] ?? null)
       })
 
-    // Fetch centers
-    supabase.from('tuition_centers').select('id, name').order('name')
-      .then(({ data }) => {
-        const centerList = data || []
-        setCenters(centerList)
-        if (centerList.length > 0) setSelectedCenterId(centerList[0].id)
-      })
+    supabase.from('tuition_centers').select('id, name').order('name').then(({ data }) => {
+      const centerList = data || []
+      setCenters(centerList)
+      if (centerList.length > 0) setSelectedCenterId(centerList[0].id)
+    })
+    
+    supabase.from('curriculums').select('id, name').then(({data}) => setCurriculums(data || []))
+    supabase.from('classes').select('id, name, curriculum_id').then(({data}) => setClasses(data || []))
   }, [supabase])
 
   // Fetches weeks and registrations when event or center changes
   useEffect(() => {
-    if (!selectedEvent || !selectedCenterId) return
+    if (!selectedEvent) return
     
-    // Fetch weeks
     const evWeeks = getEventWeeks(selectedEvent.start_date, selectedEvent.end_date, selectedEvent.active_days)
     setWeeks(evWeeks)
     setSelectedWeekIndex(0) 
 
-    // Fetch ALL registrations for this event to find students
     setLoading(true)
-    console.log('Fetching all event registrations:', { event: selectedEvent.id })
-    
     supabase.from('event_registrations')
-      .select('*, class:classes(name), center:tuition_centers(name)')
+      .select('*, class:classes(id, name, curriculum_id), center:tuition_centers(name), student:students(id)')
       .eq('tuition_event_id', selectedEvent.id)
       .then(({ data, error }) => {
-        if (error) {
-          console.error('Fetch registration error:', error)
-          toast.error(`Data Sync Error: ${error.message}`)
-        }
+        if (error) toast.error(`Data Sync Error: ${error.message}`)
         setRegistrations(data as any ?? [])
         setLoading(false)
       })
   }, [selectedEvent, supabase])
 
   // --- Derived State & Logic ---
-  const filteredByCenter = useMemo(() => {
-    if (!selectedCenterId) return registrations
-    if (selectedCenterId === 'none') return registrations.filter(r => !r.tuition_center_id)
-    return registrations.filter(r => r.tuition_center_id === selectedCenterId)
-  }, [registrations, selectedCenterId])
-
   const filteredStudents = useMemo(() => {
-    // If we have no matches for the center, but we HAVE registrations for the event,
-    // we fallback to the full list to avoid user frustration, or just filter normally.
-    const source = (filteredByCenter.length === 0 && registrations.length > 0) ? registrations : filteredByCenter
-    
-    return source.filter(r => 
-      !studentSearch || r.student_name.toLowerCase().includes(studentSearch.toLowerCase())
-    ).slice(0, 10)
-  }, [filteredByCenter, registrations, studentSearch])
+    return registrations.filter(r => {
+      if (selectedCenterId && selectedCenterId !== 'none' && r.tuition_center_id !== selectedCenterId) return false
+      if (selectedCurriculum && r.class?.curriculum_id !== selectedCurriculum) return false
+      if (selectedClass && r.class_id !== selectedClass) return false
+      if (studentSearch && !r.student_name.toLowerCase().includes(studentSearch.toLowerCase())) return false
+      return true
+    }).slice(0, 10)
+  }, [registrations, selectedCenterId, selectedCurriculum, selectedClass, studentSearch])
 
   // Fetches payments for the selected student to calculate arrears
   const loadStudentData = useCallback(async () => {
@@ -167,14 +169,12 @@ export default function PaymentManagement() {
 
   useEffect(() => { loadStudentData() }, [loadStudentData, loadRef])
 
-  // --- Derived State & Logic ---
   const selectedWeek = weeks[selectedWeekIndex]
   const weeklyStats = useMemo(() => {
     if (!selectedWeek || !selectedEvent) return null
     return calculateWeeklyStats(selectedWeek, studentPayments, selectedEvent.daily_rate)
   }, [selectedWeek, studentPayments, selectedEvent])
 
-  // Handle mode changes & auto-calculation
   useEffect(() => {
     if (!selectedEvent || !weeklyStats) return
     if (paymentMode === 'full') {
@@ -207,9 +207,13 @@ export default function PaymentManagement() {
     }
     setSubmitting(true)
     try {
+      // Find actual student id if it exists
+      let studentId = selectedReg.student?.id || null
+
       const { error } = await supabase.from('payments').insert({
         tuition_event_id: selectedEvent.id,
         student_name: selectedReg.student_name,
+        student_id: studentId,
         amount,
         paid_dates: selectedDates.join(','),
         week_number: selectedWeek.weekNumber,
@@ -217,15 +221,14 @@ export default function PaymentManagement() {
         receipt_number: receiptNumber,
         payment_date: new Date().toISOString().split('T')[0],
         tuition_center_id: selectedReg.tuition_center_id,
-        created_by: profile?.id
+        created_by: profile?.id,
+        is_published: false
       })
 
       if (error) throw error
 
       toast.success('Payment recorded successfully!')
       setReceiptNumber(generateReceiptNumber())
-      setSelectedReg(null)
-      setStudentSearch('')
       setSelectedDates([])
       setLoadRef(prev => prev + 1)
     } catch (err: any) {
@@ -235,10 +238,64 @@ export default function PaymentManagement() {
     }
   }
 
+  const publishReceipt = async (paymentId: string) => {
+    setPublishing(paymentId)
+    try {
+      const { error } = await supabase.from('payments').update({ is_published: true }).eq('id', paymentId)
+      if (error) throw error
+      
+      const payment = studentPayments.find(p => p.id === paymentId)
+      if (payment && payment.student_id) {
+        await supabase.from('notifications').insert({
+          user_id: payment.student_id,
+          title: 'Official Receipt Published',
+          message: `Receipt ${payment.receipt_number} for ${formatCurrency(payment.amount)} has been published to your account.`,
+          type: 'billing'
+        })
+      }
+      
+      toast.success('Receipt officially published!')
+      setLoadRef(p => p + 1)
+    } catch (err: any) {
+      toast.error('Failed to publish receipt')
+    } finally {
+      setPublishing(null)
+    }
+  }
+
+  const publishAll = async () => {
+    const unpublished = studentPayments.filter(p => !p.is_published)
+    if (unpublished.length === 0) {
+      toast.success('All receipts are already published!')
+      return
+    }
+    
+    setPublishing('all')
+    try {
+      for (const p of unpublished) {
+        await supabase.from('payments').update({ is_published: true }).eq('id', p.id)
+        if (p.student_id) {
+          await supabase.from('notifications').insert({
+            user_id: p.student_id,
+            title: 'Official Receipt Published',
+            message: `Receipt ${p.receipt_number} has been published to your account.`,
+            type: 'billing'
+          })
+        }
+      }
+      toast.success(`Published ${unpublished.length} receipts!`)
+      setLoadRef(p => p + 1)
+    } catch (err: any) {
+      toast.error('Failed to publish all receipts')
+    } finally {
+      setPublishing(null)
+    }
+  }
+
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-6">
       {/* Header Section */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl sm:text-4xl font-black tracking-tight" style={{ color: 'var(--text)' }}>
             Payment Hub
@@ -248,10 +305,34 @@ export default function PaymentManagement() {
           </p>
         </div>
         
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-4">
           <Badge variant="info" className="px-3 py-1 text-sm bg-blue-500/10 border-blue-500/20 text-blue-500 hidden sm:flex">
             <RefreshCw size={12} className="mr-1.5" /> Live Sync Active
           </Badge>
+          
+          <div className="flex flex-col items-end border-r border-[var(--card-border)] pr-4">
+            <p className="text-[10px] font-bold uppercase tracking-widest opacity-40">Curriculum</p>
+            <select 
+              value={selectedCurriculum} 
+              onChange={e => { setSelectedCurriculum(e.target.value); setSelectedClass(''); }}
+              className="text-sm font-black bg-transparent border-none outline-none text-right cursor-pointer text-primary"
+            >
+              <option value="" style={{ color: '#000' }}>All Curriculums</option>
+              {curriculums.map(c => <option key={c.id} value={c.id} style={{ color: '#000' }}>{c.name}</option>)}
+            </select>
+          </div>
+          
+          <div className="flex flex-col items-end border-r border-[var(--card-border)] pr-4">
+            <p className="text-[10px] font-bold uppercase tracking-widest opacity-40">Class</p>
+            <select 
+              value={selectedClass} 
+              onChange={e => setSelectedClass(e.target.value)}
+              className="text-sm font-black bg-transparent border-none outline-none text-right cursor-pointer text-primary"
+            >
+              <option value="" style={{ color: '#000' }}>All Classes</option>
+              {classes.filter(c => !selectedCurriculum || c.curriculum_id === selectedCurriculum).map(c => <option key={c.id} value={c.id} style={{ color: '#000' }}>{c.name}</option>)}
+            </select>
+          </div>
           
           <div className="flex flex-col items-end border-r border-[var(--card-border)] pr-4">
             <p className="text-[10px] font-bold uppercase tracking-widest opacity-40">Center</p>
@@ -304,11 +385,6 @@ export default function PaymentManagement() {
                     </div>
                     {selectedWeekIndex === idx && <Check size={18} className="text-[var(--primary)]" />}
                   </div>
-                  {w.hasHolidays && (
-                    <div className="mt-2 flex items-center gap-1.5 text-[10px] font-bold text-amber-500 uppercase tracking-tighter">
-                      <HelpCircle size={10} /> Reduced Capacity (Holidays)
-                    </div>
-                  )}
                 </button>
               ))}
             </div>
@@ -335,7 +411,7 @@ export default function PaymentManagement() {
               </div>
 
               <AnimatePresence>
-                {showDropdown && (studentSearch || registrations.length > 0) && !selectedReg && (
+                {showDropdown && (studentSearch || filteredStudents.length > 0) && !selectedReg && (
                   <motion.div 
                     initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }}
                     className="absolute z-50 w-full mt-2 rounded-2xl shadow-2xl overflow-hidden border border-[var(--card-border)]"
@@ -461,7 +537,7 @@ export default function PaymentManagement() {
                     return (
                       <button
                         key={date}
-                        disabled={isPaid && paymentMode !== 'full'} // Can't select paid dates except in full info
+                        disabled={isPaid && paymentMode !== 'full'}
                         onClick={() => handleDateToggle(date)}
                         className={`p-4 rounded-[1.5rem] text-left transition-all relative overflow-hidden group ${isPaid ? 'opacity-50 cursor-not-allowed' : 'hover:scale-[1.02] active:scale-95'} ${isSelected ? 'ring-2 ring-primary' : 'border border-[var(--card-border)]'}`}
                         style={{ 
@@ -481,13 +557,6 @@ export default function PaymentManagement() {
                     )
                   })}
                 </div>
-
-                {paymentMode === 'full' && weeklyStats?.isFullyPaid && (
-                  <div className="mt-6 p-4 rounded-xl flex items-center gap-3 text-emerald-600 text-sm font-bold bg-emerald-500/10 border border-emerald-500/20">
-                    <CheckCircle size={18} />
-                    All days in this week are already fully settled.
-                  </div>
-                )}
               </Card>
 
               {/* Payment Receipt Logic */}
@@ -519,15 +588,13 @@ export default function PaymentManagement() {
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-[10px] font-black uppercase tracking-widest opacity-40 mb-1.5">Amount (KES)</label>
-                        <div className="relative">
-                          <input 
-                            type="number" 
-                            value={amount}
-                            onChange={e => setAmount(Number(e.target.value))}
-                            className="w-full bg-[var(--input)] border-none rounded-xl py-3 px-4 text-sm font-black outline-none"
-                            style={{ color: 'var(--primary)' }}
-                          />
-                        </div>
+                        <input 
+                          type="number" 
+                          value={amount}
+                          onChange={e => setAmount(Number(e.target.value))}
+                          className="w-full bg-[var(--input)] border-none rounded-xl py-3 px-4 text-sm font-black outline-none"
+                          style={{ color: 'var(--primary)' }}
+                        />
                       </div>
                       <div>
                         <label className="block text-[10px] font-black uppercase tracking-widest opacity-40 mb-1.5">Receipt Reference</label>
@@ -556,19 +623,7 @@ export default function PaymentManagement() {
                     </div>
 
                     <div className="space-y-2 py-4 border-y border-[var(--card-border)] border-dashed">
-                      <div className="flex justify-between text-sm">
-                        <span className="font-medium opacity-50">Student:</span>
-                        <span className="font-black">{selectedReg.student_name}</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="font-medium opacity-50">Week Tracking:</span>
-                        <span className="font-black">Week {selectedWeek.weekNumber}</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="font-medium opacity-50">Coverage:</span>
-                        <span className="font-black text-[var(--primary)]">{selectedDates.length} Days</span>
-                      </div>
-                      <div className="flex justify-between text-lg font-black mt-2 pt-2 border-t border-[var(--card-border)]">
+                      <div className="flex justify-between text-lg font-black mt-2 pt-2">
                         <span>Total:</span>
                         <span>{formatCurrency(amount)}</span>
                       </div>
@@ -585,11 +640,11 @@ export default function PaymentManagement() {
                   </Button>
                 </Card>
               </div>
-
             </motion.div>
           )}
         </div>
       </div>
+      
       {/* Bottom Section: Recent Activity & Today's Ledger */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pb-12">
         <Card className="lg:col-span-12 p-6 overflow-hidden">
@@ -597,13 +652,20 @@ export default function PaymentManagement() {
             <div>
               <h3 className="text-lg font-black flex items-center gap-2">
                 <Receipt size={20} className="text-emerald-500" />
-                Today's Collection Ledger
+                Student Collection Ledger
               </h3>
               <p className="text-xs font-bold opacity-40 uppercase tracking-widest mt-1">Real-time audit of financier entries</p>
             </div>
             <div className="flex gap-2">
-              <Button variant="secondary" size="sm" onClick={() => setLoadRef(p => p + 1)}>
-                <RefreshCw size={14} className="mr-2" /> Refresh
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={publishAll}
+                disabled={publishing === 'all' || studentPayments.filter(p => !p.is_published).length === 0}
+                className="border-emerald-500 text-emerald-500 hover:bg-emerald-500/10 font-bold"
+              >
+                {publishing === 'all' ? <Loader2 className="animate-spin mr-2" size={16} /> : <Send size={16} className="mr-2" />} 
+                Publish All Unpublished
               </Button>
             </div>
           </div>
@@ -615,15 +677,16 @@ export default function PaymentManagement() {
                   <th className="px-4 py-3">Receipt</th>
                   <th className="px-4 py-3">Student Name</th>
                   <th className="px-4 py-3">Week</th>
-                  <th className="px-4 py-3">Method</th>
                   <th className="px-4 py-3">Coverage</th>
                   <th className="px-4 py-3 text-right">Amount</th>
+                  <th className="px-4 py-3 text-center">Status</th>
+                  <th className="px-4 py-3 text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--card-border)]">
                 {studentPayments.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-12 text-center text-xs font-bold opacity-30 uppercase tracking-widest">
+                    <td colSpan={7} className="px-4 py-12 text-center text-xs font-bold opacity-30 uppercase tracking-widest">
                       No transactions recorded for this student in the current event
                     </td>
                   </tr>
@@ -634,11 +697,6 @@ export default function PaymentManagement() {
                       <td className="px-4 py-4 font-black">{p.student_name}</td>
                       <td className="px-4 py-4">
                         <Badge variant="muted">Week {p.week_number}</Badge>
-                      </td>
-                      <td className="px-4 py-4">
-                        <span className="text-xs font-bold px-2 py-1 rounded-lg bg-[var(--input)]">
-                          {p.method}
-                        </span>
                       </td>
                       <td className="px-4 py-4 max-w-[200px]">
                         <div className="flex flex-wrap gap-1">
@@ -652,6 +710,34 @@ export default function PaymentManagement() {
                       <td className="px-4 py-4 text-right font-black text-emerald-500">
                         {formatCurrency(p.amount)}
                       </td>
+                      <td className="px-4 py-4 text-center">
+                        {p.is_published ? (
+                          <Badge variant="success" className="bg-emerald-500/10 text-emerald-500 border-none"><CheckCircle size={12} className="mr-1" /> Published</Badge>
+                        ) : (
+                          <Badge variant="warning" className="bg-orange-500/10 text-orange-500 border-none">Draft</Badge>
+                        )}
+                      </td>
+                      <td className="px-4 py-4 text-right space-x-2">
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          onClick={() => setViewingReceipt(p)}
+                          className="hover:bg-white/10"
+                        >
+                          <Eye size={16} />
+                        </Button>
+                        {!p.is_published && (
+                          <Button 
+                            variant="primary" 
+                            size="sm"
+                            disabled={publishing === p.id}
+                            onClick={() => publishReceipt(p.id)}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                          >
+                            {publishing === p.id ? <Loader2 size={16} className="animate-spin" /> : 'Publish'}
+                          </Button>
+                        )}
+                      </td>
                     </tr>
                   ))
                 )}
@@ -660,7 +746,16 @@ export default function PaymentManagement() {
           </div>
         </Card>
       </div>
+
+      <Modal isOpen={!!viewingReceipt} onClose={() => setViewingReceipt(null)} title="Official Receipt Preview" size="xl">
+        {viewingReceipt && (
+           <ReceiptViewer 
+             payment={viewingReceipt} 
+             eventName={selectedEvent?.name}
+             centerName={centers.find(c => c.id === selectedReg?.tuition_center_id)?.name}
+           />
+        )}
+      </Modal>
     </div>
   )
 }
-

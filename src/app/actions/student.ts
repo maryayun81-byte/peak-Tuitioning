@@ -5,28 +5,37 @@ import { createClient as createServerClient, createAdminClient } from '@/lib/sup
 import { requireAdmin } from '@/lib/auth-guards'
 
 export async function createStudentUser(admissionNumber: string, emailStr: string, tempPwd: string, fullName: string) {
-  // 0. Security Guard
   await requireAdmin()
+  const adminClient = await createAdminClient()
 
-  // We use the service role key to bypass RLS and auth restrictions 
-  // so the Admin doesn't get logged out of their current session
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } }
-  )
-
-  const { data, error } = await supabase.auth.admin.createUser({
+  // 1. Try normal auth.admin.createUser()
+  const { data, error } = await adminClient.auth.admin.createUser({
     email: emailStr,
     password: tempPwd,
     email_confirm: true,
-    user_metadata: {
-      full_name: fullName,
-      role: 'student',
-    }
+    user_metadata: { full_name: fullName, role: 'student' },
   })
 
   if (error) {
+    console.error('[createStudentUser] admin.createUser failed:', error.message, error.code)
+
+    // 2. If the on_auth_user_created trigger is broken, use the RPC fallback
+    if (error.code === 'unexpected_failure') {
+      const { data: rpcUserId, error: rpcError } = await adminClient.rpc('admin_create_user', {
+        p_email: emailStr,
+        p_password: tempPwd,
+        p_full_name: fullName,
+        p_role: 'student',
+      })
+
+      if (rpcError) {
+        console.error('[createStudentUser] RPC fallback also failed:', rpcError)
+        return { success: false, error: rpcError.message, code: 'rpc_fallback_failed' }
+      }
+
+      return { success: true, user_id: rpcUserId }
+    }
+
     return { success: false, error: error.message, code: (error as any).code }
   }
 

@@ -450,7 +450,13 @@ function getGreeting(name: string) {
   const firstName = profile?.full_name?.split(' ')[0] || 'Scholar'
 
   return (
-    <div className="pb-12 relative overflow-hidden min-h-screen" style={{ background: 'var(--bg)' }}>
+    <motion.div
+      initial={{ opacity: 0, y: 18 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, ease: 'easeOut' }}
+      className="pb-12 relative overflow-hidden min-h-screen"
+      style={{ background: 'var(--bg)' }}
+    >
 
       {/* Confetti Overlay */}
       {showLevelUp && (
@@ -1144,6 +1150,6 @@ function getGreeting(name: string) {
       {/* ── PEAK AI ASSISTANT ── */}
       <PeakAIAssistant />
       <InsightTrigger />
-    </div>
+    </motion.div>
   )
 }

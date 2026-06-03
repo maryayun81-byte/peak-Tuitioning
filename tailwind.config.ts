@@ -41,6 +41,9 @@ const config: Config = {
         'float': 'float 6s ease-in-out infinite',
         'pulse-glow': 'pulseGlow 2s ease-in-out infinite',
         'spin-slow': 'spin 8s linear infinite',
+        'vertical-rail': 'verticalRail 1s ease-in-out infinite',
+        'vertical-rail-delayed': 'verticalRail 1s ease-in-out 0.2s infinite',
+        'vertical-rail-slow': 'verticalRail 1.2s ease-in-out 0.4s infinite',
       },
       keyframes: {
         fadeIn: {
@@ -70,6 +73,10 @@ const config: Config = {
         pulseGlow: {
           '0%, 100%': { boxShadow: '0 0 15px rgba(79,140,255,0.3)' },
           '50%': { boxShadow: '0 0 30px rgba(79,140,255,0.7)' },
+        },
+        verticalRail: {
+          '0%, 100%': { transform: 'scaleY(0.4)', opacity: '0.4' },
+          '50%': { transform: 'scaleY(1)', opacity: '1' },
         },
       },
       backgroundImage: {

@@ -16,7 +16,7 @@ import toast from 'react-hot-toast'
 import { formatDate } from '@/lib/utils'
 
 const registrationSchema = z.object({
-  student_name: z.string().min(2, "Name is required"),
+  student_name: z.string().optional(),
   tuition_event_id: z.string().min(1, "Please select an event"),
   class_id: z.string().optional().nullable(),
   curriculum_id: z.string().optional().nullable(),
@@ -199,6 +199,11 @@ export default function AdminEventRegistrations() {
   const onSubmit = async (data: RegistrationForm) => {
     if (isBulk && !editing) {
       await onBulkSubmit(data)
+      return
+    }
+
+    if (!data.student_name || data.student_name.trim().length < 2) {
+      toast.error('Student Name is required')
       return
     }
 

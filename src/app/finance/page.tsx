@@ -207,7 +207,12 @@ export default function FinanceDashboard() {
   ]
 
   return (
-    <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
+    <motion.div
+      initial={{ opacity: 0, y: 18 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, ease: 'easeOut' }}
+      className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto"
+    >
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -454,6 +459,6 @@ export default function FinanceDashboard() {
           </div>
         </Card>
       </motion.div>
-    </div>
+    </motion.div>
   )
 }

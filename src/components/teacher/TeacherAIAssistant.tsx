@@ -105,7 +105,7 @@ export function TeacherAIAssistant() {
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
           onClick={() => setIsOpen(true)}
-          className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-2xl bg-primary text-white shadow-2xl flex items-center justify-center group overflow-hidden"
+          className="fixed bottom-[84px] md:bottom-6 right-4 md:right-6 z-50 w-14 h-14 rounded-2xl bg-primary text-white shadow-2xl flex items-center justify-center group overflow-hidden"
         >
           <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
           <Sparkles size={24} className="group-hover:rotate-12 transition-transform" />
@@ -127,8 +127,8 @@ export function TeacherAIAssistant() {
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="fixed bottom-6 right-6 z-[52] w-full max-w-md bg-[var(--card)] border border-[var(--card-border)] rounded-[2rem] shadow-2xl overflow-hidden flex flex-col"
-              style={{ maxHeight: 'calc(100vh - 8rem)' }}
+              className="fixed inset-x-0 bottom-[72px] md:inset-x-auto md:bottom-6 md:right-6 z-[52] w-full md:max-w-md bg-[var(--card)] border border-[var(--card-border)] rounded-t-[2rem] md:rounded-[2rem] shadow-2xl overflow-hidden flex flex-col"
+              style={{ maxHeight: 'calc(100vh - 6rem)' }}
             >
               {/* Header */}
               <div className="p-6 bg-gradient-to-r from-primary to-accent text-white flex items-center justify-between">

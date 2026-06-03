@@ -167,7 +167,12 @@ export default function AdminDashboard() {
   if (loading) return <SkeletonDashboard />
 
   return (
-    <div className="p-6 space-y-6">
+    <motion.div
+      initial={{ opacity: 0, y: 18 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, ease: 'easeOut' }}
+      className="p-6 space-y-6"
+    >
       {/* Header */}
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
         <h1 className="text-2xl font-black" style={{ color: 'var(--text)' }}>
@@ -401,6 +406,6 @@ export default function AdminDashboard() {
           </div>
         </Card>
       </motion.div>
-    </div>
+    </motion.div>
   )
 }

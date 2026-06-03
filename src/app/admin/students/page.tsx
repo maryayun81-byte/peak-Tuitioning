@@ -191,47 +191,55 @@ export default function AdminStudents() {
     let lastAdmission = ''
 
     try {
-      // Get current max admission index
+      const year = new Date().getFullYear()
       const { data: lastStudents } = await supabase
         .from('students')
         .select('admission_number')
+        .like('admission_number', `PPT-${year}-%`)
         .order('admission_number', { ascending: false })
         .limit(1)
-      
-      let nextNum = 1
+
+      let currentNum = 1
       if (lastStudents && lastStudents.length > 0) {
         const parts = lastStudents[0].admission_number.split('-')
         const lastSeq = parseInt(parts[parts.length - 1])
-        if (!isNaN(lastSeq)) nextNum = lastSeq + 1
+        if (!isNaN(lastSeq)) currentNum = lastSeq + 1
       }
 
-      let currentNextNum = nextNum
-
       for (const name of names) {
-        let success = false
-        let authProvision: any = null
         let finalAdmissionNumber = ''
         const tempPwd = generateTempPassword()
+        let found = false
 
-        // Reuse the collision prevention logic
-        while (!success && currentNextNum < nextNum + 200) {
-          finalAdmissionNumber = generateAdmissionNumber(currentNextNum)
-          authProvision = await createStudentUser(
-            finalAdmissionNumber, 
-            `${finalAdmissionNumber.toLowerCase()}@student.peak.edu`, 
-            tempPwd, 
-            name
+        for (let attempt = 0; attempt < 200; attempt++) {
+          finalAdmissionNumber = generateAdmissionNumber(currentNum)
+
+          const { data: existing } = await supabase
+            .from('students')
+            .select('id')
+            .eq('admission_number', finalAdmissionNumber)
+            .maybeSingle()
+
+          if (existing) {
+            currentNum++
+            continue
+          }
+
+          // Admission number free — create auth user
+          const authProvision = await createStudentUser(
+            finalAdmissionNumber,
+            `${finalAdmissionNumber.toLowerCase()}@student.peak.edu`,
+            tempPwd,
+            name,
           )
 
-          if (authProvision.success) {
-            success = true
-          } else {
-            currentNextNum++
+          if (!authProvision.success) {
+            currentNum++
+            continue
           }
-        }
 
-        if (success) {
-          await supabase.from('students').insert({
+          // Auth created — insert student record
+          const { error: insertError } = await supabase.from('students').insert({
             user_id: authProvision.user_id,
             full_name: name,
             class_id: data.class_id,
@@ -242,13 +250,27 @@ export default function AdminStudents() {
             onboarded: false,
             created_by_admin: true,
           })
+
+          if (insertError) {
+            console.error(`Bulk insert failed for ${name}:`, insertError)
+            currentNum++
+            continue
+          }
+
           createdCount++
           lastAdmission = finalAdmissionNumber
-          currentNextNum++
+          currentNum++
+          found = true
+          break
+        }
+
+        if (!found) {
+          toast.error(`Could not find slot for ${name} after 200 attempts. Stopping bulk creation.`)
+          break
         }
       }
 
-      toast.success(`Successfully created ${createdCount} students! Last Admission: ${lastAdmission}`, { duration: 6000 })
+      toast.success(`Created ${createdCount} students! Last: ${lastAdmission}`, { duration: 6000 })
       setAddOpen(false)
       setBulkRows([''])
       reset()
@@ -275,40 +297,55 @@ export default function AdminStudents() {
 
     setLoading(true)
     try {
+      const year = new Date().getFullYear()
       const { data: lastStudents } = await supabase
         .from('students')
         .select('admission_number')
+        .like('admission_number', `PPT-${year}-%`)
         .order('admission_number', { ascending: false })
         .limit(1)
-      
-      let nextNum = 1
+
+      let currentNum = 1
       if (lastStudents && lastStudents.length > 0) {
         const parts = lastStudents[0].admission_number.split('-')
         const lastSeq = parseInt(parts[parts.length - 1])
-        if (!isNaN(lastSeq)) nextNum = lastSeq + 1
+        if (!isNaN(lastSeq)) currentNum = lastSeq + 1
       }
-      
+
       const tempPwd = generateTempPassword()
-      let success = false
-      let authProvision: any = null
-      let currentNextNum = nextNum
       let finalAdmissionNumber = ''
 
-      while (!success && currentNextNum < nextNum + 50) {
-        finalAdmissionNumber = generateAdmissionNumber(currentNextNum)
-        authProvision = await createStudentUser(
-          finalAdmissionNumber, 
-          `${finalAdmissionNumber.toLowerCase()}@student.peak.edu`, 
-          tempPwd, 
-          data.full_name
+      // Find a free admission number
+      for (let attempt = 0; attempt < 100; attempt++) {
+        finalAdmissionNumber = generateAdmissionNumber(currentNum)
+
+        const { data: existing } = await supabase
+          .from('students')
+          .select('id')
+          .eq('admission_number', finalAdmissionNumber)
+          .maybeSingle()
+
+        if (existing) {
+          currentNum++
+          continue
+        }
+
+        // Admission number is free — create auth user
+        const authProvision = await createStudentUser(
+          finalAdmissionNumber,
+          `${finalAdmissionNumber.toLowerCase()}@student.peak.edu`,
+          tempPwd,
+          data.full_name,
         )
 
-        if (authProvision.success) success = true
-        else currentNextNum++
-      }
+        if (!authProvision.success) {
+          console.error('Auth creation failed:', authProvision.error)
+          toast.error('Failed to create account: ' + authProvision.error)
+          return
+        }
 
-      if (success) {
-        await supabase.from('students').insert({
+        // Auth user created — insert student record
+        const { error: insertError } = await supabase.from('students').insert({
           user_id: authProvision.user_id,
           full_name: data.full_name,
           class_id: data.class_id,
@@ -319,14 +356,21 @@ export default function AdminStudents() {
           onboarded: false,
           created_by_admin: true,
         })
-        toast.success(`Student created! Admission: ${finalAdmissionNumber}`)
+
+        if (insertError) {
+          console.error('Student insert failed:', insertError)
+          toast.error('Auth created but DB insert failed: ' + insertError.message)
+          return
+        }
+
+        toast.success(`Student created! Admission: ${finalAdmissionNumber}, Password: ${tempPwd}`)
         setAddOpen(false)
         reset()
         loadData()
-      } else {
-        toast.error('Failed to generate a unique admission number. Please try again.')
+        return
       }
 
+      toast.error('No available admission number found.')
     } catch (err: any) {
       console.error(err)
       toast.error(err.message || 'Something went wrong')
