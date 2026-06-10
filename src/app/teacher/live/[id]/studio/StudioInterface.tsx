@@ -13,6 +13,8 @@ import {
   useParticipants,
 } from '@livekit/components-react'
 import { Track, ConnectionState } from 'livekit-client'
+import { PageErrorBoundary } from '@/components/ui/PageErrorBoundary'
+import { LiveReconnectionOverlay } from '@/components/ui/LiveReconnectionOverlay'
 import Link from 'next/link'
 import { 
   Zap, Target, Users, MessageSquare, 
@@ -76,6 +78,17 @@ type QuizDraft = {
   questions: LiveQuizQuestion[]
 }
 
+type StudentActivity = {
+  tab: string
+  lastSeen: number
+  microphoneEnabled?: boolean
+  cameraEnabled?: boolean
+  screenShareEnabled?: boolean
+  handRaised?: boolean
+  lastAction?: string
+  lastActionAt?: number
+}
+
 const createQuizQuestion = (type: QuizQuestionType = 'multiple_choice'): LiveQuizQuestion => ({
   id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
   prompt: '',
@@ -135,6 +148,99 @@ export default function StudioInterface({ session, token, serverUrl }: Props) {
   const [allowStudentScreen, setAllowStudentScreen] = useState(false)
   const [resources, setResources] = useState<{ id: string, name: string, url: string, type: string }[]>([])
   const [currentSlide, setCurrentSlide] = useState<string | null>(null)
+  const [studentActivity, setStudentActivity] = useState<Record<string, StudentActivity>>({})
+  const [lastQuizResults, setLastQuizResults] = useState<{ results: QuizResult[], quiz: LiveQuiz | null }>({ results: [], quiz: null })
+  const [reactions, setReactions] = useState<{ id: string, emoji: string, participant: string, x: number, y: number }[]>([])
+  const supabase = useMemo(() => getSupabaseBrowserClient(), [])
+
+  useEffect(() => {
+    let mounted = true
+    const mergePresence = (row: any) => {
+      if (!mounted || !row?.participant_id) return
+      setStudentActivity((previous) => ({
+        ...previous,
+        [row.participant_id]: {
+          tab: row.active_tab || 'content',
+          lastSeen: new Date(row.last_seen || Date.now()).getTime(),
+          microphoneEnabled: Boolean(row.microphone_enabled),
+          cameraEnabled: Boolean(row.camera_enabled),
+          screenShareEnabled: Boolean(row.screen_share_enabled),
+          handRaised: Boolean(row.hand_raised),
+        },
+      }))
+    }
+
+    supabase
+      .from('live_session_participants')
+      .select('*')
+      .eq('session_id', session.id)
+      .then(({ data, error }) => {
+        if (error) {
+          console.warn('[StudioInterface] Participant history unavailable', error)
+          return
+        }
+        data?.forEach(mergePresence)
+      })
+
+    const channel = supabase
+      .channel(`teacher-live-presence-${session.id}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'live_session_participants',
+        filter: `session_id=eq.${session.id}`,
+      }, (payload) => mergePresence(payload.new))
+      .subscribe()
+
+    const mergeEvent = (row: any) => {
+      if (!mounted || !row?.participant_id) return
+      setStudentActivity((previous) => {
+        const existing = previous[row.participant_id]
+        const actionTime = new Date(row.created_at || Date.now()).getTime()
+        if (existing?.lastActionAt && existing.lastActionAt > actionTime) return previous
+        return {
+          ...previous,
+          [row.participant_id]: {
+            ...existing,
+            tab: existing?.tab || 'content',
+            lastSeen: existing?.lastSeen || actionTime,
+            lastAction: String(row.event_type || '').replaceAll('_', ' '),
+            lastActionAt: actionTime,
+          },
+        }
+      })
+    }
+
+    supabase
+      .from('live_session_activity_events')
+      .select('*')
+      .eq('session_id', session.id)
+      .order('created_at', { ascending: false })
+      .limit(200)
+      .then(({ data, error }) => {
+        if (error) {
+          console.warn('[StudioInterface] Activity timeline unavailable', error)
+          return
+        }
+        data?.slice().reverse().forEach(mergeEvent)
+      })
+
+    const activityChannel = supabase
+      .channel(`teacher-live-activity-${session.id}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'live_session_activity_events',
+        filter: `session_id=eq.${session.id}`,
+      }, (payload) => mergeEvent(payload.new))
+      .subscribe()
+
+    return () => {
+      mounted = false
+      supabase.removeChannel(channel)
+      supabase.removeChannel(activityChannel)
+    }
+  }, [session.id, supabase])
 
   if (!token) {
     return (
@@ -165,13 +271,26 @@ export default function StudioInterface({ session, token, serverUrl }: Props) {
         video={false}
         className="flex-1 flex flex-col relative"
       >
+        <LiveReconnectionOverlay />
+        <PageErrorBoundary>
         <StageModeBroadcaster mode={activeTab} />
         <ChatModerationBroadcaster isEnabled={isChatEnabled} />
         <StudentPermissionBroadcaster allowScreen={allowStudentScreen} />
         <ResourceBroadcaster resources={resources} />
         <SlideBroadcaster url={currentSlide} />
+        <SessionStateBroadcaster
+          mode={activeTab}
+          isChatEnabled={isChatEnabled}
+          allowScreen={allowStudentScreen}
+          resources={resources}
+          slideUrl={currentSlide}
+          outcomes={sessionOutcomes}
+        />
         <HardwareDoctor />
         <StudentJoinNotifier />
+        <StudentActivityTracker onActivity={(id, activity) => setStudentActivity(prev => ({ ...prev, [id]: { ...prev[id], ...activity, lastSeen: Date.now() } }))} />
+        <HandRaiseNotifier />
+        <ReactionOverlay reactions={reactions} setReactions={setReactions} />
         {/* --- ULTRA PREMIUM HEADER --- */}
         <header className="min-h-20 md:min-h-24 border-b border-white/5 px-4 md:px-10 py-3 flex items-center justify-between gap-4 bg-black/40 backdrop-blur-3xl z-50">
           <div className="flex items-center gap-4 md:gap-8 min-w-0">
@@ -267,7 +386,7 @@ export default function StudioInterface({ session, token, serverUrl }: Props) {
               </div>
 
               {/* FLOATING CONTROL DOCK — Full width on mobile */}
-              <StudioControls onToggleChat={() => { setRightPanel('chat'); setShowRightPanel(true); }} />
+              <StudioControls sessionId={session.id} onToggleChat={() => { setRightPanel('chat'); setShowRightPanel(true); }} />
            </div>
 
 
@@ -352,7 +471,8 @@ export default function StudioInterface({ session, token, serverUrl }: Props) {
                       {rightPanel === 'participants' && (
                         <ParticipantPanel 
                           allowStudentScreen={allowStudentScreen} 
-                          onToggleStudentScreen={() => setAllowStudentScreen(!allowStudentScreen)} 
+                          onToggleStudentScreen={() => setAllowStudentScreen(!allowStudentScreen)}
+                          studentActivity={studentActivity}
                         />
                       )}
                       {rightPanel === 'resources' && (
@@ -375,6 +495,7 @@ export default function StudioInterface({ session, token, serverUrl }: Props) {
             </button>
         </main>
 
+        </PageErrorBoundary>
         <RoomAudioRenderer />
       </LiveKitRoom>
     </div>
@@ -398,6 +519,47 @@ function ChatModerationBroadcaster({ isEnabled }: { isEnabled: boolean }) {
   useEffect(() => {
     send(new TextEncoder().encode(JSON.stringify({ isEnabled, timestamp: Date.now() })), { reliable: true }).catch(() => null)
   }, [isEnabled, send])
+  return null
+}
+
+function SessionStateBroadcaster({
+  mode,
+  isChatEnabled,
+  allowScreen,
+  resources,
+  slideUrl,
+  outcomes,
+}: {
+  mode: 'content' | 'whiteboard' | 'slides'
+  isChatEnabled: boolean
+  allowScreen: boolean
+  resources: any[]
+  slideUrl: string | null
+  outcomes: any[]
+}) {
+  const { send } = useDataChannel('SESSION_STATE')
+  const snapshot = useMemo(() => ({
+    mode,
+    isChatEnabled,
+    allowScreen,
+    resources,
+    slideUrl,
+    outcomes,
+    timestamp: Date.now(),
+  }), [allowScreen, isChatEnabled, mode, outcomes, resources, slideUrl])
+
+  const sendSnapshot = useCallback(() => {
+    send(new TextEncoder().encode(JSON.stringify(snapshot)), { reliable: true }).catch((error) => {
+      console.warn('[SessionStateBroadcaster] State sync failed', error)
+    })
+  }, [send, snapshot])
+
+  useDataChannel('SESSION_STATE_REQUEST', sendSnapshot)
+
+  useEffect(() => {
+    sendSnapshot()
+  }, [sendSnapshot])
+
   return null
 }
 
@@ -479,12 +641,16 @@ function HardwareDoctor() {
   useEffect(() => {
     const runDiagnostics = async () => {
       try {
-        const permissions = await navigator.mediaDevices.enumerateDevices()
-        const hasAudio = permissions.some(d => d.kind === 'audioinput' && d.label !== '')
-        const hasVideo = permissions.some(d => d.kind === 'videoinput' && d.label !== '')
+        if (!navigator.mediaDevices?.enumerateDevices) {
+          toast.error('This browser does not expose camera and microphone controls.')
+          return
+        }
+        const devices = await navigator.mediaDevices.enumerateDevices()
+        const hasAudio = devices.some((device) => device.kind === 'audioinput')
+        const hasVideo = devices.some((device) => device.kind === 'videoinput')
         
         if (!hasAudio || !hasVideo) {
-          toast.error("Hardware Insight: Media permissions are currently restricted. If students can't hear you, click the lock icon next to the URL to allow Camera & Mic.", { 
+          toast.error(`Hardware check: ${!hasAudio ? 'No microphone detected.' : ''} ${!hasVideo ? 'No camera detected.' : ''}`.trim(), { 
             duration: 8000,
             icon: '🛡️',
             style: { background: '#05070A', border: '1px solid rgba(239,68,68,0.2)', color: '#fff', fontSize: '11px', fontWeight: 'bold' }
@@ -596,7 +762,7 @@ function TeacherGrid() {
   )
 }
 
-function StudioControls({ onToggleChat }: { onToggleChat: () => void }) {
+function StudioControls({ sessionId, onToggleChat }: { sessionId: string; onToggleChat: () => void }) {
   const { localParticipant, isMicrophoneEnabled, isCameraEnabled, isScreenShareEnabled } = useLocalParticipant()
   const { isFullscreen, toggleFullscreen } = useFullscreen()
   const [isQuizOpen, setIsQuizOpen] = useState(false)
@@ -652,7 +818,7 @@ function StudioControls({ onToggleChat }: { onToggleChat: () => void }) {
     if (!localParticipant) return
     try {
       const newState = !isScreenShareEnabled
-      await localParticipant.setScreenShareEnabled(newState, { audio: false })
+      await localParticipant.setScreenShareEnabled(newState, { audio: true })
       toast(newState ? 'Sharing screen' : 'Sharing stopped')
     } catch (e: any) {
       toast.error("Screen share failed. Check browser permissions.", { id: "screen-error" })
@@ -661,6 +827,62 @@ function StudioControls({ onToggleChat }: { onToggleChat: () => void }) {
   }
 
   const { send: sendQuiz } = useDataChannel('QUIZ_LAUNCH')
+  const supabaseResults = useMemo(() => getSupabaseBrowserClient(), [])
+
+  useEffect(() => {
+    let mounted = true
+    const mapResult = (row: any): QuizResult => ({
+      quizId: row.quiz_id,
+      questionId: row.question_id,
+      participantId: row.participant_id,
+      participantName: row.participant_name,
+      answerIndex: row.answer_index,
+      isCorrect: row.is_correct,
+      score: row.score,
+      answeredAt: new Date(row.answered_at).getTime(),
+    })
+    const mergeResult = (result: QuizResult) => {
+      if (!mounted) return
+      setQuizResults((previous) => [
+        ...previous.filter((item) =>
+          item.participantId !== result.participantId
+          || item.quizId !== result.quizId
+          || item.questionId !== result.questionId
+        ),
+        result,
+      ].sort((a, b) => b.score - a.score || a.answeredAt - b.answeredAt))
+    }
+
+    supabaseResults
+      .from('live_quiz_results')
+      .select('*')
+      .eq('session_id', sessionId)
+      .then(({ data, error }) => {
+        if (error) {
+          console.warn('[StudioControls] Quiz history unavailable', error)
+          return
+        }
+        data?.map(mapResult).forEach(mergeResult)
+      })
+
+    const channel = supabaseResults
+      .channel(`teacher-live-quiz-${sessionId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'live_quiz_results',
+        filter: `session_id=eq.${sessionId}`,
+      }, (payload) => {
+        if (payload.new) mergeResult(mapResult(payload.new))
+      })
+      .subscribe()
+
+    return () => {
+      mounted = false
+      supabaseResults.removeChannel(channel)
+    }
+  }, [sessionId, supabaseResults])
+
   useDataChannel('QUIZ_RESULT', (msg) => {
     try {
       const result = JSON.parse(new TextDecoder().decode(msg.payload)) as QuizResult
@@ -678,8 +900,8 @@ function StudioControls({ onToggleChat }: { onToggleChat: () => void }) {
       ...question,
       prompt: question.prompt.trim(),
       options: question.options.map((option) => option.trim()).filter(Boolean),
-      points: Number(question.points) || 1,
-      correctIndex: Math.min(question.correctIndex, question.options.length - 1),
+      points: Math.max(1, Number(question.points) || 1),
+      correctIndex: Math.max(0, Math.min(question.correctIndex, question.options.length - 1)),
     }))
 
     if (questions.some((question) => !question.prompt)) {
@@ -932,110 +1154,6 @@ function EnhancedLiveQuizModal({
               </div>
             ))}
             {leaderboard.length === 0 && (
-              <div className="h-48 flex items-center justify-center text-center text-slate-600 text-[10px] font-black uppercase tracking-widest">
-                Waiting for student answers
-              </div>
-            )}
-          </div>
-        </div>
-      </motion.div>
-    </motion.div>
-  )
-}
-
-function LiveQuizModal({
-  draft,
-  setDraft,
-  onClose,
-  onLaunch,
-  activeQuiz,
-  results,
-}: {
-  draft: { question: string; options: string[]; correctIndex: number }
-  setDraft: Dispatch<SetStateAction<{ question: string; options: string[]; correctIndex: number }>>
-  onClose: () => void
-  onLaunch: () => void
-  activeQuiz: any
-  results: QuizResult[]
-}) {
-  return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[120] bg-black/70 backdrop-blur-xl flex items-center justify-center p-4">
-      <motion.div initial={{ y: 20, scale: 0.96 }} animate={{ y: 0, scale: 1 }} exit={{ y: 20, scale: 0.96 }} className="w-full max-w-5xl max-h-[90vh] overflow-hidden rounded-[2rem] border border-white/10 bg-[#05070A] shadow-2xl grid md:grid-cols-[1fr_360px]">
-        <div className="p-6 md:p-8 space-y-5 overflow-y-auto">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.3em] text-emerald-500">Live checkpoint</p>
-              <h3 className="text-2xl font-black uppercase tracking-tight mt-1">Launch a quick quiz</h3>
-            </div>
-            <button onClick={onClose} className="w-10 h-10 rounded-xl bg-white/5 text-slate-400 hover:text-white">
-              <X size={18} className="mx-auto" />
-            </button>
-          </div>
-
-          <div className="space-y-3">
-            <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Question</label>
-            <textarea
-              value={draft.question}
-              onChange={(event) => setDraft((prev) => ({ ...prev, question: event.target.value }))}
-              className="w-full min-h-28 rounded-2xl bg-white/[0.03] border border-white/10 p-4 text-sm outline-none focus:border-emerald-500/50 resize-none"
-            />
-          </div>
-
-          <div className="grid gap-3">
-            {draft.options.map((option, index) => (
-              <div key={index} className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setDraft((prev) => ({ ...prev, correctIndex: index }))}
-                  className={`w-12 rounded-xl border font-black ${draft.correctIndex === index ? 'bg-emerald-500 border-emerald-500 text-black' : 'border-white/10 bg-white/5 text-slate-500'}`}
-                >
-                  {String.fromCharCode(65 + index)}
-                </button>
-                <input
-                  value={option}
-                  onChange={(event) => {
-                    const next = [...draft.options]
-                    next[index] = event.target.value
-                    setDraft((prev) => ({ ...prev, options: next }))
-                  }}
-                  className="flex-1 h-12 rounded-xl bg-white/[0.03] border border-white/10 px-4 text-sm outline-none focus:border-emerald-500/50"
-                />
-              </div>
-            ))}
-          </div>
-
-          <button onClick={onLaunch} className="w-full h-14 rounded-2xl bg-emerald-500 text-black font-black uppercase tracking-widest hover:bg-white transition-colors">
-            Launch to students
-          </button>
-        </div>
-
-        <div className="border-t md:border-l md:border-t-0 border-white/10 p-6 md:p-8 bg-white/[0.02] overflow-y-auto">
-          <div className="flex items-center justify-between mb-5">
-            <h4 className="text-xs font-black uppercase tracking-widest text-slate-400">Live leaderboard</h4>
-            <span className="text-[10px] font-black text-emerald-500">{results.length} answers</span>
-          </div>
-          {activeQuiz && (
-            <div className="mb-5 p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20">
-              <p className="text-[10px] font-black uppercase tracking-widest text-emerald-400 mb-2">Active now</p>
-              <p className="text-xs font-bold leading-relaxed">{activeQuiz.question}</p>
-            </div>
-          )}
-          <div className="space-y-3">
-            {results.map((result, index) => (
-              <div key={`${result.quizId}-${result.participantId}`} className="flex items-center justify-between p-4 rounded-2xl bg-white/5 border border-white/5">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-[10px] font-black ${result.isCorrect ? 'bg-emerald-500 text-black' : 'bg-red-500/10 text-red-400'}`}>{index + 1}</div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-black truncate">{result.participantName}</p>
-                    <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">{String.fromCharCode(65 + result.answerIndex)}</p>
-                  </div>
-                </div>
-                <span className={`text-[10px] font-black uppercase tracking-widest ${result.isCorrect ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {result.isCorrect ? 'Correct' : 'Missed'}
-                </span>
-              </div>
-            ))}
-            {results.length === 0 && (
               <div className="h-48 flex items-center justify-center text-center text-slate-600 text-[10px] font-black uppercase tracking-widest">
                 Waiting for student answers
               </div>
@@ -1323,7 +1441,7 @@ function StudioChat({ session, isLocked, onToggleLock }: { session: any; isLocke
   )
 }
 
-function ParticipantPanel({ allowStudentScreen, onToggleStudentScreen }: { allowStudentScreen?: boolean; onToggleStudentScreen?: () => void }) {
+function ParticipantPanel({ allowStudentScreen, onToggleStudentScreen, studentActivity }: { allowStudentScreen?: boolean; onToggleStudentScreen?: () => void; studentActivity?: Record<string, StudentActivity> }) {
   const participants = useParticipants()
   // Robust grouping: fallback to student if role metadata is missing
   const students = participants.filter((p) => {
@@ -1343,9 +1461,12 @@ function ParticipantPanel({ allowStudentScreen, onToggleStudentScreen }: { allow
     }
   })
 
-  const sendCommand = (target: string, action: 'mute-audio' | 'mute-video' | 'request-audio') => {
+  const sendCommand = (target: string, action: 'mute-audio' | 'mute-video' | 'request-audio' | 'lower-hand') => {
     send(new TextEncoder().encode(JSON.stringify({ target, action, timestamp: Date.now() })), { reliable: true })
-    toast.success(action === 'request-audio' ? 'Unmute request sent' : 'Student control sent')
+    toast.success(action === 'request-audio' ? 'Unmute request sent' : 'Student command sent')
+    if (action === 'lower-hand') {
+      setHands((prev) => ({ ...prev, [target]: false }))
+    }
   }
 
   return (
@@ -1401,7 +1522,25 @@ function ParticipantPanel({ allowStudentScreen, onToggleStudentScreen }: { allow
                      <div className="text-[10px] font-black uppercase tracking-tight text-white truncate">{s.name || s.identity}</div>
                      <div className="text-[8px] font-black text-emerald-500 uppercase tracking-widest mt-0.5">
                        {s.isSpeaking ? 'Speaking' : 'Connected'} {hands[s.identity] ? '• Hand raised' : ''}
+                       {studentActivity?.[s.identity] && (
+                         <span className="text-sky-400 ml-1">• {studentActivity[s.identity].tab}</span>
+                       )}
                      </div>
+                     {studentActivity?.[s.identity] && (
+                       <div className="flex flex-wrap gap-1.5 mt-2">
+                         <PresenceBadge label="Mic" active={studentActivity[s.identity].microphoneEnabled} />
+                         <PresenceBadge label="Camera" active={studentActivity[s.identity].cameraEnabled} />
+                         <PresenceBadge label="Sharing" active={studentActivity[s.identity].screenShareEnabled} />
+                         <span className="px-2 py-1 rounded-md bg-white/5 text-[7px] font-black uppercase tracking-widest text-slate-500">
+                           Seen {Math.max(0, Math.floor((Date.now() - studentActivity[s.identity].lastSeen) / 1000))}s ago
+                         </span>
+                       </div>
+                     )}
+                     {studentActivity?.[s.identity]?.lastAction && (
+                       <p className="mt-2 text-[7px] font-black uppercase tracking-widest text-amber-400">
+                         Latest: {studentActivity[s.identity].lastAction}
+                       </p>
+                     )}
                   </div>
                 </div>
                 <div className={`px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest ${hands[s.identity] ? 'bg-amber-500 text-black' : 'bg-white/5 text-slate-500'}`}>
@@ -1411,7 +1550,11 @@ function ParticipantPanel({ allowStudentScreen, onToggleStudentScreen }: { allow
                <div className="grid grid-cols-3 gap-2">
                  <button onClick={() => sendCommand(s.identity, 'mute-audio')} className="h-9 rounded-xl bg-white/5 hover:bg-red-500/10 text-[8px] font-black uppercase tracking-widest text-slate-400 hover:text-red-400">Mute mic</button>
                  <button onClick={() => sendCommand(s.identity, 'request-audio')} className="h-9 rounded-xl bg-white/5 hover:bg-emerald-500/10 text-[8px] font-black uppercase tracking-widest text-slate-400 hover:text-emerald-400">Ask mic</button>
-                 <button onClick={() => sendCommand(s.identity, 'mute-video')} className="h-9 rounded-xl bg-white/5 hover:bg-red-500/10 text-[8px] font-black uppercase tracking-widest text-slate-400 hover:text-red-400">Camera off</button>
+                 {hands[s.identity] ? (
+                   <button onClick={() => sendCommand(s.identity, 'lower-hand')} className="h-9 rounded-xl bg-amber-500/20 hover:bg-amber-500/40 text-[8px] font-black uppercase tracking-widest text-amber-400 border border-amber-500/20">Lower hand</button>
+                 ) : (
+                   <button onClick={() => sendCommand(s.identity, 'mute-video')} className="h-9 rounded-xl bg-white/5 hover:bg-red-500/10 text-[8px] font-black uppercase tracking-widest text-slate-400 hover:text-red-400">Camera off</button>
+                 )}
                </div>
             </div>
           ))}
@@ -1423,6 +1566,14 @@ function ParticipantPanel({ allowStudentScreen, onToggleStudentScreen }: { allow
           )}
        </div>
     </div>
+  )
+}
+
+function PresenceBadge({ label, active }: { label: string; active?: boolean }) {
+  return (
+    <span className={`px-2 py-1 rounded-md text-[7px] font-black uppercase tracking-widest ${active ? 'bg-emerald-500/15 text-emerald-400' : 'bg-white/5 text-slate-600'}`}>
+      {label} {active ? 'on' : 'off'}
+    </span>
   )
 }
 
@@ -1566,6 +1717,82 @@ function SlideBroadcaster({ url }: { url: string | null }) {
     }
   }, [url, send])
   return null
+}
+
+function StudentActivityTracker({ onActivity }: { onActivity: (participantId: string, activity: StudentActivity) => void }) {
+  useDataChannel('STUDENT_STATUS', (msg) => {
+    try {
+      const data = JSON.parse(new TextDecoder().decode(msg.payload)) as {
+        participantId: string
+        tab: string
+        microphoneEnabled?: boolean
+        cameraEnabled?: boolean
+        screenShareEnabled?: boolean
+        handRaised?: boolean
+      }
+      onActivity(data.participantId, {
+        tab: data.tab,
+        lastSeen: Date.now(),
+        microphoneEnabled: data.microphoneEnabled,
+        cameraEnabled: data.cameraEnabled,
+        screenShareEnabled: data.screenShareEnabled,
+        handRaised: data.handRaised,
+      })
+    } catch {}
+  })
+  return null
+}
+
+function HandRaiseNotifier() {
+  const toastShown = useRef<Record<string, number>>({})
+  useDataChannel('HAND_RAISE', (msg) => {
+    try {
+      const data = JSON.parse(new TextDecoder().decode(msg.payload)) as { participantId: string; participantName: string; raised: boolean; timestamp: number }
+      if (data.raised) {
+        const last = toastShown.current[data.participantId] || 0
+        if (Date.now() - last > 5000) {
+          toastShown.current[data.participantId] = Date.now()
+          toast.success(`✋ ${data.participantName || 'A student'} raised their hand`, {
+            position: 'top-right',
+            duration: 4000,
+            style: { background: '#05070A', border: '1px solid rgba(245,158,11,0.3)', color: '#fff', fontSize: '10px', fontWeight: '900' }
+          })
+        }
+      }
+    } catch {}
+  })
+  return null
+}
+
+type FloatingReaction = { id: string; emoji: string; participant: string; x: number; y: number }
+
+function ReactionOverlay({ reactions, setReactions }: { reactions: FloatingReaction[]; setReactions: (r: any) => void }) {
+  useDataChannel('STUDENT_REACTION', (msg) => {
+    try {
+      const data = JSON.parse(new TextDecoder().decode(msg.payload)) as { emoji: string; participantName: string }
+      const id = `${Date.now()}-${Math.random()}`
+      const newR = { id, emoji: data.emoji, participant: data.participantName, x: Math.random() * 60 + 20, y: Math.random() * 40 + 10 }
+      setReactions((prev: any) => [...prev.slice(-10), newR])
+      setTimeout(() => setReactions((prev: any) => prev.filter((r: any) => r.id !== id)), 3000)
+    } catch {}
+  })
+  if (reactions.length === 0) return null
+  return (
+    <div className="fixed inset-0 pointer-events-none z-[180] overflow-hidden">
+      {reactions.map((r) => (
+        <motion.div
+          key={r.id}
+          initial={{ opacity: 1, y: 0, scale: 0.5 }}
+          animate={{ opacity: 0, y: -100, scale: 1.2 }}
+           transition={{ duration: 2.5, ease: 'easeOut' }}
+          className="absolute text-3xl"
+          style={{ left: `${r.x}%`, top: `${r.y}%` }}
+        >
+          {r.emoji}
+        </motion.div>
+      ))}
+    </div>
+  )
 }
 
 function SlideStudio({ currentSlide, onSlideChange, sessionId }: { currentSlide: string | null; onSlideChange: (url: string) => void; sessionId: string }) {

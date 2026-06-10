@@ -172,7 +172,7 @@ export default function TeacherLivePage() {
         <StatCard label="Completion" value={`${completionRate}%`} icon={<CheckCircle2 />} />
       </div>
 
-      <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_320px] gap-8 xl:gap-10">
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-8 xl:gap-10">
         {/* Session Pipeline */}
         <div className="min-w-0 space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">

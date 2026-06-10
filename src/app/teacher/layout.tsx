@@ -6,7 +6,7 @@ import { motion } from 'framer-motion'
 import {
   LayoutDashboard, BookOpen, ClipboardList, Calendar, 
   Library, GraduationCap, Award, Settings, LogOut,
-  PlusCircle, FileText, Zap, Bell, Users, Layers, BrainCircuit, HelpCircle, Trophy
+  PlusCircle, FileText, Zap, Bell, Users, Layers, BrainCircuit, HelpCircle, Trophy, MessageCircle
 } from 'lucide-react'
 import { Sidebar, BottomNav } from '@/components/layout/Sidebar'
 import { useAuthStore } from '@/stores/authStore'
@@ -20,6 +20,7 @@ import { TermsEnforcementModal } from '@/components/teacher/TermsEnforcementModa
 import { PageErrorBoundary } from '@/components/ui/PageErrorBoundary'
 import { TeacherAIAssistant } from '@/components/teacher/TeacherAIAssistant'
 import { SessionHeartbeat } from '@/components/shared/SessionHeartbeat'
+import { useMessageUnreadCount } from '@/hooks/useMessageUnreadCount'
 
 import { useNotificationStore } from '@/stores/notificationStore'
 import { useRealtimeNotifications } from '@/hooks/useRealtimeNotifications'
@@ -28,6 +29,7 @@ const NAV_ITEMS = [
   { label: 'Dashboard', href: '/teacher', icon: <LayoutDashboard size={18} /> },
   { label: 'Attendance', href: '/teacher/attendance', icon: <ClipboardList size={18} /> },
   { label: 'Live Studio', href: '/teacher/live', icon: <Zap size={18} className="text-emerald-500" /> },
+  { label: 'Messages', href: '/teacher/messages', icon: <MessageCircle size={18} /> },
   { label: 'Trivia', href: '/teacher/trivia', icon: <Trophy size={18} /> },
   { label: 'Assignments', href: '/teacher/assignments', icon: <FileText size={18} /> },
   { label: 'Worksheets', href: '/teacher/worksheets/new', icon: <Layers size={18} /> },
@@ -59,6 +61,7 @@ const LogoComponent = (
 export default function TeacherLayout({ children }: { children: React.ReactNode }) {
   const { profile, teacher, isLoading, isInitialRevalidationComplete, setProfile } = useAuthStore()
   const { unreadCount } = useNotificationStore()
+  const { count: messageUnreadCount } = useMessageUnreadCount()
   useRealtimeNotifications()
   const { signOut } = useAuth()
   const router = useRouter()
@@ -132,7 +135,7 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
       <div className={`min-h-screen transition-all ${pendingTerm ? 'blur-md pointer-events-none' : ''}`} style={{ background: 'var(--bg)' }}>
         <SplashScreen storageKey="splash-teacher" role="teacher" />
       <Sidebar
-        items={wasEverConfirmedOnboarded.current ? NAV_ITEMS.filter(item => item.label !== 'Attendance' || teacher?.is_class_teacher) : NAV_ITEMS.filter(i => i.label === 'Settings')}
+        items={wasEverConfirmedOnboarded.current ? NAV_ITEMS.filter(item => item.label !== 'Attendance' || teacher?.is_class_teacher).map(item => item.href === '/teacher/messages' ? { ...item, badge: messageUnreadCount } : item) : NAV_ITEMS.filter(i => i.label === 'Settings')}
         bottomItems={[
           { label: 'Sign Out', href: '#', icon: <LogOut size={18} />, onClick: () => signOut() },
         ]}
@@ -153,6 +156,14 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
           <div className="flex-1 hidden md:block" />
 
           <div className="flex items-center gap-4 md:gap-6">
+             <Link href="/teacher/messages" aria-label={`Messages${messageUnreadCount ? `, ${messageUnreadCount} unread` : ''}`} className="relative p-2 rounded-xl hover:bg-[var(--input)] transition-colors group">
+                <MessageCircle size={20} className="text-[var(--text-muted)] group-hover:text-primary transition-colors" />
+                {messageUnreadCount > 0 && (
+                  <span className="absolute top-1 right-1 flex h-4 min-w-[16px] px-1 items-center justify-center bg-sky-500 text-white text-[9px] font-black rounded-full border-2 border-[var(--bg)]">
+                    {messageUnreadCount > 99 ? '99+' : messageUnreadCount}
+                  </span>
+                )}
+             </Link>
              <Link href="/teacher/notifications" className="relative p-2 rounded-xl hover:bg-[var(--input)] transition-colors group">
                 <Bell size={20} className="text-[var(--text-muted)] group-hover:text-primary transition-colors" />
                 {unreadCount > 0 && (
@@ -183,12 +194,12 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
 
       <BottomNav 
         items={wasEverConfirmedOnboarded.current 
-          ? NAV_ITEMS.filter(item => item.label !== 'Attendance' || teacher?.is_class_teacher).slice(0, 4)
+          ? NAV_ITEMS.filter(item => item.label !== 'Attendance' || teacher?.is_class_teacher).map(item => item.href === '/teacher/messages' ? { ...item, badge: messageUnreadCount } : item).slice(0, 4)
           : NAV_ITEMS.filter(i => i.label === 'Settings')
         } 
         moreItems={wasEverConfirmedOnboarded.current 
           ? [
-              ...NAV_ITEMS.filter(item => item.label !== 'Attendance' || teacher?.is_class_teacher).slice(4),
+              ...NAV_ITEMS.filter(item => item.label !== 'Attendance' || teacher?.is_class_teacher).map(item => item.href === '/teacher/messages' ? { ...item, badge: messageUnreadCount } : item).slice(4),
               { label: 'Sign Out', href: '#', icon: <LogOut size={18} />, onClick: signOut }
             ]
           : [{ label: 'Sign Out', href: '#', icon: <LogOut size={18} />, onClick: signOut }]

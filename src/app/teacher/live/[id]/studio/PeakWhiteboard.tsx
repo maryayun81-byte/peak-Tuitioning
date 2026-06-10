@@ -6,16 +6,20 @@ import { useDataChannel } from '@livekit/components-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Atom,
+  BookOpen,
   Circle as CircleIcon,
   Compass,
   ChevronRight,
   Download,
   Dna,
   Eraser,
+  Feather,
+  FileText,
   FlaskConical,
   Grid3X3,
   Image as ImageIcon,
   Info,
+  MessageCircle,
   Minus,
   Move,
   PenTool,
@@ -32,7 +36,7 @@ import {
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { toast } from 'react-hot-toast'
 
-type ToolGroupId = 'draw' | 'math' | 'chemistry' | 'biology' | 'physics'
+type ToolGroupId = 'draw' | 'math' | 'chemistry' | 'biology' | 'physics' | 'fasihi'
 
 const TOOL_GROUPS: { id: ToolGroupId; label: string; icon: any; tools: { id: string; label: string; icon: any }[] }[] = [
   {
@@ -76,10 +80,21 @@ const TOOL_GROUPS: { id: ToolGroupId; label: string; icon: any; tools: { id: str
       { id: 'physics', label: 'Circuit Node', icon: Atom },
     ],
   },
+  {
+    id: 'fasihi', label: 'Fasihi & Lugha', icon: BookOpen,
+    tools: [
+      { id: 'dondoo', label: 'Dondoo / Excerpt', icon: BookOpen },
+      { id: 'ushairi', label: 'Ushairi / Poetry', icon: Feather },
+      { id: 'fasihi', label: 'Fasihi / Literature', icon: BookOpen },
+      { id: 'oral', label: 'Oral Skills', icon: MessageCircle },
+      { id: 'lugha', label: 'Lugha / Grammar', icon: Type },
+      { id: 'functional', label: 'Functional Writing', icon: FileText },
+    ],
+  },
 ]
 
 type DrawingTool = 'pen' | 'eraser' | 'line' | 'pan'
-type InstrumentTool = 'ruler' | 'protractor' | 'compass' | 'setSquare' | 'chemistry' | 'beaker' | 'biology' | 'dna' | 'physics' | 'force'
+type InstrumentTool = 'ruler' | 'protractor' | 'compass' | 'setSquare' | 'chemistry' | 'beaker' | 'biology' | 'dna' | 'physics' | 'force' | 'dondoo' | 'ushairi' | 'fasihi' | 'oral' | 'lugha' | 'functional'
 type BoardTool = DrawingTool | InstrumentTool
 type BoardTemplate = 'plain' | 'graph' | 'lab' | 'axis'
 type InstrumentType = InstrumentTool | 'axis'
@@ -165,19 +180,7 @@ const PeakWhiteboard = forwardRef(({ sessionId: rawSessionId, readOnly = false, 
   const supabase = useMemo(() => getSupabaseBrowserClient(), [])
   const encode = useMemo(() => new TextEncoder(), [])
   const decode = useMemo(() => new TextDecoder(), [])
-
-  const publish = useCallback((message: BoardMessage) => {
-    send(encode.encode(JSON.stringify({ ...message, sessionId })), { reliable: true }).catch(console.warn)
-  }, [encode, sessionId])
-
-  useImperativeHandle(ref, () => ({
-    exportImage: () => {
-      if (stageRef.current) {
-        return stageRef.current.toDataURL()
-      }
-      return null
-    }
-  }))
+  const sendRef = useRef<any>(null)
 
   const { send } = useDataChannel('WHITEBOARD', (msg) => {
     try {
@@ -190,9 +193,52 @@ const PeakWhiteboard = forwardRef(({ sessionId: rawSessionId, readOnly = false, 
       if (data.type === 'template') setTemplate(data.template)
       if (data.type === 'background') setBackground(data.background)
       if (data.type === 'clear') { setLines([]); setShapes([]); setBackground(null) }
-      if (data.type === 'undo') setLines(prev => prev.filter(l => l.id !== data.id))
+      if (data.type === 'undo') {
+        setLines(prev => prev.filter(l => l.id !== data.id))
+        setShapes(prev => prev.filter(s => s.id !== data.id))
+      }
+      if (data.type === 'request-sync' && !readOnly) {
+        const snapshot: BoardMessage = {
+          type: 'snapshot',
+          lines,
+          shapes,
+          template,
+          background,
+        }
+        sendRef.current?.(encode.encode(JSON.stringify({ ...snapshot, sessionId })), { reliable: true }).catch(console.warn)
+      }
+      if (data.type === 'snapshot') {
+        setLines(data.lines || [])
+        setShapes(data.shapes || [])
+        setTemplate(data.template || 'plain')
+        setBackground(data.background || null)
+      }
     } catch (e) { console.warn(e) }
   })
+
+  sendRef.current = send
+
+  const publish = useCallback((message: BoardMessage) => {
+    sendRef.current?.(encode.encode(JSON.stringify({ ...message, sessionId })), { reliable: true }).catch(console.warn)
+  }, [encode, sessionId])
+
+  // Request sync from teacher when joining (not readOnly means we're the teacher)
+  useEffect(() => {
+    if (!readOnly) return
+    const timer = setTimeout(() => {
+      sendRef.current?.(encode.encode(JSON.stringify({ type: 'request-sync', sessionId })), { reliable: true }).catch(console.warn)
+    }, 1500)
+    return () => clearTimeout(timer)
+  }, [readOnly, encode, sessionId])
+
+  useImperativeHandle(ref, () => ({
+    exportImage: () => {
+      if (stageRef.current) {
+        return stageRef.current.toDataURL()
+      }
+      return null
+    }
+  }))
 
   const updateShape = (id: string, patch: Partial<BoardShape>) => {
     if (readOnly) return
@@ -323,7 +369,25 @@ const PeakWhiteboard = forwardRef(({ sessionId: rawSessionId, readOnly = false, 
 
   const changeTemplate = (t: BoardTemplate) => { setTemplate(t); publish({ type: 'template', template: t }) }
   const clearBoard = () => { setLines([]); setShapes([]); publish({ type: 'clear' }) }
-  const undo = () => { const last = lines[lines.length - 1]; if(last) { setLines(p => p.slice(0, -1)); publish({ type: 'undo', id: last.id }) } }
+  const cycleTemplate = () => {
+    const templates: BoardTemplate[] = ['plain', 'axis', 'graph', 'lab']
+    const idx = templates.indexOf(template)
+    const next = templates[(idx + 1) % templates.length]
+    changeTemplate(next)
+  }
+  const undo = () => {
+    // Undo the last action — either a shape or a line, whichever was added last
+    const lastLine = lines[lines.length - 1]
+    const lastShape = shapes[shapes.length - 1]
+    if (!lastLine && !lastShape) return
+    if (lastShape && (!lastLine || lastShape.id > lastLine.id)) {
+      setShapes(p => p.slice(0, -1))
+      publish({ type: 'undo', id: lastShape.id })
+    } else if (lastLine) {
+      setLines(p => p.slice(0, -1))
+      publish({ type: 'undo', id: lastLine.id })
+    }
+  }
   const importBackground = (file: File) => {
     const reader = new FileReader()
     reader.onload = () => { const bg = { name: file.name, dataUrl: reader.result as string }; setBackground(bg); publish({ type: 'background', background: bg }) }
@@ -335,25 +399,25 @@ const PeakWhiteboard = forwardRef(({ sessionId: rawSessionId, readOnly = false, 
       <CompactToolbar 
         tool={tool} color={color} template={template} background={background} selectedShapeId={selectedShapeId}
         openGroup={openGroup} setOpenGroup={setOpenGroup} isMobile={isMobile}
-        onSetTool={setTool} onSetColor={setColor} onChangeTemplate={changeTemplate} onRotate={onRotate} onUndo={undo} onClear={clearBoard}
+        onSetTool={setTool} onSetColor={setColor} onCycleTemplate={cycleTemplate} onRotate={onRotate} onUndo={undo} onClear={clearBoard}
         onSlideClick={() => fileInputRef.current?.click()} onRemoveSlide={() => { setBackground(null); publish({ type: 'background', background: null }); }}
-        fileInputRef={fileInputRef} onFileChange={importBackground} 
+        fileInputRef={fileInputRef} onFileChange={importBackground}
       />
 
       <div className={`${templateClass(template)} flex-1 overflow-y-auto overflow-x-auto custom-scrollbar`} 
            style={{ cursor: tool === 'eraser' ? 'crosshair' : 'default' }}>
-        <div ref={boardRef} className="min-w-full" style={{ height: '2400px' }}>
+        <div ref={boardRef} className="min-w-full" style={{ height: `${stageWidth * 0.75}px`, minHeight: '400px' }}>
           <Stage 
             ref={stageRef}
             width={stageWidth} 
-            height={900}
+            height={Math.round(stageWidth * 0.75)}
             scaleX={stageWidth / 1200}
             scaleY={stageWidth / 1200}
             onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp}
-            onTouchStart={tool === 'pan' ? undefined : handleMouseDown} 
-            onTouchMove={tool === 'pan' ? undefined : handleMouseMove} 
-            onTouchEnd={tool === 'pan' ? undefined : handleMouseUp}
-            className={tool === 'pan' ? 'touch-auto' : 'touch-none'}
+            onTouchStart={(e) => { if (e.evt.touches.length === 1) handleMouseDown(e); }}
+            onTouchMove={(e) => { if (e.evt.touches.length === 1) handleMouseMove(e); }}
+            onTouchEnd={() => { handleMouseUp(); }}
+            className={tool === 'pan' ? 'touch-auto' : ''}
           >
             <Layer>
               {background && (
@@ -401,14 +465,14 @@ PeakWhiteboard.displayName = 'PeakWhiteboard'
 // ─── Compact Categorized Toolbar ─────────────────────────────────────
 function CompactToolbar({
   tool, color, template, background, selectedShapeId, openGroup, setOpenGroup, isMobile,
-  onSetTool, onSetColor, onChangeTemplate, onRotate, onUndo, onClear,
+  onSetTool, onSetColor, onCycleTemplate, onRotate, onUndo, onClear,
   onSlideClick, onRemoveSlide, fileInputRef, onFileChange,
 }: {
   tool: string; color: string; template: string; background: any;
   selectedShapeId: string | null; openGroup: ToolGroupId | null; setOpenGroup: (g: ToolGroupId | null) => void; isMobile: boolean;
   onSetTool: (t: string) => void;
   onSetColor: (c: string) => void;
-  onChangeTemplate: (t: BoardTemplate) => void;
+  onCycleTemplate: () => void;
   onRotate: (deg: number) => void;
   onUndo: () => void;
   onClear: () => void;
@@ -432,7 +496,7 @@ function CompactToolbar({
       <div className={sidebarClass}>
         {/* Colors (Horizontal on both for space) */}
         <div className={`flex ${isMobile ? 'flex-row' : 'flex-col'} gap-1.5 p-1`}>
-          {COLORS.slice(0, isMobile ? 3 : COLORS.length).map((c) => (
+          {COLORS.map((c) => (
             <button key={c} onClick={() => onSetColor(c)}
               className={`w-7 h-7 rounded-lg transition-all ${color === c ? 'ring-2 ring-emerald-500 scale-110' : 'opacity-40 hover:opacity-100'}`}
               style={{ backgroundColor: c }}
@@ -465,8 +529,9 @@ function CompactToolbar({
         <div className={isMobile ? "w-px h-8 bg-white/10 mx-1" : "h-px bg-white/5 mx-2"} />
 
         {/* Action Toggles */}
-        <button onClick={() => onChangeTemplate(template === 'plain' ? 'axis' : 'plain')} 
-          className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-all ${template !== 'plain' ? 'bg-sky-500 text-black' : 'text-slate-500 hover:text-white'}`}>
+        <button onClick={onCycleTemplate}
+          className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-all ${template !== 'plain' ? 'bg-sky-500 text-black' : 'text-slate-500 hover:text-white'}`}
+          title={`Template: ${template}`}>
           <Grid3X3 size={16} />
         </button>
 
@@ -788,6 +853,141 @@ function BoardShapeView({
     )
   }
 
+  if (shape.type === 'dondoo') {
+    const excerptW = 260
+    return (
+      <Group {...common} offsetX={excerptW / 2} offsetY={60}>
+        <Rect width={excerptW} height={120} cornerRadius={8} fill="rgba(255,255,255,0.04)" stroke={selectionStroke} strokeWidth={selected ? 3 : 1} />
+        <Rect x={10} y={10} width={24} height={100} cornerRadius={4} fill={color} opacity={0.15} />
+        <Text x={14} y={12} text={'"'} fill={color} fontSize={16} fontStyle="bold" />
+        <Text x={42} y={16} text={'Alisema, "Elimu ni ufunguo'} fill={color} fontSize={7} />
+        <Text x={42} y={28} text="wa maisha. Kila mtu ana" fill={color} fontSize={7} />
+        <Text x={42} y={40} text="haki ya kupata elimu bora." fill={color} fontSize={7} />
+        <Text x={42} y={56} text="— Dondoo kutoka Riwaya" fill={color} fontSize={6} opacity={0.6} />
+        <Line points={[42, 72, excerptW - 12, 72]} stroke={color} strokeWidth={0.5} opacity={0.2} />
+        <Text x={42} y={80} text="Taja muktadha wa dondoo hili." fill={color} fontSize={7} />
+        <Text x={excerptW / 2 - 20} y={106} text="DONDOO" fill={color} fontSize={9} fontStyle="bold" letterSpacing={2} opacity={0.5} />
+        <RotationHandle />
+      </Group>
+    )
+  }
+
+  if (shape.type === 'ushairi') {
+    return (
+      <Group {...common} offsetX={110} offsetY={74}>
+        <Rect width={220} height={148} cornerRadius={8} fill="rgba(255,255,255,0.04)" stroke={selectionStroke} strokeWidth={selected ? 3 : 1} />
+        <Line points={[16, 20, 204, 20]} stroke={color} strokeWidth={1.5} opacity={0.6} />
+        <Text x={16} y={6} text="UCHAMBUZI WA USHAIRI" fill={color} fontSize={7} fontStyle="bold" letterSpacing={1} />
+        <Text x={16} y={28} text="Ubeti wa 1:" fill={color} fontSize={7} fontStyle="bold" />
+        <Text x={16} y={40} text="Mstari wa kwanza wa shairi" fill={color} fontSize={6} opacity={0.9} />
+        <Text x={16} y={50} text="Mstari wa pili wa shairi" fill={color} fontSize={6} opacity={0.9} />
+        <Text x={16} y={62} text="Mstari wa tatu wa shairi" fill={color} fontSize={6} opacity={0.9} />
+        <Circle x={200} y={44} radius={4} fill="#f59e0b" />
+        <Circle x={200} y={54} radius={4} fill="#f59e0b" />
+        <Circle x={200} y={64} radius={4} fill="#10b981" />
+        <Text x={168} y={72} text="A A B" fill={color} fontSize={6} opacity={0.6} />
+        <Line points={[16, 76, 204, 76]} stroke={color} strokeWidth={0.5} opacity={0.3} />
+        <Text x={16} y={82} text="Ubeti wa 2:" fill={color} fontSize={7} fontStyle="bold" />
+        <Text x={16} y={94} text="Mstari wa nne wa shairi" fill={color} fontSize={6} opacity={0.9} />
+        <Text x={16} y={104} text="Mstari wa tano wa shairi" fill={color} fontSize={6} opacity={0.9} />
+        <Text x={16} y={116} text="Mstari wa sita wa shairi" fill={color} fontSize={6} opacity={0.9} />
+        <Circle x={200} y={98} radius={4} fill="#10b981" />
+        <Circle x={200} y={108} radius={4} fill="#3b82f6" />
+        <Circle x={200} y={118} radius={4} fill="#3b82f6" />
+        <Text x={168} y={126} text="C D D" fill={color} fontSize={6} opacity={0.6} />
+        <Text x={70} y={136} text="USHAIRI" fill={color} fontSize={9} fontStyle="bold" letterSpacing={2} opacity={0.5} />
+        <RotationHandle />
+      </Group>
+    )
+  }
+
+  if (shape.type === 'fasihi') {
+    return (
+      <Group {...common} offsetX={80} offsetY={60}>
+        <Rect width={160} height={120} cornerRadius={8} fill="rgba(255,255,255,0.04)" stroke={selectionStroke} strokeWidth={selected ? 3 : 1} />
+        <Rect x={12} y={12} width={136} height={16} cornerRadius={4} fill={color} opacity={0.15} />
+        <Text x={16} y={14} text="UCHAMBUZI WA FASIHI" fill={color} fontSize={7} fontStyle="bold" letterSpacing={1} />
+        <Text x={12} y={38} text="Mwandishi:" fill={color} fontSize={6} fontStyle="bold" />
+        <Line points={[52, 42, 148, 42]} stroke={color} strokeWidth={0.5} opacity={0.4} />
+        <Text x={12} y={54} text="Aina:" fill={color} fontSize={6} fontStyle="bold" />
+        <Line points={[30, 58, 148, 58]} stroke={color} strokeWidth={0.5} opacity={0.4} />
+        <Text x={12} y={70} text="Mandhari:" fill={color} fontSize={6} fontStyle="bold" />
+        <Line points={[48, 74, 148, 74]} stroke={color} strokeWidth={0.5} opacity={0.4} />
+        <Text x={12} y={86} text="Wahusika:" fill={color} fontSize={6} fontStyle="bold" />
+        <Line points={[46, 90, 148, 90]} stroke={color} strokeWidth={0.5} opacity={0.4} />
+        <Text x={12} y={102} text="Maoni:" fill={color} fontSize={6} fontStyle="bold" />
+        <Line points={[34, 106, 148, 106]} stroke={color} strokeWidth={0.5} opacity={0.4} />
+        <Text x={48} y={112} text="FASIHI" fill={color} fontSize={9} fontStyle="bold" letterSpacing={2} opacity={0.5} />
+        <RotationHandle />
+      </Group>
+    )
+  }
+
+  if (shape.type === 'oral') {
+    return (
+      <Group {...common} offsetX={80} offsetY={42}>
+        <Line points={[0, 36, 140, 36, 140, 0, 0, 0, 0, 36]} stroke={selectionStroke} strokeWidth={selected ? 3 : 2} closed />
+        <Text x={10} y={8} text="Sikiliza na kurudia:" fill={color} fontSize={7} fontStyle="bold" />
+        <Text x={10} y={20} text="/ðə ˈkwɪk ˈbraʊn ˈfɒks/" fill={color} fontSize={6} opacity={0.9} />
+        <Line points={[10, 36, 60, 48, 10, 48, 10, 36]} fill={color} stroke={color} strokeWidth={1} opacity={0.3} />
+        <Circle cx={75} cy={42} r={6} fill={color} opacity={0.15} />
+        <Line points={[75, 42, 85, 30]} stroke={color} strokeWidth={1} opacity={0.4} />
+        <Text x={34} y={52} text="ORAL" fill={color} fontSize={9} fontStyle="bold" letterSpacing={2} opacity={0.5} />
+        <RotationHandle />
+      </Group>
+    )
+  }
+
+  if (shape.type === 'lugha') {
+    return (
+      <Group {...common} offsetX={90} offsetY={60}>
+        <Rect width={180} height={120} cornerRadius={8} fill="rgba(255,255,255,0.04)" stroke={selectionStroke} strokeWidth={selected ? 3 : 1} />
+        <Text x={12} y={8} text="SARUFI - VIKUNDI VYA MANENO" fill={color} fontSize={7} fontStyle="bold" letterSpacing={1} />
+        <Line points={[12, 20, 168, 20]} stroke={color} strokeWidth={0.5} opacity={0.3} />
+        <Rect x={12} y={28} width={74} height={18} cornerRadius={4} fill="rgba(16,185,129,0.12)" stroke={color} strokeWidth={0.5} opacity={0.8} />
+        <Text x={18} y={32} text="NOMINO (Nomino)" fill={color} fontSize={6} />
+        <Rect x={92} y={28} width={76} height={18} cornerRadius={4} fill="rgba(59,130,246,0.12)" stroke={color} strokeWidth={0.5} opacity={0.8} />
+        <Text x={98} y={32} text="TENSI (Tense)" fill={color} fontSize={6} />
+        <Rect x={12} y={52} width={74} height={18} cornerRadius={4} fill="rgba(245,158,11,0.12)" stroke={color} strokeWidth={0.5} opacity={0.8} />
+        <Text x={18} y={56} text="VIVJS (Vivumishi)" fill={color} fontSize={6} />
+        <Rect x={92} y={52} width={76} height={18} cornerRadius={4} fill="rgba(239,68,68,0.12)" stroke={color} strokeWidth={0.5} opacity={0.8} />
+        <Text x={98} y={56} text="VIELEZI (Adverbs)" fill={color} fontSize={6} />
+        <Rect x={12} y={76} width={74} height={18} cornerRadius={4} fill="rgba(139,92,246,0.12)" stroke={color} strokeWidth={0.5} opacity={0.8} />
+        <Text x={18} y={80} text="VIUNGO (Conj.)" fill={color} fontSize={6} />
+        <Rect x={92} y={76} width={76} height={18} cornerRadius={4} fill="rgba(236,72,153,0.12)" stroke={color} strokeWidth={0.5} opacity={0.8} />
+        <Text x={98} y={80} text="VIHUSISHI (Prep.)" fill={color} fontSize={6} />
+        <Text x={12} y={104} text="Tunga sentensi kwa kila kikundi:" fill={color} fontSize={6} opacity={0.6} />
+        <Line points={[12, 114, 168, 114]} stroke={color} strokeWidth={0.5} opacity={0.3} />
+        <Text x={60} y={114} text="LUGHA" fill={color} fontSize={9} fontStyle="bold" letterSpacing={2} opacity={0.5} />
+        <RotationHandle />
+      </Group>
+    )
+  }
+
+  if (shape.type === 'functional') {
+    return (
+      <Group {...common} offsetX={110} offsetY={70}>
+        <Rect width={220} height={140} cornerRadius={8} fill="rgba(255,255,255,0.04)" stroke={selectionStroke} strokeWidth={selected ? 3 : 1} />
+        <Text x={12} y={8} text="UANDISHI WA BARUA RASMI" fill={color} fontSize={7} fontStyle="bold" letterSpacing={1} />
+        <Line points={[12, 20, 208, 20]} stroke={color} strokeWidth={0.5} opacity={0.3} />
+        <Text x={12} y={26} text="Anwani ya Mtumaji:" fill={color} fontSize={6} fontStyle="bold" opacity={0.7} />
+        <Line points={[12, 36, 140, 36]} stroke={color} strokeWidth={0.5} opacity={0.2} />
+        <Text x={12} y={42} text="Tarehe:" fill={color} fontSize={6} fontStyle="bold" opacity={0.7} />
+        <Line points={[12, 52, 140, 52]} stroke={color} strokeWidth={0.5} opacity={0.2} />
+        <Text x={12} y={58} text="Anwani ya Mpokeaji:" fill={color} fontSize={6} fontStyle="bold" opacity={0.7} />
+        <Line points={[12, 68, 140, 68]} stroke={color} strokeWidth={0.5} opacity={0.2} />
+        <Text x={12} y={74} text="SALUTATION:" fill={color} fontSize={6} fontStyle="bold" opacity={0.7} />
+        <Text x={12} y={86} text="Mada: ___________________" fill={color} fontSize={6} opacity={0.7} />
+        <Text x={12} y={98} text="[Maandishi ya barua hapa...]" fill={color} fontSize={5} opacity={0.4} />
+        <Line points={[12, 112, 208, 112]} stroke={color} strokeWidth={0.5} opacity={0.2} />
+        <Text x={12} y={118} text="Wako mwaminifu," fill={color} fontSize={6} fontStyle="bold" opacity={0.7} />
+        <Line points={[12, 130, 80, 130]} stroke={color} strokeWidth={0.5} opacity={0.2} />
+        <Text x={60} y={132} text="FUNCTIONAL" fill={color} fontSize={9} fontStyle="bold" letterSpacing={2} opacity={0.5} />
+        <RotationHandle />
+      </Group>
+    )
+  }
+
   return (
     <Group {...common} offsetX={92} offsetY={46}>
       <Line points={[0, 46, 34, 46, 46, 22, 58, 70, 70, 22, 82, 70, 94, 46, 134, 46, 134, 20, 170, 20, 170, 72, 134, 72, 134, 46, 184, 46]} stroke={selectionStroke} strokeWidth={selected ? 4 : 3} lineCap="round" lineJoin="round" />
@@ -795,84 +995,6 @@ function BoardShapeView({
       <Line points={[22, 38, 22, 54]} stroke={color} strokeWidth={3} />
       <Text x={64} y={82} text="CIRCUIT" fill={color} fontSize={11} fontStyle="bold" letterSpacing={2} />
       <RotationHandle />
-    </Group>
-  )
-}
-
-function BoardShapeViewLegacy({ shape }: { shape: BoardShape }) {
-  const { x, y, color, scale } = shape
-
-  if (shape.type === 'ruler') {
-    return (
-      <Group x={x - 120} y={y - 18} scaleX={scale} scaleY={scale}>
-        <Rect width={240} height={36} cornerRadius={6} fill="rgba(255,255,255,0.08)" stroke={color} strokeWidth={2} />
-        {Array.from({ length: 13 }).map((_, index) => (
-          <Line key={index} points={[index * 20, 0, index * 20, index % 2 === 0 ? 22 : 14]} stroke={color} strokeWidth={2} />
-        ))}
-        <Text x={90} y={12} text="RULER" fill={color} fontSize={10} fontStyle="bold" letterSpacing={2} />
-      </Group>
-    )
-  }
-
-  if (shape.type === 'protractor') {
-    const arcPoints = Array.from({ length: 37 }).flatMap((_, index) => {
-      const angle = Math.PI - (Math.PI * index) / 36
-      return [x + Math.cos(angle) * 86, y - Math.sin(angle) * 86]
-    })
-    return (
-      <Group>
-        <Line points={arcPoints} stroke={color} strokeWidth={3} lineCap="round" lineJoin="round" />
-        <Line points={[x - 92, y, x + 92, y]} stroke={color} strokeWidth={3} />
-        {Array.from({ length: 7 }).map((_, index) => {
-          const angle = Math.PI - (Math.PI * index) / 6
-          return (
-            <Line
-              key={index}
-              points={[
-                x + Math.cos(angle) * 70,
-                y - Math.sin(angle) * 70,
-                x + Math.cos(angle) * 88,
-                y - Math.sin(angle) * 88,
-              ]}
-              stroke={color}
-              strokeWidth={2}
-            />
-          )
-        })}
-        <Text x={x - 22} y={y - 36} text="180°" fill={color} fontSize={12} fontStyle="bold" />
-      </Group>
-    )
-  }
-
-  if (shape.type === 'chemistry') {
-    return (
-      <Group x={x - 50} y={y - 74}>
-        <Line points={[35, 0, 35, 32, 12, 82, 88, 82, 65, 32, 65, 0]} stroke={color} strokeWidth={3} closed={false} lineJoin="round" />
-        <Line points={[22, 62, 78, 62]} stroke={color} strokeWidth={3} />
-        <Circle x={36} y={56} radius={4} fill={color} opacity={0.8} />
-        <Circle x={62} y={68} radius={3} fill={color} opacity={0.8} />
-        <Text x={18} y={90} text="CHEM" fill={color} fontSize={11} fontStyle="bold" letterSpacing={2} />
-      </Group>
-    )
-  }
-
-  if (shape.type === 'biology') {
-    return (
-      <Group x={x - 72} y={y - 48}>
-        <Circle x={70} y={48} radius={48} stroke={color} strokeWidth={3} />
-        <Circle x={82} y={42} radius={16} stroke={color} strokeWidth={3} />
-        <Line points={[24, 58, 48, 48, 66, 62, 94, 56, 112, 35]} stroke={color} strokeWidth={2} tension={0.45} />
-        <Text x={38} y={100} text="CELL" fill={color} fontSize={11} fontStyle="bold" letterSpacing={2} />
-      </Group>
-    )
-  }
-
-  return (
-    <Group x={x - 92} y={y - 46}>
-      <Line points={[0, 46, 34, 46, 46, 22, 58, 70, 70, 22, 82, 70, 94, 46, 134, 46, 134, 20, 170, 20, 170, 72, 134, 72, 134, 46, 184, 46]} stroke={color} strokeWidth={3} lineCap="round" lineJoin="round" />
-      <Line points={[14, 32, 14, 60]} stroke={color} strokeWidth={3} />
-      <Line points={[22, 38, 22, 54]} stroke={color} strokeWidth={3} />
-      <Text x={64} y={82} text="CIRCUIT" fill={color} fontSize={11} fontStyle="bold" letterSpacing={2} />
     </Group>
   )
 }

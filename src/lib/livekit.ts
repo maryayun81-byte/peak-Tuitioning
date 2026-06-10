@@ -19,7 +19,7 @@ export async function generateLiveKitToken(sessionId: string, role: 'teacher' | 
   // 1. Fetch and Validate Session
   const { data: session, error: sessionError } = await supabase
     .from('live_sessions')
-    .select('id, status, teacher_id')
+    .select('id, status, teacher_id, class_id, room_name')
     .eq('id', sessionId)
     .single()
 
@@ -27,6 +27,9 @@ export async function generateLiveKitToken(sessionId: string, role: 'teacher' | 
     console.error('[generateLiveKitToken] Session fetch error:', sessionError)
     throw new Error("Session not found")
   }
+
+  // Use stored room_name from DB, falling back to deterministic pattern
+  const storedRoomName = session.room_name || `peak_v1_${sessionId}`
 
   // 2. Validate Authorization
   let participantName = ""
@@ -46,25 +49,34 @@ export async function generateLiveKitToken(sessionId: string, role: 'teacher' | 
     }
     participantName = user.email?.split('@')[0] || 'Teacher'
   } else {
-    // For students: verify they have a student profile (broadest possible check)
-    // We use the profiles table or students table, trying both to be resilient
+    // For students: verify they have a student profile AND belong to this session's class
     const { data: student, error: studentError } = await supabase
       .from('students')
-      .select('id')
+      .select('id, class_id')
       .eq('user_id', user.id)
       .maybeSingle()
 
     if (studentError) {
       console.error('[generateLiveKitToken] Student lookup error:', studentError)
+      throw new Error("Student profile not found")
     }
 
-    // If student profile exists OR we have a valid user, allow them in.
-    // This prevents the 'kick' bug where profile queries fail but the user is valid.
+    if (!student) {
+      console.error('[generateLiveKitToken] No student profile for user:', user.id)
+      throw new Error("Student profile not found")
+    }
+
+    // Verify student belongs to the session's class
+    if (student.class_id !== session.class_id) {
+      console.error(`[generateLiveKitToken] Student ${student.id} not in session class ${session.class_id}`)
+      throw new Error("You are not enrolled in this session's class")
+    }
+
     participantName = user.email?.split('@')[0] || 'Student'
   }
 
-  // 3. Generate LiveKit Token with a stable room name
-  const roomName = `peak_v1_${sessionId}`
+  // 3. Generate LiveKit Token with room name from DB
+  const roomName = storedRoomName
   const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
     identity: participantIdentity,
     name: participantName,

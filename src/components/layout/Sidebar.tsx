@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   LayoutDashboard, Users, UserCheck, GraduationCap, BookOpen,
@@ -125,8 +125,6 @@ function SidebarItem({
   isActive: boolean;
   onClick?: () => void
 }) {
-  const router = useRouter()
-
   const content = (
     <>
       <span className={cn('flex-shrink-0', isActive ? 'text-white' : '')}>{item.icon}</span>
@@ -175,8 +173,7 @@ function SidebarItem({
   return (
     <Link
       href={item.href}
-      prefetch={true}
-      onMouseEnter={() => router.prefetch(item.href)}
+      prefetch={false}
       {...commonProps}
     >
       {content}
@@ -237,6 +234,7 @@ export function BottomNav({ items, moreItems = [] }: BottomNavProps) {
             <Link
               key={item.href}
               href={item.href}
+              prefetch={false}
               className="flex-1 flex flex-col items-center justify-center py-3 gap-1 transition-all"
               style={commonStyle}
             >
@@ -321,6 +319,7 @@ export function BottomNav({ items, moreItems = [] }: BottomNavProps) {
                     <Link
                       key={item.href}
                       href={item.href}
+                      prefetch={false}
                       onClick={() => setShowMore(false)}
                       className={className}
                       style={commonStyle}

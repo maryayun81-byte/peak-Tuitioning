@@ -16,7 +16,6 @@ import { ExamEventBanner } from '@/components/dashboard/ExamEventBanner'
 import { TuitionEventBanner } from '@/components/dashboard/TuitionEventBanner'
 import { formatDate, formatCurrency } from '@/lib/utils'
 import type { TuitionEvent, Notification } from '@/types/database'
-import { withTimeout } from '@/lib/supabase/utils'
 
 interface DashboardStats {
   totalStudents: number
@@ -40,21 +39,35 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    loadStats()
+    const controller = new AbortController()
+
     // CRITICAL SAFETY: Never leave the admin hanging on a skeleton
     const safetyTimer = setTimeout(() => setLoading(false), 5000)
-    return () => clearTimeout(safetyTimer)
+    const requestTimer = setTimeout(() => {
+      console.warn('[AdminDashboard] Dashboard queries timed out; cancelling pending requests')
+      controller.abort()
+    }, 10000)
+
+    void loadStats(controller.signal).finally(() => clearTimeout(requestTimer))
+
+    return () => {
+      controller.abort()
+      clearTimeout(safetyTimer)
+      clearTimeout(requestTimer)
+    }
   }, [])
 
-  const loadStats = async () => {
+  const loadStats = async (signal: AbortSignal) => {
     setLoading(true)
     try {
       console.log('[AdminDashboard] Loading real stats...')
-      const safeFetch = async (promise: PromiseLike<any>, fallback: any) => {
+      const safeFetch = async (query: any, fallback: any) => {
         try {
-          return await withTimeout(Promise.resolve(promise), 10000)
+          return await query.abortSignal(signal)
         } catch (err) {
-          console.warn('[AdminDashboard] Query timed out or failed, using fallback')
+          if (!signal.aborted) {
+            console.warn('[AdminDashboard] Query failed, using fallback', err)
+          }
           return fallback
         }
       }
@@ -129,16 +142,28 @@ export default function AdminDashboard() {
 
       // 5. Cross-Event Comparison (Ended vs Active)
       // We'll fetch the last 5 events and their overall attendance
-      const { data: allEvents } = await supabase.from('tuition_events').select('id, name').order('start_date', { ascending: false }).limit(6)
-      const eventIds = (allEvents || []).map(e => e.id)
+      const { data: allEvents } = await safeFetch(
+        supabase.from('tuition_events').select('id, name').order('start_date', { ascending: false }).limit(6),
+        { data: [] }
+      )
+      const eventIds = (allEvents || []).map((event: { id: string }) => event.id)
       
-      const { data: crossAtt } = await supabase.from('attendance').select('tuition_event_id, status').in('tuition_event_id', eventIds)
+      const { data: crossAtt } = eventIds.length > 0
+        ? await safeFetch(
+            supabase.from('attendance').select('tuition_event_id, status').in('tuition_event_id', eventIds),
+            { data: [] }
+          )
+        : { data: [] }
       
-      const eventComparison = (allEvents || []).map(ev => {
-        const evAtt = (crossAtt || []).filter(a => a.tuition_event_id === ev.id)
-        const evPresent = evAtt.filter(a => a.status === 'present').length
-        const rate = evAtt.length > 0 ? Math.round((evPresent / evAtt.length) * 100) : 0
-        return { name: ev.name, rate }
+      const eventComparison = (allEvents || []).map((event: { id: string; name: string }) => {
+        const eventAttendance = (crossAtt || []).filter(
+          (attendance: { tuition_event_id: string; status: string }) => attendance.tuition_event_id === event.id
+        )
+        const present = eventAttendance.filter(
+          (attendance: { status: string }) => attendance.status === 'present'
+        ).length
+        const rate = eventAttendance.length > 0 ? Math.round((present / eventAttendance.length) * 100) : 0
+        return { name: event.name, rate }
       }).reverse()
 
       // 6. Total payments across all time (basic total)
@@ -160,7 +185,7 @@ export default function AdminDashboard() {
     } catch (err) {
       console.error('[AdminDashboard] Failed to load stats:', err)
     } finally {
-      setLoading(false)
+      if (!signal.aborted) setLoading(false)
     }
   }
 

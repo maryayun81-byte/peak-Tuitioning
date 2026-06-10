@@ -2,6 +2,11 @@
 
 import { createClient, createAdminClient } from "@/lib/supabase/server"
 import { revalidatePath } from "next/cache"
+import { RoomServiceClient } from "livekit-server-sdk"
+
+const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY
+const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET
+const LIVEKIT_HOST = process.env.NEXT_PUBLIC_LIVEKIT_URL?.replace('ws://', 'http://').replace('wss://', 'https://')
 
 export type CreateSessionInput = {
   title: string
@@ -45,10 +50,7 @@ export async function createLiveSession(input: CreateSessionInput) {
       throw new Error("Teacher profile not found")
     }
 
-    // 2. Generate unique room name
-    const roomName = `peak_${Math.random().toString(36).substring(2, 9)}_${Date.now()}`
-
-    // 3. Insert Session
+    // 2. Insert Session
     const { data: session, error: sessionError } = await supabase
       .from('live_sessions')
       .insert({
@@ -59,7 +61,7 @@ export async function createLiveSession(input: CreateSessionInput) {
         tuition_center_id: input.tuition_center_id,
         session_type: input.session_type,
         goal: input.goal,
-        room_name: roomName,
+        room_name: `peak_v1_${Date.now()}`, // placeholder, updated below
         scheduled_at: input.scheduled_at,
         duration_mins: input.duration_mins,
         status: 'scheduled'
@@ -72,7 +74,14 @@ export async function createLiveSession(input: CreateSessionInput) {
       throw new Error(sessionError?.message || "Database insertion failed")
     }
 
-    // 4. Insert Outcomes
+    // Update room_name with deterministic session-based pattern
+    const roomName = `peak_v1_${session.id}`
+    await supabase
+      .from('live_sessions')
+      .update({ room_name: roomName })
+      .eq('id', session.id)
+
+    // 3. Insert Outcomes
     if (input.outcomes && input.outcomes.length > 0) {
       const outcomesData = input.outcomes
         .filter(o => !!o.trim())
@@ -212,7 +221,31 @@ export async function updateOutcomeStatus(outcomeId: string, isCompleted: boolea
 
 export async function startLiveSession(sessionId: string) {
   const supabase = await createClient()
-  
+
+  // Fetch session to get room_name
+  const { data: session, error: fetchError } = await supabase
+    .from('live_sessions')
+    .select('room_name')
+    .eq('id', sessionId)
+    .single()
+
+  if (fetchError || !session) throw new Error("Session not found")
+
+  // Create/ensure room exists on LiveKit server
+  try {
+    if (LIVEKIT_API_KEY && LIVEKIT_API_SECRET && LIVEKIT_HOST) {
+      const roomService = new RoomServiceClient(LIVEKIT_HOST, LIVEKIT_API_KEY, LIVEKIT_API_SECRET)
+      const roomName = session.room_name || `peak_v1_${sessionId}`
+      await roomService.createRoom({ name: roomName })
+      console.log(`[startLiveSession] LiveKit room created: ${roomName}`)
+    }
+  } catch (roomErr: any) {
+    // If room already exists, that's fine — log and continue
+    if (!roomErr.message?.includes('already exists')) {
+      console.error('[startLiveSession] LiveKit room creation warning:', roomErr)
+    }
+  }
+
   const { error } = await supabase
     .from('live_sessions')
     .update({ status: 'live' })

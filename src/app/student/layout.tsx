@@ -6,7 +6,7 @@ import { motion } from 'framer-motion'
 import {
   LayoutDashboard, BookOpen, FileText, BrainCircuit,
   Trophy, Calendar, Library, GraduationCap,
-  Award, Settings, LogOut, Bell, Zap, Star, Clock, Receipt
+  Award, Settings, LogOut, Bell, Zap, Star, Clock, Receipt, MessageCircle
 } from 'lucide-react'
 import { Sidebar, BottomNav } from '@/components/layout/Sidebar'
 import { useAuthStore } from '@/stores/authStore'
@@ -25,10 +25,12 @@ import { PageErrorBoundary } from '@/components/ui/PageErrorBoundary'
 import { SessionHeartbeat } from '@/components/shared/SessionHeartbeat'
 import toast from 'react-hot-toast'
 import Link from 'next/link'
+import { useMessageUnreadCount } from '@/hooks/useMessageUnreadCount'
 
 const NAV_ITEMS = [
   { label: 'My Hub', href: '/student', icon: <LayoutDashboard size={18} /> },
   { label: 'Live Campus', href: '/student/live', icon: <Zap size={18} className="text-emerald-500" /> },
+  { label: 'Messages', href: '/student/messages', icon: <MessageCircle size={18} /> },
   { label: 'Trivia', href: '/student/trivia', icon: <Trophy size={18} /> },
   { label: 'Assignments', href: '/student/assignments', icon: <FileText size={18} /> },
   { label: 'Quizzes', href: '/student/quizzes', icon: <BrainCircuit size={18} /> },
@@ -40,12 +42,6 @@ const NAV_ITEMS = [
   { label: 'Transcripts', href: '/student/transcripts', icon: <Award size={18} /> },
   { label: 'Billing', href: '/student/billing', icon: <Receipt size={18} /> },
   { label: 'Settings', href: '/student/settings', icon: <Settings size={18} /> },
-]
-
-const MOBILE_BOTTOM = NAV_ITEMS.slice(0, 4)
-const MOBILE_MORE = [
-  ...NAV_ITEMS.slice(4),
-  { label: 'Sign Out', href: '#', icon: <LogOut size={18} /> },
 ]
 
 const LogoComponent = (
@@ -63,6 +59,7 @@ const LogoComponent = (
 export default function StudentLayout({ children }: { children: React.ReactNode }) {
   const { profile, student, isLoading, isInitialRevalidationComplete, setStudent } = useAuthStore()
   const { unreadCount } = useNotificationStore()
+  const { count: messageUnreadCount } = useMessageUnreadCount()
   useRealtimeNotifications()
 
   const { signOut } = useAuth()
@@ -173,7 +170,7 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
     <div className="min-h-screen bg-[var(--bg)]">
       {showPortalUI && (
          <Sidebar
-           items={NAV_ITEMS}
+           items={NAV_ITEMS.map(item => item.href === '/student/messages' ? { ...item, badge: messageUnreadCount } : item)}
            bottomItems={[
              { label: 'Sign Out', href: '#', icon: <LogOut size={18} />, onClick: () => signOut() },
            ]}
@@ -208,6 +205,14 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
                      </div>
                      <InstallPWAButton variant="minimal" />
                      <div className="w-px h-6 bg-[var(--card-border)]" />
+                     <Link href="/student/messages" aria-label={`Messages${messageUnreadCount ? `, ${messageUnreadCount} unread` : ''}`} className="relative p-2 rounded-xl hover:bg-[var(--input)] transition-colors group">
+                        <MessageCircle size={20} className="text-[var(--text-muted)] group-hover:text-primary transition-colors" />
+                        {messageUnreadCount > 0 && (
+                          <span className="absolute top-1 right-1 flex h-4 min-w-[16px] px-1 items-center justify-center bg-sky-500 text-white text-[9px] font-black rounded-full border-2 border-[var(--bg)]">
+                            {messageUnreadCount > 99 ? '99+' : messageUnreadCount}
+                          </span>
+                        )}
+                     </Link>
                      <Link href="/student/notifications" className="relative p-2 rounded-xl hover:bg-[var(--input)] transition-colors group">
                         <Bell size={20} className="text-[var(--text-muted)] group-hover:text-primary transition-colors" />
                         {unreadCount > 0 && (
@@ -243,8 +248,11 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
 
       {!isPendingOnboarding && (
         <BottomNav 
-          items={MOBILE_BOTTOM} 
-          moreItems={MOBILE_MORE.map(item => 
+          items={NAV_ITEMS.map(item => item.href === '/student/messages' ? { ...item, badge: messageUnreadCount } : item).slice(0, 4)}
+          moreItems={[
+            ...NAV_ITEMS.map(item => item.href === '/student/messages' ? { ...item, badge: messageUnreadCount } : item).slice(4),
+            { label: 'Sign Out', href: '#', icon: <LogOut size={18} /> },
+          ].map(item =>
             item.label === 'Sign Out' ? { ...item, onClick: signOut } : item
           )} 
         />

@@ -9,10 +9,11 @@ import {
   ParticipantTile,
   useLocalParticipant,
   useDataChannel,
-  ConnectionState,
   TrackReferenceOrPlaceholder,
 } from '@livekit/components-react'
 import { Track } from 'livekit-client'
+import { PageErrorBoundary } from '@/components/ui/PageErrorBoundary'
+import { LiveReconnectionOverlay } from '@/components/ui/LiveReconnectionOverlay'
 import { 
   Zap, Target, Users, MessageSquare, 
   Share2, Shield, ChevronRight, CheckCircle2, 
@@ -80,6 +81,24 @@ function getParticipantRole(participant: { metadata?: string; isLocal?: boolean 
     if (metadata.role === 'teacher' || metadata.role === 'student') return metadata.role
   } catch {}
   return participant.isLocal ? 'student' : 'teacher'
+}
+
+async function recordLiveActivity(
+  sessionId: string,
+  participantId: string,
+  eventType: string,
+  details: Record<string, unknown> = {},
+) {
+  const { error } = await getSupabaseBrowserClient()
+    .from('live_session_activity_events')
+    .insert({
+      session_id: sessionId,
+      participant_id: participantId,
+      event_type: eventType,
+      details,
+    })
+
+  if (error) console.warn('[ClassroomInterface] Activity event was not persisted', error)
 }
 
 // Dynamically imported - using any for the ref-forwarding component to avoid complex type gymnastics in dynamic
@@ -160,7 +179,10 @@ export default function ClassroomInterface({ session, token, serverUrl }: Props)
               video={false}
               className="flex-1 flex flex-col relative"
             >
+              <LiveReconnectionOverlay />
+              <PageErrorBoundary>
               <ClassroomInner session={session} onSessionEnd={handleSessionEnd} />
+              </PageErrorBoundary>
               <RoomAudioRenderer />
             </LiveKitRoom>
           </motion.div>
@@ -187,6 +209,100 @@ function ClassroomInner({ session, onSessionEnd }: { session: any, onSessionEnd:
   const [capturedMoments, setCapturedMoments] = useState<{ id: string, url: string, timestamp: number }[]>([])
   const whiteboardRef = useRef<any>(null)
   const supabase = useMemo(() => getSupabaseBrowserClient(), [])
+  const outcomeUpdateRef = useRef<((msg: any) => void) | null>(null)
+  const joinRecordedRef = useRef(false)
+  const { localParticipant } = useLocalParticipant()
+
+  // Broadcast immediate status and persist a durable presence heartbeat.
+  const { send: sendStatus } = useDataChannel('STUDENT_STATUS')
+  useEffect(() => {
+    if (!localParticipant) return
+    let active = true
+    const publishStatus = async () => {
+      const status = {
+        participantId: localParticipant.identity,
+        participantName: localParticipant.name || localParticipant.identity,
+        tab: activeTab,
+        microphoneEnabled: localParticipant.isMicrophoneEnabled,
+        cameraEnabled: localParticipant.isCameraEnabled,
+        screenShareEnabled: localParticipant.isScreenShareEnabled,
+        timestamp: Date.now(),
+      }
+      sendStatus(new TextEncoder().encode(JSON.stringify(status)), { reliable: true })
+
+      const { error } = await supabase.from('live_session_participants').upsert({
+        session_id: session.id,
+        participant_id: localParticipant.identity,
+        participant_name: status.participantName,
+        role: 'student',
+        active_tab: activeTab,
+        microphone_enabled: status.microphoneEnabled,
+        camera_enabled: status.cameraEnabled,
+        screen_share_enabled: status.screenShareEnabled,
+        last_seen: new Date(status.timestamp).toISOString(),
+      }, { onConflict: 'session_id,participant_id' })
+
+      if (active && error) console.warn('[ClassroomInner] Presence heartbeat unavailable', error)
+    }
+
+    publishStatus()
+    const interval = setInterval(publishStatus, 5000)
+    return () => {
+      active = false
+      clearInterval(interval)
+    }
+  }, [activeTab, localParticipant, sendStatus, session.id, supabase])
+
+  useEffect(() => {
+    if (!localParticipant) return
+    if (!joinRecordedRef.current) {
+      joinRecordedRef.current = true
+      recordLiveActivity(session.id, localParticipant.identity, 'joined_session')
+    }
+    recordLiveActivity(session.id, localParticipant.identity, 'workspace_changed', { tab: activeTab })
+  }, [activeTab, localParticipant, session.id])
+
+  const { send: requestState } = useDataChannel('SESSION_STATE_REQUEST')
+  useDataChannel('SESSION_STATE', (msg) => {
+    try {
+      const state = JSON.parse(new TextDecoder().decode(msg.payload)) as {
+        mode?: 'content' | 'whiteboard' | 'slides'
+        isChatEnabled?: boolean
+        allowScreen?: boolean
+        resources?: any[]
+        slideUrl?: string | null
+        outcomes?: any[]
+      }
+      if (state.mode) setActiveTab(state.mode)
+      if (typeof state.isChatEnabled === 'boolean') setIsChatLocked(!state.isChatEnabled)
+      if (typeof state.allowScreen === 'boolean') setAllowScreenShare(state.allowScreen)
+      if (Array.isArray(state.resources)) setResources(state.resources)
+      if ('slideUrl' in state) setCurrentSlide(state.slideUrl || null)
+      if (Array.isArray(state.outcomes)) setOutcomes(state.outcomes)
+    } catch (error) {
+      console.warn('[ClassroomInner] Ignored malformed session state', error)
+    }
+  })
+
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      requestState(new TextEncoder().encode(JSON.stringify({ timestamp: Date.now() })), { reliable: true }).catch(() => null)
+    }, 750)
+    return () => clearTimeout(timeout)
+  }, [requestState])
+
+  // Sync outcomes from DB on mount (catches late-join scenario)
+  useEffect(() => {
+    let mounted = true
+    supabase
+      .from('live_session_outcomes')
+      .select('*')
+      .eq('session_id', session.id)
+      .then(({ data }) => {
+        if (mounted && data) setOutcomes(data)
+      })
+    return () => { mounted = false }
+  }, [session.id, supabase])
 
   useEffect(() => {
     if (window.matchMedia('(min-width: 768px)').matches) {
@@ -202,8 +318,21 @@ function ClassroomInner({ session, onSessionEnd }: { session: any, onSessionEnd:
       onSessionEnd(outcomes)
     }
   })
-  const { message: outcomeMsg } = useDataChannel('OUTCOME_UPDATE')
   
+  useDataChannel('OUTCOME_UPDATE', (msg) => {
+    try {
+      const data = JSON.parse(new TextDecoder().decode(msg.payload))
+      setOutcomes((prev: any) =>
+        data.outcomes || prev.map((o: any) =>
+          o.id === data.outcomeId ? { ...o, is_completed: data.status } : o
+        )
+      )
+      if (data.status) {
+        toast.success("New Concept Mastered! ✨", { position: 'bottom-center', style: { background: '#05070A', border: '1px solid rgba(52,211,153,0.2)', color: '#fff' } })
+      }
+    } catch (e) {}
+  })
+
   useDataChannel('QUIZ_LAUNCH', (msg) => {
     try {
       const quiz = normalizeQuiz(JSON.parse(new TextDecoder().decode(msg.payload)))
@@ -226,6 +355,10 @@ function ClassroomInner({ session, onSessionEnd }: { session: any, onSessionEnd:
     try {
       const data = JSON.parse(new TextDecoder().decode(msg.payload)) as { url: string }
       setCurrentSlide(data.url)
+      if (data.url) {
+        setActiveTab('slides')
+        setShowHUD(false)
+      }
     } catch {}
   })
 
@@ -247,6 +380,7 @@ function ClassroomInner({ session, onSessionEnd }: { session: any, onSessionEnd:
       if (dataUrl) {
         const moment = { id: `moment-${Date.now()}`, url: dataUrl, timestamp: Date.now() }
         setCapturedMoments(prev => [moment, ...prev])
+        if (localParticipant) recordLiveActivity(session.id, localParticipant.identity, 'lesson_moment_captured')
         toast.success('Lesson moment captured to your Knowledge Hub!', { icon: '📸', position: 'bottom-center' })
       }
     }
@@ -269,34 +403,27 @@ function ClassroomInner({ session, onSessionEnd }: { session: any, onSessionEnd:
   })
 
   useEffect(() => {
-    if (outcomeMsg) {
-      try {
-        const data = JSON.parse(new TextDecoder().decode(outcomeMsg.payload))
-        setOutcomes((prev: any) => data.outcomes || prev.map((o: any) => o.id === data.outcomeId ? { ...o, is_completed: data.status } : o))
-        if (data.status) {
-          toast.success("New Concept Mastered! ✨", { position: 'bottom-center', style: { background: '#05070A', border: '1px solid rgba(52,211,153,0.2)', color: '#fff' } })
+    const channel = supabase
+      .channel(`session-status-${session.id}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'live_sessions',
+        filter: `id=eq.${session.id}`,
+      }, async (payload) => {
+        const newStatus = (payload.new as any)?.status
+        if (newStatus === 'completed') {
+          const { data } = await supabase
+            .from('live_sessions')
+            .select('status, outcomes:live_session_outcomes(*)')
+            .eq('id', session.id)
+            .maybeSingle()
+          onSessionEnd(data?.outcomes || outcomes)
         }
-      } catch (e) {}
-    }
-  }, [outcomeMsg])
+      })
+      .subscribe()
 
-  useEffect(() => {
-    let ended = false
-    const interval = window.setInterval(async () => {
-      if (ended) return
-      const { data, error } = await supabase
-        .from('live_sessions')
-        .select('status, outcomes:live_session_outcomes(*)')
-        .eq('id', session.id)
-        .maybeSingle()
-
-      if (!error && data?.status === 'completed') {
-        ended = true
-        onSessionEnd(data.outcomes || outcomes)
-      }
-    }, 4000)
-
-    return () => window.clearInterval(interval)
+    return () => { supabase.removeChannel(channel) }
   }, [outcomes, onSessionEnd, session.id, supabase])
 
   return (
@@ -353,7 +480,16 @@ function ClassroomInner({ session, onSessionEnd }: { session: any, onSessionEnd:
               >
                 Board
               </button>
-           </div>
+              <button 
+                onClick={() => {
+                  setActiveTab('slides')
+                  setShowHUD(false)
+                }}
+                className={`px-4 md:px-8 py-2 rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'slides' ? 'bg-white text-black shadow-xl' : 'text-slate-500 hover:text-white'}`}
+              >
+                Slides
+              </button>
+            </div>
 
            <div className="flex items-center gap-2 md:gap-6">
               <div className="px-3 md:px-4 py-1.5 md:py-2 rounded-lg md:rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-2">
@@ -388,6 +524,15 @@ function ClassroomInner({ session, onSessionEnd }: { session: any, onSessionEnd:
            >
              Board
            </button>
+           <button 
+             onClick={() => {
+               setActiveTab('slides')
+               setShowHUD(false)
+             }}
+             className={`flex-1 py-4 text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'slides' ? 'text-white border-b-2 border-emerald-500 bg-emerald-500/5' : 'text-slate-500'}`}
+           >
+             Slides
+           </button>
         </div>
 
         <div className={`flex-1 overflow-hidden relative ${activeTab === 'whiteboard' ? 'p-2 md:p-5' : 'p-4 md:p-10'}`}>
@@ -419,6 +564,7 @@ function ClassroomInner({ session, onSessionEnd }: { session: any, onSessionEnd:
         </div>
 
         <StudentControls 
+          sessionId={session.id}
           onToggleChat={() => setShowChat((value) => !value)} 
           allowScreenShare={allowScreenShare}
           onCapture={handleCapture}
@@ -439,7 +585,7 @@ function ClassroomInner({ session, onSessionEnd }: { session: any, onSessionEnd:
 
         <AnimatePresence>
           {activeQuiz && (
-            <StudentLiveQuiz quiz={activeQuiz} onClose={() => setActiveQuiz(null)} />
+            <StudentLiveQuiz sessionId={session.id} quiz={activeQuiz} onClose={() => setActiveQuiz(null)} />
           )}
         </AnimatePresence>
       </div>
@@ -658,11 +804,24 @@ function StudentClarityEngine({ outcomes, goal, resources, moments }: { outcomes
   )
 }
 
-function StudentControls({ onToggleChat, allowScreenShare, onCapture }: { onToggleChat: () => void; allowScreenShare?: boolean; onCapture?: () => void }) {
+function StudentControls({ sessionId, onToggleChat, allowScreenShare, onCapture }: { sessionId: string; onToggleChat: () => void; allowScreenShare?: boolean; onCapture?: () => void }) {
   const { localParticipant, isMicrophoneEnabled, isCameraEnabled, isScreenShareEnabled } = useLocalParticipant()
   const [handRaised, setHandRaised] = useState(false)
   const { send: sendHand } = useDataChannel('HAND_RAISE')
+  const { send: sendReaction } = useDataChannel('STUDENT_REACTION')
+  const [showReactions, setShowReactions] = useState(false)
   const { isFullscreen, toggleFullscreen } = useFullscreen()
+  const REACTIONS = ['👍', '❓', '🎉', '❤️', '🚀', '😂']
+
+  const sendEmoji = (emoji: string) => {
+    if (!localParticipant) return
+    sendReaction(new TextEncoder().encode(JSON.stringify({
+      emoji,
+      participantName: localParticipant.name || localParticipant.identity,
+    })), { reliable: true })
+    recordLiveActivity(sessionId, localParticipant.identity, 'reaction_sent', { emoji })
+    setShowReactions(false)
+  }
 
   useDataChannel('MODERATION', (msg) => {
     try {
@@ -680,6 +839,10 @@ function StudentControls({ onToggleChat, allowScreenShare, onCapture }: { onTogg
       if (command.action === 'request-audio') {
         toast('Teacher asked you to unmute', { icon: '🎙️', position: 'bottom-center' })
       }
+      if (command.action === 'lower-hand') {
+        setHandRaised(false)
+        toast('Teacher lowered your hand', { icon: '🤚', position: 'bottom-center' })
+      }
     } catch (error) {
       console.warn('[StudentControls] Ignored malformed moderation command', error)
     }
@@ -692,6 +855,7 @@ function StudentControls({ onToggleChat, allowScreenShare, onCapture }: { onTogg
         await navigator.mediaDevices.getUserMedia({ audio: true }).then(s => s.getTracks().forEach(t => t.stop())).catch(() => null)
       }
       await localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled)
+      recordLiveActivity(sessionId, localParticipant.identity, 'microphone_changed', { enabled: !isMicrophoneEnabled })
       toast(!isMicrophoneEnabled ? '🎙️ Microphone active' : 'Microphone muted', { position: 'bottom-center' })
     } catch (error: any) {
       console.error('[StudentControls] Microphone error:', error)
@@ -710,6 +874,7 @@ function StudentControls({ onToggleChat, allowScreenShare, onCapture }: { onTogg
         await navigator.mediaDevices.getUserMedia({ video: true }).then(s => s.getTracks().forEach(t => t.stop())).catch(() => null)
       }
       await localParticipant.setCameraEnabled(!isCameraEnabled)
+      recordLiveActivity(sessionId, localParticipant.identity, 'camera_changed', { enabled: !isCameraEnabled })
       toast(!isCameraEnabled ? '📹 Camera active' : 'Camera off', { position: 'bottom-center' })
     } catch (error: any) {
       console.error('[StudentControls] Camera error:', error)
@@ -725,7 +890,8 @@ function StudentControls({ onToggleChat, allowScreenShare, onCapture }: { onTogg
     if (!localParticipant) return
     try {
       const newState = !isScreenShareEnabled
-      await localParticipant.setScreenShareEnabled(newState, { audio: false })
+      await localParticipant.setScreenShareEnabled(newState, { audio: true })
+      recordLiveActivity(sessionId, localParticipant.identity, 'screen_share_changed', { enabled: newState })
       toast(newState ? 'Sharing screen' : 'Sharing stopped', { position: 'bottom-center' })
     } catch (e: any) {
       toast.error("Screen share failed. Check browser permissions.", { id: "screen-error", position: 'bottom-center' })
@@ -742,6 +908,7 @@ function StudentControls({ onToggleChat, allowScreenShare, onCapture }: { onTogg
       raised,
       timestamp: Date.now(),
     })), { reliable: true })
+    recordLiveActivity(sessionId, localParticipant.identity, 'hand_changed', { raised })
     toast(raised ? 'Hand Raised 🖐️' : 'Hand Lowered', { position: 'bottom-center' })
   }
 
@@ -761,10 +928,29 @@ function StudentControls({ onToggleChat, allowScreenShare, onCapture }: { onTogg
 
           <div className="w-px h-8 bg-white/10 mx-1" />
           
-          <ControlButton icon={<Camera size={18} />} active={false} onClick={onCapture} color="emerald" />
+           <ControlButton icon={<Camera size={18} />} active={false} onClick={onCapture} color="emerald" />
           
           <div className="w-px h-8 bg-white/10 mx-1" />
           
+          <div className="relative">
+            <ControlButton icon={<span className="text-lg">😊</span>} active={showReactions} onClick={() => setShowReactions(!showReactions)} color="sky" />
+            {showReactions && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 flex gap-1 p-2 rounded-2xl bg-black/90 backdrop-blur-3xl border border-white/10 shadow-2xl"
+              >
+                {REACTIONS.map((emoji) => (
+                  <button key={emoji} onClick={() => sendEmoji(emoji)}
+                    className="w-10 h-10 rounded-xl hover:bg-white/10 flex items-center justify-center text-xl transition-all hover:scale-125"
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </motion.div>
+            )}
+          </div>
+
           <ControlButton icon={<MessageSquare size={18} />} active={false} onClick={onToggleChat} />
           <ControlButton icon={<Maximize2 size={18} />} active={isFullscreen} onClick={toggleFullscreen} />
        </div>
@@ -783,7 +969,7 @@ function ControlButton({ icon, active, onClick, color = 'emerald' }: { icon: any
   )
 }
 
-function StudentLiveQuiz({ quiz, onClose }: { quiz: LiveQuiz; onClose: () => void }) {
+function StudentLiveQuiz({ sessionId, quiz, onClose }: { sessionId: string; quiz: LiveQuiz; onClose: () => void }) {
   const { localParticipant } = useLocalParticipant()
   const { send } = useDataChannel('QUIZ_RESULT')
   const [questionIndex, setQuestionIndex] = useState(0)
@@ -792,14 +978,14 @@ function StudentLiveQuiz({ quiz, onClose }: { quiz: LiveQuiz; onClose: () => voi
   const [score, setScore] = useState(0)
   const question = quiz.questions[questionIndex]
 
-  const submit = (index: number) => {
+  const submit = async (index: number) => {
     if (submitted || !localParticipant || !question) return
     setSelected(index)
     setSubmitted(true)
     const isCorrect = index === question.correctIndex
     const nextScore = score + (isCorrect ? question.points : 0)
     setScore(nextScore)
-    send(new TextEncoder().encode(JSON.stringify({
+    const result = {
       quizId: quiz.id,
       questionId: question.id,
       participantId: localParticipant.identity,
@@ -808,7 +994,31 @@ function StudentLiveQuiz({ quiz, onClose }: { quiz: LiveQuiz; onClose: () => voi
       isCorrect,
       score: isCorrect ? question.points : 0,
       answeredAt: Date.now(),
-    })), { reliable: true })
+    }
+    send(new TextEncoder().encode(JSON.stringify(result)), { reliable: true })
+
+    const { error } = await getSupabaseBrowserClient().from('live_quiz_results').upsert({
+      session_id: sessionId,
+      quiz_id: result.quizId,
+      question_id: result.questionId,
+      participant_id: result.participantId,
+      participant_name: result.participantName,
+      answer_index: result.answerIndex,
+      is_correct: result.isCorrect,
+      score: result.score,
+      answered_at: new Date(result.answeredAt).toISOString(),
+    }, { onConflict: 'session_id,quiz_id,question_id,participant_id' })
+
+    if (error) {
+      console.warn('[StudentLiveQuiz] Answer persistence failed', error)
+      toast.error('Your live answer was sent, but backup storage is retrying.', { position: 'bottom-center' })
+    }
+    recordLiveActivity(sessionId, localParticipant.identity, 'quiz_answered', {
+      quizId: quiz.id,
+      questionId: question.id,
+      isCorrect,
+      score: result.score,
+    })
   }
 
   const goNext = () => {
@@ -824,15 +1034,12 @@ function StudentLiveQuiz({ quiz, onClose }: { quiz: LiveQuiz; onClose: () => voi
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[130] bg-black/75 backdrop-blur-xl flex items-center justify-center p-4">
       <motion.div initial={{ y: 20, scale: 0.96 }} animate={{ y: 0, scale: 1 }} exit={{ y: 20, scale: 0.96 }} className="w-full max-w-2xl rounded-[2rem] bg-[#05070A] border border-white/10 shadow-2xl overflow-hidden">
-        <div className="p-6 md:p-8 border-b border-white/10 flex items-start justify-between gap-4">
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-emerald-500">{quiz.title}</p>
-            <h3 className="text-xl md:text-2xl font-black mt-2 leading-tight">{question?.prompt}</h3>
-            <p className="mt-2 text-[9px] font-black uppercase tracking-widest text-slate-500">Question {questionIndex + 1} of {quiz.questions.length}</p>
+        <div className="p-6 md:p-8 border-b border-white/10">
+          <div className="flex items-center gap-3 mb-2">
+            <span className="px-3 py-1 rounded-lg bg-emerald-500/10 text-emerald-500 text-[8px] font-black uppercase tracking-widest border border-emerald-500/20">Live Checkpoint</span>
+            <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">Question {questionIndex + 1} of {quiz.questions.length}</span>
           </div>
-          <button onClick={onClose} className="w-10 h-10 rounded-xl bg-white/5 text-slate-400 hover:text-white">
-            <X size={18} className="mx-auto" />
-          </button>
+          <h3 className="text-xl md:text-2xl font-black mt-2 leading-tight">{question?.prompt}</h3>
         </div>
         <div className="p-6 md:p-8 grid gap-3">
           {question?.options.map((option, index) => {
@@ -960,7 +1167,7 @@ function StudentChat({ session, isLocked }: { session: any, isLocked?: boolean }
     setMessages(prev => [...prev, msg])
     send(new TextEncoder().encode(JSON.stringify(msg)), { reliable: true })
     
-    await supabase.from('live_session_messages').insert({
+    const { error } = await supabase.from('live_session_messages').insert({
       id: msg.id,
       session_id: session.id,
       sender_id: localParticipant.identity,
@@ -969,6 +1176,11 @@ function StudentChat({ session, isLocked }: { session: any, isLocked?: boolean }
       message: msg.text,
       created_at: new Date(msg.timestamp).toISOString(),
     })
+    if (error) {
+      console.warn('[StudentChat] Message persistence failed', error)
+      toast.error('Message sent live, but history backup failed.', { position: 'bottom-center' })
+    }
+    recordLiveActivity(session.id, localParticipant.identity, 'chat_message_sent', { messageId: msg.id })
     setInput('')
   }
 
@@ -1010,11 +1222,11 @@ function StudentChat({ session, isLocked }: { session: any, isLocked?: boolean }
 
        <div className="p-6 bg-white/[0.02] border-t border-white/5">
           <div className="relative">
-             <input 
-               value={input}
-               onChange={e => setInput(e.target.value)}
-               onKeyDown={e => e.key === 'Enter' && handleSend()}
-               placeholder="Send a question..."
+              <input 
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && input.trim() && handleSend()}
+                placeholder="Send a question..."
                className="w-full bg-black/40 border border-white/10 rounded-2xl py-4 pl-6 pr-14 text-[11px] font-medium outline-none focus:border-sky-500/50 focus:ring-4 focus:ring-sky-500/5 transition-all transition-all"
              />
              <button onClick={handleSend} className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-slate-500 hover:text-sky-500 hover:bg-white/10 transition-all">
