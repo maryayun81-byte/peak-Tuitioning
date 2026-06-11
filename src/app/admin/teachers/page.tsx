@@ -325,72 +325,72 @@ export default function AdminTeachers() {
                 transition={{ delay: i * 0.05 }}
               >
                 <Card 
-                  className="p-6 h-full flex flex-col justify-between hover:border-primary/30 transition-all cursor-pointer group relative overflow-hidden" 
+                  className="p-6 h-full flex flex-col justify-between hover:-translate-y-1 hover:shadow-2xl hover:shadow-primary/10 transition-all duration-300 cursor-pointer group relative overflow-hidden border border-[var(--card-border)] bg-gradient-to-b from-[var(--card)] to-transparent" 
                   onClick={() => { setSelected(t); setViewOpen(true) }}
                 >
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-bl-full pointer-events-none group-hover:bg-primary/10 transition-colors" />
+                  <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-bl from-primary/10 to-transparent rounded-bl-full pointer-events-none group-hover:from-primary/20 transition-all duration-500" />
                   
-                  <div>
+                  <div className="relative z-10">
                     <div className="flex items-start justify-between mb-5">
                       <div className="flex items-center gap-4">
-                        <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-xl font-black shadow-inner shadow-black/5" style={{ background: 'var(--primary)', color: 'white' }}>
+                        <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-xl font-black shadow-lg shadow-primary/20 bg-gradient-to-br from-primary to-primary/80 text-white transform group-hover:scale-105 transition-transform duration-300">
                           {teacher.full_name[0]}
                         </div>
                         <div>
-                          <div className="font-black text-lg" style={{ color: 'var(--text)' }}>{teacher.full_name}</div>
-                          <div className="text-sm opacity-60 flex items-center gap-2" style={{ color: 'var(--text)' }}>
+                          <div className="font-black text-lg tracking-tight" style={{ color: 'var(--text)' }}>{teacher.full_name}</div>
+                          <div className="text-xs font-medium opacity-60 flex items-center gap-2" style={{ color: 'var(--text)' }}>
                              <span>{teacher.phone || teacher.email}</span>
                           </div>
                         </div>
                       </div>
-                      <Badge variant={teacher.onboarded ? 'success' : 'warning'} className="mt-1">
+                      <Badge variant={teacher.onboarded ? 'success' : 'warning'} className="mt-1 shadow-sm">
                         {teacher.onboarded ? 'Active' : 'Pending'}
                       </Badge>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4 mt-6">
-                      <div className="p-3 rounded-2xl bg-[var(--input)] border border-[var(--card-border)]">
+                    <div className="grid grid-cols-2 gap-3 mt-6">
+                      <div className="p-3.5 rounded-2xl bg-gradient-to-br from-[var(--input)] to-transparent border border-[var(--card-border)]/50 shadow-sm transition-colors group-hover:border-[var(--card-border)]">
                         <div className="text-[10px] font-bold uppercase tracking-wider mb-1 opacity-50">Assigned</div>
                         <div className="text-sm font-black truncate">{assignedClasses.length} Classes</div>
                       </div>
-                      <div className="p-3 rounded-2xl bg-[var(--input)] border border-[var(--card-border)]">
+                      <div className="p-3.5 rounded-2xl bg-gradient-to-br from-[var(--input)] to-transparent border border-[var(--card-border)]/50 shadow-sm transition-colors group-hover:border-[var(--card-border)]">
                         <div className="text-[10px] font-bold uppercase tracking-wider mb-1 opacity-50">Role</div>
                         <div className="text-sm font-black truncate">{isClassTeacher ? 'Class Teacher' : 'Teacher'}</div>
                       </div>
                     </div>
 
-                    <div className="mt-5 space-y-3">
+                    <div className="mt-5 space-y-2">
                       {assignedClasses.length > 0 && (
                         <div className="flex flex-wrap gap-1.5">
-                          {assignedClasses.slice(0, 3).map((c: string) => <Badge key={c} variant="primary">{c}</Badge>)}
-                          {assignedClasses.length > 3 && <Badge variant="muted">+{assignedClasses.length - 3}</Badge>}
+                          {assignedClasses.slice(0, 3).map((c: string) => <Badge key={c} variant="primary" className="bg-primary/10 hover:bg-primary/20 transition-colors cursor-default border-none text-[10px]">{c}</Badge>)}
+                          {assignedClasses.length > 3 && <Badge variant="muted" className="border-none text-[10px]">+{assignedClasses.length - 3}</Badge>}
                         </div>
                       )}
                       {prefSubjects.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 opacity-80">
-                          {prefSubjects.slice(0, 3).map((s: string) => <Badge key={s} variant="info">{s}</Badge>)}
-                          {prefSubjects.length > 3 && <Badge variant="muted">+{prefSubjects.length - 3}</Badge>}
+                          {prefSubjects.slice(0, 3).map((s: string) => <Badge key={s} variant="info" className="border-none text-[10px]">{s}</Badge>)}
+                          {prefSubjects.length > 3 && <Badge variant="muted" className="border-none text-[10px]">+{prefSubjects.length - 3}</Badge>}
                         </div>
                       )}
                       {curricula.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 opacity-60">
-                          {curricula.map((c: string) => <Badge key={c} variant="muted">{c}</Badge>)}
+                          {curricula.map((c: string) => <Badge key={c} variant="muted" className="border-none text-[10px]">{c}</Badge>)}
                         </div>
                       )}
                     </div>
                   </div>
 
-                  <div className="mt-6 pt-4 border-t border-[var(--card-border)] flex items-center justify-between text-xs font-bold opacity-60">
-                    <div className="flex items-center gap-1.5">
-                      <Eye size={14} /> View Profile
+                  <div className="mt-6 pt-4 border-t border-[var(--card-border)]/60 flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-xs font-bold opacity-50 group-hover:opacity-80 transition-opacity" style={{ color: 'var(--primary)' }}>
+                      <Eye size={13} /> View Profile
                     </div>
                     <div className="flex items-center gap-3">
-                       <span>{formatDate(teacher.created_at)}</span>
+                       <span className="text-xs opacity-40">{formatDate(teacher.created_at)}</span>
                        <button
                          onClick={(e) => { e.stopPropagation(); setTeacherToDelete(t); setDeleteOpen(true); }}
-                         className="p-1.5 rounded bg-red-50 text-red-500 hover:bg-red-100 transition-colors"
+                         className="p-1.5 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors opacity-70 hover:opacity-100"
                        >
-                         <Trash2 size={14} />
+                         <Trash2 size={13} />
                        </button>
                     </div>
                   </div>
@@ -420,45 +420,48 @@ export default function AdminTeachers() {
 
       {/* View Teacher Modal */}
       {selected && (
-        <Modal isOpen={viewOpen} onClose={() => setViewOpen(false)} title="Teacher Profile" size="md">
+        <Modal isOpen={viewOpen} onClose={() => setViewOpen(false)} title="Teacher Profile Dossier" size="md">
           <div className="space-y-6">
-            <div className="flex items-center gap-4 p-5 rounded-2xl" style={{ background: 'var(--input)' }}>
-              <div className="w-20 h-20 rounded-3xl flex items-center justify-center text-3xl font-black shadow-lg shadow-primary/20" style={{ background: 'var(--primary)', color: 'white' }}>
-                {selected.full_name[0]}
-              </div>
-              <div className="flex-1">
-                <div className="text-2xl font-black mb-1" style={{ color: 'var(--text)' }}>{selected.full_name}</div>
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant={selected.onboarded ? 'success' : 'warning'}>
-                    {selected.onboarded ? 'Active Teacher' : 'Pending Onboarding'}
-                  </Badge>
-                  {selected.teacher_assignments?.some((a: any) => a.is_class_teacher) && (
-                    <Badge variant="info">Class Teacher</Badge>
-                  )}
+            <div className="relative overflow-hidden rounded-3xl p-6 border border-[var(--card-border)] bg-gradient-to-br from-[var(--input)] to-[var(--card)] shadow-inner">
+              <div className="absolute -top-10 -right-10 w-32 h-32 bg-primary/20 blur-3xl rounded-full pointer-events-none" />
+              <div className="relative z-10 flex items-center gap-5">
+                <div className="w-20 h-20 rounded-[2rem] flex items-center justify-center text-3xl font-black shadow-xl shadow-primary/30 bg-gradient-to-br from-primary to-primary/80 text-white transform hover:rotate-3 hover:scale-105 transition-all duration-300">
+                  {selected.full_name[0]}
+                </div>
+                <div className="flex-1">
+                  <div className="text-2xl font-black mb-1.5 tracking-tight" style={{ color: 'var(--text)' }}>{selected.full_name}</div>
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant={selected.onboarded ? 'success' : 'warning'} className="shadow-sm">
+                      {selected.onboarded ? 'Active Teacher' : 'Pending Onboarding'}
+                    </Badge>
+                    {selected.teacher_assignments?.some((a: any) => a.is_class_teacher) && (
+                      <Badge variant="info" className="shadow-sm">Class Teacher</Badge>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
-              <div className="p-4 rounded-2xl border border-[var(--card-border)] bg-[var(--card)]">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-muted opacity-50 mb-1">Email</div>
-                <div className="text-sm font-bold truncate">{selected.email}</div>
+              <div className="p-4 rounded-2xl border border-[var(--card-border)]/50 bg-gradient-to-b from-[var(--input)] to-transparent hover:border-[var(--card-border)] transition-colors">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-muted opacity-60 mb-1">Email</div>
+                <div className="text-sm font-bold truncate tracking-tight">{selected.email}</div>
               </div>
-              <div className="p-4 rounded-2xl border border-[var(--card-border)] bg-[var(--card)]">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-muted opacity-50 mb-1">Phone</div>
-                <div className="text-sm font-bold truncate">{selected.phone || 'N/A'}</div>
+              <div className="p-4 rounded-2xl border border-[var(--card-border)]/50 bg-gradient-to-b from-[var(--input)] to-transparent hover:border-[var(--card-border)] transition-colors">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-muted opacity-60 mb-1">Phone</div>
+                <div className="text-sm font-bold truncate tracking-tight">{selected.phone || 'N/A'}</div>
               </div>
             </div>
 
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-black uppercase tracking-wider opacity-60">Assignments</h3>
+                <h3 className="text-[11px] font-black uppercase tracking-widest opacity-50">Assignments</h3>
                 <div className="flex gap-2">
-                  <Button size="sm" variant="secondary" onClick={() => { setViewOpen(false); setAssignClassTeacherOpen(true); }} className="h-8 text-xs bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 border-none">
-                    <Star size={14} className="mr-1" /> Assign Class Teacher
+                  <Button size="sm" variant="secondary" onClick={() => { setViewOpen(false); setAssignClassTeacherOpen(true); }} className="h-7 text-xs px-3 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 border-none font-bold">
+                    <Star size={12} className="mr-1" /> Class Teacher
                   </Button>
-                  <Button size="sm" onClick={() => { setViewOpen(false); setAssignOpen(true); }} className="h-8 text-xs">
-                    <Plus size={14} className="mr-1" /> Assign New
+                  <Button size="sm" onClick={() => { setViewOpen(false); setAssignOpen(true); }} className="h-7 text-xs px-3 font-bold">
+                    <Plus size={12} className="mr-1" /> Assign
                   </Button>
                 </div>
               </div>
@@ -466,45 +469,49 @@ export default function AdminTeachers() {
               {selected.teacher_assignments?.length > 0 ? (
                 <div className="space-y-2">
                   {selected.teacher_assignments.map((assignment: any) => (
-                    <div key={assignment.id} className="flex items-center justify-between p-3 rounded-xl border border-[var(--card-border)] hover:bg-[var(--input)] transition-all group">
+                    <div key={assignment.id} className="flex items-center justify-between p-3.5 rounded-2xl border border-[var(--card-border)]/50 bg-gradient-to-r from-[var(--input)] to-transparent hover:border-[var(--card-border)] hover:shadow-sm transition-all group/row">
                       <div>
-                        <div className="text-sm font-bold flex items-center gap-2">
+                        <div className="text-sm font-bold flex items-center gap-2 tracking-tight">
                            {assignment.class?.name}
-                           {assignment.is_class_teacher && <span className="text-[10px] uppercase font-black tracking-widest text-amber-500 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">Class Teacher</span>}
+                           {assignment.is_class_teacher && (
+                             <span className="text-[9px] uppercase font-black tracking-widest text-amber-600 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+                               Class Teacher
+                             </span>
+                           )}
                         </div>
-                        <div className="text-xs opacity-60">
-                           {assignment.subject?.name || 'No Specific Subject'} {assignment.center?.name ? `• ${assignment.center.name}` : ''}
+                        <div className="text-xs opacity-50 mt-0.5">
+                           {assignment.subject?.name || 'General'}{assignment.center?.name ? ` · ${assignment.center.name}` : ''}
                         </div>
                       </div>
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1 opacity-0 group-hover/row:opacity-100 transition-opacity">
                          <button 
                             onClick={(e) => { e.stopPropagation(); toggleClassTeacher(assignment.id, assignment.is_class_teacher); }}
-                            className={`p-2 rounded-lg transition-all ${assignment.is_class_teacher ? 'text-amber-500 hover:bg-amber-100' : 'text-slate-300 hover:text-amber-500 hover:bg-amber-50'} opacity-100`}
-                            title={assignment.is_class_teacher ? "Remove Class Teacher Status" : "Make Class Teacher"}
+                            className={`p-2 rounded-xl transition-all ${assignment.is_class_teacher ? 'text-amber-500 bg-amber-500/10 hover:bg-amber-500/20' : 'text-[var(--text-muted)] hover:text-amber-500 hover:bg-amber-500/10'}`}
+                            title={assignment.is_class_teacher ? 'Remove Class Teacher' : 'Make Class Teacher'}
                          >
-                            <Star size={16} fill={assignment.is_class_teacher ? "currentColor" : "none"} />
+                            <Star size={15} fill={assignment.is_class_teacher ? 'currentColor' : 'none'} />
                          </button>
                          <button 
                             onClick={(e) => { e.stopPropagation(); removeAssignment(assignment.id); }}
-                            className="p-2 rounded-lg opacity-100 hover:bg-red-50 text-red-500 transition-all"
-                            title="Remove completely"
+                            className="p-2 rounded-xl text-red-500 hover:bg-red-500/10 transition-all"
+                            title="Remove assignment"
                          >
-                           <Trash2 size={16} />
+                           <Trash2 size={15} />
                          </button>
                       </div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="text-center py-8 rounded-2xl border-2 border-dashed border-[var(--card-border)] text-sm opacity-40 italic">
-                  No active assignments found
+                <div className="text-center py-10 rounded-2xl border-2 border-dashed border-[var(--card-border)] text-sm opacity-40 italic">
+                  No active assignments yet
                 </div>
               )}
             </div>
 
-            <div className="pt-4 border-t border-[var(--card-border)] flex justify-between text-xs text-muted">
-               <span>Teacher ID: {selected.id.slice(0, 8)}...</span>
-               <span>Joined {formatDate(selected.created_at, 'long')}</span>
+            <div className="pt-4 border-t border-[var(--card-border)]/60 flex justify-between" style={{ color: 'var(--text-muted)' }}>
+               <span className="text-[11px] opacity-50 font-mono">ID: {selected.id.slice(0, 8)}…</span>
+               <span className="text-[11px] opacity-50">Joined {formatDate(selected.created_at, 'long')}</span>
             </div>
           </div>
         </Modal>

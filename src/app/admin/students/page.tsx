@@ -517,95 +517,97 @@ export default function AdminStudents() {
                        animate={{ opacity: 1, y: 0 }}
                        transition={{ delay: i * 0.05 }}
                     >
-                       <Card className="p-6 h-full flex flex-col justify-between hover:border-emerald-500/30 transition-colors border border-[var(--card-border)] bg-[var(--card)] relative overflow-hidden">
-                          <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-bl-full pointer-events-none" />
+                       <Card className="p-6 h-full flex flex-col justify-between hover:-translate-y-1 hover:shadow-2xl hover:shadow-primary/10 transition-all duration-300 cursor-pointer group relative overflow-hidden border border-[var(--card-border)] bg-gradient-to-b from-[var(--card)] to-transparent">
+                          <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-bl from-emerald-500/10 to-transparent rounded-bl-full pointer-events-none group-hover:from-emerald-500/20 transition-all duration-500" />
                           
-                          <div className="flex items-start justify-between mb-4">
-                             <div className="flex items-center gap-4">
-                                <div className="w-12 h-12 rounded-xl flex items-center justify-center text-lg font-black shadow-inner shadow-black/10" style={{ background: 'var(--primary)', color: 'white' }}>
-                                   {student.full_name[0]}
-                                </div>
-                                <div>
-                                   <div className="font-bold text-lg leading-tight" style={{ color: 'var(--text)' }}>{student.full_name}</div>
-                                   <Badge variant={student.user_id ? 'success' : 'warning'} className="mt-1 scale-90 origin-left">
-                                      {student.user_id ? 'Registered' : 'Pending'}
-                                   </Badge>
-                                </div>
-                             </div>
-                          </div>
+                          <div className="relative z-10">
+                            <div className="flex items-start justify-between mb-4">
+                               <div className="flex items-center gap-4">
+                                  <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-xl font-black shadow-lg shadow-emerald-500/20 bg-gradient-to-br from-emerald-500 to-emerald-600 text-white transform group-hover:scale-105 transition-transform duration-300">
+                                     {student.full_name[0]}
+                                  </div>
+                                  <div>
+                                     <div className="font-black text-lg tracking-tight leading-tight" style={{ color: 'var(--text)' }}>{student.full_name}</div>
+                                     <Badge variant={student.user_id ? 'success' : 'warning'} className="mt-1 shadow-sm border-none text-[10px]">
+                                        {student.user_id ? 'Registered' : 'Pending'}
+                                     </Badge>
+                                  </div>
+                               </div>
+                            </div>
 
-                          <div className="space-y-3 flex-1 mb-6">
-                             <div className="flex justify-between items-center bg-[var(--input)] p-2 rounded-lg border border-[var(--card-border)]">
-                                <span className="text-xs uppercase font-bold" style={{ color: 'var(--text-muted)' }}>Admission No.</span>
-                                <div className="flex items-center gap-2">
-                                   <code className="text-sm font-black font-mono" style={{ color: 'var(--text)' }}>{student.admission_number}</code>
-                                   <button onClick={() => { navigator.clipboard.writeText(student.admission_number); toast.success('Admission Copied!') }} className="opacity-50 hover:opacity-100 transition-opacity">
-                                      <Copy size={14} style={{ color: 'var(--text-muted)' }} />
-                                   </button>
-                                </div>
-                             </div>
-
-                             <div className="flex justify-between items-center bg-[var(--input)] p-2 rounded-lg border border-[var(--card-border)]">
-                                <span className="text-xs uppercase font-bold" style={{ color: 'var(--text-muted)' }}>Password</span>
-                                <div className="flex items-center gap-2">
-                                   <code className="text-xs px-2 py-0.5 rounded text-amber-600 bg-amber-500/10 font-bold font-mono">
-                                      {student.temp_password || '********'}
-                                   </code>
-                                   {student.temp_password && (
-                                     <button onClick={() => { navigator.clipboard.writeText(student.temp_password!); toast.success('Password Copied!') }} className="opacity-50 hover:opacity-100 transition-opacity text-amber-600">
-                                        <Copy size={14} />
+                            <div className="space-y-2 flex-1 mb-5">
+                               <div className="flex justify-between items-center bg-gradient-to-r from-[var(--input)] to-transparent p-2.5 rounded-xl border border-[var(--card-border)]/50 group-hover:border-[var(--card-border)] transition-colors">
+                                  <span className="text-[10px] uppercase font-bold tracking-wider" style={{ color: 'var(--text-muted)' }}>Admission</span>
+                                  <div className="flex items-center gap-2">
+                                     <code className="text-xs font-black font-mono tracking-tight" style={{ color: 'var(--text)' }}>{student.admission_number}</code>
+                                     <button onClick={() => { navigator.clipboard.writeText(student.admission_number); toast.success('Copied!') }} className="opacity-40 hover:opacity-100 transition-opacity">
+                                        <Copy size={12} style={{ color: 'var(--text-muted)' }} />
                                      </button>
-                                   )}
-                                </div>
-                             </div>
+                                  </div>
+                               </div>
 
-                             <div className="grid grid-cols-2 gap-2 mt-4">
-                                <div className="p-3 rounded-xl border border-[var(--card-border)] bg-[var(--card)]">
-                                   <p className="text-[10px] uppercase font-bold mb-1" style={{ color: 'var(--text-muted)' }}>Class</p>
-                                   <p className="text-sm font-medium truncate" style={{ color: 'var(--text)' }}>{(student.class as any)?.name ?? '—'}</p>
-                                </div>
-                                <div className="p-3 rounded-xl border border-[var(--card-border)] bg-[var(--card)]">
-                                   <p className="text-[10px] uppercase font-bold mb-1" style={{ color: 'var(--text-muted)' }}>School</p>
-                                   <p className="text-sm font-medium truncate" style={{ color: 'var(--text)' }}>{student.school_name || 'Not Set'}</p>
-                                </div>
-                             </div>
+                               <div className="flex justify-between items-center bg-gradient-to-r from-[var(--input)] to-transparent p-2.5 rounded-xl border border-[var(--card-border)]/50 group-hover:border-[var(--card-border)] transition-colors">
+                                  <span className="text-[10px] uppercase font-bold tracking-wider" style={{ color: 'var(--text-muted)' }}>Password</span>
+                                  <div className="flex items-center gap-2">
+                                     <code className="text-[11px] px-2 py-0.5 rounded-lg text-amber-600 bg-amber-500/10 font-bold font-mono border border-amber-500/20">
+                                        {student.temp_password || '••••••••'}
+                                     </code>
+                                     {student.temp_password && (
+                                       <button onClick={() => { navigator.clipboard.writeText(student.temp_password!); toast.success('Password Copied!') }} className="opacity-40 hover:opacity-100 transition-opacity text-amber-600">
+                                          <Copy size={12} />
+                                       </button>
+                                     )}
+                                  </div>
+                               </div>
 
-                             {/* Subjects List */}
-                             {(student as any).student_subjects?.length > 0 && (
-                                <div className="mt-3 flex flex-wrap gap-1">
-                                  {(student as any).student_subjects.map((ss: any, idx: number) => (
-                                    <Badge key={ss.id || idx} variant="info" className="text-[10px] pr-1 group/badge relative transition-all">
-                                      {ss.subject?.name}
-                                      <button 
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          removeSubject(student.id, ss.id);
-                                        }}
-                                        className="opacity-0 group-hover/badge:opacity-100 hover:bg-red-500/20 rounded-full p-0.5 ml-1 transition-all"
-                                        title="Remove subject"
-                                      >
-                                        <X size={10} />
-                                      </button>
-                                    </Badge>
-                                  ))}
-                                </div>
-                             )}
+                               <div className="grid grid-cols-2 gap-2 mt-3">
+                                  <div className="p-3 rounded-xl border border-[var(--card-border)]/50 bg-gradient-to-b from-[var(--input)] to-transparent group-hover:border-[var(--card-border)] transition-colors">
+                                     <p className="text-[10px] uppercase font-bold mb-1 tracking-wider" style={{ color: 'var(--text-muted)' }}>Class</p>
+                                     <p className="text-sm font-bold truncate tracking-tight" style={{ color: 'var(--text)' }}>{(student.class as any)?.name ?? '—'}</p>
+                                  </div>
+                                  <div className="p-3 rounded-xl border border-[var(--card-border)]/50 bg-gradient-to-b from-[var(--input)] to-transparent group-hover:border-[var(--card-border)] transition-colors">
+                                     <p className="text-[10px] uppercase font-bold mb-1 tracking-wider" style={{ color: 'var(--text-muted)' }}>School</p>
+                                     <p className="text-sm font-bold truncate tracking-tight" style={{ color: 'var(--text)' }}>{student.school_name || '—'}</p>
+                                  </div>
+                               </div>
+
+                               {/* Subjects */}
+                               {(student as any).student_subjects?.length > 0 && (
+                                  <div className="mt-2 flex flex-wrap gap-1">
+                                    {(student as any).student_subjects.map((ss: any, idx: number) => (
+                                      <Badge key={ss.id || idx} variant="info" className="text-[10px] pr-1 group/badge relative transition-all border-none">
+                                        {ss.subject?.name}
+                                        <button 
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            removeSubject(student.id, ss.id);
+                                          }}
+                                          className="opacity-0 group-hover/badge:opacity-100 hover:bg-red-500/20 rounded-full p-0.5 ml-1 transition-all"
+                                          title="Remove subject"
+                                        >
+                                          <X size={10} />
+                                        </button>
+                                      </Badge>
+                                    ))}
+                                  </div>
+                               )}
+                            </div>
                           </div>
 
-                          <div className="flex gap-2">
+                          <div className="flex gap-2 relative z-10">
                              <Button
                                 variant="secondary"
-                                className="flex-1 text-xs"
+                                className="flex-1 text-xs font-bold h-9 rounded-xl hover:shadow-sm"
                                 onClick={() => { setSelected(student); setViewOpen(true) }}
                              >
-                               <Eye size={14} className="mr-2" /> Details
+                              <Eye size={13} className="mr-1.5" /> Details
                              </Button>
                              <Button
                                 variant="outline"
-                                className="text-red-500 hover:bg-red-50 border-red-100"
+                                className="text-red-500 hover:bg-red-500/10 border-red-500/20 h-9 w-9 rounded-xl p-0 flex items-center justify-center"
                                 onClick={() => { setSelected(student); setDeleteOpen(true) }}
                              >
-                               <Trash2 size={14} />
+                              <Trash2 size={13} />
                              </Button>
                           </div>
                        </Card>
@@ -718,32 +720,48 @@ export default function AdminStudents() {
 
       {/* View Student Modal */}
       {selected && (
-        <Modal isOpen={viewOpen} onClose={() => setViewOpen(false)} title="Student Details" size="md">
-          <div className="space-y-4">
-            <div className="flex items-center gap-4 p-4 rounded-xl" style={{ background: 'var(--input)' }}>
-              <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-xl font-black" style={{ background: 'var(--primary)', color: 'white' }}>
-                {selected.full_name[0]}
-              </div>
-              <div>
-                <div className="text-lg font-black" style={{ color: 'var(--text)' }}>{selected.full_name}</div>
-                <div className="text-sm" style={{ color: 'var(--text-muted)' }}>{selected.school_name ?? 'School not set'}</div>
+        <Modal isOpen={viewOpen} onClose={() => setViewOpen(false)} title="Student Record" size="md">
+          <div className="space-y-5">
+            <div className="relative overflow-hidden rounded-3xl p-6 border border-[var(--card-border)] bg-gradient-to-br from-[var(--input)] to-[var(--card)] shadow-inner">
+              <div className="absolute -top-10 -right-10 w-32 h-32 bg-emerald-500/20 blur-3xl rounded-full pointer-events-none" />
+              <div className="relative z-10 flex items-center gap-5">
+                <div className="w-20 h-20 rounded-[2rem] flex items-center justify-center text-3xl font-black shadow-xl shadow-emerald-500/30 bg-gradient-to-br from-emerald-500 to-emerald-600 text-white">
+                  {selected.full_name[0]}
+                </div>
+                <div>
+                  <div className="text-2xl font-black mb-1 tracking-tight" style={{ color: 'var(--text)' }}>{selected.full_name}</div>
+                  <div className="text-sm opacity-60" style={{ color: 'var(--text)' }}>{selected.school_name ?? 'School not set'}</div>
+                </div>
               </div>
             </div>
-            {[
-              { label: 'Admission Number', value: selected.admission_number },
-              { label: 'Class', value: (selected.class as any)?.name ?? '—' },
-              { label: 'Curriculum', value: (selected.curriculum as any)?.name ?? '—' },
-              { label: 'Tuition Center', value: (selected as any).center?.name ?? '—' },
-              { label: 'Account Status', value: selected.user_id ? '✅ Registered' : '⏳ Pending Registration' },
-              { label: 'Onboarded', value: selected.onboarded ? '✅ Yes' : '❌ No' },
-              { label: 'Temp Password', value: selected.temp_password ?? '—' },
-              { label: 'Created', value: formatDate(selected.created_at, 'long') },
-            ].map(({ label, value }) => (
-              <div key={label} className="flex justify-between py-2 border-b" style={{ borderColor: 'var(--card-border)' }}>
-                <span className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>{label}</span>
-                <span className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{value}</span>
-              </div>
-            ))}
+
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { label: 'Admission No.', value: selected.admission_number, mono: true },
+                { label: 'Class', value: (selected.class as any)?.name ?? '—' },
+                { label: 'Curriculum', value: (selected.curriculum as any)?.name ?? '—' },
+                { label: 'Tuition Center', value: (selected as any).center?.name ?? '—' },
+              ].map(({ label, value, mono }) => (
+                <div key={label} className="p-3.5 rounded-2xl border border-[var(--card-border)]/50 bg-gradient-to-b from-[var(--input)] to-transparent hover:border-[var(--card-border)] transition-colors">
+                  <div className="text-[10px] font-bold uppercase tracking-wider opacity-50 mb-1">{label}</div>
+                  <div className={`text-sm font-bold truncate tracking-tight ${mono ? 'font-mono' : ''}`}>{value}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className="space-y-2">
+              {[
+                { label: 'Account Status', value: selected.user_id ? '✅ Registered' : '⏳ Pending Registration' },
+                { label: 'Onboarded', value: selected.onboarded ? '✅ Yes' : '❌ No' },
+                { label: 'Temp Password', value: selected.temp_password ?? '—' },
+                { label: 'Created', value: formatDate(selected.created_at, 'long') },
+              ].map(({ label, value }) => (
+                <div key={label} className="flex justify-between items-center py-2.5 px-1 border-b border-[var(--card-border)]/50 last:border-0">
+                  <span className="text-xs font-semibold uppercase tracking-wide opacity-50">{label}</span>
+                  <span className="text-sm font-bold tracking-tight" style={{ color: 'var(--text)' }}>{value}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </Modal>
       )}
