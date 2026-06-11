@@ -17,7 +17,6 @@ import {
   getPeakConversationSummary,
   getMessagingBootstrap,
   getPeakMessages,
-  getPeakTypingStatus,
   markPeakConversationRead,
   setPeakConversationPaused,
   sendPeakMessage,
@@ -652,12 +651,7 @@ function ConversationWorkspace({ role, currentUserId, conversation, messages, lo
 
   useEffect(() => {
     const supabase = getSupabaseBrowserClient()
-    const refreshTyping = async () => {
-      const active = await getPeakTypingStatus(conversation.id)
-      setOtherTyping(active)
-    }
-    refreshTyping()
-    const presencePoll = setInterval(refreshTyping, 2500)
+    setOtherTyping(false)
     const channel = supabase
       .channel(`peak-typing-${conversation.id}`)
       .on('broadcast', { event: 'typing' }, ({ payload }) => {
@@ -668,15 +662,8 @@ function ConversationWorkspace({ role, currentUserId, conversation, messages, lo
           otherTypingTimer.current = setTimeout(() => setOtherTyping(false), 4500)
         }
       })
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'peak_typing_presence',
-        filter: `conversation_id=eq.${conversation.id}`,
-      }, refreshTyping)
       .subscribe()
     return () => {
-      clearInterval(presencePoll)
       if (otherTypingTimer.current) clearTimeout(otherTypingTimer.current)
       setOtherTyping(false)
       supabase.removeChannel(channel)
@@ -967,12 +954,6 @@ function MessageComposer({ role, currentUserId, conversationId, replyTo, editing
       event: 'typing',
       payload: { userId: currentUserId, isTyping },
     }).catch(() => null)
-    await getSupabaseBrowserClient().from('peak_typing_presence').upsert({
-      conversation_id: conversationId,
-      user_id: currentUserId,
-      is_typing: isTyping,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'conversation_id,user_id' })
   }
 
   useEffect(() => {
