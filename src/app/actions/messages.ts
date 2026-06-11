@@ -4,6 +4,8 @@ import { revalidatePath } from 'next/cache'
 import webPush from 'web-push'
 import { createAdminClient, createClient } from '@/lib/supabase/server'
 import { callGroqChat, hasGroqToken } from '@/lib/groq-chat'
+import { callGeminiChat, hasGeminiToken } from '@/lib/gemini-chat'
+import { callHuggingFaceChat, hasHuggingFaceToken } from '@/lib/huggingface-chat'
 
 export type MessageSafetyResult = {
   riskLevel: 'low' | 'medium' | 'high' | 'critical'
@@ -40,6 +42,57 @@ function configureWebPush() {
   return true
 }
 
+function cleanJsonResponse(content: string) {
+  const trimmed = content.trim()
+  if (trimmed.startsWith('```json')) {
+    return trimmed.replace(/^```json/, '').replace(/```$/, '').trim()
+  }
+  if (trimmed.startsWith('```')) {
+    return trimmed.replace(/^```/, '').replace(/```$/, '').trim()
+  }
+  return trimmed
+}
+
+async function callMessagingAI(messages: any[], options: any) {
+  const providers: { name: string; call: () => Promise<{ content: string; provider: string; model: string }> }[] = []
+
+  if (hasGroqToken()) {
+    providers.push({
+      name: 'Groq',
+      call: () => callGroqChat(messages, options),
+    })
+  }
+
+  if (hasGeminiToken()) {
+    providers.push({
+      name: 'Gemini',
+      call: () => callGeminiChat(messages, options),
+    })
+  }
+
+  if (hasHuggingFaceToken()) {
+    providers.push({
+      name: 'Hugging Face',
+      call: () => callHuggingFaceChat(messages, options),
+    })
+  }
+
+  if (providers.length === 0) {
+    throw new Error('No AI providers configured')
+  }
+
+  for (const provider of providers) {
+    try {
+      const response = await provider.call()
+      return { content: cleanJsonResponse(response.content), provider: response.provider, model: response.model }
+    } catch (error: any) {
+      console.error(`[PeakMessaging] ${provider.name} fallback failed:`, error.message)
+    }
+  }
+
+  throw new Error('All AI providers failed')
+}
+
 function ruleBasedSafety(body: string): MessageSafetyResult {
   const matches = SAFETY_PATTERNS.filter((item) => item.pattern.test(body))
   const strongest = matches.reduce<MessageSafetyResult['riskLevel']>(
@@ -58,10 +111,10 @@ function ruleBasedSafety(body: string): MessageSafetyResult {
 
 async function classifyMessage(body: string, context: string[]): Promise<MessageSafetyResult> {
   const rules = ruleBasedSafety(body)
-  if (!hasGroqToken()) return rules
+  if (!hasGroqToken() && !hasGeminiToken() && !hasHuggingFaceToken()) return rules
 
   try {
-    const result = await callGroqChat([
+    const result = await callMessagingAI([
       {
         role: 'system',
         content: `You are Peak Safeguarding Intelligence for a school messaging platform.
@@ -90,7 +143,7 @@ Critical is reserved for sexual solicitation, credible threats, self-harm, or gr
         ? rules.explanation
         : String(parsed.explanation || rules.explanation),
       confidence: Math.max(rules.confidence, Number(parsed.confidence) || 0),
-      provider: `groq:${result.model}`,
+      provider: result.provider === 'groq' ? `groq:${result.model}` : `${result.provider}:${result.model}`,
       suggestedRewrite: parsed.suggestedRewrite ? String(parsed.suggestedRewrite) : undefined,
     }
   } catch (error) {
@@ -531,9 +584,9 @@ export async function generatePeakConversationSummary(conversationId: string) {
   let summary = 'The conversation contains a learning discussion. Review the recent messages for the full context.'
   let actionItems: string[] = []
   let provider = 'peak-core'
-  if (hasGroqToken()) {
+  if (hasGroqToken() || hasGeminiToken() || hasHuggingFaceToken()) {
     try {
-      const result = await callGroqChat([
+      const result = await callMessagingAI([
         { role: 'system', content: 'Summarize this student-teacher learning conversation. Return strict JSON: {"summary":"2-4 concise sentences","actionItems":["clear next step"]}. Preserve safeguarding boundaries and do not invent facts.' },
         { role: 'user', content: transcript },
       ], { temperature: 0.2, maxTokens: 500, responseFormat: { type: 'json_object' } })
@@ -793,11 +846,11 @@ export async function generatePeakReply(conversationId: string) {
     .limit(10)
 
   const fallback = 'Thanks for explaining that. Tell me which part feels most difficult, and we will work through it step by step.'
-  if (!hasGroqToken()) return { reply: fallback, provider: 'peak-core' }
+  if (!hasGroqToken() && !hasGeminiToken() && !hasHuggingFaceToken()) return { reply: fallback, provider: 'peak-core' }
 
   try {
     const transcript = (messages || []).reverse().map((item) => `${item.sender_id === actor.user.id ? 'Teacher' : 'Student'}: ${item.body}`).join('\n')
-    const result = await callGroqChat([
+    const result = await callMessagingAI([
       { role: 'system', content: 'Write one concise, warm, professional teacher reply. Keep communication learning-focused, age-appropriate, and within school boundaries. Do not mention AI.' },
       { role: 'user', content: transcript },
     ], { temperature: 0.3, maxTokens: 180 })
