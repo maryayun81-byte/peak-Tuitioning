@@ -3,22 +3,32 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
-  AlertTriangle, ArrowLeft, BookOpen, Bot, CheckCheck, ChevronRight,
-  Edit3, GraduationCap, Heart, MessageCircle, MoreHorizontal, Paperclip,
-  Reply, Search, Send, ShieldCheck, Smile, Sparkles, Trash2, Users, X,
+  AlertTriangle, ArrowLeft, Bell, BookOpen, Bot, CheckCheck, ChevronRight,
+  ClipboardCheck, Edit3, GraduationCap, Heart, MessageCircle, Mic,
+  MoreHorizontal, Paperclip, Pin, Reply, Search, Send, ShieldCheck,
+  Smile, Sparkles, Square, Trash2, Users, Volume2, X,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
   deletePeakMessage,
   editPeakMessage,
   generatePeakReply,
+  generatePeakConversationSummary,
+  getPeakConversationSummary,
   getMessagingBootstrap,
   getPeakMessages,
+  getPeakTypingStatus,
   markPeakConversationRead,
+  setPeakConversationPaused,
   sendPeakMessage,
+  sendPeakLearningCard,
+  sendPeakVoiceNote,
+  savePeakPushSubscription,
+  deletePeakPushSubscription,
   startPeakConversation,
   startTeacherPeakConversation,
   togglePeakReaction,
+  togglePeakMessagePin,
 } from '@/app/actions/messages'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Avatar } from '@/components/ui/Avatar'
@@ -26,7 +36,15 @@ import { Avatar } from '@/components/ui/Avatar'
 type Role = 'student' | 'teacher'
 type PeakMessengerProps = { role: Role }
 
-const EMOJIS = ['👍', '❤️', '👏', '🎯', '💡', '😂', '🙏', '🔥']
+const EMOJI_GROUPS = {
+  Recent: ['😀', '😂', '😊', '🥳', '👍', '👏', '❤️', '🔥', '🎯', '💡', '✅', '🎉'],
+  Feelings: ['😄', '😁', '🤣', '🙂', '😉', '😍', '🤩', '😎', '🤗', '🤔', '😮', '😅', '😢', '😭', '😤', '😴', '🥺', '😇'],
+  Reactions: ['👍', '👎', '👏', '🙌', '🙏', '💪', '🤝', '👌', '✌️', '🤞', '👀', '💯', '🫶', '👋', '🤟', '☝️', '💬', '🧠'],
+  Learning: ['📚', '📖', '✍️', '📝', '📌', '📐', '📏', '🧮', '🔬', '🧪', '🌍', '💻', '🎓', '🏆', '💡', '🎯', '✅', '❓'],
+  Celebrate: ['🎉', '🥳', '🎊', '🏅', '🥇', '⭐', '🌟', '✨', '🔥', '🚀', '💫', '🎁', '🎈', '👏', '🙌', '💯', '🏆', '❤️'],
+  Everyday: ['❤️', '💙', '💚', '💛', '🧡', '💜', '☀️', '🌙', '☕', '🍎', '⚽', '🎵', '📅', '⏰', '🔔', '📣', '📎', '🔒'],
+} as const
+const EMOJIS = Object.values(EMOJI_GROUPS).flat()
 const STUDENT_PROMPTS = [
   'I am stuck on this topic.',
   'Could you explain that another way?',
@@ -42,10 +60,32 @@ function formatTime(value?: string) {
   if (!value) return ''
   const date = new Date(value)
   const now = new Date()
+  const yesterday = new Date()
+  yesterday.setDate(now.getDate() - 1)
   if (date.toDateString() === now.toDateString()) {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   }
+  if (date.toDateString() === yesterday.toDateString()) return 'Yesterday'
   return date.toLocaleDateString([], { month: 'short', day: 'numeric' })
+}
+
+function formatMessageTime(value?: string) {
+  return value ? new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''
+}
+
+function dateKey(value?: string) {
+  return value ? new Date(value).toDateString() : ''
+}
+
+function formatDateDivider(value?: string) {
+  if (!value) return ''
+  const date = new Date(value)
+  const today = new Date()
+  const yesterday = new Date()
+  yesterday.setDate(today.getDate() - 1)
+  if (date.toDateString() === today.toDateString()) return 'Today'
+  if (date.toDateString() === yesterday.toDateString()) return 'Yesterday'
+  return date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: date.getFullYear() === today.getFullYear() ? undefined : 'numeric' })
 }
 
 function contactFor(conversation: any, role: Role) {
@@ -59,11 +99,17 @@ export function PeakMessenger({ role }: PeakMessengerProps) {
   const [messages, setMessages] = useState<any[]>([])
   const [search, setSearch] = useState('')
   const [loadingMessages, setLoadingMessages] = useState(false)
+  const [openingStudentId, setOpeningStudentId] = useState<string | null>(null)
   const [showDirectory, setShowDirectory] = useState(role === 'student')
 
   const loadBootstrap = async () => {
     try {
-      const data = await getMessagingBootstrap()
+      const result = await getMessagingBootstrap()
+      if (!result.ok) {
+        toast.error(result.error)
+        return
+      }
+      const data = result.bootstrap
       setBootstrap(data)
       setConversations(data.conversations || [])
       const fromUrl = new URLSearchParams(window.location.search).get('conversation')
@@ -88,8 +134,9 @@ export function PeakMessenger({ role }: PeakMessengerProps) {
     let active = true
     setLoadingMessages(true)
     getPeakMessages(selectedId)
-      .then((data) => {
-        if (active) setMessages(data)
+      .then((result) => {
+        if (!result.ok) toast.error(result.error)
+        if (active) setMessages(result.messages)
       })
       .catch((error) => toast.error(error.message))
       .finally(() => setLoadingMessages(false))
@@ -104,7 +151,7 @@ export function PeakMessenger({ role }: PeakMessengerProps) {
         table: 'peak_messages',
         filter: `conversation_id=eq.${selectedId}`,
       }, () => {
-        getPeakMessages(selectedId).then((data) => active && setMessages(data)).catch(() => null)
+        getPeakMessages(selectedId).then((result) => active && setMessages(result.messages)).catch(() => null)
         loadBootstrap()
       })
       .on('postgres_changes', {
@@ -112,7 +159,15 @@ export function PeakMessenger({ role }: PeakMessengerProps) {
         schema: 'public',
         table: 'peak_message_reactions',
       }, () => {
-        getPeakMessages(selectedId).then((data) => active && setMessages(data)).catch(() => null)
+        getPeakMessages(selectedId).then((result) => active && setMessages(result.messages)).catch(() => null)
+      })
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'peak_conversations',
+        filter: `id=eq.${selectedId}`,
+      }, () => {
+        getPeakMessages(selectedId).then((result) => active && setMessages(result.messages)).catch(() => null)
       })
       .subscribe()
 
@@ -122,7 +177,16 @@ export function PeakMessenger({ role }: PeakMessengerProps) {
     }
   }, [selectedId])
 
-  const selected = conversations.find((item) => item.id === selectedId)
+  const selectedRaw = conversations.find((item) => item.id === selectedId)
+  const selected = selectedRaw && role === 'teacher'
+    ? {
+        ...selectedRaw,
+        student: {
+          ...selectedRaw.student,
+          profile: bootstrap.contacts?.find((student: any) => student.id === selectedRaw.student_id)?.profile || null,
+        },
+      }
+    : selectedRaw
   const filteredConversations = conversations.filter((conversation) => {
     const contact = contactFor(conversation, role)
     const haystack = `${contact?.full_name || ''} ${contact?.class?.name || ''} ${conversation.subject?.name || ''}`.toLowerCase()
@@ -144,8 +208,15 @@ export function PeakMessenger({ role }: PeakMessengerProps) {
   }
 
   const startStudentConversation = async (studentId: string) => {
+    if (openingStudentId) return
+    setOpeningStudentId(studentId)
     try {
-      const conversation = await startTeacherPeakConversation(studentId)
+      const result = await startTeacherPeakConversation(studentId)
+      if (!result.ok) {
+        toast.error(result.error)
+        return
+      }
+      const conversation = result.conversation
       setConversations((previous) => {
         const found = previous.some((item) => item.id === conversation.id)
         return found ? previous.map((item) => item.id === conversation.id ? conversation : item) : [conversation, ...previous]
@@ -154,14 +225,16 @@ export function PeakMessenger({ role }: PeakMessengerProps) {
       setShowDirectory(false)
     } catch (error: any) {
       toast.error(error.message || 'Could not start this conversation')
+    } finally {
+      setOpeningStudentId(null)
     }
   }
 
   if (!bootstrap) return <MessengerSkeleton />
 
   return (
-    <div className="min-h-[calc(100vh-73px)] p-3 md:p-6 lg:p-8 bg-[var(--bg)]">
-      <div className="mx-auto max-w-[1600px] h-[calc(100vh-105px)] md:h-[calc(100vh-120px)] min-h-[620px] rounded-[28px] md:rounded-[36px] overflow-hidden border border-[var(--card-border)] bg-[var(--card)] shadow-2xl shadow-black/10 flex">
+    <div className="min-h-[calc(100dvh-73px)] p-2 sm:p-3 md:p-6 lg:p-8 pb-20 md:pb-6 bg-[var(--bg)]">
+      <div className="mx-auto max-w-[1600px] h-[calc(100dvh-158px)] sm:h-[calc(100dvh-150px)] md:h-[calc(100dvh-120px)] min-h-[480px] md:min-h-[620px] rounded-[22px] sm:rounded-[28px] md:rounded-[36px] overflow-hidden border border-[var(--card-border)] bg-[var(--card)] shadow-2xl shadow-black/10 flex">
         <ConversationRail
           role={role}
           bootstrap={bootstrap}
@@ -175,6 +248,7 @@ export function PeakMessenger({ role }: PeakMessengerProps) {
           }}
           onStart={startConversation}
           onStartStudent={startStudentConversation}
+          openingStudentId={openingStudentId}
           showDirectory={showDirectory}
           setShowDirectory={setShowDirectory}
         />
@@ -189,6 +263,8 @@ export function PeakMessenger({ role }: PeakMessengerProps) {
                 setShowDirectory(false)
               }}
               onStart={startStudentConversation}
+              openingStudentId={openingStudentId}
+              onBack={() => setShowDirectory(false)}
             />
           ) : selected ? (
             <ConversationWorkspace
@@ -199,7 +275,16 @@ export function PeakMessenger({ role }: PeakMessengerProps) {
               loading={loadingMessages}
               safety={(bootstrap.safety || []).filter((item: any) => item.conversation_id === selected.id)}
               onBack={() => setSelectedId(null)}
-              onRefresh={() => getPeakMessages(selected.id).then(setMessages)}
+              onRefresh={() => getPeakMessages(selected.id).then((result) => setMessages(result.messages))}
+              onMessageSaved={(message: any) => {
+                if (!message) return
+                setMessages((previous) => {
+                  const exists = previous.some((item) => item.id === message.id)
+                  return exists
+                    ? previous.map((item) => item.id === message.id ? { ...item, ...message } : item)
+                    : [...previous, { ...message, reactions: [], reply: null }]
+                })
+              }}
             />
           ) : (
             <EmptyConversation role={role} />
@@ -211,9 +296,9 @@ export function PeakMessenger({ role }: PeakMessengerProps) {
 }
 
 function ConversationRail(props: any) {
-  const { role, bootstrap, conversations, selectedId, search, setSearch, onSelect, onStart, onStartStudent, showDirectory, setShowDirectory } = props
+  const { role, bootstrap, conversations, selectedId, search, setSearch, onSelect, onStart, onStartStudent, openingStudentId, showDirectory, setShowDirectory } = props
   return (
-    <aside className={`${selectedId ? 'hidden md:flex' : 'flex'} w-full md:w-[360px] xl:w-[410px] shrink-0 border-r border-[var(--card-border)] flex-col bg-[var(--card)]`}>
+    <aside className={`${selectedId || (role === 'teacher' && showDirectory) ? 'hidden md:flex' : 'flex'} w-full md:w-[360px] xl:w-[410px] shrink-0 border-r border-[var(--card-border)] flex-col bg-[var(--card)]`}>
       <div className="p-5 md:p-6 border-b border-[var(--card-border)]">
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -227,9 +312,7 @@ function ConversationRail(props: any) {
               {role === 'student' ? 'Ask, learn, and keep moving forward.' : 'Support students without losing learning context.'}
             </p>
           </div>
-          <div className="w-11 h-11 rounded-2xl bg-primary/10 text-primary flex items-center justify-center">
-            <MessageCircle size={21} />
-          </div>
+          <PushNotificationButton />
         </div>
 
         {role === 'student' && (
@@ -256,6 +339,7 @@ function ConversationRail(props: any) {
             conversations={conversations}
             onSelect={onSelect}
             onStart={onStartStudent}
+            openingStudentId={openingStudentId}
           />
         )}
         {conversations.map((conversation: any) => (
@@ -300,7 +384,71 @@ function TeacherStories({ contacts, conversations, onStart }: any) {
   )
 }
 
-function StudentDiscovery({ students, conversations, onSelect, onStart }: any) {
+function urlBase64ToUint8Array(value: string) {
+  const padding = '='.repeat((4 - value.length % 4) % 4)
+  const base64 = (value + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const raw = window.atob(base64)
+  return Uint8Array.from([...raw].map((character) => character.charCodeAt(0)))
+}
+
+function PushNotificationButton() {
+  const [enabled, setEnabled] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return
+    navigator.serviceWorker.getRegistration('/peak-push/')
+      .then((registration) => registration?.pushManager.getSubscription())
+      .then((subscription) => setEnabled(Boolean(subscription)))
+      .catch(() => null)
+  }, [])
+
+  const toggle = async () => {
+    const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+    if (!publicKey || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+      return toast.error('Push notifications are not supported on this device.')
+    }
+    setBusy(true)
+    try {
+      const registration = await navigator.serviceWorker.register('/peak-push-sw.js', { scope: '/peak-push/' })
+      const current = await registration.pushManager.getSubscription()
+      if (current) {
+        await deletePeakPushSubscription(current.endpoint)
+        await current.unsubscribe()
+        setEnabled(false)
+        toast.success('Message push notifications turned off')
+        return
+      }
+      const permission = await Notification.requestPermission()
+      if (permission !== 'granted') return toast.error('Notification permission was not granted.')
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
+      })
+      const json = subscription.toJSON()
+      const result = await savePeakPushSubscription({
+        endpoint: subscription.endpoint,
+        keys: { p256dh: json.keys?.p256dh || '', auth: json.keys?.auth || '' },
+        userAgent: navigator.userAgent,
+      })
+      if (!result.ok) throw new Error(result.error)
+      setEnabled(true)
+      toast.success('Message push notifications enabled')
+    } catch (error: any) {
+      toast.error(error.message || 'Push notifications could not be enabled.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <button onClick={toggle} disabled={busy} aria-label={enabled ? 'Disable message push notifications' : 'Enable message push notifications'} title={enabled ? 'Push notifications enabled' : 'Enable push notifications'} className={`w-11 h-11 rounded-2xl flex items-center justify-center transition-colors ${enabled ? 'bg-emerald-500/10 text-emerald-600' : 'bg-primary/10 text-primary'}`}>
+      <Bell size={20} fill={enabled ? 'currentColor' : 'none'} />
+    </button>
+  )
+}
+
+function StudentDiscovery({ students, conversations, onSelect, onStart, openingStudentId }: any) {
   const recent = students.slice(0, 6)
   return (
     <div className="mb-3 p-3 rounded-2xl bg-gradient-to-br from-primary/8 to-sky-500/5 border border-primary/10">
@@ -318,10 +466,12 @@ function StudentDiscovery({ students, conversations, onSelect, onStart }: any) {
             <button
               key={student.id}
               onClick={() => conversation ? onSelect(conversation.id) : onStart(student.id)}
-              className="p-2 rounded-xl bg-[var(--card)] border border-[var(--card-border)] hover:border-primary/30 hover:-translate-y-0.5 transition-all text-center"
+              disabled={openingStudentId === student.id}
+              className="p-2 rounded-xl bg-[var(--card)] border border-[var(--card-border)] hover:border-primary/30 hover:-translate-y-0.5 disabled:opacity-60 disabled:translate-y-0 transition-all text-center"
             >
               <Avatar url={student.profile?.avatar_url} metadata={student.profile?.avatar_metadata} name={student.full_name} size="sm" className="mx-auto !rounded-xl" />
               <p className="mt-1.5 text-[9px] font-black truncate text-[var(--text)]">{student.full_name?.split(' ')[0]}</p>
+              {openingStudentId === student.id && <p className="mt-0.5 text-[7px] font-black uppercase tracking-wider text-primary">Opening...</p>}
             </button>
           )
         })}
@@ -331,7 +481,7 @@ function StudentDiscovery({ students, conversations, onSelect, onStart }: any) {
   )
 }
 
-function StudentDiscoveryCanvas({ students, conversations, onSelect, onStart }: any) {
+function StudentDiscoveryCanvas({ students, conversations, onSelect, onStart, openingStudentId, onBack }: any) {
   const [query, setQuery] = useState('')
   const [classFilter, setClassFilter] = useState('all')
   const classes = useMemo(() => {
@@ -357,7 +507,10 @@ function StudentDiscoveryCanvas({ students, conversations, onSelect, onStart }: 
       <div className="sticky top-0 z-10 p-5 md:p-8 border-b border-[var(--card-border)] bg-[var(--card)]/90 backdrop-blur-2xl">
         <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-5">
           <div>
-            <div className="flex items-center gap-2 text-primary text-[10px] font-black uppercase tracking-[0.24em]"><Sparkles size={14} /> Peak learner universe</div>
+            <div className="flex items-center gap-3">
+              <button onClick={onBack} aria-label="Back to conversations" className="md:hidden w-10 h-10 shrink-0 rounded-xl bg-[var(--input)] flex items-center justify-center text-[var(--text)]"><ArrowLeft size={18} /></button>
+              <div className="flex items-center gap-2 text-primary text-[10px] font-black uppercase tracking-[0.18em] sm:tracking-[0.24em]"><Sparkles size={14} /> Peak learner universe</div>
+            </div>
             <h2 className="mt-2 text-3xl md:text-4xl font-black tracking-tight text-[var(--text)]">Who needs your support?</h2>
             <p className="mt-2 text-sm text-[var(--text-muted)] max-w-2xl">Every learner you teach, organized by class and brought to life with the identity they created at Peak.</p>
           </div>
@@ -397,6 +550,7 @@ function StudentDiscoveryCanvas({ students, conversations, onSelect, onStart }: 
             <div className="grid sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
               {classStudents.map((student: any, index: number) => {
                 const conversation = conversations.find((item: any) => item.student_id === student.id)
+                const hasCustomAvatar = Boolean(student.profile?.avatar_url || student.profile?.avatar_metadata)
                 return (
                   <motion.button
                     key={student.id}
@@ -404,6 +558,7 @@ function StudentDiscoveryCanvas({ students, conversations, onSelect, onStart }: 
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: Math.min(index * 0.025, 0.3) }}
                     onClick={() => conversation ? onSelect(conversation.id) : onStart(student.id)}
+                    disabled={openingStudentId === student.id}
                     className="group relative overflow-hidden p-5 rounded-[26px] bg-[var(--card)] border border-[var(--card-border)] hover:border-primary/35 hover:shadow-xl hover:shadow-primary/10 hover:-translate-y-1 transition-all text-left"
                   >
                     <div className="absolute -right-8 -top-8 w-24 h-24 rounded-full bg-primary/5 group-hover:scale-150 transition-transform duration-500" />
@@ -418,9 +573,16 @@ function StudentDiscoveryCanvas({ students, conversations, onSelect, onStart }: 
                           <span className={`w-2.5 h-2.5 rounded-full mt-1 ${conversation ? 'bg-emerald-500' : 'bg-sky-400'}`} />
                         </div>
                         <div className="mt-4 flex items-center justify-between">
-                          <span className={`px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest ${conversation ? 'bg-emerald-500/10 text-emerald-600' : 'bg-primary/10 text-primary'}`}>
-                            {conversation ? 'Continue' : 'Say hello'}
-                          </span>
+                          <div className="flex flex-wrap gap-1.5">
+                            <span className={`px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest ${conversation ? 'bg-emerald-500/10 text-emerald-600' : 'bg-primary/10 text-primary'}`}>
+                              {conversation ? 'Continue' : openingStudentId === student.id ? 'Opening...' : 'Say hello'}
+                            </span>
+                            {!hasCustomAvatar && (
+                              <span className="px-2 py-1.5 rounded-xl bg-amber-500/10 text-amber-600 text-[8px] font-black uppercase tracking-widest">
+                                Starter avatar
+                              </span>
+                            )}
+                          </div>
                           <MessageCircle size={17} className="text-[var(--text-muted)] group-hover:text-primary group-hover:translate-x-1 transition-all" />
                         </div>
                       </div>
@@ -466,12 +628,23 @@ function ConversationRow({ role, conversation, active, onClick }: any) {
   )
 }
 
-function ConversationWorkspace({ role, currentUserId, conversation, messages, loading, safety, onBack, onRefresh }: any) {
+function ConversationWorkspace({ role, currentUserId, conversation, messages, loading, safety, onBack, onRefresh, onMessageSaved }: any) {
   const contact = contactFor(conversation, role)
   const [replyTo, setReplyTo] = useState<any>(null)
   const [editing, setEditing] = useState<any>(null)
   const [otherTyping, setOtherTyping] = useState(false)
+  const [showSafetyNotice, setShowSafetyNotice] = useState(true)
+  const [showConversationMenu, setShowConversationMenu] = useState(false)
+  const [showSummary, setShowSummary] = useState(false)
+  const [paused, setPaused] = useState(role === 'student' ? conversation.is_archived_by_student : conversation.is_archived_by_teacher)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const otherTypingTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pinnedMessages = messages.filter((message: any) => message.pins?.length)
+
+  useEffect(() => {
+    setShowSafetyNotice(true)
+    setPaused(role === 'student' ? conversation.is_archived_by_student : conversation.is_archived_by_teacher)
+  }, [conversation.id])
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
@@ -480,19 +653,21 @@ function ConversationWorkspace({ role, currentUserId, conversation, messages, lo
   useEffect(() => {
     const supabase = getSupabaseBrowserClient()
     const refreshTyping = async () => {
-      const { data } = await supabase
-        .from('peak_typing_presence')
-        .select('user_id, is_typing, updated_at')
-        .eq('conversation_id', conversation.id)
-        .neq('user_id', currentUserId)
-      const active = (data || []).some((item: any) =>
-        item.is_typing && Date.now() - new Date(item.updated_at).getTime() < 5000
-      )
+      const active = await getPeakTypingStatus(conversation.id)
       setOtherTyping(active)
     }
     refreshTyping()
+    const presencePoll = setInterval(refreshTyping, 2500)
     const channel = supabase
       .channel(`peak-typing-${conversation.id}`)
+      .on('broadcast', { event: 'typing' }, ({ payload }) => {
+        if (payload.userId === currentUserId) return
+        setOtherTyping(Boolean(payload.isTyping))
+        if (otherTypingTimer.current) clearTimeout(otherTypingTimer.current)
+        if (payload.isTyping) {
+          otherTypingTimer.current = setTimeout(() => setOtherTyping(false), 4500)
+        }
+      })
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
@@ -501,53 +676,129 @@ function ConversationWorkspace({ role, currentUserId, conversation, messages, lo
       }, refreshTyping)
       .subscribe()
     return () => {
+      clearInterval(presencePoll)
+      if (otherTypingTimer.current) clearTimeout(otherTypingTimer.current)
+      setOtherTyping(false)
       supabase.removeChannel(channel)
     }
   }, [conversation.id, currentUserId])
 
   return (
     <>
-      <header className="h-[78px] px-4 md:px-6 border-b border-[var(--card-border)] flex items-center gap-4 shrink-0 bg-[var(--card)]/95 backdrop-blur-xl z-10">
-        <button onClick={onBack} className="md:hidden w-10 h-10 rounded-xl bg-[var(--input)] flex items-center justify-center"><ArrowLeft size={18} /></button>
-        <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-primary to-sky-400 text-white flex items-center justify-center font-black shadow-lg shadow-primary/20">{initials(contact?.full_name)}</div>
+      <header className="h-[68px] md:h-[78px] px-3 md:px-6 border-b border-[var(--card-border)] flex items-center gap-3 md:gap-4 shrink-0 bg-[var(--card)]/95 backdrop-blur-xl z-10">
+        <button onClick={onBack} aria-label="Back to conversations" className="md:hidden w-9 h-9 rounded-xl bg-[var(--input)] flex items-center justify-center"><ArrowLeft size={17} /></button>
+        <Avatar url={contact?.avatar_url || contact?.profile?.avatar_url} metadata={contact?.profile?.avatar_metadata} name={contact?.full_name} size="sm" className="!w-10 !h-10 md:!w-11 md:!h-11 !rounded-2xl shrink-0" />
         <div className="min-w-0 flex-1">
           <h2 className="font-black text-[var(--text)] truncate">{contact?.full_name}</h2>
           <div className="flex items-center gap-2 text-[10px] text-[var(--text-muted)]">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-            {otherTyping ? 'Typing...' : role === 'student' ? conversation.subject?.name || 'Peak educator' : `${contact?.class?.name || 'Assigned class'} student`}
+            {otherTyping ? (
+              <>
+                <span className="flex items-center gap-0.5" aria-hidden="true">
+                  {[0, 1, 2].map((dot) => <span key={dot} className="w-1 h-1 rounded-full bg-primary animate-bounce" style={{ animationDelay: `${dot * 120}ms` }} />)}
+                </span>
+                <span className="font-bold text-primary">Typing...</span>
+              </>
+            ) : (
+              <>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                {role === 'student' ? conversation.subject?.name || 'Peak educator' : `${contact?.class?.name || 'Assigned class'} student`}
+              </>
+            )}
           </div>
         </div>
         <div className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/10 text-emerald-600 text-[9px] font-black uppercase tracking-widest">
           <ShieldCheck size={14} /> Safeguarded
         </div>
-        <button aria-label="Conversation options" className="w-10 h-10 rounded-xl hover:bg-[var(--input)] flex items-center justify-center text-[var(--text-muted)]"><MoreHorizontal size={19} /></button>
+        <div className="relative">
+          <button onClick={() => setShowConversationMenu((value) => !value)} aria-label="Conversation options" className="w-10 h-10 rounded-xl hover:bg-[var(--input)] flex items-center justify-center text-[var(--text-muted)]"><MoreHorizontal size={19} /></button>
+          {showConversationMenu && (
+            <div className="absolute right-0 top-full mt-2 z-30 w-56 p-2 rounded-2xl bg-[var(--card)] border border-[var(--card-border)] shadow-2xl">
+              {role === 'teacher' && (
+                <button
+                  onClick={() => {
+                    setShowSummary(true)
+                    setShowConversationMenu(false)
+                  }}
+                  className="w-full p-3 rounded-xl hover:bg-[var(--input)] text-left"
+                >
+                  <p className="text-xs font-black text-[var(--text)]">AI learning summary</p>
+                  <p className="mt-1 text-[9px] leading-relaxed text-[var(--text-muted)]">Capture context and next actions.</p>
+                </button>
+              )}
+              <button
+                onClick={async () => {
+                  const result = await setPeakConversationPaused(conversation.id, !paused)
+                  if (!result.ok) return toast.error(result.error)
+                  setPaused(result.paused)
+                  setShowConversationMenu(false)
+                  toast.success(result.paused ? 'Conversation paused' : 'Conversation resumed')
+                }}
+                className="w-full p-3 rounded-xl hover:bg-[var(--input)] text-left"
+              >
+                <p className="text-xs font-black text-[var(--text)]">{paused ? 'Resume conversation' : 'Pause conversation'}</p>
+                <p className="mt-1 text-[9px] leading-relaxed text-[var(--text-muted)]">{paused ? 'Allow new messages again.' : 'Stop new messages while preserving the safeguarding record.'}</p>
+              </button>
+            </div>
+          )}
+        </div>
       </header>
 
       <div className="flex-1 min-h-0 flex">
         <div className="flex-1 min-w-0 flex flex-col relative bg-[radial-gradient(circle_at_top,rgba(14,165,233,0.06),transparent_35%)]">
-          <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 md:px-8 py-6 space-y-3">
-            <div className="max-w-lg mx-auto mb-8 p-5 rounded-3xl bg-primary/5 border border-primary/10 text-center">
+          {showSafetyNotice && (
+            <div className="mx-3 mt-2 md:mx-6 md:mt-3 min-h-9 px-3 py-2 rounded-xl bg-emerald-500/[0.07] border border-emerald-500/15 flex items-center gap-2 shrink-0">
+              <ShieldCheck size={14} className="text-emerald-600 shrink-0" />
+              <p className="min-w-0 flex-1 text-[10px] md:text-xs text-[var(--text-muted)] truncate">
+                <span className="font-black text-[var(--text)]">Safeguarded learning chat.</span> Keep personal details private.
+              </p>
+              <button onClick={() => setShowSafetyNotice(false)} aria-label="Dismiss safety notice" className="w-6 h-6 rounded-lg hover:bg-emerald-500/10 flex items-center justify-center text-[var(--text-muted)] shrink-0"><X size={13} /></button>
+            </div>
+          )}
+          {pinnedMessages.length > 0 && (
+            <div className="mx-3 mt-2 md:mx-6 px-3 py-2 rounded-xl bg-amber-500/[0.07] border border-amber-500/15 flex items-center gap-2 shrink-0">
+              <Pin size={13} className="text-amber-600 shrink-0" />
+              <p className="min-w-0 flex-1 truncate text-[10px] text-[var(--text-muted)]">
+                <span className="font-black text-[var(--text)]">{pinnedMessages.length} pinned:</span> {pinnedMessages[pinnedMessages.length - 1].body}
+              </p>
+            </div>
+          )}
+          <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 sm:px-4 md:px-8 py-3 md:py-5 space-y-3">
+            <div className="hidden">
               <div className="w-12 h-12 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mx-auto"><GraduationCap size={23} /></div>
               <p className="mt-3 text-sm font-black text-[var(--text)]">A focused space for learning</p>
               <p className="mt-1 text-xs leading-relaxed text-[var(--text-muted)]">Keep personal details private and conversations respectful. Peak’s safety layer supports both of you.</p>
             </div>
-            {loading ? <MessageLoading /> : messages.map((message: any) => (
-              <MessageBubble
-                key={message.id}
-                message={message}
-                own={message.sender_id === currentUserId}
-                onReply={() => setReplyTo(message)}
-                onEdit={() => setEditing(message)}
-                onDelete={async () => {
-                  await deletePeakMessage(message.id)
-                  onRefresh()
-                }}
-                onReact={async (emoji: string) => {
-                  await togglePeakReaction(message.id, emoji)
-                  onRefresh()
-                }}
-              />
-            ))}
+            {loading ? <MessageLoading /> : messages.map((message: any, index: number) => {
+              const own = message.sender_id === currentUserId
+              const showDivider = index === 0 || dateKey(messages[index - 1]?.created_at) !== dateKey(message.created_at)
+              return (
+                <div key={message.id}>
+                  {showDivider && <div className="my-4 flex items-center gap-3"><span className="h-px flex-1 bg-[var(--card-border)]" /><span className="px-3 py-1 rounded-full bg-[var(--card)] border border-[var(--card-border)] text-[9px] font-black text-[var(--text-muted)]">{formatDateDivider(message.created_at)}</span><span className="h-px flex-1 bg-[var(--card-border)]" /></div>}
+                  <MessageBubble
+                    message={message}
+                    own={own}
+                    senderName={own ? 'You' : contact?.full_name || (role === 'teacher' ? 'Student' : 'Teacher')}
+                    senderAvatar={own ? null : contact}
+                    onReply={() => setReplyTo(message)}
+                    onEdit={() => setEditing(message)}
+                    onDelete={async () => {
+                      await deletePeakMessage(message.id)
+                      onRefresh()
+                    }}
+                    onReact={async (emoji: string) => {
+                      await togglePeakReaction(message.id, emoji)
+                      onRefresh()
+                    }}
+                    onPin={async () => {
+                      const result = await togglePeakMessagePin(message.id)
+                      if (!result.ok) return toast.error(result.error)
+                      toast.success(result.pinned ? 'Message pinned' : 'Message unpinned')
+                      onRefresh()
+                    }}
+                  />
+                </div>
+              )
+            })}
           </div>
           <MessageComposer
             role={role}
@@ -555,24 +806,33 @@ function ConversationWorkspace({ role, currentUserId, conversation, messages, lo
             conversationId={conversation.id}
             replyTo={replyTo}
             editing={editing}
+            paused={paused}
             onClearReply={() => setReplyTo(null)}
             onClearEdit={() => setEditing(null)}
-            onSent={onRefresh}
+            onSent={(message: any) => {
+              onMessageSaved(message)
+              onRefresh()
+            }}
           />
         </div>
         {role === 'teacher' && <TeacherIntelligencePanel safety={safety} messages={messages} conversationId={conversation.id} />}
       </div>
+      <AnimatePresence>
+        {showSummary && <ConversationSummaryDialog conversationId={conversation.id} onClose={() => setShowSummary(false)} />}
+      </AnimatePresence>
     </>
   )
 }
 
-function MessageBubble({ message, own, onReply, onEdit, onDelete, onReact }: any) {
+function MessageBubble({ message, own, senderName, senderAvatar, onReply, onEdit, onDelete, onReact, onPin }: any) {
   const [menu, setMenu] = useState(false)
   const [reactions, setReactions] = useState(false)
   const deleted = Boolean(message.deleted_at)
   return (
-    <div className={`flex ${own ? 'justify-end' : 'justify-start'} group`}>
+    <div className={`flex ${own ? 'justify-end' : 'justify-start'} gap-2 group`}>
+      {!own && <Avatar url={senderAvatar?.avatar_url || senderAvatar?.profile?.avatar_url} metadata={senderAvatar?.profile?.avatar_metadata} name={senderName} size="sm" className="!w-7 !h-7 !rounded-xl mt-5 shrink-0" />}
       <div className={`max-w-[85%] md:max-w-[68%] ${own ? 'items-end' : 'items-start'} flex flex-col`}>
+        <span className={`mb-1 px-1 text-[9px] font-black uppercase tracking-wider ${own ? 'text-primary' : 'text-[var(--text-muted)]'}`}>{senderName}</span>
         {message.reply && (
           <div className="mb-1 px-3 py-2 rounded-xl bg-[var(--input)] border-l-2 border-primary text-[10px] text-[var(--text-muted)] max-w-full truncate">
             {message.reply.body}
@@ -582,12 +842,19 @@ function MessageBubble({ message, own, onReply, onEdit, onDelete, onReact }: any
           {!own && (
             <button onClick={() => setMenu(!menu)} className="opacity-0 group-hover:opacity-100 w-7 h-7 rounded-lg hover:bg-[var(--input)] flex items-center justify-center text-[var(--text-muted)]"><MoreHorizontal size={14} /></button>
           )}
-          <div className={`px-4 py-3 rounded-[20px] shadow-sm ${own ? 'bg-primary text-white rounded-br-md' : 'bg-[var(--input)] text-[var(--text)] border border-[var(--card-border)] rounded-bl-md'} ${deleted ? 'italic opacity-60' : ''}`}>
-            <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{message.body}</p>
+          <div className={`px-4 py-3 rounded-[20px] shadow-sm ${own ? 'bg-gradient-to-br from-primary to-primary/80 text-white rounded-br-md shadow-primary/10' : 'bg-[var(--card)] text-[var(--text)] border border-[var(--card-border)] rounded-bl-md'} ${deleted ? 'italic opacity-60' : ''}`}>
+            {message.message_type === 'voice' ? (
+              <VoiceNoteBubble message={message} own={own} />
+            ) : message.message_type === 'learning_card' ? (
+              <LearningCardBubble message={message} own={own} />
+            ) : (
+              <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{message.body}</p>
+            )}
             <div className={`mt-1.5 flex items-center justify-end gap-1.5 text-[8px] ${own ? 'text-white/60' : 'text-[var(--text-muted)]'}`}>
+              {message.pins?.length > 0 && <Pin size={10} />}
               {message.edited_at && <span>edited</span>}
-              <span>{formatTime(message.created_at)}</span>
-              {own && <CheckCheck size={11} />}
+              <span>{formatMessageTime(message.created_at)}</span>
+              {own && <><CheckCheck size={11} /><span>{message.delivery_status === 'seen' ? 'Seen' : 'Delivered'}</span></>}
             </div>
           </div>
           {own && (
@@ -598,6 +865,7 @@ function MessageBubble({ message, own, onReply, onEdit, onDelete, onReact }: any
               <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className={`absolute bottom-full mb-2 ${own ? 'right-0' : 'left-0'} z-20 p-1.5 rounded-xl bg-[var(--card)] border border-[var(--card-border)] shadow-xl flex gap-1`}>
                 <BubbleAction icon={<Reply size={13} />} onClick={() => { onReply(); setMenu(false) }} />
                 <BubbleAction icon={<Smile size={13} />} onClick={() => setReactions(!reactions)} />
+                <BubbleAction icon={<Pin size={13} />} onClick={() => { onPin(); setMenu(false) }} />
                 {own && !deleted && <BubbleAction icon={<Edit3 size={13} />} onClick={() => { onEdit(); setMenu(false) }} />}
                 {own && !deleted && <BubbleAction icon={<Trash2 size={13} />} danger onClick={() => { onDelete(); setMenu(false) }} />}
               </motion.div>
@@ -605,7 +873,7 @@ function MessageBubble({ message, own, onReply, onEdit, onDelete, onReact }: any
           </AnimatePresence>
           {reactions && (
             <div className="absolute bottom-full mb-12 left-0 z-30 flex gap-1 p-2 rounded-2xl bg-[var(--card)] border border-[var(--card-border)] shadow-xl">
-              {EMOJIS.slice(0, 5).map((emoji) => <button key={emoji} onClick={() => { onReact(emoji); setReactions(false); setMenu(false) }} className="w-8 h-8 rounded-lg hover:bg-[var(--input)]">{emoji}</button>)}
+              {EMOJIS.slice(0, 8).map((emoji) => <button key={emoji} onClick={() => { onReact(emoji); setReactions(false); setMenu(false) }} className="w-8 h-8 rounded-lg hover:bg-[var(--input)]">{emoji}</button>)}
             </div>
           )}
         </div>
@@ -625,14 +893,56 @@ function BubbleAction({ icon, onClick, danger }: any) {
   return <button onClick={onClick} className={`w-8 h-8 rounded-lg flex items-center justify-center ${danger ? 'text-red-500 hover:bg-red-500/10' : 'text-[var(--text-muted)] hover:bg-[var(--input)]'}`}>{icon}</button>
 }
 
-function MessageComposer({ role, currentUserId, conversationId, replyTo, editing, onClearReply, onClearEdit, onSent }: any) {
+function VoiceNoteBubble({ message, own }: any) {
+  return (
+    <div className="min-w-[210px] max-w-[280px]">
+      <div className="flex items-center gap-2 mb-2">
+        <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${own ? 'bg-white/15' : 'bg-primary/10 text-primary'}`}><Volume2 size={15} /></div>
+        <div>
+          <p className="text-xs font-black">Voice note</p>
+          <p className={`text-[9px] ${own ? 'text-white/60' : 'text-[var(--text-muted)]'}`}>{Math.max(1, Number(message.metadata?.duration_seconds || 0))} sec</p>
+        </div>
+      </div>
+      {message.voice_url ? (
+        <audio controls preload="metadata" src={message.voice_url} className="h-9 w-full max-w-[260px]" />
+      ) : (
+        <p className="text-[10px] opacity-70">Audio link is refreshing...</p>
+      )}
+    </div>
+  )
+}
+
+function LearningCardBubble({ message, own }: any) {
+  const metadata = message.metadata || {}
+  const labels: Record<string, string> = { task: 'Learning task', resource: 'Resource', quiz: 'Quiz', reminder: 'Reminder' }
+  return (
+    <div className="min-w-[220px] max-w-[320px]">
+      <div className={`text-[9px] font-black uppercase tracking-widest ${own ? 'text-white/65' : 'text-primary'}`}>{labels[metadata.card_type] || 'Learning card'}</div>
+      <p className="mt-1 text-sm font-black">{metadata.title || message.body}</p>
+      {metadata.description && <p className={`mt-1.5 text-xs leading-relaxed ${own ? 'text-white/75' : 'text-[var(--text-muted)]'}`}>{metadata.description}</p>}
+      {metadata.due_at && <p className={`mt-2 text-[9px] font-bold ${own ? 'text-white/65' : 'text-amber-600'}`}>Due {new Date(metadata.due_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>}
+      {metadata.href && <a href={metadata.href} className={`mt-3 inline-flex px-3 py-2 rounded-xl text-[10px] font-black ${own ? 'bg-white/15 text-white' : 'bg-primary/10 text-primary'}`}>Open learning item</a>}
+    </div>
+  )
+}
+
+function MessageComposer({ role, currentUserId, conversationId, replyTo, editing, paused, onClearReply, onClearEdit, onSent }: any) {
   const [body, setBody] = useState('')
   const [sending, setSending] = useState(false)
   const [showEmoji, setShowEmoji] = useState(false)
+  const [emojiGroup, setEmojiGroup] = useState<keyof typeof EMOJI_GROUPS>('Recent')
   const [warning, setWarning] = useState<any>(null)
   const [pendingBody, setPendingBody] = useState('')
+  const [recording, setRecording] = useState(false)
+  const [recordingSeconds, setRecordingSeconds] = useState(0)
+  const [sendingVoice, setSendingVoice] = useState(false)
+  const [showLearningCard, setShowLearningCard] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const typingChannel = useRef<any>(null)
+  const recorderRef = useRef<MediaRecorder | null>(null)
+  const voiceChunks = useRef<Blob[]>([])
+  const recordingTimer = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     if (editing) {
@@ -641,13 +951,90 @@ function MessageComposer({ role, currentUserId, conversationId, replyTo, editing
     }
   }, [editing])
 
+  useEffect(() => {
+    const supabase = getSupabaseBrowserClient()
+    const channel = supabase.channel(`peak-typing-${conversationId}`).subscribe()
+    typingChannel.current = channel
+    return () => {
+      typingChannel.current = null
+      supabase.removeChannel(channel)
+    }
+  }, [conversationId])
+
   const updateTyping = async (isTyping: boolean) => {
+    typingChannel.current?.send({
+      type: 'broadcast',
+      event: 'typing',
+      payload: { userId: currentUserId, isTyping },
+    }).catch(() => null)
     await getSupabaseBrowserClient().from('peak_typing_presence').upsert({
       conversation_id: conversationId,
       user_id: currentUserId,
       is_typing: isTyping,
       updated_at: new Date().toISOString(),
     }, { onConflict: 'conversation_id,user_id' })
+  }
+
+  useEffect(() => {
+    return () => {
+      if (typingTimer.current) clearTimeout(typingTimer.current)
+      if (recordingTimer.current) clearInterval(recordingTimer.current)
+      recorderRef.current?.stream.getTracks().forEach((track) => track.stop())
+      updateTyping(false).catch(() => null)
+    }
+  }, [conversationId])
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const preferredType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm'
+      const recorder = new MediaRecorder(stream, { mimeType: preferredType })
+      recorderRef.current = recorder
+      voiceChunks.current = []
+      setRecordingSeconds(0)
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) voiceChunks.current.push(event.data)
+      }
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop())
+        if (recordingTimer.current) clearInterval(recordingTimer.current)
+        const blob = new Blob(voiceChunks.current, { type: recorder.mimeType.split(';')[0] })
+        if (!blob.size) return
+        setSendingVoice(true)
+        try {
+          const base64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => resolve(String(reader.result).split(',')[1] || '')
+            reader.onerror = reject
+            reader.readAsDataURL(blob)
+          })
+          const result = await sendPeakVoiceNote({
+            conversationId,
+            base64,
+            mimeType: blob.type || 'audio/webm',
+            durationSeconds: recordingSeconds,
+          })
+          if (!result.ok) return toast.error(result.error)
+          onSent(result.message)
+        } finally {
+          setSendingVoice(false)
+          setRecordingSeconds(0)
+        }
+      }
+      recorder.start(250)
+      setRecording(true)
+      recordingTimer.current = setInterval(() => setRecordingSeconds((value) => {
+        if (value >= 119) recorder.stop()
+        return value + 1
+      }), 1000)
+    } catch {
+      toast.error('Microphone access is required for voice notes.')
+    }
+  }
+
+  const stopRecording = () => {
+    if (recorderRef.current?.state === 'recording') recorderRef.current.stop()
+    setRecording(false)
   }
 
   const handleBodyChange = (value: string) => {
@@ -666,6 +1053,10 @@ function MessageComposer({ role, currentUserId, conversationId, replyTo, editing
       const result = editing
         ? await editPeakMessage(editing.id, text, confirmed)
         : await sendPeakMessage({ conversationId, body: text, replyToId: replyTo?.id, confirmed })
+      if ('error' in result && result.error) {
+        toast.error(result.error)
+        return
+      }
       if ((result as any).blocked) {
         setWarning({ ...(result as any).safety, blocked: true })
         return
@@ -681,7 +1072,7 @@ function MessageComposer({ role, currentUserId, conversationId, replyTo, editing
       setWarning(null)
       onClearReply()
       onClearEdit()
-      onSent()
+      onSent((result as any).message)
     } catch (error: any) {
       toast.error(error.message || 'Message could not be sent')
     } finally {
@@ -690,7 +1081,13 @@ function MessageComposer({ role, currentUserId, conversationId, replyTo, editing
   }
 
   return (
-    <div className="p-3 md:p-5 border-t border-[var(--card-border)] bg-[var(--card)]">
+    <div className="relative p-2.5 sm:p-3 md:p-5 border-t border-[var(--card-border)] bg-[var(--card)]">
+      {paused && (
+        <div className="mb-2 px-4 py-3 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-center">
+          <p className="text-xs font-black text-amber-700 dark:text-amber-300">Conversation paused</p>
+          <p className="mt-0.5 text-[9px] text-[var(--text-muted)]">Resume it from conversation options to send new messages.</p>
+        </div>
+      )}
       {role === 'student' && !body && !editing && (
         <div className="flex gap-2 overflow-x-auto pb-3 scrollbar-none">
           {STUDENT_PROMPTS.map((prompt) => <button key={prompt} onClick={() => setBody(prompt)} className="shrink-0 px-3 py-2 rounded-xl bg-primary/5 border border-primary/10 text-[10px] font-bold text-primary hover:bg-primary/10">{prompt}</button>)}
@@ -706,28 +1103,104 @@ function MessageComposer({ role, currentUserId, conversationId, replyTo, editing
         </div>
       )}
       <form onSubmit={submit} className="flex items-end gap-2 md:gap-3">
-        <button type="button" disabled aria-label="Attachments require storage activation" title="Attachments activate after the messaging storage migration" className="hidden sm:flex w-11 h-11 rounded-2xl bg-[var(--input)] items-center justify-center text-[var(--text-muted)] opacity-40"><Paperclip size={18} /></button>
+        <button type="button" disabled={paused} onClick={() => setShowLearningCard(true)} aria-label="Create learning card" className="flex w-10 sm:w-11 h-11 shrink-0 rounded-2xl bg-[var(--input)] items-center justify-center text-[var(--text-muted)] hover:text-primary disabled:opacity-30"><ClipboardCheck size={18} /></button>
         <div className="flex-1 min-w-0 rounded-[22px] bg-[var(--input)] border border-[var(--card-border)] flex items-end px-3">
           <textarea ref={inputRef} value={body} onChange={(event) => handleBodyChange(event.target.value)} onKeyDown={(event) => {
             if (event.key === 'Enter' && !event.shiftKey) {
               event.preventDefault()
               submit()
             }
-          }} rows={1} placeholder={role === 'student' ? 'Ask your teacher...' : 'Write a thoughtful response...'} className="min-h-11 max-h-32 flex-1 resize-none bg-transparent outline-none py-3 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)]" />
+          }} disabled={paused} rows={1} placeholder={paused ? 'Conversation paused' : role === 'student' ? 'Ask your teacher...' : 'Write a thoughtful response...'} className="min-h-11 max-h-32 flex-1 resize-none bg-transparent outline-none py-3 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] disabled:cursor-not-allowed" />
           <div className="relative">
-            <button type="button" onClick={() => setShowEmoji(!showEmoji)} className="w-9 h-11 flex items-center justify-center text-[var(--text-muted)] hover:text-primary"><Smile size={18} /></button>
-            {showEmoji && (
-              <div className="absolute bottom-full right-0 mb-3 p-2 rounded-2xl bg-[var(--card)] border border-[var(--card-border)] shadow-xl grid grid-cols-4 gap-1 z-30">
-                {EMOJIS.map((emoji) => <button key={emoji} type="button" onClick={() => { setBody((value) => value + emoji); setShowEmoji(false) }} className="w-9 h-9 rounded-lg hover:bg-[var(--input)]">{emoji}</button>)}
-              </div>
-            )}
+            <button type="button" disabled={paused} aria-label="Choose emoji" onClick={() => setShowEmoji(!showEmoji)} className="w-9 h-11 flex items-center justify-center text-[var(--text-muted)] hover:text-primary disabled:opacity-30"><Smile size={18} /></button>
           </div>
         </div>
-        <button disabled={!body.trim() || sending} className="w-11 h-11 rounded-2xl bg-primary text-white flex items-center justify-center shadow-lg shadow-primary/25 disabled:opacity-40 disabled:shadow-none hover:scale-105 transition-transform">
+        <button
+          type="button"
+          disabled={paused || sendingVoice}
+          onClick={recording ? stopRecording : startRecording}
+          aria-label={recording ? 'Stop voice note' : 'Record voice note'}
+          className={`w-11 h-11 rounded-2xl flex items-center justify-center transition-all disabled:opacity-40 ${recording ? 'bg-red-500 text-white animate-pulse' : 'bg-[var(--input)] text-[var(--text-muted)] hover:text-primary'}`}
+        >
+          {recording ? <Square size={16} fill="currentColor" /> : <Mic size={18} />}
+        </button>
+        <button aria-label={sending ? 'Sending message' : 'Send message'} disabled={paused || !body.trim() || sending} className="w-11 h-11 rounded-2xl bg-primary text-white flex items-center justify-center shadow-lg shadow-primary/25 disabled:opacity-40 disabled:shadow-none hover:scale-105 transition-transform">
           <Send size={17} />
         </button>
       </form>
+      {(recording || sendingVoice) && <p className="mt-2 text-center text-[10px] font-black text-red-500">{sendingVoice ? 'Sending voice note...' : `Recording ${recordingSeconds}s / 120s`}</p>}
       <p className="mt-2 text-center text-[8px] text-[var(--text-muted)]">Peak Safeguarding checks context and communication patterns before delivery.</p>
+
+      <AnimatePresence>
+        {showLearningCard && (
+          <LearningCardDialog
+            conversationId={conversationId}
+            onClose={() => setShowLearningCard(false)}
+            onSent={(message: any) => {
+              setShowLearningCard(false)
+              onSent(message)
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showEmoji && (
+          <>
+            <motion.button
+              type="button"
+              aria-label="Close emoji picker"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowEmoji(false)}
+              className="fixed inset-0 z-40 bg-black/20 md:absolute md:bg-transparent"
+            />
+            <motion.div
+              initial={{ opacity: 0, y: 14, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.98 }}
+              className="fixed z-50 left-3 right-3 bottom-[82px] p-3 rounded-[24px] bg-[var(--card)] border border-[var(--card-border)] shadow-2xl md:absolute md:left-auto md:right-14 md:bottom-[76px] md:w-[330px]"
+            >
+              <div className="mb-2 px-1 flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-primary">Express yourself</p>
+                  <p className="text-[9px] text-[var(--text-muted)]">Tap several emojis, then send.</p>
+                </div>
+                <button type="button" onClick={() => setShowEmoji(false)} aria-label="Close emoji picker" className="w-8 h-8 rounded-xl bg-[var(--input)] flex items-center justify-center"><X size={14} /></button>
+              </div>
+              <div className="mb-2 flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                {(Object.keys(EMOJI_GROUPS) as Array<keyof typeof EMOJI_GROUPS>).map((group) => (
+                  <button
+                    key={group}
+                    type="button"
+                    onClick={() => setEmojiGroup(group)}
+                    className={`shrink-0 px-3 h-8 rounded-xl text-[9px] font-black transition-colors ${emojiGroup === group ? 'bg-primary text-white' : 'bg-[var(--input)] text-[var(--text-muted)] hover:text-[var(--text)]'}`}
+                  >
+                    {group}
+                  </button>
+                ))}
+              </div>
+              <div className="grid grid-cols-6 gap-1.5 max-h-[248px] overflow-y-auto pr-1">
+                {EMOJI_GROUPS[emojiGroup].map((emoji) => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    aria-label={`Add ${emoji}`}
+                    onClick={() => {
+                      handleBodyChange(body + emoji)
+                      inputRef.current?.focus()
+                    }}
+                    className="aspect-square min-h-10 rounded-xl text-xl hover:bg-primary/10 active:scale-90 transition-all"
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {warning && (
@@ -735,6 +1208,88 @@ function MessageComposer({ role, currentUserId, conversationId, replyTo, editing
         )}
       </AnimatePresence>
     </div>
+  )
+}
+
+function LearningCardDialog({ conversationId, onClose, onSent }: any) {
+  const [cardType, setCardType] = useState<'task' | 'resource' | 'quiz' | 'reminder'>('task')
+  const [title, setTitle] = useState('')
+  const [description, setDescription] = useState('')
+  const [href, setHref] = useState('')
+  const [dueAt, setDueAt] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const save = async () => {
+    if (!title.trim() || saving) return
+    setSaving(true)
+    try {
+      const result = await sendPeakLearningCard({ conversationId, title, description, cardType, href, dueAt })
+      if (!result.ok) return toast.error(result.error)
+      onSent(result.message)
+      toast.success('Learning card sent')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <motion.div initial={{ y: 30, scale: 0.98 }} animate={{ y: 0, scale: 1 }} className="w-full sm:max-w-lg rounded-t-[28px] sm:rounded-[28px] bg-[var(--card)] border border-[var(--card-border)] p-5 sm:p-6 shadow-2xl max-h-[90dvh] overflow-y-auto">
+        <div className="flex items-center justify-between">
+          <div><p className="text-[9px] font-black uppercase tracking-widest text-primary">Peak learning card</p><h3 className="mt-1 text-xl font-black text-[var(--text)]">Send the next step</h3></div>
+          <button onClick={onClose} aria-label="Close learning card" className="w-9 h-9 rounded-xl bg-[var(--input)] flex items-center justify-center"><X size={15} /></button>
+        </div>
+        <div className="mt-5 flex gap-2 overflow-x-auto pb-1">
+          {(['task', 'resource', 'quiz', 'reminder'] as const).map((type) => <button key={type} onClick={() => setCardType(type)} className={`shrink-0 px-4 h-10 rounded-xl text-[10px] font-black capitalize ${cardType === type ? 'bg-primary text-white' : 'bg-[var(--input)] text-[var(--text-muted)]'}`}>{type}</button>)}
+        </div>
+        <div className="mt-4 space-y-3">
+          <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Card title" className="w-full h-12 px-4 rounded-2xl bg-[var(--input)] border border-[var(--card-border)] outline-none text-sm text-[var(--text)]" />
+          <textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Instructions or context" rows={3} className="w-full p-4 rounded-2xl bg-[var(--input)] border border-[var(--card-border)] outline-none resize-none text-sm text-[var(--text)]" />
+          <input value={href} onChange={(event) => setHref(event.target.value)} placeholder="Optional link" className="w-full h-12 px-4 rounded-2xl bg-[var(--input)] border border-[var(--card-border)] outline-none text-sm text-[var(--text)]" />
+          <label className="block"><span className="text-[9px] font-black uppercase tracking-widest text-[var(--text-muted)]">Optional due date</span><input type="datetime-local" value={dueAt} onChange={(event) => setDueAt(event.target.value)} className="mt-1 w-full h-12 px-4 rounded-2xl bg-[var(--input)] border border-[var(--card-border)] outline-none text-sm text-[var(--text)]" /></label>
+        </div>
+        <button onClick={save} disabled={!title.trim() || saving} className="mt-5 w-full h-12 rounded-2xl bg-primary text-white font-black text-xs disabled:opacity-40">{saving ? 'Sending...' : 'Send learning card'}</button>
+      </motion.div>
+    </motion.div>
+  )
+}
+
+function ConversationSummaryDialog({ conversationId, onClose }: any) {
+  const [summary, setSummary] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    getPeakConversationSummary(conversationId)
+      .then(setSummary)
+      .finally(() => setLoading(false))
+  }, [conversationId])
+
+  const generate = async () => {
+    setLoading(true)
+    const result = await generatePeakConversationSummary(conversationId)
+    if (result.ok) setSummary(result.summary)
+    else toast.error(result.error)
+    setLoading(false)
+  }
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <motion.div initial={{ y: 30, scale: 0.98 }} animate={{ y: 0, scale: 1 }} className="w-full sm:max-w-xl rounded-t-[28px] sm:rounded-[28px] bg-[var(--card)] border border-[var(--card-border)] p-6 shadow-2xl max-h-[90dvh] overflow-y-auto">
+        <div className="flex items-center justify-between">
+          <div><p className="text-[9px] font-black uppercase tracking-widest text-primary">Peak Intelligence</p><h3 className="mt-1 text-xl font-black text-[var(--text)]">Conversation summary</h3></div>
+          <button onClick={onClose} aria-label="Close summary" className="w-9 h-9 rounded-xl bg-[var(--input)] flex items-center justify-center"><X size={15} /></button>
+        </div>
+        {loading ? <div className="mt-6 h-36 rounded-2xl bg-[var(--input)] animate-pulse" /> : summary ? (
+          <div className="mt-6">
+            <div className="p-5 rounded-2xl bg-primary/5 border border-primary/10 text-sm leading-relaxed text-[var(--text)]">{summary.summary}</div>
+            {summary.action_items?.length > 0 && <div className="mt-4 space-y-2">{summary.action_items.map((item: string, index: number) => <div key={`${item}-${index}`} className="p-3 rounded-xl bg-[var(--input)] flex items-start gap-3 text-xs text-[var(--text)]"><CheckCheck size={15} className="text-primary shrink-0" />{item}</div>)}</div>}
+            <button onClick={generate} className="mt-5 w-full h-11 rounded-2xl bg-[var(--input)] text-[var(--text)] font-black text-xs">Refresh summary</button>
+          </div>
+        ) : (
+          <div className="mt-6 text-center"><Bot size={32} className="mx-auto text-primary" /><p className="mt-3 text-sm text-[var(--text-muted)]">Generate a concise learning recap and clear action items.</p><button onClick={generate} className="mt-5 px-6 h-12 rounded-2xl bg-primary text-white font-black text-xs">Generate summary</button></div>
+        )}
+      </motion.div>
+    </motion.div>
   )
 }
 
@@ -822,7 +1377,7 @@ function EmptyConversation({ role }: { role: Role }) {
 }
 
 function MessengerSkeleton() {
-  return <div className="min-h-[calc(100vh-73px)] p-6 bg-[var(--bg)]"><div className="mx-auto max-w-[1600px] h-[calc(100vh-120px)] rounded-[36px] bg-[var(--card)] border border-[var(--card-border)] animate-pulse" /></div>
+  return <div className="min-h-[calc(100dvh-73px)] p-2 md:p-6 pb-20 md:pb-6 bg-[var(--bg)]"><div className="mx-auto max-w-[1600px] h-[calc(100dvh-158px)] md:h-[calc(100dvh-120px)] min-h-[480px] rounded-[22px] md:rounded-[36px] bg-[var(--card)] border border-[var(--card-border)] animate-pulse" /></div>
 }
 
 function MessageLoading() {

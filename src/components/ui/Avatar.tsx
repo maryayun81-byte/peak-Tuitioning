@@ -1,6 +1,6 @@
 'use client'
 
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { User } from 'lucide-react'
 import { CustomAvatar } from './CustomAvatar'
@@ -23,6 +23,12 @@ export const Avatar = ({
   className = '',
   animate = false
 }: AvatarProps) => {
+  const [imageFailed, setImageFailed] = useState(false)
+
+  useEffect(() => {
+    setImageFailed(false)
+  }, [url, metadata])
+
   const isEmoji = (str: string) => {
     return /\p{Emoji}/u.test(str) && !str.includes('/') && !str.includes('.')
   }
@@ -50,32 +56,38 @@ export const Avatar = ({
   }
 
   const renderContent = () => {
-    if (metadata) {
+    const isUrlInvalid = !url || url === 'null' || url === 'undefined' || url === ''
+    const isMetadataInvalid = !metadata || metadata === 'null' || metadata === 'undefined' || metadata === '{}'
+
+    if (!isMetadataInvalid && !imageFailed) {
       try {
-        const config = typeof metadata === 'string' ? JSON.parse(metadata) : metadata
-        const dicebearUrl = buildAvatarUrl(config)
-        return (
-          <img 
-            src={dicebearUrl}
-            alt="Avatar"
-            className="w-full h-full object-cover"
-            loading="eager"
-          />
-        )
+        const config = typeof metadata === 'string' ? JSON.parse(metadata as string) : metadata
+        if (config && Object.keys(config).length > 0) {
+          const dicebearUrl = buildAvatarUrl(config)
+          return (
+            <img 
+              src={dicebearUrl}
+              alt="Avatar"
+              className="w-full h-full object-cover"
+              loading="eager"
+              onError={() => setImageFailed(true)}
+            />
+          )
+        }
       } catch {
         // fall through to initials
       }
     }
 
-    if (!url) {
+    if (isUrlInvalid || imageFailed) {
       return (
-        <div className="w-full h-full flex items-center justify-center bg-primary/10 text-primary">
+        <div className="w-full h-full flex items-center justify-center bg-primary/10 text-primary font-bold">
           {name ? name[0].toUpperCase() : <User size={24} />}
         </div>
       )
     }
 
-    if (isEmoji(url)) {
+    if (isEmoji(url as string)) {
       return (
         <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/10 to-transparent" style={{ fontSize: getEmojiSize() }}>
           {url}
@@ -85,15 +97,10 @@ export const Avatar = ({
 
     return (
       <img 
-        src={url} 
+        src={url as string} 
         alt={name || 'Avatar'} 
         className="w-full h-full object-cover"
-        onError={(e) => {
-          // Fallback if image fails
-          const target = e.target as HTMLImageElement
-          target.style.display = 'none'
-          target.parentElement!.innerHTML = `<div class="w-full h-full flex items-center justify-center bg-primary/10 text-primary uppercase font-bold text-lg">${name ? name[0] : '?'}</div>`
-        }}
+        onError={() => setImageFailed(true)}
       />
     )
   }

@@ -7,12 +7,6 @@ import { useAuthStore } from '@/stores/authStore'
 import { useAuth } from '@/hooks/useAuth'
 
 export function AuthHandler() {
-  const pathname = usePathname()
-
-  if (pathname.startsWith('/auth')) {
-    return null
-  }
-
   return <AuthenticatedSessionHandler />
 }
 

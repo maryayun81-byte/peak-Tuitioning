@@ -1,6 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import webPush from 'web-push'
 import { createAdminClient, createClient } from '@/lib/supabase/server'
 import { callGroqChat, hasGroqToken } from '@/lib/groq-chat'
 
@@ -30,6 +31,14 @@ const SAFETY_PATTERNS: Array<{
 ]
 
 const RISK_ORDER = { low: 0, medium: 1, high: 2, critical: 3 } as const
+
+function configureWebPush() {
+  const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+  const privateKey = process.env.VAPID_PRIVATE_KEY
+  if (!publicKey || !privateKey) return false
+  webPush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:support@peakcampus.co.ke', publicKey, privateKey)
+  return true
+}
 
 function ruleBasedSafety(body: string): MessageSafetyResult {
   const matches = SAFETY_PATTERNS.filter((item) => item.pattern.test(body))
@@ -119,7 +128,7 @@ async function authorizeConversation(conversationId: string) {
   return { ...actor, conversation }
 }
 
-export async function getMessagingBootstrap() {
+async function getMessagingBootstrapUnsafe() {
   const actor = await getActor()
   if (actor.role === 'student') {
     const student = actor.student!
@@ -208,6 +217,21 @@ export async function getMessagingBootstrap() {
   }
 }
 
+export async function getMessagingBootstrap() {
+  try {
+    const bootstrap = await getMessagingBootstrapUnsafe()
+    return { ok: true as const, bootstrap }
+  } catch (error) {
+    console.error('[PeakMessaging] Bootstrap failed', error)
+    return {
+      ok: false as const,
+      error: error instanceof Error && error.message !== 'Authentication required'
+        ? error.message
+        : 'Messaging could not be loaded. Please refresh and sign in again if needed.',
+    }
+  }
+}
+
 export async function startPeakConversation(teacherId: string) {
   const actor = await getActor()
   if (actor.role !== 'student') throw new Error('Only students can start a teacher conversation')
@@ -238,7 +262,7 @@ export async function startPeakConversation(teacherId: string) {
   return data
 }
 
-export async function startTeacherPeakConversation(studentId: string) {
+async function startTeacherPeakConversationUnsafe(studentId: string) {
   const actor = await getActor()
   if (actor.role !== 'teacher') throw new Error('Only teachers can start a student conversation')
   const teacher = actor.teacher!
@@ -275,19 +299,295 @@ export async function startTeacherPeakConversation(studentId: string) {
   return data
 }
 
-export async function getPeakMessages(conversationId: string) {
-  const { admin } = await authorizeConversation(conversationId)
-  const { data, error } = await admin
-    .from('peak_messages')
-    .select('*, reactions:peak_message_reactions(emoji, user_id), reply:peak_messages!reply_to_id(id, body, sender_id)')
-    .eq('conversation_id', conversationId)
-    .order('created_at', { ascending: true })
-    .limit(300)
-  if (error) throw new Error(error.message)
-  return data || []
+export async function startTeacherPeakConversation(studentId: string) {
+  try {
+    const conversation = await startTeacherPeakConversationUnsafe(studentId)
+    return { ok: true as const, conversation }
+  } catch (error) {
+    console.error('[PeakMessaging] Teacher could not start conversation', { studentId, error })
+    const message = error instanceof Error && !error.message.includes('Server Components render')
+      ? error.message
+      : 'The conversation could not be opened. Please try again.'
+    return { ok: false as const, error: message }
+  }
 }
 
-export async function sendPeakMessage(input: {
+export async function getPeakMessages(conversationId: string) {
+  try {
+    const actor = await authorizeConversation(conversationId)
+    const { admin, conversation } = actor
+    const { data, error } = await admin
+      .from('peak_messages')
+      .select('*, reactions:peak_message_reactions(emoji, user_id), reply:peak_messages!reply_to_id(id, body, sender_id)')
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: true })
+      .limit(300)
+    if (error) {
+      console.error('[PeakMessaging] Thread load failed', { conversationId, error })
+      return { ok: false as const, error: 'This conversation could not be loaded.', messages: [] }
+    }
+    const recipientReadAt = actor.role === 'student'
+      ? conversation.teacher_last_read_at
+      : conversation.student_last_read_at
+    const { data: pins } = await admin
+      .from('peak_message_pins')
+      .select('message_id, pinned_by, created_at')
+      .eq('conversation_id', conversationId)
+    const pinsByMessage = new Map<string, any[]>()
+    for (const pin of pins || []) {
+      pinsByMessage.set(pin.message_id, [...(pinsByMessage.get(pin.message_id) || []), pin])
+    }
+    const messages = await Promise.all((data || []).map(async (message: any) => {
+      let voiceUrl: string | null = null
+      if (message.message_type === 'voice' && message.metadata?.storage_path) {
+        const { data: signed } = await admin.storage
+          .from('peak-message-voice')
+          .createSignedUrl(message.metadata.storage_path, 3600)
+        voiceUrl = signed?.signedUrl || null
+      }
+      return {
+        ...message,
+        pins: pinsByMessage.get(message.id) || [],
+        voice_url: voiceUrl,
+        delivery_status: message.sender_id !== actor.user.id
+          ? null
+          : recipientReadAt && new Date(recipientReadAt) >= new Date(message.created_at)
+            ? 'seen'
+            : 'delivered',
+      }
+    }))
+    return { ok: true as const, messages }
+  } catch (error) {
+    console.error('[PeakMessaging] Unexpected thread load failure', { conversationId, error })
+    return { ok: false as const, error: 'This conversation could not be loaded.', messages: [] }
+  }
+}
+
+async function notifyMessageRecipient(actor: Awaited<ReturnType<typeof authorizeConversation>>, preview: string) {
+  const recipientId = actor.conversation.student?.user_id === actor.user.id
+    ? actor.conversation.teacher?.user_id
+    : actor.conversation.student?.user_id
+  if (!recipientId) return
+  const senderName = actor.role === 'student' ? actor.student!.full_name : actor.teacher!.full_name
+  const href = `/${actor.role === 'student' ? 'teacher' : 'student'}/messages?conversation=${actor.conversation.id}`
+  await actor.admin.from('notifications').insert({
+    user_id: recipientId,
+    title: `New message from ${senderName}`,
+    body: preview,
+    type: 'message',
+    data: { conversation_id: actor.conversation.id, href },
+  })
+
+  if (!configureWebPush()) return
+  const { data: subscriptions } = await actor.admin
+    .from('peak_push_subscriptions')
+    .select('id, endpoint, p256dh, auth')
+    .eq('user_id', recipientId)
+  await Promise.all((subscriptions || []).map(async (subscription) => {
+    try {
+      await webPush.sendNotification({
+        endpoint: subscription.endpoint,
+        keys: { p256dh: subscription.p256dh, auth: subscription.auth },
+      }, JSON.stringify({
+        title: `New message from ${senderName}`,
+        body: preview,
+        icon: '/logo.png',
+        badge: '/logo.png',
+        href,
+        tag: `peak-message-${actor.conversation.id}`,
+      }))
+    } catch (error: any) {
+      if (error?.statusCode === 404 || error?.statusCode === 410) {
+        await actor.admin.from('peak_push_subscriptions').delete().eq('id', subscription.id)
+      } else {
+        console.warn('[PeakMessaging] Web Push delivery failed', error)
+      }
+    }
+  }))
+}
+
+async function createSpecialMessage(input: {
+  conversationId: string
+  messageType: 'voice' | 'learning_card'
+  body: string
+  metadata: Record<string, unknown>
+}) {
+  const actor = await authorizeConversation(input.conversationId)
+  if (actor.conversation.is_archived_by_student || actor.conversation.is_archived_by_teacher) {
+    throw new Error('This conversation is paused. Resume it before sending a new message.')
+  }
+  const { data: message, error } = await actor.admin.from('peak_messages').insert({
+    conversation_id: input.conversationId,
+    sender_id: actor.user.id,
+    body: input.body,
+    message_type: input.messageType,
+    metadata: input.metadata,
+  }).select('*').single()
+  if (error) throw new Error(error.message)
+  await Promise.all([
+    actor.admin.from('peak_conversations').update({
+      last_message_preview: input.body.slice(0, 120),
+      last_message_at: message.created_at,
+      updated_at: message.created_at,
+    }).eq('id', input.conversationId),
+    notifyMessageRecipient(actor, input.body),
+  ])
+  revalidatePath('/student/messages')
+  revalidatePath('/teacher/messages')
+  return message
+}
+
+export async function sendPeakVoiceNote(input: {
+  conversationId: string
+  base64: string
+  mimeType: string
+  durationSeconds: number
+}) {
+  try {
+    const actor = await authorizeConversation(input.conversationId)
+    const allowedTypes = ['audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg']
+    if (!allowedTypes.includes(input.mimeType)) return { ok: false as const, error: 'This audio format is not supported.' }
+    const bytes = Buffer.from(input.base64, 'base64')
+    if (!bytes.length || bytes.length > 8 * 1024 * 1024) return { ok: false as const, error: 'Voice notes must be under 8 MB.' }
+    const extension = input.mimeType.includes('ogg') ? 'ogg' : input.mimeType.includes('mp4') ? 'm4a' : input.mimeType.includes('mpeg') ? 'mp3' : 'webm'
+    const storagePath = `${input.conversationId}/${actor.user.id}/${crypto.randomUUID()}.${extension}`
+    const { error: uploadError } = await actor.admin.storage.from('peak-message-voice').upload(storagePath, bytes, {
+      contentType: input.mimeType,
+      upsert: false,
+    })
+    if (uploadError) throw new Error(uploadError.message)
+    const message = await createSpecialMessage({
+      conversationId: input.conversationId,
+      messageType: 'voice',
+      body: 'Voice note',
+      metadata: { storage_path: storagePath, duration_seconds: Math.max(1, Math.round(input.durationSeconds)), mime_type: input.mimeType },
+    })
+    const { data: signed } = await actor.admin.storage.from('peak-message-voice').createSignedUrl(storagePath, 3600)
+    return { ok: true as const, message: { ...message, voice_url: signed?.signedUrl || null, reactions: [], pins: [] } }
+  } catch (error) {
+    console.error('[PeakMessaging] Voice note failed', error)
+    return { ok: false as const, error: error instanceof Error ? error.message : 'Voice note could not be sent.' }
+  }
+}
+
+export async function sendPeakLearningCard(input: {
+  conversationId: string
+  title: string
+  description: string
+  cardType: 'task' | 'resource' | 'quiz' | 'reminder'
+  href?: string
+  dueAt?: string
+}) {
+  try {
+    const title = input.title.trim().slice(0, 120)
+    if (!title) return { ok: false as const, error: 'Add a title to the learning card.' }
+    const message = await createSpecialMessage({
+      conversationId: input.conversationId,
+      messageType: 'learning_card',
+      body: `${input.cardType === 'task' ? 'Learning task' : 'Learning card'}: ${title}`,
+      metadata: {
+        title,
+        description: input.description.trim().slice(0, 800),
+        card_type: input.cardType,
+        href: input.href?.trim() || null,
+        due_at: input.dueAt || null,
+      },
+    })
+    return { ok: true as const, message: { ...message, reactions: [], pins: [] } }
+  } catch (error) {
+    return { ok: false as const, error: error instanceof Error ? error.message : 'Learning card could not be sent.' }
+  }
+}
+
+export async function togglePeakMessagePin(messageId: string) {
+  const actor = await getActor()
+  const { data: message } = await actor.admin.from('peak_messages').select('id, conversation_id').eq('id', messageId).single()
+  if (!message) return { ok: false as const, error: 'Message not found.' }
+  await authorizeConversation(message.conversation_id)
+  const { data: existing } = await actor.admin.from('peak_message_pins')
+    .select('message_id').eq('message_id', messageId).eq('conversation_id', message.conversation_id).maybeSingle()
+  if (existing) {
+    await actor.admin.from('peak_message_pins').delete().eq('message_id', messageId).eq('conversation_id', message.conversation_id)
+  } else {
+    await actor.admin.from('peak_message_pins').insert({
+      message_id: messageId,
+      conversation_id: message.conversation_id,
+      pinned_by: actor.user.id,
+    })
+  }
+  return { ok: true as const, pinned: !existing }
+}
+
+export async function generatePeakConversationSummary(conversationId: string) {
+  const actor = await authorizeConversation(conversationId)
+  const { data: messages } = await actor.admin.from('peak_messages')
+    .select('body, sender_id, message_type, created_at')
+    .eq('conversation_id', conversationId)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: true })
+    .limit(200)
+  if (!messages?.length) return { ok: false as const, error: 'There are no messages to summarize yet.' }
+  const transcript = messages.map((item) => `${item.sender_id === actor.conversation.teacher.user_id ? 'Teacher' : 'Student'}: ${item.body}`).join('\n')
+  let summary = 'The conversation contains a learning discussion. Review the recent messages for the full context.'
+  let actionItems: string[] = []
+  let provider = 'peak-core'
+  if (hasGroqToken()) {
+    try {
+      const result = await callGroqChat([
+        { role: 'system', content: 'Summarize this student-teacher learning conversation. Return strict JSON: {"summary":"2-4 concise sentences","actionItems":["clear next step"]}. Preserve safeguarding boundaries and do not invent facts.' },
+        { role: 'user', content: transcript },
+      ], { temperature: 0.2, maxTokens: 500, responseFormat: { type: 'json_object' } })
+      const parsed = JSON.parse(result.content)
+      summary = String(parsed.summary || summary)
+      actionItems = Array.isArray(parsed.actionItems) ? parsed.actionItems.map(String).slice(0, 8) : []
+      provider = result.model
+    } catch (error) {
+      console.warn('[PeakMessaging] Summary fallback engaged', error)
+    }
+  }
+  const { data, error } = await actor.admin.from('peak_conversation_summaries').upsert({
+    conversation_id: conversationId,
+    summary,
+    action_items: actionItems,
+    generated_by: actor.user.id,
+    source_message_count: messages.length,
+    provider,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'conversation_id' }).select('*').single()
+  if (error) return { ok: false as const, error: error.message }
+  return { ok: true as const, summary: data }
+}
+
+export async function getPeakConversationSummary(conversationId: string) {
+  const actor = await authorizeConversation(conversationId)
+  const { data } = await actor.admin.from('peak_conversation_summaries').select('*').eq('conversation_id', conversationId).maybeSingle()
+  return data
+}
+
+export async function savePeakPushSubscription(subscription: {
+  endpoint: string
+  keys: { p256dh: string; auth: string }
+  userAgent?: string
+}) {
+  const actor = await getActor()
+  const { error } = await actor.admin.from('peak_push_subscriptions').upsert({
+    user_id: actor.user.id,
+    endpoint: subscription.endpoint,
+    p256dh: subscription.keys.p256dh,
+    auth: subscription.keys.auth,
+    user_agent: subscription.userAgent || null,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'endpoint' })
+  return error ? { ok: false as const, error: error.message } : { ok: true as const }
+}
+
+export async function deletePeakPushSubscription(endpoint: string) {
+  const actor = await getActor()
+  await actor.admin.from('peak_push_subscriptions').delete().eq('user_id', actor.user.id).eq('endpoint', endpoint)
+  return { ok: true as const }
+}
+
+async function sendPeakMessageUnsafe(input: {
   conversationId: string
   body: string
   replyToId?: string | null
@@ -296,6 +596,9 @@ export async function sendPeakMessage(input: {
   const body = input.body.trim()
   if (!body || body.length > 4000) throw new Error('Message must be between 1 and 4000 characters')
   const actor = await authorizeConversation(input.conversationId)
+  if (actor.conversation.is_archived_by_student || actor.conversation.is_archived_by_teacher) {
+    throw new Error('This conversation is paused. Resume it before sending a new message.')
+  }
 
   const { data: recent } = await actor.admin
     .from('peak_messages')
@@ -337,24 +640,13 @@ export async function sendPeakMessage(input: {
     .single()
   if (error) throw new Error(error.message)
 
-  const recipientId = actor.conversation.student?.user_id === actor.user.id
-    ? actor.conversation.teacher?.user_id
-    : actor.conversation.student?.user_id
-  const senderName = actor.role === 'student' ? actor.student!.full_name : actor.teacher!.full_name
-
   await Promise.all([
     actor.admin.from('peak_conversations').update({
       last_message_preview: body.slice(0, 120),
       last_message_at: message.created_at,
       updated_at: message.created_at,
     }).eq('id', input.conversationId),
-    recipientId ? actor.admin.from('notifications').insert({
-      user_id: recipientId,
-      title: `New message from ${senderName}`,
-      body: body.slice(0, 120),
-      type: 'message',
-      data: { conversation_id: input.conversationId, href: `/${actor.role === 'student' ? 'teacher' : 'student'}/messages?conversation=${input.conversationId}` },
-    }) : Promise.resolve(),
+    notifyMessageRecipient(actor, body.slice(0, 120)),
   ])
 
   if (safety.categories.length > 0) {
@@ -375,6 +667,28 @@ export async function sendPeakMessage(input: {
   revalidatePath('/student/messages')
   revalidatePath('/teacher/messages')
   return { sent: true, message, safety }
+}
+
+export async function sendPeakMessage(input: {
+  conversationId: string
+  body: string
+  replyToId?: string | null
+  confirmed?: boolean
+}) {
+  try {
+    return await sendPeakMessageUnsafe(input)
+  } catch (error) {
+    console.error('[PeakMessaging] Message send failed', {
+      conversationId: input.conversationId,
+      error,
+    })
+    return {
+      sent: false,
+      error: error instanceof Error && !error.message.includes('Server Components render')
+        ? error.message
+        : 'Your message could not be sent. Please try again.',
+    }
+  }
 }
 
 export async function editPeakMessage(messageId: string, bodyInput: string, confirmed = false) {
@@ -422,6 +736,29 @@ export async function markPeakConversationRead(conversationId: string) {
   const column = actor.role === 'student' ? 'student_last_read_at' : 'teacher_last_read_at'
   await actor.admin.from('peak_conversations').update({ [column]: new Date().toISOString() }).eq('id', conversationId)
   return { read: true }
+}
+
+export async function getPeakTypingStatus(conversationId: string) {
+  const actor = await authorizeConversation(conversationId)
+  const { data } = await actor.admin
+    .from('peak_typing_presence')
+    .select('user_id, is_typing, updated_at')
+    .eq('conversation_id', conversationId)
+    .neq('user_id', actor.user.id)
+  return (data || []).some((item) =>
+    item.is_typing && Date.now() - new Date(item.updated_at).getTime() < 5000
+  )
+}
+
+export async function setPeakConversationPaused(conversationId: string, paused: boolean) {
+  const actor = await authorizeConversation(conversationId)
+  const column = actor.role === 'student' ? 'is_archived_by_student' : 'is_archived_by_teacher'
+  const { error } = await actor.admin
+    .from('peak_conversations')
+    .update({ [column]: paused, updated_at: new Date().toISOString() })
+    .eq('id', conversationId)
+  if (error) return { ok: false as const, error: 'The conversation setting could not be changed.' }
+  return { ok: true as const, paused }
 }
 
 export async function togglePeakReaction(messageId: string, emoji: string) {

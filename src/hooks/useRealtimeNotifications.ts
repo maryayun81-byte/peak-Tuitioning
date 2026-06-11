@@ -10,7 +10,24 @@ import { playGeneratedSound, type SoundProfile } from '@/lib/sounds'
 export function useRealtimeNotifications() {
   const supabase = getSupabaseBrowserClient()
   const { profile } = useAuthStore()
-  const { addNotification, setNotifications, markRead, deleteNotification } = useNotificationStore()
+  const { addNotification, setNotifications, markRead, deleteNotification, unreadCount } = useNotificationStore()
+
+  useEffect(() => {
+    const baseTitle = 'Peak Performance Tutoring'
+    document.title = unreadCount > 0 ? `(${unreadCount > 99 ? '99+' : unreadCount}) ${baseTitle}` : baseTitle
+
+    const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]') || document.createElement('link')
+    icon.rel = 'icon'
+    icon.href = unreadCount > 0
+      ? `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#2563eb"/><path d="M17 44V20h18c8 0 13 4 13 11s-5 11-13 11H27v2H17zm10-11h8c2 0 3-1 3-2s-1-2-3-2h-8v4z" fill="white"/><circle cx="51" cy="13" r="11" fill="#ef4444"/><text x="51" y="17" font-size="12" text-anchor="middle" fill="white" font-family="Arial" font-weight="700">${unreadCount > 9 ? '9+' : unreadCount}</text></svg>`)}`
+      : '/logo.png'
+    if (!icon.parentNode) document.head.appendChild(icon)
+
+    return () => {
+      document.title = baseTitle
+      icon.href = '/logo.png'
+    }
+  }, [unreadCount])
 
   useEffect(() => {
     if (!profile?.id) return
@@ -60,7 +77,8 @@ export function useRealtimeNotifications() {
             body: newNotif.body,
             type: newNotif.type,
             read: false,
-            created_at: newNotif.created_at
+            created_at: newNotif.created_at,
+            data: newNotif.data,
           })
 
           // Trigger priority modal if it's an admin broadcast
@@ -92,6 +110,20 @@ export function useRealtimeNotifications() {
                boxShadow: isAcademic ? '0 20px 25px -5px rgba(251,191,36,0.08)' : '0 20px 25px -5px rgba(0, 0, 0, 0.1)'
             }
           })
+
+          if (newNotif.type === 'message' && document.visibilityState !== 'visible' && 'Notification' in window && Notification.permission === 'granted') {
+            const browserNotification = new Notification(newNotif.title, {
+              body: newNotif.body,
+              icon: '/logo.png',
+              badge: '/logo.png',
+              tag: `peak-message-${newNotif.data?.conversation_id || newNotif.id}`,
+            })
+            browserNotification.onclick = () => {
+              window.focus()
+              if (newNotif.data?.href) window.location.href = newNotif.data.href
+              browserNotification.close()
+            }
+          }
 
           // Play subtle notification sound if enabled
           const { preferences } = useNotificationStore.getState()

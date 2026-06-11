@@ -85,9 +85,7 @@ function LoginForm() {
           return
         }
 
-        toast.success(`Successfully logged in as ${selectedRole}! Welcome back.`, {
-          icon: 'ðŸš€',
-        })
+        toast.success(`Successfully logged in as ${selectedRole}! Welcome back.`)
 
         // Redirect IMMEDIATELY â€” don't wait for data to load.
         // AuthHandler fires SIGNED_IN event and loads profile+student in background.
