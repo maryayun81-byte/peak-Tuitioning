@@ -25,6 +25,12 @@ import {
   Award,
   Phone,
   Calendar,
+  ArrowUpRight,
+  Clock3,
+  BrainCircuit,
+  Compass,
+  HeartHandshake,
+  ScanSearch,
 } from 'lucide-react'
 import { PremiumCarousel } from '@/components/ui/PremiumCarousel'
 import { PublicPortalMenu } from '@/components/ui/PublicPortalMenu'
@@ -88,6 +94,24 @@ const painSolutions = [
   ['Students who read but forget', 'Active recall and blurting make gaps visible immediately.'],
   ['D and C students losing hope', 'Scaffolded wins rebuild confidence before adding complexity.'],
   ['B students stuck below A', 'Timed exam pressure, marking-scheme language, and harder questions.'],
+]
+
+const peakIdentity = [
+  {
+    title: 'Diagnostic before teaching',
+    body: 'We begin by understanding marks, habits, confidence, curriculum gaps, and the learner behind the report card.',
+    icon: ScanSearch,
+  },
+  {
+    title: 'Human guidance, precisely matched',
+    body: 'Students learn in small, ability-matched groups with a guide who adjusts challenge, pace, and explanation in real time.',
+    icon: HeartHandshake,
+  },
+  {
+    title: 'Progress families can see',
+    body: 'Practice, feedback, attendance, live sessions, and academic movement stay connected in one Peak learning system.',
+    icon: Compass,
+  },
 ]
 
 const programmes = [
@@ -162,7 +186,7 @@ function FaqItem({ question, answer }: { question: string; answer: string }) {
         onClick={() => setOpen(!open)}
         className="flex w-full items-center justify-between gap-4 py-4 text-left"
       >
-        <span className="text-sm font-bold text-slate-900">{question}</span>
+        <span className="text-sm font-bold text-[#073159]">{question}</span>
         <ChevronDown
           size={16}
           className={`shrink-0 text-slate-400 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
@@ -172,6 +196,215 @@ function FaqItem({ question, answer }: { question: string; answer: string }) {
         <div className="pb-4 text-sm leading-6 text-slate-600">{answer}</div>
       )}
     </div>
+  )
+}
+
+function PremiumLandingHero() {
+  return (
+    <section className="relative overflow-hidden bg-[#071a2d] text-white">
+      <motion.div
+        aria-hidden="true"
+        animate={{ x: [0, 45, 0], y: [0, -30, 0], scale: [1, 1.12, 1] }}
+        transition={{ duration: 9, repeat: Infinity, ease: 'easeInOut' }}
+        className="absolute -left-32 top-28 h-80 w-80 rounded-full bg-[#145da0]/20 blur-3xl"
+      />
+      <div className="absolute right-0 top-0 h-full w-2/3 bg-[radial-gradient(circle_at_70%_35%,rgba(183,239,101,0.12),transparent_42%)]" />
+
+      <nav className="relative z-50 mx-auto max-w-7xl px-3 pt-3 sm:px-6 sm:pt-5 lg:px-8">
+        <div className="flex h-[64px] items-center justify-between rounded-2xl border border-white/10 bg-white/[0.07] px-3 shadow-[0_18px_60px_rgba(0,0,0,0.2)] backdrop-blur-xl sm:h-[72px] sm:px-4">
+          <Link href="/" className="flex min-w-0 items-center gap-2.5 sm:gap-3">
+            <motion.img
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0, transition: { duration: 0.5 } }}
+              src="/logo.png"
+              alt="Peak Performance logo"
+              className="h-10 w-10 shrink-0 rounded-xl bg-white object-contain p-0.5 shadow-lg sm:h-12 sm:w-12"
+              loading="eager"
+            />
+            <motion.div
+              initial={{ opacity: 0, x: -15 }}
+              animate={{ opacity: 1, x: 0, transition: { duration: 0.5, delay: 0.1 } }}
+              className="min-w-0"
+            >
+              <div className="truncate font-playfair text-[17px] font-semibold leading-none tracking-[-0.02em] sm:text-xl">Peak Performance</div>
+              <div className="mt-1 truncate text-[9px] font-bold uppercase tracking-[0.2em] text-[#7ed957] sm:text-[10px]">Tutoring Kenya</div>
+            </motion.div>
+          </Link>
+          <div className="hidden items-center gap-8 text-sm font-semibold text-white/65 md:flex">
+            <Link href="#who-we-are" className="transition hover:text-white">Who We Are</Link>
+            <Link href="#how-it-works" className="transition hover:text-white">How It Works</Link>
+            <Link href="#programmes" className="transition hover:text-white">Programmes</Link>
+            <Link href="/tuition-center-nairobi" className="transition hover:text-white">Nairobi Campus</Link>
+          </div>
+          <PublicPortalMenu />
+        </div>
+      </nav>
+
+      <div className="relative z-10 mx-auto grid max-w-7xl gap-12 px-4 pb-16 pt-14 sm:px-6 sm:pb-20 sm:pt-20 lg:min-h-[720px] lg:grid-cols-[1.02fr_0.98fr] lg:items-center lg:gap-16 lg:px-8 lg:py-20">
+        <div className="max-w-3xl">
+          <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0, transition: { duration: 0.6, delay: 0.2 } }}
+            className="mb-6 inline-flex items-center gap-2 rounded-full border border-[#7ed957]/25 bg-[#7ed957]/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.2em] text-[#a5ef87] backdrop-blur sm:text-xs"
+          >
+            <Sparkles size={14} /> Nairobi&apos;s diagnostic-first learning studio
+          </motion.div>
+          <motion.h1
+            initial={{ opacity: 0, y: 32 }}
+            animate={{ opacity: 1, y: 0, transition: { duration: 0.7, delay: 0.35, ease: [0.25, 0.1, 0.25, 1] } }}
+            className="font-playfair text-[clamp(3.25rem,9vw,5.9rem)] font-semibold leading-[0.88] tracking-[-0.055em]"
+          >
+            Tutoring built for <span className="text-[#7ed957]">measurable</span> progress.
+          </motion.h1>
+          <motion.p
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0, transition: { duration: 0.6, delay: 0.5 } }}
+            className="mt-7 max-w-2xl text-base leading-7 text-white/65 sm:text-lg sm:leading-8"
+          >
+            We find the exact reason marks are being lost, build a personal learning route, and turn every session into visible academic movement for Kenyan 8-4-4 and CBC learners.
+          </motion.p>
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0, transition: { duration: 0.5, delay: 0.65 } }}
+            className="mt-9 flex flex-col gap-3 min-[430px]:flex-row"
+          >
+            <Link
+              href="/auth/register"
+              className="inline-flex items-center justify-center gap-2 rounded-full bg-[#7ed957] px-6 py-3.5 text-sm font-black text-[#073159] shadow-[0_16px_35px_rgba(76,175,37,0.22)] transition hover:-translate-y-0.5 hover:bg-white"
+            >
+              Book a free diagnostic <ArrowUpRight size={17} />
+            </Link>
+            <Link
+              href="#how-it-works"
+              className="inline-flex items-center justify-center gap-2 rounded-full border border-white/20 bg-white/[0.04] px-6 py-3.5 text-sm font-bold text-white transition hover:bg-white/10"
+            >
+              Explore the Peak method
+            </Link>
+          </motion.div>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1, transition: { duration: 0.6, delay: 0.85 } }}
+            className="mt-9 flex flex-wrap gap-x-6 gap-y-3 text-xs font-semibold text-white/50"
+          >
+            <span className="flex items-center gap-2"><CheckCircle2 size={15} className="text-[#7ed957]" /> Small, ability-matched groups</span>
+            <span className="flex items-center gap-2"><CheckCircle2 size={15} className="text-[#7ed957]" /> Parent-visible progress</span>
+          </motion.div>
+        </div>
+
+        <motion.div
+          initial={{ opacity: 0, x: 40, scale: 0.96 }}
+          animate={{ opacity: 1, x: 0, scale: 1, transition: { duration: 0.8, delay: 0.45 } }}
+          className="relative mx-auto w-full max-w-[570px] lg:mx-0"
+        >
+          <div className="absolute -inset-3 rounded-[2rem] border border-white/10 sm:-inset-5 sm:rounded-[2.5rem]" />
+          <div className="relative overflow-hidden rounded-[1.5rem] bg-white/10 shadow-[0_36px_90px_rgba(0,0,0,0.4)] sm:rounded-[2rem]">
+            <motion.img
+              animate={{ scale: [1, 1.035, 1] }}
+              transition={{ duration: 10, repeat: Infinity, ease: 'easeInOut' }}
+              src="/media__1776963140564.jpg"
+              alt="Peak Performance students in a focused learning session"
+              className="h-[370px] w-full object-cover object-center sm:h-[540px]"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-[#071a2d]/75 via-transparent to-transparent" />
+            <div className="absolute bottom-0 left-0 right-0 p-5 sm:p-7">
+              <div className="max-w-sm rounded-2xl border border-white/15 bg-[#071a2d]/75 p-4 backdrop-blur-xl sm:p-5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#7ed957]">The Peak difference</span>
+                  <BrainCircuit size={18} className="text-[#7ed957]" />
+                </div>
+                <p className="mt-2 font-playfair text-xl font-semibold leading-tight sm:text-2xl">Every learner gets a route, not a routine.</p>
+              </div>
+            </div>
+          </div>
+          <motion.div
+            animate={{ y: [0, -8, 0] }}
+            transition={{ duration: 4.5, repeat: Infinity, ease: 'easeInOut' }}
+            className="absolute -right-1 top-5 rounded-2xl border border-white/15 bg-white px-3 py-3 text-[#071a2d] shadow-2xl sm:-right-7 sm:top-9 sm:px-4"
+          >
+            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.14em] text-[#145da0]"><Clock3 size={14} /> Focused rhythm</div>
+            <div className="mt-1 font-playfair text-lg font-semibold sm:text-xl">90-minute sessions</div>
+          </motion.div>
+        </motion.div>
+      </div>
+    </section>
+  )
+}
+
+function HowPeakTutors() {
+  return (
+    <motion.section
+      id="how-it-works"
+      initial="hidden"
+      whileInView="visible"
+      viewport={{ once: true, amount: 0.15 }}
+      className="relative overflow-hidden bg-[#073159] px-4 py-20 text-white sm:px-6 sm:py-28 lg:px-8"
+    >
+      <motion.div
+        aria-hidden="true"
+        animate={{ x: ['-15%', '115%'] }}
+        transition={{ duration: 12, repeat: Infinity, ease: 'linear' }}
+        className="absolute top-0 h-px w-1/3 bg-gradient-to-r from-transparent via-[#7ed957] to-transparent"
+      />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_10%_90%,rgba(20,93,160,0.42),transparent_32%)]" />
+      <div className="relative mx-auto max-w-7xl">
+        <div className="grid gap-8 lg:grid-cols-[0.75fr_1.25fr] lg:items-end">
+          <motion.div variants={fadeUp}>
+            <p className="text-xs font-black uppercase tracking-[0.22em] text-[#7ed957]">How we do tutoring</p>
+            <h2 className="mt-5 text-4xl font-semibold leading-none sm:text-6xl">A deliberate journey from diagnosis to independence.</h2>
+          </motion.div>
+          <motion.div variants={fadeUp} custom={1} className="max-w-2xl lg:justify-self-end">
+            <p className="text-base leading-8 text-white/64">
+              Peak is not homework supervision. Each learner moves through a repeatable teaching cycle that reveals gaps, builds understanding, tests application, and records the next best action.
+            </p>
+            <Link href="/about" className="mt-6 inline-flex items-center gap-2 text-sm font-black text-[#7ed957] transition hover:gap-3 hover:text-white">
+              Explore our full teaching philosophy <ArrowRight size={16} />
+            </Link>
+          </motion.div>
+        </div>
+
+        <div className="relative mt-14 grid gap-4 lg:grid-cols-4">
+          <div className="absolute left-[12%] right-[12%] top-9 hidden h-px bg-gradient-to-r from-[#4caf25]/20 via-[#7ed957] to-[#4caf25]/20 lg:block" />
+          {methodSteps.map(({ title, body, icon: Icon }, index) => (
+            <motion.article
+              key={title}
+              custom={index}
+              variants={fadeUp}
+              whileHover={{ y: -10, scale: 1.015 }}
+              className="group relative rounded-[1.5rem] border border-white/12 bg-white/[0.055] p-6 backdrop-blur-sm transition-colors hover:border-[#7ed957]/40 hover:bg-white/[0.09]"
+            >
+              <motion.div
+                whileHover={{ rotate: 8, scale: 1.08 }}
+                className="relative z-10 grid h-[72px] w-[72px] place-items-center rounded-2xl border border-[#7ed957]/25 bg-[#062744] text-[#7ed957] shadow-xl"
+              >
+                <Icon size={29} />
+              </motion.div>
+              <div className="mt-8 flex items-center justify-between">
+                <span className="text-[10px] font-black uppercase tracking-[0.18em] text-[#7ed957]">Stage {index + 1}</span>
+                <span className="font-playfair text-2xl text-white/20">0{index + 1}</span>
+              </div>
+              <h3 className="mt-3 text-2xl font-semibold leading-tight">{title}</h3>
+              <p className="mt-4 text-sm leading-7 text-white/58">{body}</p>
+            </motion.article>
+          ))}
+        </div>
+
+        <motion.div
+          initial={{ opacity: 0, scaleX: 0.85 }}
+          whileInView={{ opacity: 1, scaleX: 1 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.8, delay: 0.25 }}
+          className="mt-8 flex flex-wrap items-center justify-center gap-x-7 gap-y-3 rounded-2xl border border-[#145da0]/40 bg-[#062744] px-5 py-4 text-xs font-bold text-white/65"
+        >
+          <span>Diagnostic profile</span>
+          <ArrowRight size={14} className="text-[#7ed957]" />
+          <span>Ability-matched group</span>
+          <ArrowRight size={14} className="text-[#7ed957]" />
+          <span>Active production</span>
+          <ArrowRight size={14} className="text-[#7ed957]" />
+          <span>Measured next step</span>
+        </motion.div>
+      </div>
+    </motion.section>
   )
 }
 
@@ -191,104 +424,42 @@ export default function HomePage() {
   }, [])
 
   return (
-    <main className="min-h-screen bg-[#f6f3ed] text-slate-950 pb-[52px] sm:pb-[56px]">
+    <main className="premium-landing min-h-screen bg-[#f4f8fb] pb-[64px] font-dm-sans text-[#073159] sm:pb-[68px]">
       {/* ── Sticky CTA ── */}
-      <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-white/10 bg-slate-950/95 backdrop-blur-md">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-2.5 sm:px-6 lg:px-8">
+      <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-white/10 bg-[#071a2d]/95 shadow-[0_-16px_45px_rgba(2,6,23,0.18)] backdrop-blur-xl">
+        <div className="mx-auto flex max-w-7xl items-center justify-center px-3 py-2.5 sm:justify-between sm:px-6 lg:px-8">
           <span className="hidden text-sm font-bold text-white sm:inline">
-            First diagnostic session free
+            Begin with clarity. Your first diagnostic session is complimentary.
           </span>
           <Link
             href="/auth/register"
-            className="inline-flex items-center gap-2 rounded-full bg-emerald-400 px-5 py-2 text-xs font-bold uppercase tracking-[0.14em] text-slate-950 transition hover:bg-emerald-300 sm:text-sm"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-[#7ed957] px-5 py-2.5 text-xs font-black uppercase tracking-[0.13em] text-[#073159] transition hover:bg-white sm:w-auto sm:text-sm"
           >
             <Phone size={14} /> Book free diagnostic
           </Link>
         </div>
       </div>
 
-      {/* ── Hero ── */}
-      <section className="relative min-h-[82vh] overflow-hidden bg-slate-950 text-white">
-        <motion.img
-          initial={{ scale: 1.15 }}
-          animate={{ scale: 1, transition: { duration: 8, ease: 'easeOut' } }}
-          src="/media__1776963140564.jpg"
-          alt="Peak Performance learning environment"
-          className="absolute inset-0 h-full w-full object-cover"
-        />
-        <div className="absolute inset-0 bg-slate-950/68" />
-        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(2,6,23,.92)_0%,rgba(2,6,23,.72)_42%,rgba(2,6,23,.18)_100%)]" />
+      <PremiumLandingHero />
 
-        <nav className="relative z-50 mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-          <Link href="/" className="flex items-center gap-3">
-            <motion.img
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0, transition: { duration: 0.5 } }}
-              src="/logo.png"
-              alt="Peak Performance logo"
-              className="h-11 w-11 rounded-md bg-white object-contain p-1"
-              loading="eager"
-            />
-            <motion.div
-              initial={{ opacity: 0, x: -15 }}
-              animate={{ opacity: 1, x: 0, transition: { duration: 0.5, delay: 0.1 } }}
-            >
-              <div className="text-sm font-black uppercase tracking-[0.24em]">Peak Performance</div>
-              <div className="text-xs text-white/60">Tutoring Kenya</div>
-            </motion.div>
-          </Link>
-          <div className="hidden items-center gap-7 text-sm font-semibold text-white/75 md:flex">
-            <Link href="/about" className="hover:text-white">About</Link>
-            <Link href="/kcse-and-cbc-tutoring-kenya" className="hover:text-white">Programmes</Link>
-            <Link href="/tuition-center-nairobi" className="hover:text-white">Nairobi Hub</Link>
-          </div>
-          <PublicPortalMenu />
-        </nav>
-
-        <div className="relative z-10 mx-auto flex max-w-7xl flex-col justify-center px-4 pb-14 pt-20 sm:px-6 lg:min-h-[66vh] lg:px-8">
-          <div className="max-w-3xl">
-            <motion.div
-              initial={{ opacity: 0, y: 24 }}
-              animate={{ opacity: 1, y: 0, transition: { duration: 0.6, delay: 0.2 } }}
-              className="mb-5 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-bold uppercase tracking-[0.22em] text-emerald-100 backdrop-blur"
-            >
-              <Sparkles size={14} /> From potential to performance
-            </motion.div>
-            <motion.h1
-              initial={{ opacity: 0, y: 32 }}
-              animate={{ opacity: 1, y: 0, transition: { duration: 0.7, delay: 0.35, ease: [0.25, 0.1, 0.25, 1] } }}
-              className="text-4xl font-black leading-[0.96] tracking-tight sm:text-5xl lg:text-6xl"
-            >
-              Peak Performance Tutoring
-            </motion.h1>
-            <motion.p
-              initial={{ opacity: 0, y: 24 }}
-              animate={{ opacity: 1, y: 0, transition: { duration: 0.6, delay: 0.5 } }}
-              className="mt-6 max-w-2xl text-base leading-relaxed text-white/75 sm:text-lg"
-            >
-              A diagnostic, tiered tutoring system for Kenyan 8-4-4 and CBC learners. We identify the exact mark gap, place each student in the right group, and guide them toward visible academic movement.
-            </motion.p>
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0, transition: { duration: 0.5, delay: 0.65 } }}
-              className="mt-8 flex flex-col gap-3 sm:flex-row"
-            >
-              <Link
-                href="/auth/register"
-                className="inline-flex items-center justify-center gap-2 rounded-full bg-emerald-400 px-6 py-3 text-sm font-bold uppercase tracking-[0.14em] text-slate-950 transition hover:bg-emerald-300"
-              >
-                Start diagnostic <ArrowRight size={17} />
-              </Link>
-              <Link
-                href="/about"
-                className="inline-flex items-center justify-center gap-2 rounded-full border border-white/25 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
-              >
-                See the method
-              </Link>
-            </motion.div>
-          </div>
-        </div>
-      </section>
+      <div className="overflow-hidden border-y border-white/10 bg-[#145da0] py-3 text-white">
+        <motion.div
+          animate={{ x: ['0%', '-50%'] }}
+          transition={{ duration: 22, repeat: Infinity, ease: 'linear' }}
+          className="flex w-max items-center whitespace-nowrap"
+        >
+          {[0, 1].map((copy) => (
+            <div key={copy} className="flex items-center">
+              {['Diagnose precisely', 'Match intelligently', 'Teach actively', 'Measure visibly', 'Build independence'].map((item) => (
+                <span key={`${copy}-${item}`} className="flex items-center">
+                  <span className="px-7 text-[10px] font-black uppercase tracking-[0.24em] sm:px-10 sm:text-xs">{item}</span>
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#7ed957]" />
+                </span>
+              ))}
+            </div>
+          ))}
+        </motion.div>
+      </div>
 
       {/* ── Stats ── */}
       <motion.section
@@ -296,9 +467,9 @@ export default function HomePage() {
         initial="hidden"
         whileInView="visible"
         viewport={{ once: true, amount: 0.3 }}
-        className="border-y border-slate-200 bg-white"
+        className="border-b border-[#145da0]/12 bg-[#eaf3f8]"
       >
-        <div className="mx-auto grid max-w-7xl grid-cols-2 gap-px bg-slate-200 px-0 sm:grid-cols-4">
+        <div className="mx-auto grid max-w-7xl grid-cols-2 sm:grid-cols-4">
           {outcomes.map(({ label, value, icon: Icon }, i) => (
             <motion.div
               key={label}
@@ -307,52 +478,85 @@ export default function HomePage() {
               initial="hidden"
               whileInView="visible"
               viewport={{ once: true }}
-              className="bg-white px-4 py-5 sm:px-6"
+              whileHover={{ y: -5, backgroundColor: '#ffffff' }}
+              className="border-b border-r border-[#071a2d]/10 px-4 py-6 sm:border-b-0 sm:px-6 sm:py-8"
             >
-              <Icon className="mb-3 h-5 w-5 text-emerald-700" />
-              <div className="text-2xl font-black tracking-tight text-slate-950">{value}</div>
-              <div className="mt-1 text-sm font-medium text-slate-600">{label}</div>
+              <Icon className="mb-4 h-5 w-5 text-[#145da0]" />
+              <div className="font-playfair text-2xl font-semibold tracking-tight text-[#071a2d] sm:text-3xl">{value}</div>
+              <div className="mt-1 text-xs font-bold uppercase tracking-[0.1em] text-slate-500">{label}</div>
             </motion.div>
           ))}
         </div>
       </motion.section>
 
-      {/* ── Problem ── */}
-      <section className="px-4 py-14 sm:px-6 lg:px-8">
-        <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
+      {/* ── Who Peak is ── */}
+      <section id="who-we-are" className="relative overflow-hidden bg-white px-4 py-20 sm:px-6 sm:py-28 lg:px-8">
+        <motion.div
+          aria-hidden="true"
+          animate={{ rotate: 360 }}
+          transition={{ duration: 28, repeat: Infinity, ease: 'linear' }}
+          className="absolute -right-32 top-16 h-80 w-80 rounded-full border border-[#145da0]/10"
+        />
+        <div className="relative mx-auto max-w-7xl">
+          <div className="grid gap-12 lg:grid-cols-[0.82fr_1.18fr] lg:items-end lg:gap-20">
           <motion.div
             initial={{ opacity: 0, x: -40 }}
             whileInView={{ opacity: 1, x: 0, transition: { duration: 0.6 } }}
             viewport={{ once: true }}
           >
-            <div className="mb-4 h-1 w-14 bg-emerald-600" />
-            <p className="text-sm font-bold uppercase tracking-[0.22em] text-emerald-800">The problem Peak solves</p>
-            <h2 className="mt-4 text-3xl font-black tracking-tight sm:text-5xl">Most learners do not need more noise. They need the right intervention.</h2>
-            <p className="mt-5 text-base leading-relaxed text-slate-600">
-              Schools carry the syllabus. Peak carries the individual learner. Our guides study why a student is losing marks, then adapt every session to the learner&apos;s tier, curriculum, confidence, and exam temperament.
+            <div className="mb-5 h-px w-16 bg-[#4caf25]" />
+            <p className="text-xs font-black uppercase tracking-[0.22em] text-[#145da0]">Who is Peak Performance Tutoring?</p>
+            <h2 className="mt-5 text-4xl font-semibold leading-[0.98] tracking-[-0.04em] sm:text-6xl">A learning studio built around the individual student.</h2>
+            <p className="mt-6 text-base leading-8 text-[#496174]">
+              Peak Performance Tutoring is a Nairobi-based academic support system for Kenyan 8-4-4 and CBC learners. We combine skilled human tutoring, small-group attention, diagnostic insight, and a connected digital campus.
+            </p>
+            <p className="mt-4 text-base leading-8 text-[#496174]">
+              Schools carry the syllabus. Peak carries the learner: how they think, where confidence drops, why marks leak, and what must happen next.
             </p>
           </motion.div>
-          <div className="grid gap-3">
-            {painSolutions.map(([problem, solution], i) => (
+          <div className="grid gap-4 sm:grid-cols-3">
+            {peakIdentity.map(({ title, body, icon: Icon }, i) => (
               <motion.div
-                key={problem}
+                key={title}
                 custom={i}
                 variants={fadeUp}
                 initial="hidden"
                 whileInView="visible"
-                viewport={{ once: true }}
-                className="grid gap-2 rounded-lg border border-slate-200 bg-white p-5 shadow-sm sm:grid-cols-[180px_1fr]"
+                viewport={{ once: true, amount: 0.25 }}
+                whileHover={{ y: -8 }}
+                className="group relative overflow-hidden rounded-[1.5rem] border border-[#145da0]/12 bg-[#f4f9fc] p-6 shadow-[0_18px_45px_rgba(7,49,89,0.06)] transition-shadow hover:shadow-[0_24px_60px_rgba(7,49,89,0.13)]"
               >
-                <div className="text-sm font-bold uppercase tracking-[0.14em] text-rose-700">{problem}</div>
-                <div className="flex gap-3 text-slate-600">
-                  <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" />
-                  <span className="leading-relaxed">{solution}</span>
+                <div className="absolute inset-x-0 top-0 h-1 origin-left scale-x-0 bg-gradient-to-r from-[#145da0] to-[#4caf25] transition-transform duration-500 group-hover:scale-x-100" />
+                <div className="grid h-12 w-12 place-items-center rounded-2xl bg-[#073159] text-white shadow-lg shadow-[#073159]/15">
+                  <Icon size={22} />
                 </div>
+                <div className="mt-8 text-[10px] font-black uppercase tracking-[0.18em] text-[#4caf25]">0{i + 1}</div>
+                <h3 className="mt-3 text-xl font-semibold leading-tight text-[#073159]">{title}</h3>
+                <p className="mt-3 text-sm leading-6 text-[#5d7180]">{body}</p>
               </motion.div>
             ))}
           </div>
+          </div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0, transition: { duration: 0.6, delay: 0.15 } }}
+            viewport={{ once: true }}
+            className="mt-16 grid overflow-hidden rounded-[1.5rem] border border-[#145da0]/12 bg-[#073159] sm:grid-cols-2 lg:grid-cols-4"
+          >
+            {painSolutions.map(([problem, solution], index) => (
+              <div key={problem} className="border-b border-white/10 p-5 sm:border-r lg:border-b-0 lg:p-6">
+                <div className="text-[10px] font-black uppercase tracking-[0.17em] text-[#7ed957]">What changes</div>
+                <div className="mt-2 text-sm font-bold text-white">{problem}</div>
+                <p className="mt-2 text-xs leading-5 text-white/58">{solution}</p>
+                <div className="mt-4 h-0.5 w-8 bg-[#4caf25]" style={{ opacity: 1 - index * 0.14 }} />
+              </div>
+            ))}
+          </motion.div>
         </div>
       </section>
+
+      <HowPeakTutors />
 
       {/* ── Results counter ── */}
       <motion.section
@@ -360,14 +564,14 @@ export default function HomePage() {
         initial="hidden"
         whileInView="visible"
         viewport={{ once: true, amount: 0.3 }}
-        className="border-y border-slate-200 bg-emerald-950 px-4 py-12 text-white sm:px-6 lg:px-8"
+        className="border-y border-[#145da0]/20 bg-[#0b4d83] px-4 py-14 text-white sm:px-6 lg:px-8"
       >
         <div className="mx-auto max-w-7xl">
           <motion.p
             initial={{ opacity: 0, y: 10 }}
             whileInView={{ opacity: 1, y: 0, transition: { duration: 0.4 } }}
             viewport={{ once: true }}
-            className="text-center text-sm font-bold uppercase tracking-[0.22em] text-emerald-300"
+            className="text-center text-xs font-black uppercase tracking-[0.22em] text-[#7ed957]"
           >
             Real results from real students
           </motion.p>
@@ -380,11 +584,12 @@ export default function HomePage() {
                 initial="hidden"
                 whileInView="visible"
                 viewport={{ once: true }}
-                className="text-center"
+                whileHover={{ y: -6, scale: 1.03 }}
+                className="rounded-2xl border border-white/10 bg-white/[0.045] p-5 text-center"
               >
-                <Icon className="mx-auto h-6 w-6 text-emerald-300" />
+                <Icon className="mx-auto h-6 w-6 text-[#7ed957]" />
                 <div className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">{value}</div>
-                <div className="mt-1 text-sm font-medium text-emerald-200/70">{label}</div>
+                <div className="mt-1 text-sm font-medium text-white/60">{label}</div>
               </motion.div>
             ))}
           </div>
@@ -397,7 +602,7 @@ export default function HomePage() {
         initial="hidden"
         whileInView="visible"
         viewport={{ once: true, amount: 0.2 }}
-        className="border-y border-slate-200 bg-white px-4 py-14 sm:px-6 lg:px-8"
+        className="border-y border-[#145da0]/12 bg-white px-4 py-20 sm:px-6 sm:py-24 lg:px-8"
       >
         <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.8fr_1.2fr] lg:items-center">
           <motion.div
@@ -405,12 +610,12 @@ export default function HomePage() {
             whileInView={{ opacity: 1, x: 0, transition: { duration: 0.6 } }}
             viewport={{ once: true }}
           >
-            <p className="text-sm font-bold uppercase tracking-[0.22em] text-emerald-800">CBC curriculum in action</p>
+            <p className="text-xs font-black uppercase tracking-[0.22em] text-[#145da0]">CBC curriculum in action</p>
             <h2 className="mt-4 text-3xl font-black tracking-tight sm:text-5xl">Hands-on learning is a core part of the Peak promise.</h2>
             <p className="mt-5 text-base leading-relaxed text-slate-600">
               CBC learners need to build, test, observe, explain, and correct. Peak makes practical work visible through guided tasks, real materials, and reflection that turns activity into competence.
             </p>
-            <Link href="/kcse-and-cbc-tutoring-kenya" className="mt-7 inline-flex items-center gap-2 rounded-full bg-slate-950 px-5 py-3 text-sm font-bold uppercase tracking-[0.12em] text-white transition hover:bg-emerald-800">
+            <Link href="/kcse-and-cbc-tutoring-kenya" className="mt-7 inline-flex items-center gap-2 rounded-full bg-[#073159] px-5 py-3 text-sm font-bold uppercase tracking-[0.12em] text-white transition hover:bg-[#145da0]">
               Explore CBC support <ArrowRight size={16} />
             </Link>
           </motion.div>
@@ -426,7 +631,8 @@ export default function HomePage() {
               viewport={{ once: true }}
               src={cbcCurriculumImages[0]}
               alt="CBC practical learning at Peak Performance"
-              className="col-span-2 h-56 w-full rounded-lg object-cover shadow-sm sm:h-72"
+              whileHover={{ scale: 1.015 }}
+              className="col-span-2 h-56 w-full rounded-2xl object-cover shadow-[0_20px_50px_rgba(7,49,89,0.12)] sm:h-72"
               loading="lazy"
             />
             {cbcCurriculumImages.slice(1).map((image, index) => (
@@ -438,57 +644,12 @@ export default function HomePage() {
                 viewport={{ once: true }}
                 src={image}
                 alt={`CBC curriculum hands-on learning ${index + 2}`}
-                className="h-32 w-full rounded-lg object-cover shadow-sm sm:h-40"
+                whileHover={{ y: -5, scale: 1.02 }}
+                className="h-32 w-full rounded-2xl object-cover shadow-sm sm:h-40"
                 loading="lazy"
               />
             ))}
           </motion.div>
-        </div>
-      </motion.section>
-
-      {/* ── Method ── */}
-      <motion.section
-        variants={fadeIn}
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true, amount: 0.2 }}
-        className="border-y border-slate-200 bg-slate-950 px-4 py-14 text-white sm:px-6 lg:px-8"
-      >
-        <div className="mx-auto max-w-7xl">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0, transition: { duration: 0.5 } }}
-            viewport={{ once: true }}
-            className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"
-          >
-            <div>
-              <p className="text-sm font-bold uppercase tracking-[0.22em] text-emerald-300">Inside the Peak method</p>
-              <h2 className="mt-3 text-3xl font-black tracking-tight sm:text-5xl">A simple system students can feel.</h2>
-            </div>
-            <Link href="/about" className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-200 hover:text-white">
-              About Peak <ArrowRight size={16} />
-            </Link>
-          </motion.div>
-          <div className="grid gap-px overflow-hidden rounded-lg bg-white/10 md:grid-cols-4">
-            {methodSteps.map(({ title, body, icon: Icon }, index) => (
-              <motion.div
-                key={title}
-                custom={index}
-                variants={fadeUp}
-                initial="hidden"
-                whileInView="visible"
-                viewport={{ once: true }}
-                className="bg-slate-950 p-6"
-              >
-                <div className="flex items-center justify-between">
-                  <Icon className="h-7 w-7 text-emerald-300" />
-                  <span className="text-xs font-bold text-white/35">0{index + 1}</span>
-                </div>
-                <h3 className="mt-8 text-xl font-black tracking-tight">{title}</h3>
-                <p className="mt-3 text-sm leading-relaxed text-white/65">{body}</p>
-              </motion.div>
-            ))}
-          </div>
         </div>
       </motion.section>
 
@@ -508,7 +669,7 @@ export default function HomePage() {
             className="mb-7 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"
           >
             <div>
-              <p className="text-sm font-bold uppercase tracking-[0.22em] text-emerald-800">Campus gallery</p>
+              <p className="text-xs font-black uppercase tracking-[0.22em] text-[#145da0]">Campus gallery</p>
               <h2 className="mt-3 text-3xl font-black tracking-tight sm:text-5xl">Learning should look focused, warm, and serious.</h2>
             </div>
             <div className="text-sm font-medium text-slate-500">Swipe on mobile. Hover to pause on desktop.</div>
@@ -544,7 +705,8 @@ export default function HomePage() {
         initial="hidden"
         whileInView="visible"
         viewport={{ once: true, amount: 0.2 }}
-        className="border-y border-slate-200 bg-white px-4 py-14 sm:px-6 lg:px-8"
+        id="programmes"
+        className="scroll-mt-6 border-y border-[#145da0]/12 bg-white px-4 py-20 sm:px-6 sm:py-24 lg:px-8"
       >
         <div className="mx-auto max-w-7xl">
           <motion.div
@@ -553,7 +715,7 @@ export default function HomePage() {
             viewport={{ once: true }}
             className="mb-8 max-w-3xl"
           >
-            <p className="text-sm font-bold uppercase tracking-[0.22em] text-emerald-800">Programmes</p>
+            <p className="text-xs font-black uppercase tracking-[0.22em] text-[#145da0]">Programmes</p>
             <h2 className="mt-3 text-3xl font-black tracking-tight sm:text-5xl">Different curricula. One disciplined performance model.</h2>
           </motion.div>
           <div className="grid gap-4 md:grid-cols-3">
@@ -566,10 +728,11 @@ export default function HomePage() {
                 whileInView="visible"
                 viewport={{ once: true }}
               >
-                <Link href={programme.href} className="group block rounded-lg border border-slate-200 bg-[#f8f6f1] p-6 transition hover:-translate-y-1 hover:border-emerald-300 hover:bg-emerald-50">
+                <Link href={programme.href} className="group relative block overflow-hidden rounded-2xl border border-[#145da0]/12 bg-[#f4f9fc] p-6 transition hover:-translate-y-2 hover:border-[#4caf25]/40 hover:shadow-[0_22px_55px_rgba(7,49,89,0.12)]">
+                  <span className="absolute inset-x-0 top-0 h-1 origin-left scale-x-0 bg-gradient-to-r from-[#145da0] to-[#4caf25] transition-transform duration-500 group-hover:scale-x-100" />
                   <h3 className="text-2xl font-black tracking-tight">{programme.title}</h3>
                   <p className="mt-3 min-h-24 text-sm leading-relaxed text-slate-600">{programme.body}</p>
-                  <div className="mt-6 inline-flex items-center gap-2 text-sm font-bold text-emerald-800">
+                  <div className="mt-6 inline-flex items-center gap-2 text-sm font-bold text-[#145da0]">
                     Explore <ArrowRight size={16} className="transition group-hover:translate-x-1" />
                   </div>
                 </Link>
@@ -586,7 +749,7 @@ export default function HomePage() {
           initial="hidden"
           whileInView="visible"
           viewport={{ once: true, amount: 0.2 }}
-          className="border-y border-slate-200 bg-[#f6f3ed] px-4 py-14 sm:px-6 lg:px-8"
+          className="border-y border-[#145da0]/12 bg-[#eaf3f8] px-4 py-20 sm:px-6 lg:px-8"
         >
           <div className="mx-auto max-w-7xl">
             <motion.div
@@ -595,7 +758,7 @@ export default function HomePage() {
               viewport={{ once: true }}
               className="mb-8 max-w-3xl"
             >
-              <p className="text-sm font-bold uppercase tracking-[0.22em] text-emerald-800">Upcoming Events</p>
+              <p className="text-xs font-black uppercase tracking-[0.22em] text-[#145da0]">Upcoming Events</p>
               <h2 className="mt-3 text-3xl font-black tracking-tight sm:text-5xl">Join our intensive tuition camps.</h2>
             </motion.div>
             <div className="grid gap-4 md:grid-cols-3">
@@ -608,18 +771,18 @@ export default function HomePage() {
                   whileInView="visible"
                   viewport={{ once: true }}
                 >
-                  <div className="group block rounded-lg border border-emerald-200 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:border-emerald-400 hover:shadow-md">
-                    <div className="mb-4 inline-block rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold uppercase tracking-wider text-emerald-800">
+                  <div className="group block rounded-2xl border border-[#145da0]/15 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:border-[#4caf25]/50 hover:shadow-lg">
+                    <div className="mb-4 inline-block rounded-full bg-[#e9f8e2] px-3 py-1 text-xs font-bold uppercase tracking-wider text-[#2f8517]">
                       {event.is_active ? 'Registering Now' : 'Upcoming'}
                     </div>
-                    <h3 className="text-xl font-black tracking-tight text-slate-900">{event.name}</h3>
+                    <h3 className="text-xl font-black tracking-tight text-[#073159]">{event.name}</h3>
                     <div className="mt-3 space-y-2 text-sm font-medium text-slate-600">
-                      <p className="flex items-center gap-2"><Calendar size={16} className="text-emerald-600" /> {formatDate(event.start_date)} - {formatDate(event.end_date)}</p>
+                      <p className="flex items-center gap-2"><Calendar size={16} className="text-[#145da0]" /> {formatDate(event.start_date)} - {formatDate(event.end_date)}</p>
                     </div>
                     <p className="mt-4 min-h-16 text-sm leading-relaxed text-slate-500 line-clamp-3">
                       {event.description || 'Intensive revision and curriculum coverage. Secure your spot before groups fill up.'}
                     </p>
-                    <Link href={`/events/register?eventId=${event.id}`} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-full bg-slate-900 px-4 py-2.5 text-sm font-bold uppercase tracking-wider text-white transition group-hover:bg-emerald-600">
+                    <Link href={`/events/register?eventId=${event.id}`} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-full bg-[#073159] px-4 py-2.5 text-sm font-bold uppercase tracking-wider text-white transition group-hover:bg-[#145da0]">
                       Enroll Now <ArrowRight size={16} />
                     </Link>
                   </div>
@@ -643,7 +806,8 @@ export default function HomePage() {
             initial={{ opacity: 0, x: -30, scale: 0.98 }}
             whileInView={{ opacity: 1, x: 0, scale: 1, transition: { duration: 0.6 } }}
             viewport={{ once: true }}
-            className="overflow-hidden rounded-lg border border-slate-200 bg-slate-900"
+            whileHover={{ scale: 1.01 }}
+            className="overflow-hidden rounded-[1.5rem] border border-[#145da0]/12 bg-[#073159] shadow-[0_24px_60px_rgba(7,49,89,0.14)]"
           >
             <img src="/media__1776964680232.jpg" alt="Focused Peak Performance student study setting" className="h-[360px] w-full object-cover sm:h-[460px]" loading="lazy" />
           </motion.div>
@@ -652,8 +816,8 @@ export default function HomePage() {
             whileInView={{ opacity: 1, x: 0, transition: { duration: 0.6, delay: 0.1 } }}
             viewport={{ once: true }}
           >
-            <div className="mb-4 h-1 w-14 bg-amber-500" />
-            <p className="text-sm font-bold uppercase tracking-[0.22em] text-amber-700">Portals</p>
+            <div className="mb-4 h-1 w-14 bg-[#4caf25]" />
+            <p className="text-xs font-black uppercase tracking-[0.22em] text-[#145da0]">Connected Peak campus</p>
             <h2 className="mt-4 text-3xl font-black tracking-tight sm:text-5xl">The work stays connected after class.</h2>
             <p className="mt-5 text-base leading-relaxed text-slate-600">
               Students, parents, and teachers each get a focused workspace, so live sessions, progress, assignments, and feedback do not disappear after the lesson ends.
@@ -668,8 +832,8 @@ export default function HomePage() {
                   whileInView="visible"
                   viewport={{ once: true }}
                 >
-                  <Link href={href} className="flex items-center justify-between rounded-lg border border-slate-200 bg-white p-4 font-semibold transition hover:border-emerald-300 hover:bg-emerald-50">
-                    <span className="flex items-center gap-3"><Icon className="h-5 w-5 text-emerald-700" /> {label}</span>
+                  <Link href={href} className="group flex items-center justify-between rounded-2xl border border-[#145da0]/12 bg-white p-4 font-semibold transition hover:-translate-y-0.5 hover:border-[#4caf25]/50 hover:bg-[#f4f9fc]">
+                    <span className="flex items-center gap-3"><Icon className="h-5 w-5 text-[#145da0] transition group-hover:text-[#4caf25]" /> {label}</span>
                     <ArrowRight size={17} />
                   </Link>
                 </motion.div>
@@ -685,7 +849,7 @@ export default function HomePage() {
         initial="hidden"
         whileInView="visible"
         viewport={{ once: true, amount: 0.15 }}
-        className="border-y border-slate-200 bg-white px-4 py-14 sm:px-6 lg:px-8"
+        className="border-y border-[#145da0]/12 bg-white px-4 py-20 sm:px-6 lg:px-8"
       >
         <div className="mx-auto max-w-3xl">
           <motion.div
@@ -694,14 +858,14 @@ export default function HomePage() {
             viewport={{ once: true }}
             className="mb-8 max-w-2xl"
           >
-            <p className="text-sm font-bold uppercase tracking-[0.22em] text-emerald-800">Frequently asked questions</p>
+            <p className="text-xs font-black uppercase tracking-[0.22em] text-[#145da0]">Frequently asked questions</p>
             <h2 className="mt-3 text-3xl font-black tracking-tight sm:text-5xl">Everything you need to know before you start.</h2>
           </motion.div>
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0, transition: { duration: 0.5, delay: 0.1 } }}
             viewport={{ once: true }}
-            className="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-[#f8f6f1] px-5"
+            className="divide-y divide-[#145da0]/10 rounded-2xl border border-[#145da0]/12 bg-[#f4f9fc] px-5 shadow-[0_18px_45px_rgba(7,49,89,0.06)]"
           >
             {faqs.map((faq) => (
               <FaqItem key={faq.q} question={faq.q} answer={faq.a} />
@@ -715,7 +879,7 @@ export default function HomePage() {
         initial={{ opacity: 0 }}
         whileInView={{ opacity: 1, transition: { duration: 0.6 } }}
         viewport={{ once: true }}
-        className="bg-slate-950 px-4 py-12 text-white sm:px-6 lg:px-8"
+        className="bg-[#073159] px-4 py-14 text-white sm:px-6 lg:px-8"
       >
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -724,12 +888,12 @@ export default function HomePage() {
           className="mx-auto flex max-w-7xl flex-col gap-6 sm:flex-row sm:items-center sm:justify-between"
         >
           <div>
-            <div className="flex items-center gap-2 text-sm font-medium text-emerald-300"><MapPin size={16} /> Nairobi · Online · Holiday programmes</div>
+            <div className="flex items-center gap-2 text-sm font-medium text-[#7ed957]"><MapPin size={16} /> Nairobi · Online · Holiday programmes</div>
             <h2 className="mt-2 text-3xl font-black tracking-tight">Ready to know exactly where the marks are being lost?</h2>
           </div>
           <Link
             href="/auth/register"
-            className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-bold uppercase tracking-[0.14em] text-slate-950 transition hover:bg-emerald-100"
+            className="inline-flex items-center justify-center gap-2 rounded-full bg-[#7ed957] px-6 py-3 text-sm font-bold uppercase tracking-[0.14em] text-[#073159] transition hover:-translate-y-0.5 hover:bg-white"
           >
             Book diagnostic <ArrowRight size={17} />
           </Link>

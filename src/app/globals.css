@@ -170,6 +170,32 @@ body {
   font-style: italic;
 }
 
+/* Public landing page: editorial typography and premium surface rhythm. */
+.premium-landing h2,
+.premium-landing h3 {
+  font-family: 'Playfair Display', Georgia, serif;
+}
+
+.premium-landing h2 {
+  letter-spacing: -0.035em;
+  line-height: 1;
+}
+
+.premium-landing img {
+  color: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .premium-landing *,
+  .premium-landing *::before,
+  .premium-landing *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 /* TipTap editor styles */
 .ProseMirror {
   outline: none;

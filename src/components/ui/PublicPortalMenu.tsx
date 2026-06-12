@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { ChevronDown, DollarSign, GraduationCap, Shield, UserCheck, Users } from 'lucide-react'
+import { ChevronDown, DollarSign, GraduationCap, LogIn, Shield, UserCheck, Users } from 'lucide-react'
 
 const portalLinks = [
   {
@@ -58,16 +58,19 @@ export function PublicPortalMenu() {
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
-        className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-black text-slate-950 shadow-sm transition hover:bg-emerald-100"
+        aria-label="Open portal sign in menu"
+        className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-white/15 bg-white px-3 text-xs font-black uppercase tracking-[0.12em] text-[#073159] shadow-[0_10px_30px_rgba(0,0,0,0.18)] transition hover:-translate-y-0.5 hover:bg-[#eaf3f8] sm:h-11 sm:px-4 sm:text-sm sm:normal-case sm:tracking-normal"
       >
-        Portals <ChevronDown size={16} className={`transition ${open ? 'rotate-180' : ''}`} />
+        <LogIn size={15} />
+        <span className="hidden min-[360px]:inline">Portals</span>
+        <ChevronDown size={14} className={`transition ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-3 w-[min(88vw,340px)] overflow-hidden rounded-lg border border-white/20 bg-white text-slate-950 shadow-2xl">
-          <div className="border-b border-slate-200 bg-slate-950 px-4 py-3 text-white">
-            <div className="text-sm font-black tracking-tight">Choose your portal</div>
-            <div className="text-xs text-white/60">Sign in directly to the workspace you need.</div>
+        <div className="absolute right-0 mt-3 w-[min(calc(100vw-2rem),360px)] overflow-hidden rounded-2xl border border-white/20 bg-white text-[#073159] shadow-[0_28px_80px_rgba(2,6,23,0.35)]">
+          <div className="border-b border-white/10 bg-[#071a2d] px-5 py-4 text-white">
+            <div className="text-base font-black tracking-tight">Your Peak workspace</div>
+            <div className="mt-1 text-xs text-white/60">Choose a secure portal to continue.</div>
           </div>
           <div className="grid gap-px bg-slate-200">
             {portalLinks.map(({ label, desc, href, icon: Icon }) => (
@@ -75,9 +78,9 @@ export function PublicPortalMenu() {
                 key={label}
                 href={href}
                 onClick={() => setOpen(false)}
-                className="flex items-start gap-3 bg-white p-4 transition hover:bg-emerald-50"
+                className="group flex items-start gap-3 bg-white p-4 transition hover:bg-[#f4f9fc]"
               >
-                <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-full bg-emerald-100 text-emerald-800">
+                <span className="mt-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#eaf3f8] text-[#145da0] transition group-hover:bg-[#145da0] group-hover:text-white">
                   <Icon size={18} />
                 </span>
                 <span>
