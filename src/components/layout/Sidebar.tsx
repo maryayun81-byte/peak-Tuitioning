@@ -17,6 +17,8 @@ import { useNotificationStore } from '@/stores/notificationStore'
 
 export interface NavItem {
   label: string
+  shortLabel?: string
+  group?: string
   href: string
   icon: React.ReactNode
   badge?: number
@@ -29,15 +31,16 @@ interface SidebarProps {
   bottomItems?: (NavItem & { onClick?: () => void })[]
   logo?: React.ReactNode
   role: string
+  children?: React.ReactNode
 }
 
-export function Sidebar({ items, bottomItems = [], logo, role }: SidebarProps) {
+export function Sidebar({ items, bottomItems = [], logo, role, children }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false)
   const pathname = usePathname()
   const { profile } = useAuthStore()
   const { unreadCount } = useNotificationStore()
 
-  const isActive = (href: string) => pathname === href || pathname.startsWith(href + '/')
+  const isActive = (href: string) => pathname === href || (href !== '/' && href !== '/student' && pathname.startsWith(href + '/'))
 
   return (
     <motion.aside
@@ -64,9 +67,19 @@ export function Sidebar({ items, bottomItems = [], logo, role }: SidebarProps) {
 
       {/* Nav items */}
       <nav className="flex-1 overflow-y-auto py-4 space-y-1 px-3">
-        {items.map((item) => (
-          <SidebarItem key={item.href} item={item} collapsed={collapsed} isActive={isActive(item.href)} />
-        ))}
+        {items.map((item, index) => {
+          const showGroup = !collapsed && item.group && item.group !== items[index - 1]?.group
+          return (
+            <div key={item.href}>
+              {showGroup && (
+                <div className="px-3 pb-1 pt-4 text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: 'var(--text-muted)' }}>
+                  {item.group}
+                </div>
+              )}
+              <SidebarItem item={item} collapsed={collapsed} isActive={isActive(item.href)} />
+            </div>
+          )
+        })}
       </nav>
 
       {/* Bottom items */}
@@ -83,6 +96,9 @@ export function Sidebar({ items, bottomItems = [], logo, role }: SidebarProps) {
           ))}
         </div>
       )}
+
+      {/* Children elements */}
+      {!collapsed && children}
 
       {/* User info */}
       {profile && (
@@ -192,7 +208,7 @@ interface BottomNavProps {
 export function BottomNav({ items, moreItems = [] }: BottomNavProps) {
   const pathname = usePathname()
   const [showMore, setShowMore] = useState(false)
-  const isActive = (href: string) => pathname === href || pathname.startsWith(href + '/')
+  const isActive = (href: string) => pathname === href || (href !== '/' && href !== '/student' && pathname.startsWith(href + '/'))
 
   const mainItems = items.slice(0, 4)
   const hasMore = items.length > 4 || moreItems.length > 0
@@ -212,7 +228,7 @@ export function BottomNav({ items, moreItems = [] }: BottomNavProps) {
           const content = (
             <>
               {item.icon}
-              <span className="text-[10px] font-medium">{item.label}</span>
+              <span className="max-w-[64px] truncate text-[10px] font-semibold leading-tight">{item.shortLabel || item.label}</span>
             </>
           )
           const commonStyle = { color: isActive(item.href) ? 'var(--primary)' : 'var(--text-muted)' }
@@ -222,7 +238,7 @@ export function BottomNav({ items, moreItems = [] }: BottomNavProps) {
               <button
                 key={item.href}
                 onClick={item.onClick}
-                className="flex-1 flex flex-col items-center justify-center py-3 gap-1 transition-all"
+                className="min-w-0 flex-1 flex flex-col items-center justify-center px-1 py-2.5 gap-1 transition-all"
                 style={commonStyle}
               >
                 {content}
@@ -235,7 +251,7 @@ export function BottomNav({ items, moreItems = [] }: BottomNavProps) {
               key={item.href}
               href={item.href}
               prefetch={false}
-              className="flex-1 flex flex-col items-center justify-center py-3 gap-1 transition-all"
+              className="min-w-0 flex-1 flex flex-col items-center justify-center px-1 py-2.5 gap-1 transition-all"
               style={commonStyle}
             >
               {content}
@@ -249,7 +265,7 @@ export function BottomNav({ items, moreItems = [] }: BottomNavProps) {
             e.preventDefault()
             setShowMore(!showMore)
           }}
-          className="flex-1 flex flex-col items-center justify-center py-3 gap-1"
+          className="min-w-0 flex-1 flex flex-col items-center justify-center px-1 py-2.5 gap-1"
           style={{ color: showMore ? 'var(--primary)' : 'var(--text-muted)' }}
         >
           <Menu size={20} />
@@ -284,12 +300,18 @@ export function BottomNav({ items, moreItems = [] }: BottomNavProps) {
                   <X size={18} />
                 </button>
               </div>
-              <div className="grid grid-cols-4 gap-2">
-                {allMoreItems.map((item) => {
+              <div className="max-h-[60vh] space-y-5 overflow-y-auto pb-2">
+                {Array.from(new Set(allMoreItems.map(item => item.group || 'More'))).map(group => (
+                  <div key={group}>
+                    <p className="mb-2 px-1 text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: 'var(--text-muted)' }}>
+                      {group}
+                    </p>
+                    <div className="grid grid-cols-3 gap-2">
+                {allMoreItems.filter(item => (item.group || 'More') === group).map((item) => {
                   const content = (
                     <>
                       {item.icon}
-                      <span className="text-[10px] font-medium text-center">{item.label}</span>
+                      <span className="line-clamp-2 text-center text-[10px] font-semibold leading-tight">{item.shortLabel || item.label}</span>
                     </>
                   )
                   const commonStyle = {
@@ -328,6 +350,9 @@ export function BottomNav({ items, moreItems = [] }: BottomNavProps) {
                     </Link>
                   )
                 })}
+                    </div>
+                  </div>
+                ))}
               </div>
             </motion.div>
           </>

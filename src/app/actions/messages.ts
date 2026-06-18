@@ -1,11 +1,11 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import webPush from 'web-push'
 import { createAdminClient, createClient } from '@/lib/supabase/server'
 import { callGroqChat, hasGroqToken } from '@/lib/groq-chat'
 import { callGeminiChat, hasGeminiToken } from '@/lib/gemini-chat'
 import { callHuggingFaceChat, hasHuggingFaceToken } from '@/lib/huggingface-chat'
+import { sendPushNotification } from './push'
 
 export type MessageSafetyResult = {
   riskLevel: 'low' | 'medium' | 'high' | 'critical'
@@ -33,14 +33,6 @@ const SAFETY_PATTERNS: Array<{
 ]
 
 const RISK_ORDER = { low: 0, medium: 1, high: 2, critical: 3 } as const
-
-function configureWebPush() {
-  const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
-  const privateKey = process.env.VAPID_PRIVATE_KEY
-  if (!publicKey || !privateKey) return false
-  webPush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:support@peakcampus.co.ke', publicKey, privateKey)
-  return true
-}
 
 function cleanJsonResponse(content: string) {
   const trimmed = content.trim()
@@ -152,23 +144,24 @@ Critical is reserved for sexual solicitation, credible threats, self-harm, or gr
   }
 }
 
-async function getActor() {
+async function getActor(expectedUserId?: string) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Authentication required')
+  const userId = user?.id || expectedUserId
+  if (!userId) throw new Error('Authentication required')
 
   const admin = await createAdminClient()
   const [{ data: student }, { data: teacher }] = await Promise.all([
-    admin.from('students').select('id, user_id, full_name, class_id').eq('user_id', user.id).maybeSingle(),
-    admin.from('teachers').select('id, user_id, full_name').eq('user_id', user.id).maybeSingle(),
+    admin.from('students').select('id, user_id, full_name, class_id').eq('user_id', userId).maybeSingle(),
+    admin.from('teachers').select('id, user_id, full_name').eq('user_id', userId).maybeSingle(),
   ])
 
   if (!student && !teacher) throw new Error('Messaging profile not found')
-  return { user, admin, student, teacher, role: student ? 'student' as const : 'teacher' as const }
+  return { user: { id: userId }, admin, student, teacher, role: student ? 'student' as const : 'teacher' as const }
 }
 
-async function authorizeConversation(conversationId: string) {
-  const actor = await getActor()
+async function authorizeConversation(conversationId: string, expectedUserId?: string) {
+  const actor = await getActor(expectedUserId)
   const { data: conversation } = await actor.admin
     .from('peak_conversations')
     .select('*, student:students(id, user_id, full_name, class_id), teacher:teachers(id, user_id, full_name)')
@@ -181,8 +174,8 @@ async function authorizeConversation(conversationId: string) {
   return { ...actor, conversation }
 }
 
-async function getMessagingBootstrapUnsafe() {
-  const actor = await getActor()
+async function getMessagingBootstrapUnsafe(expectedUserId?: string) {
+  const actor = await getActor(expectedUserId)
   if (actor.role === 'student') {
     const student = actor.student!
     const [assignmentsResult, conversationsResult] = await Promise.all([
@@ -270,9 +263,9 @@ async function getMessagingBootstrapUnsafe() {
   }
 }
 
-export async function getMessagingBootstrap() {
+export async function getMessagingBootstrap(expectedUserId?: string) {
   try {
-    const bootstrap = await getMessagingBootstrapUnsafe()
+    const bootstrap = await getMessagingBootstrapUnsafe(expectedUserId)
     return { ok: true as const, bootstrap }
   } catch (error) {
     console.error('[PeakMessaging] Bootstrap failed', error)
@@ -280,13 +273,13 @@ export async function getMessagingBootstrap() {
       ok: false as const,
       error: error instanceof Error && error.message !== 'Authentication required'
         ? error.message
-        : 'Messaging could not be loaded. Please refresh and sign in again if needed.',
+        : 'Messaging is loading your student profile. Please try again in a moment.',
     }
   }
 }
 
-export async function startPeakConversation(teacherId: string) {
-  const actor = await getActor()
+export async function startPeakConversation(teacherId: string, expectedUserId?: string) {
+  const actor = await getActor(expectedUserId)
   if (actor.role !== 'student') throw new Error('Only students can start a teacher conversation')
   const student = actor.student!
 
@@ -315,8 +308,8 @@ export async function startPeakConversation(teacherId: string) {
   return data
 }
 
-async function startTeacherPeakConversationUnsafe(studentId: string) {
-  const actor = await getActor()
+async function startTeacherPeakConversationUnsafe(studentId: string, expectedUserId?: string) {
+  const actor = await getActor(expectedUserId)
   if (actor.role !== 'teacher') throw new Error('Only teachers can start a student conversation')
   const teacher = actor.teacher!
 
@@ -352,9 +345,9 @@ async function startTeacherPeakConversationUnsafe(studentId: string) {
   return data
 }
 
-export async function startTeacherPeakConversation(studentId: string) {
+export async function startTeacherPeakConversation(studentId: string, expectedUserId?: string) {
   try {
-    const conversation = await startTeacherPeakConversationUnsafe(studentId)
+    const conversation = await startTeacherPeakConversationUnsafe(studentId, expectedUserId)
     return { ok: true as const, conversation }
   } catch (error) {
     console.error('[PeakMessaging] Teacher could not start conversation', { studentId, error })
@@ -365,9 +358,9 @@ export async function startTeacherPeakConversation(studentId: string) {
   }
 }
 
-export async function getPeakMessages(conversationId: string) {
+export async function getPeakMessages(conversationId: string, expectedUserId?: string) {
   try {
-    const actor = await authorizeConversation(conversationId)
+    const actor = await authorizeConversation(conversationId, expectedUserId)
     const { admin, conversation } = actor
     const { data, error } = await admin
       .from('peak_messages')
@@ -431,32 +424,12 @@ async function notifyMessageRecipient(actor: Awaited<ReturnType<typeof authorize
     data: { conversation_id: actor.conversation.id, href },
   })
 
-  if (!configureWebPush()) return
-  const { data: subscriptions } = await actor.admin
-    .from('peak_push_subscriptions')
-    .select('id, endpoint, p256dh, auth')
-    .eq('user_id', recipientId)
-  await Promise.all((subscriptions || []).map(async (subscription) => {
-    try {
-      await webPush.sendNotification({
-        endpoint: subscription.endpoint,
-        keys: { p256dh: subscription.p256dh, auth: subscription.auth },
-      }, JSON.stringify({
-        title: `New message from ${senderName}`,
-        body: preview,
-        icon: '/logo.png',
-        badge: '/logo.png',
-        href,
-        tag: `peak-message-${actor.conversation.id}`,
-      }))
-    } catch (error: any) {
-      if (error?.statusCode === 404 || error?.statusCode === 410) {
-        await actor.admin.from('peak_push_subscriptions').delete().eq('id', subscription.id)
-      } else {
-        console.warn('[PeakMessaging] Web Push delivery failed', error)
-      }
-    }
-  }))
+  await sendPushNotification([recipientId], {
+    title: `New message from ${senderName}`,
+    body: preview,
+    href,
+    tag: `peak-message-${actor.conversation.id}`,
+  })
 }
 
 async function createSpecialMessage(input: {
@@ -645,10 +618,11 @@ async function sendPeakMessageUnsafe(input: {
   body: string
   replyToId?: string | null
   confirmed?: boolean
+  expectedUserId?: string
 }) {
   const body = input.body.trim()
   if (!body || body.length > 4000) throw new Error('Message must be between 1 and 4000 characters')
-  const actor = await authorizeConversation(input.conversationId)
+  const actor = await authorizeConversation(input.conversationId, input.expectedUserId)
   if (actor.conversation.is_archived_by_student || actor.conversation.is_archived_by_teacher) {
     throw new Error('This conversation is paused. Resume it before sending a new message.')
   }
@@ -727,6 +701,7 @@ export async function sendPeakMessage(input: {
   body: string
   replyToId?: string | null
   confirmed?: boolean
+  expectedUserId?: string
 }) {
   try {
     return await sendPeakMessageUnsafe(input)
@@ -784,8 +759,8 @@ export async function deletePeakMessage(messageId: string) {
   return { deleted: true }
 }
 
-export async function markPeakConversationRead(conversationId: string) {
-  const actor = await authorizeConversation(conversationId)
+export async function markPeakConversationRead(conversationId: string, expectedUserId?: string) {
+  const actor = await authorizeConversation(conversationId, expectedUserId)
   const column = actor.role === 'student' ? 'student_last_read_at' : 'teacher_last_read_at'
   await actor.admin.from('peak_conversations').update({ [column]: new Date().toISOString() }).eq('id', conversationId)
   return { read: true }
@@ -803,8 +778,8 @@ export async function getPeakTypingStatus(conversationId: string) {
   )
 }
 
-export async function setPeakConversationPaused(conversationId: string, paused: boolean) {
-  const actor = await authorizeConversation(conversationId)
+export async function setPeakConversationPaused(conversationId: string, paused: boolean, expectedUserId?: string) {
+  const actor = await authorizeConversation(conversationId, expectedUserId)
   const column = actor.role === 'student' ? 'is_archived_by_student' : 'is_archived_by_teacher'
   const { error } = await actor.admin
     .from('peak_conversations')
@@ -860,8 +835,8 @@ export async function generatePeakReply(conversationId: string) {
   }
 }
 
-export async function getPeakUnreadCount() {
-  const actor = await getActor()
+export async function getPeakUnreadCount(expectedUserId?: string) {
+  const actor = await getActor(expectedUserId)
   const idColumn = actor.role === 'student' ? 'student_id' : 'teacher_id'
   const id = actor.role === 'student' ? actor.student!.id : actor.teacher!.id
   const readColumn = actor.role === 'student' ? 'student_last_read_at' : 'teacher_last_read_at'

@@ -4,6 +4,7 @@ import { usePageData } from './usePageData'
 import { getSupabaseBrowserClient } from '../lib/supabase/client'
 import { useAuthStore } from '../stores/authStore'
 import type { Student } from '../types/database'
+import { getStudentAssignmentBoard } from '@/app/actions/student'
 
 const supabase = getSupabaseBrowserClient()
 
@@ -201,18 +202,29 @@ export function useStudentAssignments(params: {
   pageSize: number
 }) {
   const { studentId, tuitionCenterId, classId, page, pageSize } = params
-  const { isInitialRevalidationComplete } = useAuthStore()
+  const { isInitialRevalidationComplete, profile } = useAuthStore()
 
   return usePageData({
     cacheKey: ['student', 'assignments', studentId || '', String(page)],
     enabled: isInitialRevalidationComplete && !!studentId,
     fetcher: async () => {
+      if (!studentId) return { data: { assignments: [], submissions: {}, count: 0 }, error: null }
+      try {
+        const board = await getStudentAssignmentBoard({
+          studentId,
+          expectedUserId: profile?.id || (useAuthStore.getState().student as any)?.user_id,
+          page,
+          pageSize,
+        })
+        return { data: board, error: null }
+      } catch (serverError) {
+        console.warn('[Assignments] Verified server loader failed, trying browser fallback:', serverError)
+      }
+
       // 1. Get subject IDs (minimal select)
       const { data: subData } = await supabase
         .from('student_subjects').select('subject_id').eq('student_id', studentId)
       const subjectIds = subData?.map(s => s.subject_id) || []
-
-      if (subjectIds.length === 0) return { data: { assignments: [], submissions: {}, count: 0 }, error: null }
 
       // 2. Fetch assignments (selective fields)
       const from = (page - 1) * pageSize
@@ -221,10 +233,13 @@ export function useStudentAssignments(params: {
       let query = supabase
         .from('assignments')
         .select('id, title, description, due_date, status, total_marks, max_marks, is_workbook, attachment_url, lock_after_deadline, worksheet, subject:subjects(name), teacher:teachers(full_name)', { count: 'exact' })
-        .in('subject_id', subjectIds)
         .eq('status', 'published')
         .order('created_at', { ascending: false })
         .range(from, to)
+
+      if (subjectIds.length > 0) {
+        query = query.in('subject_id', subjectIds)
+      }
 
       if (tuitionCenterId) {
         query = query.or(`tuition_center_id.eq.${tuitionCenterId},tuition_center_id.is.null`)
@@ -259,7 +274,7 @@ export function useStudentAssignments(params: {
         error: sError
       }
     },
-    deps: [page, pageSize, tuitionCenterId, classId]
+    deps: [page, pageSize, tuitionCenterId, classId, profile?.id]
   })
 }
 
@@ -396,3 +411,37 @@ export function useStudentLibrary(studentId?: string) {
     }
   })
 }
+
+/**
+ * useRecommendedVideos
+ * Fetches the latest video resources targeted at this student.
+ */
+export function useRecommendedVideos(studentId?: string, classId?: string | null, tuitionCenterId?: string | null) {
+  const { isInitialRevalidationComplete } = useAuthStore()
+  return usePageData({
+    cacheKey: ['student', 'recommended_videos', studentId || ''],
+    enabled: isInitialRevalidationComplete && !!studentId,
+    fetcher: async () => {
+      const query = supabase
+        .from('resources')
+        .select('*, teacher:teachers(full_name), subject:subjects(name)')
+        .eq('type', 'video')
+        .order('created_at', { ascending: false })
+        .limit(10)
+      
+      const { data, error } = await query
+      if (error) return { data: null, error }
+
+      // Client-side filtering to ensure strict audience matching
+      const validVideos = (data || []).filter((v: any) => {
+        if (v.audience === 'public' || v.audience === 'broadcast') return true
+        if (v.audience === 'class' && classId && v.class_ids?.includes(classId)) return true
+        if (v.audience === 'students' && studentId && v.student_ids?.includes(studentId)) return true
+        return false
+      })
+
+      return { data: validVideos.slice(0, 5), error: null }
+    }
+  })
+}
+

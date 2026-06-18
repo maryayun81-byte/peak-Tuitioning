@@ -10,6 +10,7 @@ export type GeminiProvider = 'gemini'
 type GeminiOptions = {
   temperature?: number
   maxTokens?: number
+  responseFormat?: { type: 'json_object' }
 }
 
 type GeminiResult = {
@@ -61,6 +62,7 @@ export async function callGeminiChat(
         generationConfig: {
           temperature: options.temperature ?? 0.35,
           maxOutputTokens: options.maxTokens ?? 1600,
+          ...(options.responseFormat?.type === 'json_object' ? { responseMimeType: 'application/json' } : {}),
         },
       }
 

@@ -21,6 +21,7 @@ import { generateId } from '@/lib/utils'
 import toast from 'react-hot-toast'
 import { useMemo } from 'react'
 import { useAIFormStore } from '@/stores/aiFormStore'
+import { sendPushNotification } from '@/app/actions/push'
 
 interface Option { id: string; text: string }
 interface Question {
@@ -249,6 +250,18 @@ export default function CreateTriviaPage() {
       toast.error('Failed to save questions: ' + qErr.message)
       setSaving(false)
       return
+    }
+
+    if (publish && classIds.length > 0) {
+      const { data: stUsers } = await supabase.from('students').select('user_id').in('class_id', classIds)
+      const targetUserIds = stUsers?.map(s => s.user_id).filter(Boolean) as string[] || []
+      if (targetUserIds.length > 0) {
+        await sendPushNotification(targetUserIds, {
+          title: 'New Trivia Challenge!',
+          body: `A new trivia session "${title.trim()}" is starting soon!`,
+          href: `/student/trivia/${session.id}`,
+        })
+      }
     }
 
     toast.success(publish ? '🚀 Trivia published!' : 'Trivia saved as draft')

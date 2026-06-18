@@ -22,6 +22,7 @@ import { Avatar } from '@/components/ui/Avatar'
 import { AvatarStudio } from '@/components/student/settings/AvatarStudio'
 import { AvatarConfig } from '@/lib/avatars/avatarData'
 import { updateOwnPassword } from '@/app/actions/student'
+import { getStudentSettingsSubjects } from '@/app/actions/student'
 import toast from 'react-hot-toast'
 
 export default function StudentSettings() {
@@ -42,29 +43,26 @@ export default function StudentSettings() {
   const [loadingSubjects, setLoadingSubjects] = useState(false)
   const [addingSubject, setAddingSubject] = useState(false)
   const [selectedSubjectId, setSelectedSubjectId] = useState('')
+  const [selectedSkin, setSelectedSkin] = useState('classic')
   
   const { preferences, updatePreference } = useNotificationStore()
 
   useEffect(() => {
     if (student?.id) {
        loadSubjects()
+       setSelectedSkin(localStorage.getItem(`peak_portal_skin_${student.id}`) || 'classic')
     }
   }, [student?.id])
+
+  const normalizeSubjectRelation = (subject: any) => Array.isArray(subject) ? subject[0] : subject
 
   const loadSubjects = async () => {
      if (!student?.id) return  // Guard: do nothing if student not yet loaded
      setLoadingSubjects(true)
      try {
-       const currId = student.curriculum_id || (student as any).curriculum?.id
-       
-       const [myRes, allRes] = await Promise.all([
-          supabase.from('student_subjects').select('id, subject:subjects(id, name)').eq('student_id', student.id),
-          currId 
-            ? supabase.from('subjects').select('id, name').eq('curriculum_id', currId).order('name')
-            : supabase.from('subjects').select('id, name').order('name')
-       ])
-       if (myRes.data) setMySubjects(myRes.data)
-       if (allRes.data) setAllSubjects(allRes.data)
+       const data = await getStudentSettingsSubjects(student.id, profile?.id || (student as any).user_id)
+       setMySubjects(data.registeredSubjects || [])
+       setAllSubjects(data.availableSubjects || [])
      } catch (e) {
         console.error('[loadSubjects] error:', e)
      } finally {
@@ -215,6 +213,26 @@ export default function StudentSettings() {
     { id: 'security', label: 'Security & Password', icon: <Shield size={16} /> },
   ]
 
+  const currentXP = Number((student as any)?.xp || 0)
+  const portalSkins = [
+    { id: 'classic', name: 'Classic Peak', rarity: 'Free', requiredXp: 0, accent: 'from-sky-500 to-indigo-500', desc: 'Clean academic dashboard skin.' },
+    { id: 'fresh-mint', name: 'Fresh Mint', rarity: 'Free', requiredXp: 0, accent: 'from-emerald-400 to-teal-500', desc: 'Calm, focused, and bright.' },
+    { id: 'sunset-hero', name: 'Sunset Hero', rarity: 'Earned', requiredXp: 300, accent: 'from-orange-400 to-rose-500', desc: 'Unlocked by consistent study.' },
+    { id: 'royal-scholar', name: 'Royal Scholar', rarity: 'Rare', requiredXp: 800, accent: 'from-violet-500 to-fuchsia-500', desc: 'A premium identity skin.' },
+    { id: 'gold-legend', name: 'Gold Legend', rarity: 'Rare', requiredXp: 1500, accent: 'from-amber-300 to-yellow-600', desc: 'Reserved for top achievers.' },
+  ]
+
+  const savePortalSkin = (skin: typeof portalSkins[number]) => {
+    if (!student?.id) return
+    if (currentXP < skin.requiredXp) {
+      toast.error(`Unlock ${skin.name} at ${skin.requiredXp} XP.`)
+      return
+    }
+    localStorage.setItem(`peak_portal_skin_${student.id}`, skin.id)
+    setSelectedSkin(skin.id)
+    toast.success(`${skin.name} equipped.`)
+  }
+
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-8 pb-32">
       <div>
@@ -356,6 +374,47 @@ export default function StudentSettings() {
 
                   {activeTab === 'custom' && (
                     <motion.div key="custom" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-8">
+                       <div className="rounded-[2rem] border border-[var(--card-border)] bg-[var(--input)] p-5">
+                          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                             <div>
+                                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-primary">Profile customization</p>
+                                <h3 className="mt-1 font-black text-xl" style={{ color: 'var(--text)' }}>Avatar, school colors, and status skins</h3>
+                                <p className="mt-1 text-sm" style={{ color: 'var(--text-muted)' }}>Common skins are free. Rare skins unlock through XP and achievements.</p>
+                             </div>
+                             <div className="rounded-3xl border border-[var(--card-border)] bg-[var(--card)] p-3 text-right">
+                                <p className="text-2xl font-black text-primary">{currentXP}</p>
+                                <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Current XP</p>
+                             </div>
+                          </div>
+                          <div className="mt-5 grid gap-3 md:grid-cols-3">
+                             {portalSkins.map((skin) => {
+                               const locked = currentXP < skin.requiredXp
+                               const active = selectedSkin === skin.id
+                               return (
+                                <button
+                                  key={skin.id}
+                                  onClick={() => savePortalSkin(skin)}
+                                  className={`group overflow-hidden rounded-[1.75rem] border text-left transition ${active ? 'border-primary shadow-xl shadow-primary/10' : 'border-[var(--card-border)] hover:-translate-y-0.5 hover:border-primary/50'} ${locked ? 'opacity-60' : ''}`}
+                                >
+                                   <div className={`h-20 bg-gradient-to-br ${skin.accent} relative`}>
+                                      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.55),transparent_35%)]" />
+                                      <div className="absolute bottom-3 left-3 rounded-full bg-black/25 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-white backdrop-blur">
+                                         {locked ? `${skin.requiredXp} XP` : skin.rarity}
+                                      </div>
+                                   </div>
+                                   <div className="bg-[var(--card)] p-4">
+                                      <div className="flex items-center justify-between gap-2">
+                                         <p className="font-black text-sm" style={{ color: 'var(--text)' }}>{skin.name}</p>
+                                         {active && <span className="rounded-full bg-primary px-2 py-1 text-[9px] font-black uppercase text-white">Equipped</span>}
+                                      </div>
+                                      <p className="mt-1 text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>{skin.desc}</p>
+                                   </div>
+                                </button>
+                               )
+                             })}
+                          </div>
+                       </div>
+
                        <div>
                           <h3 className="font-black text-xl" style={{ color: 'var(--text)' }}>Portal Hub Themes</h3>
                           <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>Choose a theme that matches your energy.</p>

@@ -57,3 +57,196 @@ export async function updateOwnPassword(newPassword: string) {
 
   return { success: true }
 }
+
+export async function getStudentHomepageFeeds(classId: string) {
+  const supabase = await createServerClient()
+  
+  const [assignRes, quizRes, timetableRes] = await Promise.all([
+    supabase.from('assignments')
+      .select('*, teacher:teachers(profiles(full_name)), subject:subjects(name)')
+      .eq('class_id', classId)
+      .eq('status', 'published')
+      .order('created_at', { ascending: false })
+      .limit(3),
+    supabase.from('quizzes')
+      .select('*, teacher:teachers(profiles(full_name)), subject:subjects(name)')
+      .eq('class_id', classId)
+      .eq('status', 'published')
+      .order('created_at', { ascending: false })
+      .limit(3),
+    supabase.from('timetables')
+      .select('*, subject:subjects(name), teacher:teachers(profiles(full_name))')
+      .eq('class_id', classId)
+      .gte('start_time', new Date().toISOString())
+      .order('start_time', { ascending: true })
+      .limit(3)
+  ])
+
+  return {
+    recentAssignments: assignRes.data || [],
+    recentQuizzes: quizRes.data || [],
+    upcomingSessions: timetableRes.data || []
+  }
+}
+
+async function verifyStudentForUser(studentId: string, expectedUserId?: string) {
+  const supabase = await createServerClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  const userId = user?.id || expectedUserId
+  if (!userId) throw new Error('Student session is not available yet.')
+
+  const admin = await createAdminClient()
+  const { data: student, error } = await admin
+    .from('students')
+    .select('id, user_id, class_id, curriculum_id, tuition_center_id')
+    .eq('id', studentId)
+    .single()
+
+  if (error || !student) throw error || new Error('Student profile was not found.')
+  if (student.user_id && student.user_id !== userId) throw new Error('This student profile does not belong to the current user.')
+
+  return { admin, student, userId }
+}
+
+function normalizeRelation(value: any) {
+  return Array.isArray(value) ? value[0] : value
+}
+
+export async function getStudentSettingsSubjects(studentId: string, expectedUserId?: string) {
+  const { admin, student } = await verifyStudentForUser(studentId, expectedUserId)
+
+  const [registeredRes, classMapRes, curriculumRes] = await Promise.all([
+    admin
+      .from('student_subjects')
+      .select('id, subject_id, subject:subjects(id, name, class_id, curriculum_id)')
+      .eq('student_id', studentId),
+    student.class_id
+      ? admin
+          .from('teacher_assignments')
+          .select('subject:subjects(id, name, class_id, curriculum_id)')
+          .eq('class_id', student.class_id)
+      : Promise.resolve({ data: [] as any[], error: null }),
+    student.curriculum_id
+      ? admin
+          .from('subjects')
+          .select('id, name, class_id, curriculum_id')
+          .eq('curriculum_id', student.curriculum_id)
+          .order('name')
+      : Promise.resolve({ data: [] as any[], error: null }),
+  ])
+
+  if (registeredRes.error) throw registeredRes.error
+  if (classMapRes.error) throw classMapRes.error
+  if (curriculumRes.error) throw curriculumRes.error
+
+  const registeredSubjects = (registeredRes.data || [])
+    .map((row: any) => ({ ...row, subject: normalizeRelation(row.subject) }))
+    .filter((row: any) => row.subject)
+
+  const map = new Map<string, any>()
+  for (const row of registeredSubjects) map.set(row.subject.id, row.subject)
+  for (const row of classMapRes.data || []) {
+    const subject = normalizeRelation((row as any).subject)
+    if (subject?.id) map.set(subject.id, subject)
+  }
+  for (const subject of curriculumRes.data || []) {
+    if (subject?.id && (!student.class_id || !subject.class_id || subject.class_id === student.class_id)) {
+      map.set(subject.id, subject)
+    }
+  }
+
+  return {
+    registeredSubjects,
+    availableSubjects: [...map.values()].sort((a: any, b: any) => String(a.name).localeCompare(String(b.name))),
+  }
+}
+
+export async function getStudentAssignmentBoard(input: {
+  studentId: string
+  expectedUserId?: string
+  page: number
+  pageSize: number
+}) {
+  const { admin, student } = await verifyStudentForUser(input.studentId, input.expectedUserId)
+
+  const { data: registeredRows } = await admin
+    .from('student_subjects')
+    .select('subject_id')
+    .eq('student_id', input.studentId)
+  const subjectIds = (registeredRows || []).map((row: any) => row.subject_id).filter(Boolean)
+
+  const from = (input.page - 1) * input.pageSize
+  const to = from + input.pageSize - 1
+  let query = admin
+    .from('assignments')
+    .select('id, title, description, due_date, status, total_marks, max_marks, is_workbook, attachment_url, lock_after_deadline, worksheet, class_id, subject_id, subject:subjects(name), teacher:teachers(full_name)', { count: 'exact' })
+    .eq('status', 'published')
+    .order('created_at', { ascending: false })
+    .range(from, to)
+
+  if (student.class_id) query = query.eq('class_id', student.class_id)
+  if (student.tuition_center_id) query = query.or(`tuition_center_id.eq.${student.tuition_center_id},tuition_center_id.is.null`)
+  if (subjectIds.length > 0) query = query.in('subject_id', subjectIds)
+
+  const { data: assignments, count, error: assignmentError } = await query
+  if (assignmentError) throw assignmentError
+
+  const assignmentIds = (assignments || []).map((assignment: any) => assignment.id)
+  const { data: submissions, error: submissionsError } = assignmentIds.length
+    ? await admin
+        .from('submissions')
+        .select('id, assignment_id, student_id, status, marks, submitted_at, worksheet_answers')
+        .eq('student_id', input.studentId)
+        .in('assignment_id', assignmentIds)
+    : { data: [], error: null }
+
+  if (submissionsError) throw submissionsError
+
+  const submissionMap = (submissions || []).reduce((acc: Record<string, any>, submission: any) => {
+    acc[submission.assignment_id] = submission
+    return acc
+  }, {})
+
+  return {
+    assignments: assignments || [],
+    submissions: submissionMap,
+    count: count || 0,
+  }
+}
+
+export async function getStudentNotificationFeed(expectedUserId?: string) {
+  const supabase = await createServerClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  const userId = user?.id || expectedUserId
+  if (!userId) return []
+
+  const admin = await createAdminClient()
+  const { data, error } = await admin
+    .from('notifications')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(80)
+
+  if (error) return []
+  return data || []
+}
+
+export async function getStudentNationalExam(studentId: string, examType: 'KCSE' | 'KPSEA' | 'KJSEA', expectedUserId?: string) {
+  const { admin, student } = await verifyStudentForUser(studentId, expectedUserId)
+  const today = new Date().toISOString().split('T')[0]
+  const { data, error } = await admin
+    .from('national_exam_events')
+    .select('*')
+    .eq('exam_type', examType)
+    .eq('status', 'published')
+    .gte('exam_date', today)
+    .order('exam_date', { ascending: true })
+    .limit(10)
+
+  if (error) return null
+  return (data || []).find((exam: any) => {
+    const targets = exam.target_class_ids || []
+    return targets.length === 0 || targets.includes(student.class_id)
+  }) || null
+}

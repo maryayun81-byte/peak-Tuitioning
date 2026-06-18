@@ -317,7 +317,7 @@ export function PeakAIAssistant() {
       {/* FAB */}
       <AnimatePresence>
         {!isOpen && (
-          <div className="fixed bottom-20 right-4 sm:bottom-6 sm:right-6 z-[101]">
+          <div className="fixed bottom-24 right-4 z-[101] sm:bottom-6 sm:right-6">
             <div className="relative">
               <motion.button
                 initial={{ scale: 0, rotate: -45 }}
@@ -354,7 +354,7 @@ export function PeakAIAssistant() {
                 ? 'inset-0 rounded-0 border-0'
                 : [
                     'sm:rounded-2xl sm:border sm:border-white/10',
-                    'inset-x-0 bottom-0 top-[8%]',
+                    'inset-x-0 bottom-[72px] top-[8%]',
                     'sm:inset-x-auto sm:right-6',
                     'sm:top-auto sm:bottom-6',
                     'sm:w-[520px] sm:h-[700px] sm:max-h-[calc(100vh-6rem)]',

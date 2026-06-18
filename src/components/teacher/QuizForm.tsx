@@ -26,6 +26,7 @@ const AnnotationCanvas = dynamic(() => import('@/components/worksheet/Annotation
 import { useMemo } from 'react'
 import toast from 'react-hot-toast'
 import type { Class, Subject } from '@/types/database'
+import { sendPushNotification } from '@/app/actions/push'
 
 type QuestionType = 'multiple_choice' | 'multiple_answer' | 'true_false' | 'short_answer'
 type GradingMethod = 'exact' | 'keyword' | 'similarity'
@@ -293,6 +294,19 @@ export function QuizForm({ initialData, isEditing = false }: QuizFormProps) {
     } else {
       clear() // Clear draft on successful save
       clearPageDataCache() // Invalidate global caches
+      
+      if (!isEditing && form.class_id) {
+        const { data: stUsers } = await supabase.from('students').select('user_id').eq('class_id', form.class_id)
+        const targetUserIds = stUsers?.map(s => s.user_id).filter(Boolean) as string[] || []
+        if (targetUserIds.length > 0) {
+          await sendPushNotification(targetUserIds, {
+            title: 'New Quiz Posted',
+            body: `A new quiz "${form.title}" is available.`,
+            href: `/student/quizzes`,
+          })
+        }
+      }
+
       toast.success(isEditing ? 'Quiz updated successfully!' : 'Quiz created successfully!')
       router.push('/teacher/quizzes')
     }

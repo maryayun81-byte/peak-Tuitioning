@@ -6,10 +6,11 @@ import { useAuthStore } from '@/stores/authStore'
 import { useNotificationStore } from '@/stores/notificationStore'
 import toast from 'react-hot-toast'
 import { playGeneratedSound, type SoundProfile } from '@/lib/sounds'
+import { getStudentNotificationFeed } from '@/app/actions/student'
 
 export function useRealtimeNotifications() {
   const supabase = getSupabaseBrowserClient()
-  const { profile } = useAuthStore()
+  const { profile, student, teacher, parent } = useAuthStore()
   const { addNotification, setNotifications, markRead, deleteNotification, unreadCount } = useNotificationStore()
 
   useEffect(() => {
@@ -30,16 +31,26 @@ export function useRealtimeNotifications() {
   }, [unreadCount])
 
   useEffect(() => {
-    if (!profile?.id) return
+    const actorUserId = profile?.id || (student as any)?.user_id || (teacher as any)?.user_id || (parent as any)?.user_id
+    if (!actorUserId) return
 
     // 1. Fetch initial notifications
     const fetchInitial = async () => {
-      const { data, error } = await supabase
-        .from('notifications')
-        .select('*')
-        .eq('user_id', profile.id)
-        .order('created_at', { ascending: false })
-        .limit(50) // Initial load limit
+      let data: any[] | null = null
+      let error: any = null
+
+      try {
+        data = await getStudentNotificationFeed(actorUserId)
+      } catch {
+        const result = await supabase
+          .from('notifications')
+          .select('*')
+          .eq('user_id', actorUserId)
+          .order('created_at', { ascending: false })
+          .limit(50)
+        data = result.data
+        error = result.error
+      }
       
       if (!error && data) {
         setNotifications(data)
@@ -57,14 +68,14 @@ export function useRealtimeNotifications() {
 
     // 2. Subscribe to the notifications table for this user
     const channel = supabase
-      .channel(`user-updates-${profile.id}`)
+      .channel(`user-updates-${actorUserId}`)
       .on(
         'postgres_changes',
         {
           event: 'INSERT',
           schema: 'public',
           table: 'notifications',
-          filter: `user_id=eq.${profile.id}`
+          filter: `user_id=eq.${actorUserId}`
         },
         (payload) => {
           const newNotif = payload.new as any
@@ -72,7 +83,7 @@ export function useRealtimeNotifications() {
           // Add to local store
           addNotification({
             id: newNotif.id,
-            user_id: profile.id,
+            user_id: actorUserId,
             title: newNotif.title,
             body: newNotif.body,
             type: newNotif.type,
@@ -86,7 +97,7 @@ export function useRealtimeNotifications() {
           if (adminTypes.includes(newNotif.type)) {
              useNotificationStore.getState().setActivePriorityNotification({
                 id: newNotif.id,
-                user_id: profile.id,
+                user_id: actorUserId,
                 title: newNotif.title,
                 body: newNotif.body,
                 type: newNotif.type,
@@ -158,7 +169,7 @@ export function useRealtimeNotifications() {
           event: 'UPDATE',
           schema: 'public',
           table: 'notifications',
-          filter: `user_id=eq.${profile.id}`
+          filter: `user_id=eq.${actorUserId}`
         },
         (payload) => {
            // Sync update (e.g. if marked as read elsewhere)
@@ -173,7 +184,7 @@ export function useRealtimeNotifications() {
           event: 'DELETE',
           schema: 'public',
           table: 'notifications',
-          filter: `user_id=eq.${profile.id}`
+          filter: `user_id=eq.${actorUserId}`
         },
         (payload) => {
            // Sync deletion
@@ -187,7 +198,7 @@ export function useRealtimeNotifications() {
           event: 'UPDATE',
           schema: 'public',
           table: 'students',
-          filter: `user_id=eq.${profile.id}`
+          filter: `user_id=eq.${actorUserId}`
         },
         (payload) => {
           const { setStudent } = useAuthStore.getState()
@@ -199,5 +210,5 @@ export function useRealtimeNotifications() {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [profile?.id, supabase, addNotification, setNotifications, markRead])
+  }, [profile?.id, (student as any)?.user_id, (teacher as any)?.user_id, (parent as any)?.user_id, supabase, addNotification, setNotifications, markRead])
 }

@@ -96,16 +96,6 @@ export default function StudentOnboarding() {
               arr.findIndex(x => x.id === s.id) === i) // deduplicate
         }
 
-        // Strategy 3: system-wide fallback — student can always proceed
-        if (sData.length === 0) {
-          const { data: allSubjects } = await supabase
-            .from('subjects')
-            .select('id, name, code')
-            .order('name')
-            .limit(30)
-          sData = allSubjects ?? []
-        }
-
         setSubjects(sData)
       } finally {
         setLoadingSubjects(false)
@@ -117,7 +107,7 @@ export default function StudentOnboarding() {
 
   const finish = async () => {
     if (!student) return
-    if (selectedSubjects.length === 0) {
+    if (subjects.length > 0 && selectedSubjects.length === 0) {
       toast.error('Please select at least one subject to continue')
       return
     }

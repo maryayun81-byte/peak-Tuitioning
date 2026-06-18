@@ -1,569 +1,280 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, Search, Edit, Trash2, Users, Calendar, X, Eye } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { BarChart3, ChevronLeft, ChevronRight, Download, FileText, Printer, Search, Users } from 'lucide-react'
+import toast from 'react-hot-toast'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
-import { Input, Select } from '@/components/ui/Input'
 import { Card, Badge } from '@/components/ui/Card'
-import { Modal, ConfirmModal } from '@/components/ui/Modal'
-import { SkeletonList } from '@/components/ui/Skeleton'
-import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
-import { z } from 'zod'
-import toast from 'react-hot-toast'
-import { formatDate } from '@/lib/utils'
 
-const registrationSchema = z.object({
-  student_name: z.string().optional(),
-  tuition_event_id: z.string().min(1, "Please select an event"),
-  class_id: z.string().optional().nullable(),
-  curriculum_id: z.string().optional().nullable(),
-  tuition_center_id: z.string().optional().nullable(),
-  notes: z.string().optional(),
-  status: z.enum(['active', 'withdrawn', 'suspended']).default('active'),
-})
+function csvEscape(value: any) {
+  return `"${String(value ?? '').replace(/"/g, '""')}"`
+}
 
-type RegistrationForm = z.infer<typeof registrationSchema>
+const PAGE_SIZE = 8
+
+function countBy(items: any[], getKey: (item: any) => string | undefined | null) {
+  return Object.entries(items.reduce((acc: Record<string, number>, item) => {
+    const key = getKey(item) || 'Not provided'
+    acc[key] = (acc[key] || 0) + 1
+    return acc
+  }, {}))
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value || a.label.localeCompare(b.label))
+}
+
+function AnalyticsBars({ title, data }: { title: string; data: { label: string; value: number }[] }) {
+  const max = Math.max(...data.map((item) => item.value), 1)
+  return (
+    <Card className="p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <BarChart3 size={16} className="text-primary" />
+        <h3 className="text-sm font-black" style={{ color: 'var(--text)' }}>{title}</h3>
+      </div>
+      <div className="space-y-3">
+        {data.slice(0, 6).map((item) => (
+          <div key={item.label}>
+            <div className="mb-1 flex items-center justify-between gap-3 text-xs">
+              <span className="truncate font-bold" style={{ color: 'var(--text)' }}>{item.label}</span>
+              <span className="font-black text-primary">{item.value}</span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-[var(--input)]">
+              <div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(8, (item.value / max) * 100)}%` }} />
+            </div>
+          </div>
+        ))}
+        {data.length === 0 && <p className="text-sm text-muted">No data yet.</p>}
+      </div>
+    </Card>
+  )
+}
 
 export default function AdminEventRegistrations() {
   const supabase = getSupabaseBrowserClient()
   const [registrations, setRegistrations] = useState<any[]>([])
-  const [events, setEvents] = useState<any[]>([])
-  const [classes, setClasses] = useState<any[]>([])
-  const [centers, setCenters] = useState<any[]>([])
-  const [curriculums, setCurriculums] = useState<any[]>([])
-  
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [filterEvent, setFilterEvent] = useState('')
-  const [filterCurriculum, setFilterCurriculum] = useState('')
-  const [filterClass, setFilterClass] = useState('')
-  const [filterCenter, setFilterCenter] = useState('')
-  
-  const [addOpen, setAddOpen] = useState(false)
-  const [editing, setEditing] = useState<any | null>(null)
-  const [deleteOpen, setDeleteOpen] = useState(false)
-  const [selected, setSelected] = useState<any | null>(null)
-  
+  const [programme, setProgramme] = useState('')
+  const [eventId, setEventId] = useState('')
+  const [curriculum, setCurriculum] = useState('')
+  const [classLevel, setClassLevel] = useState('')
+  const [weakness, setWeakness] = useState('')
   const [page, setPage] = useState(1)
-  const PAGE_SIZE = 15
 
-  const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<RegistrationForm>({
-    resolver: zodResolver(registrationSchema),
-    defaultValues: {
-      status: 'active'
-    }
-  })
-
-  // Derive form classes based on selected curriculum
-  const watchCurriculum = watch('curriculum_id')
-  const formClasses = curriculums.length > 0 && watchCurriculum
-    ? classes.filter(c => c.curriculum_id === watchCurriculum)
-    : classes
-
-  useEffect(() => { 
+  useEffect(() => {
     loadData()
   }, [])
 
+  useEffect(() => {
+    setPage(1)
+  }, [search, programme, eventId, curriculum, classLevel, weakness])
+
   const loadData = async () => {
     setLoading(true)
-    try {
-      const [rRes, eRes, cRes, cenRes, curRes] = await Promise.all([
-        supabase
-          .from('event_registrations')
-          .select(`
-            *,
-            tuition_event:tuition_events(id, name),
-            class:classes(id, name, curriculum_id),
-            center:tuition_centers(id, name)
-          `)
-          .order('registered_at', { ascending: false }),
-        supabase.from('tuition_events').select('id, name').order('start_date', { ascending: false }),
-        supabase.from('classes').select('id, name, curriculum_id').order('name'),
-        supabase.from('tuition_centers').select('id, name').order('name'),
-        supabase.from('curriculums').select('id, name').order('name')
-      ])
+    const { data, error } = await supabase
+      .from('event_registrations')
+      .select('*, tuition_event:tuition_events(id, name, start_date)')
+      .order('registered_at', { ascending: false })
 
-      setRegistrations(rRes.data ?? [])
-      setEvents(eRes.data ?? [])
-      setClasses(cRes.data ?? [])
-      setCenters(cenRes.data ?? [])
-      setCurriculums(curRes.data ?? [])
-      
-      // Auto-select the first event as a default filter if none selected
-      if (!filterEvent && eRes.data && eRes.data.length > 0) {
-         setFilterEvent(eRes.data[0].id)
-      }
-    } catch (error) {
-      console.error('Failed to load data:', error)
-      toast.error('Failed to load data.')
-    } finally {
-      setLoading(false)
+    if (error) {
+      toast.error('Failed to load programme registrations')
+    } else {
+      setRegistrations(data || [])
     }
+    setLoading(false)
   }
 
-  const filteredRegistrations = registrations.filter(r => {
-    const matchesSearch = r.student_name.toLowerCase().includes(search.toLowerCase())
-    const matchesEvent = filterEvent ? r.tuition_event_id === filterEvent : true
-    const matchesCurriculum = filterCurriculum ? r.class?.curriculum_id === filterCurriculum : true
-    const matchesClass = filterClass ? r.class_id === filterClass : true
-    const matchesCenter = filterCenter ? r.tuition_center_id === filterCenter : true
-    return matchesSearch && matchesEvent && matchesCurriculum && matchesClass && matchesCenter
-  })
-  
-  const paginatedRegistrations = filteredRegistrations.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
-  const totalPages = Math.max(1, Math.ceil(filteredRegistrations.length / PAGE_SIZE))
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase()
+    const weak = weakness.toLowerCase()
+    return registrations.filter((item) => {
+      const subjectResults = Array.isArray(item.subject_results) ? item.subject_results : []
+      const text = [
+        item.student_name,
+        item.parent_name,
+        item.parent_phone,
+        item.school_name,
+        item.class_level,
+        item.programme_selected || item.tuition_event?.name,
+        item.overall_grade,
+        ...subjectResults.flatMap((subject: any) => [subject.subjectName, subject.grade, subject.struggle]),
+      ].join(' ').toLowerCase()
 
-  const [isBulk, setIsBulk] = useState(false)
-  const [bulkRows, setBulkRows] = useState<string[]>([''])
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    
-    const reader = new FileReader()
-    reader.onload = (event) => {
-      const text = event.target?.result as string
-      let names: string[] = []
-      
-      if (file.name.endsWith('.csv')) {
-        names = text.split(/\r?\n/).map(line => {
-          const parts = line.split(',')
-          return parts[0].trim()
-        }).filter(name => name.length > 2 && name.toLowerCase() !== 'name' && name.toLowerCase() !== 'student name')
-      } else {
-        names = text.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 2)
-      }
-      
-      if (names.length > 0) {
-        setBulkRows([...bulkRows.filter(r => r.trim() !== ''), ...names])
-        toast.success(`Imported ${names.length} names`)
-      }
-    }
-    reader.readAsText(file)
-  }
-
-  const addBulkRow = () => setBulkRows([...bulkRows, ''])
-  const removeBulkRow = (index: number) => {
-    const newRows = [...bulkRows]
-    newRows.splice(index, 1)
-    setBulkRows(newRows.length ? newRows : [''])
-  }
-  const updateBulkRow = (index: number, val: string) => {
-    const newRows = [...bulkRows]
-    newRows[index] = val
-    setBulkRows(newRows)
-  }
-
-  const onBulkSubmit = async (data: RegistrationForm) => {
-    const names = bulkRows.map(r => r.trim()).filter(r => r.length > 2)
-    if (names.length === 0) {
-      toast.error('Enter at least one student name')
-      return
-    }
-
-    setLoading(true)
-    try {
-      const records = names.map(name => ({
-        student_name: name,
-        tuition_event_id: data.tuition_event_id,
-        class_id: data.class_id || null,
-        tuition_center_id: data.tuition_center_id || null,
-        notes: data.notes || null,
-        status: data.status,
-      }))
-
-      // Batch insert
-      const { error } = await supabase.from('event_registrations').insert(records)
-      
-      if (error) {
-        if (error.code === '23505') toast.error('Some students in this list are already registered.')
-        else throw error
-      } else {
-        toast.success(`Successfully registered ${names.length} students!`)
-        setAddOpen(false)
-        reset()
-        setBulkRows([''])
-        loadData()
-      }
-    } catch (err) {
-      console.error(err)
-      toast.error('Bulk registration failed')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const onSubmit = async (data: RegistrationForm) => {
-    if (isBulk && !editing) {
-      await onBulkSubmit(data)
-      return
-    }
-
-    if (!data.student_name || data.student_name.trim().length < 2) {
-      toast.error('Student Name is required')
-      return
-    }
-
-    setLoading(true)
-    try {
-      if (editing) {
-         const { error } = await supabase.from('event_registrations').update({
-           student_name: data.student_name,
-           tuition_event_id: data.tuition_event_id,
-           class_id: data.class_id || null,
-           tuition_center_id: data.tuition_center_id || null,
-           notes: data.notes || null,
-           status: data.status,
-         }).eq('id', editing.id)
-         
-         if (error) {
-            if (error.code === '23505') toast.error('This student is already registered for this event.')
-            else throw error
-         } else {
-            toast.success('Registration updated')
-            setAddOpen(false)
-         }
-      } else {
-         const { error } = await supabase.from('event_registrations').insert({
-           student_name: data.student_name,
-           tuition_event_id: data.tuition_event_id,
-           class_id: data.class_id || null,
-           tuition_center_id: data.tuition_center_id || null,
-           notes: data.notes || null,
-           status: data.status,
-         })
-         
-         if (error) {
-            if (error.code === '23505') toast.error('This student is already registered for this event.')
-            else throw error
-         } else {
-            toast.success('Student registered!')
-            setAddOpen(false)
-            reset()
-         }
-      }
-      loadData()
-    } catch (err: any) {
-      toast.error('Something went wrong')
-      console.error(err)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const openAdd = (isBulkMode: boolean) => {
-    try {
-      setIsBulk(isBulkMode)
-      if (isBulkMode) setBulkRows([''])
-      reset({
-        student_name: '',
-        tuition_event_id: filterEvent || (events && events.length > 0 ? events[0].id : ''),
-        curriculum_id: filterCurriculum || '',
-        status: 'active',
-        notes: ''
-      })
-      setEditing(null)
-      setAddOpen(true)
-    } catch (e) {
-      console.error('Error opening add modal:', e)
-      toast.error('Could not open form')
-    }
-  }
-
-  const openEdit = (reg: any) => {
-    setIsBulk(false) // editing is always single
-    setEditing(reg)
-    reset({
-      student_name: reg.student_name,
-      tuition_event_id: reg.tuition_event_id,
-      curriculum_id: reg.class?.curriculum_id || '',
-      class_id: reg.class_id || '',
-      tuition_center_id: reg.tuition_center_id || '',
-      notes: reg.notes || '',
-      status: reg.status,
+      const matchesSearch = q ? text.includes(q) : true
+      const matchesProgramme = programme ? (item.programme_selected || item.tuition_event?.name) === programme : true
+      const matchesEvent = eventId ? item.tuition_event_id === eventId : true
+      const matchesCurriculum = curriculum ? item.curriculum_label === curriculum : true
+      const matchesClass = classLevel ? item.class_level === classLevel : true
+      const matchesWeakness = weak ? subjectResults.some((subject: any) => String(subject.struggle || '').toLowerCase().includes(weak) || String(subject.subjectName || '').toLowerCase().includes(weak)) : true
+      return matchesSearch && matchesProgramme && matchesEvent && matchesCurriculum && matchesClass && matchesWeakness
     })
-    setAddOpen(true)
-  }
+  }, [registrations, search, programme, eventId, curriculum, classLevel, weakness])
 
-  const deleteRegistration = async () => {
-    if (!selected) return
-    const { error } = await supabase.from('event_registrations').delete().eq('id', selected.id)
-    if (error) { toast.error('Delete failed'); return }
-    toast.success('Registration removed')
-    loadData()
-    setSelected(null)
-    setDeleteOpen(false)
-  }
-  
-  const stats = {
-     total: filteredRegistrations.length,
-     active: filteredRegistrations.filter(r => r.status === 'active').length,
-     withdrawn: filteredRegistrations.filter(r => r.status === 'withdrawn').length,
+  const programmes = [...new Set(registrations.map((item) => item.programme_selected || item.tuition_event?.name).filter(Boolean))]
+  const events = Array.from(
+    new Map(
+      registrations
+        .filter((item) => item.tuition_event_id || item.tuition_event?.id)
+        .map((item) => [item.tuition_event_id || item.tuition_event?.id, item.tuition_event?.name || item.programme_selected || 'Tuition event'])
+    ).entries()
+  ).map(([id, name]) => ({ id, name }))
+  const curriculums = [...new Set(registrations.map((item) => item.curriculum_label).filter(Boolean))]
+  const classLevels = [...new Set(registrations.map((item) => item.class_level).filter(Boolean))]
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const selectedEventTotal = eventId ? registrations.filter((item) => item.tuition_event_id === eventId).length : registrations.length
+  const byEvent = countBy(filtered, (item) => item.tuition_event?.name || item.programme_selected)
+  const byClass = countBy(filtered, (item) => item.class_level)
+  const byCurriculum = countBy(filtered, (item) => item.curriculum_label)
+
+  const exportCsv = () => {
+    const rows = [
+      ['Programme', 'Student', 'Parent', 'Parent Phone', 'School', 'Curriculum', 'Class/Form/Grade', 'Overall Grade', 'Subject Performance', 'Registered At'],
+      ...filtered.map((item) => {
+        const subjects = (Array.isArray(item.subject_results) ? item.subject_results : [])
+          .map((subject: any) => `${subject.subjectName}: ${subject.grade} - ${subject.struggle}`)
+          .join(' | ')
+        return [
+          item.programme_selected || item.tuition_event?.name,
+          item.student_name,
+          item.parent_name,
+          item.parent_phone,
+          item.school_name,
+          item.curriculum_label,
+          item.class_level,
+          item.overall_grade,
+          subjects,
+          item.registered_at,
+        ]
+      }),
+    ]
+    const csv = rows.map((row) => row.map(csvEscape).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `programme-registrations-${new Date().toISOString().split('T')[0]}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
   }
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="space-y-6 p-4 pb-24 md:p-6">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <h1 className="text-2xl font-black" style={{ color: 'var(--text)' }}>Event Registrations</h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>Manage student enrollments for tuition events</p>
+          <p className="text-[10px] font-black uppercase tracking-[0.24em] text-primary">Academic intake</p>
+          <h1 className="mt-2 text-2xl font-black" style={{ color: 'var(--text)' }}>Programme Registrations</h1>
+          <p className="mt-1 text-sm text-muted">Review learner context before the programme starts.</p>
         </div>
-        <div className="flex gap-2">
-           <Button variant="secondary" onClick={() => openAdd(true)} className="whitespace-nowrap">
-             <Plus size={16} /> Bulk Register
-           </Button>
-           <Button onClick={() => openAdd(false)} className="whitespace-nowrap">
-             <Plus size={16} /> Register Student
-           </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={exportCsv}><Download size={16} /> Export CSV</Button>
+          <Button variant="secondary" onClick={() => window.print()}><Printer size={16} /> Export PDF</Button>
         </div>
       </div>
 
-      {/* Stats row */}
-      <div className="grid grid-cols-3 gap-4">
-         <div className="p-4 rounded-xl border border-[var(--card-border)] bg-[var(--card)]">
-            <p className="text-xs uppercase font-bold" style={{ color: 'var(--text-muted)' }}>Total Enrolled</p>
-            <p className="text-2xl font-black mt-1" style={{ color: 'var(--primary)' }}>{stats.total}</p>
-         </div>
-         <div className="p-4 rounded-xl border border-[var(--card-border)] bg-[var(--card)]">
-            <p className="text-xs uppercase font-bold" style={{ color: 'var(--text-muted)' }}>Active</p>
-            <p className="text-2xl font-black mt-1" style={{ color: '#10B981' }}>{stats.active}</p>
-         </div>
-         <div className="p-4 rounded-xl border border-[var(--card-border)] bg-[var(--card)]">
-            <p className="text-xs uppercase font-bold" style={{ color: 'var(--text-muted)' }}>Withdrawn</p>
-            <p className="text-2xl font-black mt-1" style={{ color: '#EF4444' }}>{stats.withdrawn}</p>
-         </div>
+      <div className="grid gap-3 md:grid-cols-4">
+        <Card className="p-4"><p className="text-xs font-bold text-muted">Total registrations</p><p className="mt-1 text-2xl font-black text-primary">{filtered.length}</p></Card>
+        <Card className="p-4"><p className="text-xs font-bold text-muted">Selected event total</p><p className="mt-1 text-2xl font-black" style={{ color: 'var(--text)' }}>{selectedEventTotal}</p></Card>
+        <Card className="p-4"><p className="text-xs font-bold text-muted">Classes represented</p><p className="mt-1 text-2xl font-black" style={{ color: 'var(--text)' }}>{byClass.length}</p></Card>
+        <Card className="p-4"><p className="text-xs font-bold text-muted">Curricula represented</p><p className="mt-1 text-2xl font-black" style={{ color: 'var(--text)' }}>{byCurriculum.length}</p></Card>
       </div>
 
-      <div className="flex flex-col md:flex-row flex-wrap gap-3">
-        <select 
-          className="px-4 py-2.5 rounded-xl border-none outline-none font-medium text-sm sm:w-auto w-full" 
-          style={{ background: 'var(--primary)', color: 'white', opacity: 0.9 }}
-          value={filterEvent} 
-          onChange={e => { setFilterEvent(e.target.value); setPage(1); }}
-        >
-          <option value="" disabled style={{ color: '#000' }}>Select Event...</option>
-          {events.map(e => <option key={e.id} value={e.id} style={{ color: '#000', background: 'white' }}>{e.name}</option>)}
-        </select>
-        
-        <div className="relative flex-1 min-w-[200px]">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-50" />
-          <input
-            type="text"
-            placeholder="Search student name..."
-            className="w-full pl-9 pr-4 py-2.5 rounded-xl border-none outline-none font-medium h-full"
-            style={{ background: 'var(--input)', color: 'var(--text)' }}
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-          />
+      <Card className="p-4">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_190px_190px_170px_170px_240px]">
+          <div className="relative">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search student, parent, school, subject..." className="h-11 w-full rounded-2xl bg-[var(--input)] pl-10 pr-3 text-sm outline-none" />
+          </div>
+          <select value={eventId} onChange={(e) => setEventId(e.target.value)} className="h-11 rounded-2xl bg-[var(--input)] px-3 text-sm outline-none">
+            <option value="">All tuition events</option>
+            {events.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+          </select>
+          <select value={programme} onChange={(e) => setProgramme(e.target.value)} className="h-11 rounded-2xl bg-[var(--input)] px-3 text-sm outline-none">
+            <option value="">All programmes</option>
+            {programmes.map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
+          <select value={curriculum} onChange={(e) => setCurriculum(e.target.value)} className="h-11 rounded-2xl bg-[var(--input)] px-3 text-sm outline-none">
+            <option value="">All curricula</option>
+            {curriculums.map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
+          <select value={classLevel} onChange={(e) => setClassLevel(e.target.value)} className="h-11 rounded-2xl bg-[var(--input)] px-3 text-sm outline-none">
+            <option value="">All classes</option>
+            {classLevels.map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
+          <input value={weakness} onChange={(e) => setWeakness(e.target.value)} placeholder="Filter by weakness e.g. graphs" className="h-11 rounded-2xl bg-[var(--input)] px-3 text-sm outline-none" />
         </div>
+      </Card>
 
-        <select 
-          className="px-4 py-2.5 rounded-xl border-none outline-none font-medium text-sm sm:w-auto w-full" 
-          style={{ background: 'var(--input)', color: 'var(--text)' }}
-          value={filterCurriculum} 
-          onChange={e => { setFilterCurriculum(e.target.value); setPage(1); }}
-        >
-          <option value="">All Curriculums</option>
-          {curriculums.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
-
-        <select 
-          className="px-4 py-2.5 rounded-xl border-none outline-none font-medium text-sm sm:w-auto w-full" 
-          style={{ background: 'var(--input)', color: 'var(--text)' }}
-          value={filterClass} 
-          onChange={e => { setFilterClass(e.target.value); setPage(1); }}
-        >
-          <option value="">All Classes</option>
-          {classes.filter(c => filterCurriculum ? c.curriculum_id === filterCurriculum : true).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
-
-        <select 
-          className="px-4 py-2.5 rounded-xl border-none outline-none font-medium text-sm sm:w-auto w-full" 
-          style={{ background: 'var(--input)', color: 'var(--text)' }}
-          value={filterCenter} 
-          onChange={e => { setFilterCenter(e.target.value); setPage(1); }}
-        >
-          <option value="">All Centers</option>
-          {centers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
+      <div className="grid gap-3 lg:grid-cols-3">
+        <AnalyticsBars title="Students per tuition event" data={byEvent} />
+        <AnalyticsBars title="Students per class" data={byClass} />
+        <AnalyticsBars title="Students per curriculum" data={byCurriculum} />
       </div>
 
       {loading ? (
-        <div className="grid grid-cols-1 gap-4">
-           <SkeletonList count={5} />
-        </div>
+        <Card className="p-8 text-center text-muted">Loading registrations...</Card>
+      ) : filtered.length === 0 ? (
+        <Card className="p-8 text-center">
+          <Users className="mx-auto h-10 w-10 text-muted" />
+          <p className="mt-3 font-bold" style={{ color: 'var(--text)' }}>No matching registrations.</p>
+        </Card>
       ) : (
-        <div className="space-y-6">
-           {paginatedRegistrations.length === 0 ? (
-              <div className="text-center py-12" style={{ color: 'var(--text-muted)' }}>
-                 {filterEvent ? 'No students enrolled for these filters yet.' : 'Please select a tuition event or register students.'}
-              </div>
-           ) : (
-              <div className="rounded-[1.5rem] border border-[var(--card-border)] overflow-hidden bg-[var(--card)] shadow-sm">
-                 <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left">
-                       <thead style={{ background: 'var(--input)', color: 'var(--text-muted)' }} className="text-xs uppercase font-black">
-                          <tr>
-                             <th className="px-5 py-4 min-w-[200px]">Student Name</th>
-                             <th className="px-5 py-4">Event</th>
-                             <th className="px-5 py-4">Class</th>
-                             <th className="px-5 py-4">Center</th>
-                             <th className="px-5 py-4">Status</th>
-                             <th className="px-5 py-4 text-right">Actions</th>
-                          </tr>
-                       </thead>
-                       <tbody className="divide-y divide-[var(--card-border)]">
-                          {paginatedRegistrations.map((reg) => (
-                             <tr key={reg.id} className="hover:bg-[var(--input)] transition-colors">
-                                <td className="px-5 py-4 font-bold" style={{ color: 'var(--text)' }}>
-                                   {reg.student_name}
-                                </td>
-                                <td className="px-5 py-4">
-                                   <Badge variant="info">{reg.tuition_event?.name}</Badge>
-                                </td>
-                                <td className="px-5 py-4" style={{ color: 'var(--text-muted)' }}>
-                                   {reg.class?.name || '—'}
-                                </td>
-                                <td className="px-5 py-4" style={{ color: 'var(--text-muted)' }}>
-                                   {reg.center?.name || '—'}
-                                </td>
-                                <td className="px-5 py-4">
-                                   <Badge variant={reg.status === 'active' ? 'success' : reg.status === 'withdrawn' ? 'danger' : 'warning'}>
-                                      {reg.status}
-                                   </Badge>
-                                </td>
-                                <td className="px-5 py-4 text-right">
-                                   <div className="flex justify-end gap-2">
-                                      <button onClick={() => openEdit(reg)} className="p-2 rounded-lg bg-[var(--input)] hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
-                                         <Edit size={14} style={{ color: 'var(--text-muted)' }} />
-                                      </button>
-                                      <button onClick={() => { setSelected(reg); setDeleteOpen(true) }} className="p-2 rounded-lg bg-red-50 hover:bg-red-100 transition-colors">
-                                         <Trash2 size={14} className="text-red-500" />
-                                      </button>
-                                   </div>
-                                </td>
-                             </tr>
-                          ))}
-                       </tbody>
-                    </table>
-                 </div>
-              </div>
-           )}
-
-           {totalPages > 1 && (
-             <div className="flex flex-col sm:flex-row sm:items-center justify-between mt-8 p-4 bg-[var(--card)] rounded-xl border border-[var(--card-border)] gap-4">
-                <span className="text-sm font-medium text-center sm:text-left" style={{ color: 'var(--text-muted)' }}>
-                   Showing page <span style={{ color: 'var(--text)' }}>{page}</span> of <span style={{ color: 'var(--text)' }}>{totalPages}</span>
-                </span>
-                <div className="flex gap-2 justify-center sm:justify-end w-full sm:w-auto">
-                   <Button variant="secondary" size="sm" className="flex-1 sm:flex-none" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
-                      Previous
-                   </Button>
-                   <Button variant="secondary" size="sm" className="flex-1 sm:flex-none" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>
-                      Next
-                   </Button>
+        <div className="space-y-4">
+          <div className="flex flex-col gap-2 rounded-2xl bg-[var(--input)] p-3 text-sm text-muted sm:flex-row sm:items-center sm:justify-between">
+            <span>Showing {(page - 1) * PAGE_SIZE + 1}-{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length} registrations</span>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="secondary" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronLeft size={15} /> Prev</Button>
+              <span className="text-xs font-black text-primary">Page {page} / {totalPages}</span>
+              <Button size="sm" variant="secondary" disabled={page >= totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>Next <ChevronRight size={15} /></Button>
+            </div>
+          </div>
+          {paginated.map((item) => {
+            const subjects = Array.isArray(item.subject_results) ? item.subject_results : []
+            return (
+              <Card key={item.id} className="overflow-hidden border border-[var(--card-border)] bg-[var(--card)]">
+                <div className="grid gap-4 p-5 lg:grid-cols-[0.8fr_1.2fr]">
+                  <div>
+                    <Badge variant="primary" className="mb-3">{item.programme_selected || item.tuition_event?.name || 'Programme'}</Badge>
+                    <h2 className="text-xl font-black" style={{ color: 'var(--text)' }}>{item.student_name}</h2>
+                    <div className="mt-3 space-y-1 text-sm text-muted">
+                      <p><strong>Parent:</strong> {item.parent_name || 'Not provided'} - {item.parent_phone || 'No phone'}</p>
+                      <p><strong>Student phone:</strong> {item.student_phone || 'Optional not provided'}</p>
+                      <p><strong>School:</strong> {item.school_name || 'Not provided'}</p>
+                      <p><strong>Curriculum:</strong> {item.curriculum_label || 'Not provided'}</p>
+                      <p><strong>Class/Form/Grade:</strong> {item.class_level || 'Not provided'}</p>
+                      <p><strong>Preferred mode:</strong> {item.preferred_mode || 'Not provided'}</p>
+                      <p><strong>Overall grade:</strong> <span className="font-black text-primary">{item.overall_grade || 'Not provided'}</span></p>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="mb-3 flex items-center gap-2">
+                      <FileText size={17} className="text-primary" />
+                      <h3 className="font-black" style={{ color: 'var(--text)' }}>Subject-by-subject grades and struggles</h3>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {subjects.map((subject: any, index: number) => (
+                        <div key={`${subject.subjectName}-${index}`} className="rounded-2xl bg-[var(--input)] p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="font-black" style={{ color: 'var(--text)' }}>{subject.subjectName}</p>
+                            <span className="rounded-full bg-primary px-2 py-1 text-[10px] font-black text-white">{subject.grade}</span>
+                          </div>
+                          <p className="mt-2 text-xs leading-relaxed text-muted">{subject.struggle || 'No struggle provided.'}</p>
+                        </div>
+                      ))}
+                    </div>
+                    {item.whatsapp_summary && (
+                      <details className="mt-4 rounded-2xl bg-[var(--input)] p-3">
+                        <summary className="cursor-pointer text-xs font-black uppercase tracking-widest text-primary">WhatsApp-ready summary</summary>
+                        <pre className="mt-3 whitespace-pre-wrap text-xs leading-relaxed text-muted">{item.whatsapp_summary}</pre>
+                      </details>
+                    )}
+                  </div>
                 </div>
-             </div>
-           )}
+              </Card>
+            )
+          })}
         </div>
       )}
-
-      {/* Add/Edit Modal */}
-      <Modal 
-        isOpen={addOpen} 
-        onClose={() => setAddOpen(false)} 
-        title={editing ? "Edit Registration" : isBulk ? "Bulk Register Students" : "Register Student"}
-        size={isBulk && !editing ? "lg" : "md"}
-      >
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          <Select label="Tuition Event" error={errors.tuition_event_id?.message} {...register('tuition_event_id')}>
-            <option value="">Select Event...</option>
-            {events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </Select>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Select label="Curriculum (Optional)" error={errors.curriculum_id?.message} {...register('curriculum_id')}>
-              <option value="">No Curriculum Filter</option>
-              {curriculums.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </Select>
-             <Select label="Class (Optional)" error={errors.class_id?.message} {...register('class_id')}>
-               <option value="">No Class</option>
-               {formClasses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-             </Select>
-          </div>
-          
-          <Select label="Center (Optional)" error={errors.tuition_center_id?.message} {...register('tuition_center_id')}>
-            <option value="">No Center</option>
-            {centers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </Select>
-
-          {!isBulk || editing ? (
-             <Input label="Student Name" placeholder="Full name of student" error={errors.student_name?.message} {...register('student_name')} />
-          ) : (
-             <div className="space-y-3">
-               <div className="flex justify-between items-center">
-                 <label className="text-sm font-bold" style={{ color: 'var(--text)' }}>Student Names (Dynamic Rows)</label>
-                 <div className="flex gap-2">
-                   <label className="cursor-pointer text-xs font-bold text-emerald-500 hover:underline">
-                     📁 Upload CSV/TXT
-                     <input type="file" className="hidden" accept=".csv,.txt" onChange={handleFileUpload} />
-                   </label>
-                 </div>
-               </div>
-               
-               <div className="max-h-[300px] overflow-y-auto space-y-2 pr-2 custom-scrollbar">
-                 {bulkRows.map((row, idx) => (
-                   <div key={idx} className="flex gap-2 items-center">
-                     <div className="flex-1">
-                       <Input 
-                         placeholder={`Student ${idx + 1} Name`} 
-                         value={row}
-                         onChange={(e) => updateBulkRow(idx, e.target.value)}
-                         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addBulkRow(); } }}
-                       />
-                     </div>
-                     <button type="button" onClick={() => removeBulkRow(idx)} className="p-2.5 rounded-xl bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white transition-all mt-1">
-                       <Trash2 size={16} />
-                     </button>
-                   </div>
-                 ))}
-               </div>
-               
-               <Button type="button" variant="secondary" className="w-full border-dashed" onClick={addBulkRow}>
-                 <Plus size={14} className="mr-2" /> Add Another Student
-               </Button>
-             </div>
-          )}
-
-          <Select label="Status" error={errors.status?.message} {...register('status')}>
-            <option value="active">Active</option>
-            <option value="suspended">Suspended</option>
-            <option value="withdrawn">Withdrawn</option>
-          </Select>
-          <Input label="Notes (Optional)" placeholder="Any specific requirements or notes?" {...register('notes')} />
-          
-          <div className="flex gap-3 justify-end pt-2">
-            <Button type="button" variant="secondary" onClick={() => setAddOpen(false)}>Cancel</Button>
-            <Button type="submit" disabled={loading}>
-               {loading ? 'Processing...' : editing ? 'Update Registration' : isBulk ? `Register ${bulkRows.filter(r => r.trim()).length} Students` : 'Register Student'}
-            </Button>
-          </div>
-        </form>
-      </Modal>
-
-      {/* Delete Confirm */}
-      <ConfirmModal
-        isOpen={deleteOpen}
-        onClose={() => setDeleteOpen(false)}
-        onConfirm={deleteRegistration}
-        title="Remove Registration"
-        message={`Are you sure you want to remove ${selected?.student_name} from this event? This cannot be undone.`}
-        confirmLabel="Remove"
-        variant="danger"
-      />
     </div>
   )
 }

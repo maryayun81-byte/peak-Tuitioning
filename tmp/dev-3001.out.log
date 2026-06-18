@@ -1,0 +1,102 @@
+
+> peak-performance-tutoring@0.1.0 dev
+> next dev -p 3001
+
+▲ Next.js 16.2.0 (Turbopack)
+- Local:         http://localhost:3001
+- Network:       http://192.168.100.5:3001
+- Environments: .env.local
+✓ Ready in 1208ms
+- Experiments (use with caution):
+  · serverActions
+
+○ Compiling /auth/login ...
+ GET /auth/login?role=student 200 in 14.4s (next.js: 8.8s, proxy.ts: 569ms, application-code: 5.0s)
+○ Compiling /student ...
+ GET /student 200 in 17.7s (next.js: 16.4s, proxy.ts: 20ms, application-code: 1216ms)
+ POST /student 200 in 2.6s (next.js: 317ms, proxy.ts: 904ms, application-code: 1411ms)
+  └─ ƒ dispatchLiveSessionReminders() in 1137ms src/app/actions/live-sessions.ts
+ POST /student 200 in 1315ms (next.js: 9ms, proxy.ts: 14ms, application-code: 1292ms)
+  └─ ƒ getPeakUnreadCount() in 1269ms src/app/actions/messages.ts
+ POST /student 200 in 683ms (next.js: 11ms, proxy.ts: 11ms, application-code: 661ms)
+  └─ ƒ dispatchLiveSessionReminders() in 613ms src/app/actions/live-sessions.ts
+ POST /student 200 in 821ms (next.js: 25ms, proxy.ts: 14ms, application-code: 781ms)
+  └─ ƒ getPeakUnreadCount() in 757ms src/app/actions/messages.ts
+ POST /student 200 in 604ms (next.js: 11ms, proxy.ts: 11ms, application-code: 582ms)
+  └─ ƒ getStudentHomepageFeeds("54ec9cc6-ae8e-4bdf-b654-cc31f0a0a655") in 558ms src/app/actions/student.ts
+ POST /student 200 in 269ms (next.js: 28ms, proxy.ts: 13ms, application-code: 228ms)
+  └─ ƒ getStudentHomepageFeeds("54ec9cc6-ae8e-4bdf-b654-cc31f0a0a655") in 199ms src/app/actions/student.ts
+ POST /student 200 in 277ms (next.js: 51ms, proxy.ts: 15ms, application-code: 212ms)
+  └─ ƒ getStudentYouTubeSuggestions("54ec9cc6-ae8e-4bdf-b654-cc31f0a0a655") in 183ms src/app/actions/youtube.ts
+ POST /student 200 in 253ms (next.js: 27ms, proxy.ts: 12ms, application-code: 213ms)
+  └─ ƒ getStudentYouTubeSuggestions("54ec9cc6-ae8e-4bdf-b654-cc31f0a0a655") in 187ms src/app/actions/youtube.ts
+ POST /student 200 in 4.0s (next.js: 37ms, proxy.ts: 12ms, application-code: 4.0s)
+  └─ ƒ generateDailyInsights("8-4-4", "Form 4") in 3926ms src/app/actions/ai.ts
+ POST /student 200 in 3.7s (next.js: 586ms, proxy.ts: 16ms, application-code: 3.1s)
+  └─ ƒ generateDailyInsights("8-4-4", "Form 4") in 3083ms src/app/actions/ai.ts
+ POST /student 200 in 850ms (next.js: 12ms, proxy.ts: 12ms, application-code: 826ms)
+  └─ ƒ getPeakUnreadCount() in 803ms src/app/actions/messages.ts
+ POST /student 200 in 685ms (next.js: 9ms, proxy.ts: 10ms, application-code: 666ms)
+  └─ ƒ dispatchLiveSessionReminders() in 649ms src/app/actions/live-sessions.ts
+ POST /student 200 in 801ms (next.js: 10ms, proxy.ts: 13ms, application-code: 779ms)
+  └─ ƒ getPeakUnreadCount() in 758ms src/app/actions/messages.ts
+ POST /student 200 in 850ms (next.js: 21ms, proxy.ts: 16ms, application-code: 812ms)
+  └─ ƒ getPeakUnreadCount() in 792ms src/app/actions/messages.ts
+ GET /student 200 in 613ms (next.js: 17ms, proxy.ts: 9ms, application-code: 587ms)
+ POST /student 200 in 1107ms (next.js: 63ms, proxy.ts: 78ms, application-code: 966ms)
+  └─ ƒ getPeakUnreadCount() in 911ms src/app/actions/messages.ts
+ POST /student 200 in 284ms (next.js: 8ms, proxy.ts: 11ms, application-code: 264ms)
+  └─ ƒ getStudentHomepageFeeds("54ec9cc6-ae8e-4bdf-b654-cc31f0a0a655") in 244ms src/app/actions/student.ts
+ POST /student 200 in 606ms (next.js: 10ms, proxy.ts: 13ms, application-code: 583ms)
+  └─ ƒ dispatchLiveSessionReminders() in 564ms src/app/actions/live-sessions.ts
+ POST /student 200 in 261ms (next.js: 7ms, proxy.ts: 10ms, application-code: 244ms)
+  └─ ƒ getStudentHomepageFeeds("54ec9cc6-ae8e-4bdf-b654-cc31f0a0a655") in 223ms src/app/actions/student.ts
+ POST /student 200 in 599ms (next.js: 6ms, proxy.ts: 13ms, application-code: 580ms)
+  └─ ƒ dispatchLiveSessionReminders() in 561ms src/app/actions/live-sessions.ts
+ POST /student 200 in 237ms (next.js: 14ms, proxy.ts: 10ms, application-code: 213ms)
+  └─ ƒ getStudentYouTubeSuggestions("54ec9cc6-ae8e-4bdf-b654-cc31f0a0a655") in 194ms src/app/actions/youtube.ts
+ POST /student 200 in 246ms (next.js: 17ms, proxy.ts: 12ms, application-code: 217ms)
+  └─ ƒ getStudentYouTubeSuggestions("54ec9cc6-ae8e-4bdf-b654-cc31f0a0a655") in 199ms src/app/actions/youtube.ts
+ POST /student 200 in 3.4s (next.js: 37ms, proxy.ts: 15ms, application-code: 3.3s)
+  └─ ƒ generateDailyInsights("8-4-4", "Form 4") in 3222ms src/app/actions/ai.ts
+ POST /student 200 in 2.3s (next.js: 404ms, proxy.ts: 15ms, application-code: 1860ms)
+  └─ ƒ generateDailyInsights("8-4-4", "Form 4") in 1815ms src/app/actions/ai.ts
+ POST /student 200 in 1059ms (next.js: 7ms, proxy.ts: 11ms, application-code: 1042ms)
+  └─ ƒ getPeakUnreadCount() in 1022ms src/app/actions/messages.ts
+ GET /student 200 in 225ms (next.js: 6ms, proxy.ts: 15ms, application-code: 204ms)
+ POST /student 200 in 929ms (next.js: 9ms, proxy.ts: 8ms, application-code: 912ms)
+  └─ ƒ getPeakUnreadCount() in 890ms src/app/actions/messages.ts
+ POST /student 200 in 302ms (next.js: 21ms, proxy.ts: 16ms, application-code: 265ms)
+  └─ ƒ getStudentHomepageFeeds("54ec9cc6-ae8e-4bdf-b654-cc31f0a0a655") in 243ms src/app/actions/student.ts
+ POST /student 200 in 554ms (next.js: 10ms, proxy.ts: 7ms, application-code: 536ms)
+  └─ ƒ dispatchLiveSessionReminders() in 522ms src/app/actions/live-sessions.ts
+ POST /student 200 in 240ms (next.js: 12ms, proxy.ts: 8ms, application-code: 220ms)
+  └─ ƒ getStudentHomepageFeeds("54ec9cc6-ae8e-4bdf-b654-cc31f0a0a655") in 200ms src/app/actions/student.ts
+ POST /student 200 in 590ms (next.js: 9ms, proxy.ts: 13ms, application-code: 568ms)
+  └─ ƒ dispatchLiveSessionReminders() in 547ms src/app/actions/live-sessions.ts
+ POST /student 200 in 252ms (next.js: 34ms, proxy.ts: 14ms, application-code: 204ms)
+  └─ ƒ getStudentYouTubeSuggestions("54ec9cc6-ae8e-4bdf-b654-cc31f0a0a655") in 184ms src/app/actions/youtube.ts
+ POST /student 200 in 221ms (next.js: 11ms, proxy.ts: 10ms, application-code: 200ms)
+  └─ ƒ getStudentYouTubeSuggestions("54ec9cc6-ae8e-4bdf-b654-cc31f0a0a655") in 178ms src/app/actions/youtube.ts
+ POST /student 200 in 2.8s (next.js: 28ms, proxy.ts: 11ms, application-code: 2.7s)
+  └─ ƒ generateDailyInsights("8-4-4", "Form 4") in 2653ms src/app/actions/ai.ts
+ POST /student 200 in 2.6s (next.js: 215ms, proxy.ts: 18ms, application-code: 2.4s)
+  └─ ƒ generateDailyInsights("8-4-4", "Form 4") in 2130ms src/app/actions/ai.ts
+ POST /student 200 in 869ms (next.js: 38ms, proxy.ts: 18ms, application-code: 813ms)
+  └─ ƒ getPeakUnreadCount() in 780ms src/app/actions/messages.ts
+ POST /student 200 in 845ms (next.js: 9ms, proxy.ts: 17ms, application-code: 820ms)
+  └─ ƒ getPeakUnreadCount() in 799ms src/app/actions/messages.ts
+ POST /student 200 in 640ms (next.js: 11ms, proxy.ts: 11ms, application-code: 619ms)
+  └─ ƒ dispatchLiveSessionReminders() in 596ms src/app/actions/live-sessions.ts
+ POST /student 200 in 963ms (next.js: 5ms, proxy.ts: 12ms, application-code: 946ms)
+  └─ ƒ getPeakUnreadCount() in 923ms src/app/actions/messages.ts
+ POST /student 200 in 969ms (next.js: 11ms, proxy.ts: 14ms, application-code: 944ms)
+  └─ ƒ getPeakUnreadCount() in 923ms src/app/actions/messages.ts
+ POST /student 200 in 650ms (next.js: 15ms, proxy.ts: 14ms, application-code: 620ms)
+  └─ ƒ dispatchLiveSessionReminders() in 590ms src/app/actions/live-sessions.ts
+ POST /student 200 in 879ms (next.js: 9ms, proxy.ts: 11ms, application-code: 859ms)
+  └─ ƒ getPeakUnreadCount() in 842ms src/app/actions/messages.ts
+○ Compiling /student/settings ...
+ GET /student/settings 200 in 5.0s (next.js: 4.6s, proxy.ts: 12ms, application-code: 377ms)
+○ Compiling /student/brain-gym ...
+[?25h

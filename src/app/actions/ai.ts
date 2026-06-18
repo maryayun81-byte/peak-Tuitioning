@@ -829,3 +829,48 @@ export async function getTrendingAILessons() {
 
   return sorted
 }
+
+export async function generateDailyInsights(curriculum: string, className: string) {
+  const is844 = curriculum.includes('8-4-4') || curriculum.includes('KCSE')
+  const fallbackInsight = {
+    vocabulary: is844
+      ? { word: "Precision", meaning: "Careful accuracy in work or expression.", example: "A precise thesis statement helps a KCSE essay stay focused." }
+      : { word: "Resilience", meaning: "The ability to recover and keep improving.", example: "A resilient learner tries a new strategy after a difficult question." },
+    tip: is844
+      ? { title: "Marking Scheme Language", content: "Before revising a topic, write three short phrases an examiner would expect to see in a correct answer. Then use those phrases in one timed response." }
+      : { title: "Explain It Out Loud", content: "After learning a concept, explain it in your own words and give one real-life example. If you get stuck, that is the part to revise first." },
+    didYouKnow: is844
+      ? "KCSE answers often improve when students plan the marking points before writing the final response."
+      : "Teaching a concept to someone else is one of the fastest ways to discover what you truly understand."
+  }
+  
+  const systemPrompt = `You are an expert Kenyan teacher generating a daily learning insight for a student in ${className} (${curriculum}). 
+Return ONLY a strictly formatted JSON object with no markdown wrappers or extra text.
+
+JSON format:
+{
+  "vocabulary": { "word": "A curriculum appropriate vocabulary word", "meaning": "Definition", "example": "A Kenyan context example sentence" },
+  "tip": { "title": "Daily Tip Title", "content": "A detailed tip. If 8-4-4, focus on grammar, report writing, essay tips, KCSE standards. If CBC, focus on active learning, exploration, and competency building." },
+  "didYouKnow": "A fascinating, curriculum-relevant fact for ${className} students."
+}`
+
+  if (!hasHuggingFaceToken()) {
+    return fallbackInsight
+  }
+
+  try {
+    const response = await callHuggingFaceChat(
+      [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: 'Generate my daily insights for today.' }
+      ],
+      { temperature: 0.7, maxTokens: 800, responseFormat: { type: 'json_object' } }
+    )
+    
+    const match = response.content.match(/\{[\s\S]*\}/)
+    const content = match ? match[0] : response.content
+    return JSON.parse(content)
+  } catch (err: any) {
+    return fallbackInsight
+  }
+}

@@ -1,412 +1,357 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { useRouter } from 'next/navigation'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Upload, CheckCircle, GraduationCap, Building, Loader2, Sparkles, Copy, X } from 'lucide-react'
+import { ArrowLeft, BookOpenCheck, CheckCircle, GraduationCap, Loader2, Sparkles, Wand2 } from 'lucide-react'
+import toast from 'react-hot-toast'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
-import { Input, Select } from '@/components/ui/Input'
-import toast from 'react-hot-toast'
+import { Input, Select, Textarea } from '@/components/ui/Input'
 import { processPublicRegistration } from '@/app/actions/event-registration'
-import type { TuitionEvent, Curriculum, Class, Subject } from '@/types/database'
-import Image from 'next/image'
+
+type CurriculumOption = { id: string; name: string }
+type ClassOption = { id: string; name: string; curriculum_id: string; level?: number | null }
+type SubjectOption = { id: string; name: string; curriculum_id: string; class_id?: string | null }
+
+const GRADES: Record<string, string[]> = {
+  academic: ['A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D+', 'D', 'D-', 'E', 'Not Yet Graded'],
+  cbc: ['Exceeding Expectations', 'Meeting Expectations', 'Approaching Expectations', 'Below Expectations', 'Not Yet Assessed'],
+}
+
+const STRUGGLE_HINTS: Record<string, string> = {
+  Mathematics: 'I struggle with algebra, graphs, word problems, and remembering formulas.',
+  Chemistry: 'I struggle with mole concept, organic chemistry, electrochemistry, and writing equations.',
+  English: 'I struggle with grammar, essays, set books, and comprehension.',
+  'Integrated Science': 'I struggle with experiments, explaining answers, and remembering key terms.',
+  Physics: 'I struggle with equations, electricity, waves, and interpreting diagrams.',
+  Biology: 'I struggle with genetics, classification, and explaining biological processes.',
+}
+
+function isSupportedCurriculum(name = '') {
+  const normalized = name.toLowerCase().replace(/\s/g, '')
+  return normalized.includes('cbc') || normalized.includes('8-4-4') || normalized.includes('844')
+}
+
+function gradeOptions(curriculum: string) {
+  return curriculum.toLowerCase().includes('cbc') ? GRADES.cbc : GRADES.academic
+}
+
+function improveStruggle(subject: string, text: string) {
+  const lower = text.toLowerCase()
+  if (subject.toLowerCase().includes('math') || lower.includes('graph')) {
+    return 'I struggle with drawing and interpreting graphs, especially finding gradients, equations of lines, intercepts, and choosing the correct formula.'
+  }
+  if (subject.toLowerCase().includes('chem')) {
+    return 'I struggle with mole concept, electrochemistry, organic chemistry, balancing equations, and explaining reactions using correct scientific terms.'
+  }
+  if (subject.toLowerCase().includes('english')) {
+    return 'I struggle with grammar accuracy, essay structure, comprehension questions, set book analysis, and expressing answers clearly.'
+  }
+  return text.trim()
+    ? `I need support in ${subject}, especially with ${text.trim()}.`
+    : STRUGGLE_HINTS[subject] || `I need help identifying my weak areas in ${subject}.`
+}
 
 export default function EventRegistrationPage() {
-  const router = useRouter()
   const supabase = getSupabaseBrowserClient()
-
-  // Data
-  const [events, setEvents] = useState<TuitionEvent[]>([])
-  const [curriculums, setCurriculums] = useState<Curriculum[]>([])
-  const [classes, setClasses] = useState<Class[]>([])
-  const [centers, setCenters] = useState<any[]>([])
-  const [subjects, setSubjects] = useState<Subject[]>([])
-  
-  // Form State
+  const [events, setEvents] = useState<any[]>([])
+  const [curriculums, setCurriculums] = useState<CurriculumOption[]>([])
+  const [classes, setClasses] = useState<ClassOption[]>([])
+  const [subjects, setSubjects] = useState<SubjectOption[]>([])
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
-  const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
-  const [avatarFile, setAvatarFile] = useState<File | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  
-  const [formData, setFormData] = useState({
-    full_name: '',
-    email: '',
-    phone: '',
+  const [success, setSuccess] = useState<{ message: string; whatsappSummary: string } | null>(null)
+  const [selectedClassId, setSelectedClassId] = useState('')
+  const [form, setForm] = useState({
+    student_full_name: '',
+    parent_name: '',
+    parent_phone: '',
+    student_phone: '',
+    school_name: '',
+    curriculum: '',
+    class_level: '',
     event_id: '',
-    curriculum_id: '',
-    class_id: '',
-    center_id: '',
+    programme_selected: '',
+    preferred_mode: '',
+    overall_grade: '',
   })
-  const [selectedSubjects, setSelectedSubjects] = useState<string[]>([])
-  
-  // Success State
-  const [successData, setSuccessData] = useState<{ admission_number: string, password: string } | null>(null)
+  const [subjectResults, setSubjectResults] = useState<Array<{ subjectName: string; grade: string; struggle: string }>>([])
 
   useEffect(() => {
-    loadInitialData()
-  }, [])
-
-  useEffect(() => {
-    if (formData.curriculum_id && formData.class_id) {
-      loadSubjects(formData.curriculum_id, formData.class_id)
-    } else {
-      setSubjects([])
-      setSelectedSubjects([])
-    }
-  }, [formData.curriculum_id, formData.class_id])
-
-  const loadInitialData = async () => {
-    try {
-      const [evtRes, currRes, clsRes, cenRes] = await Promise.all([
-        supabase.from('tuition_events').select('*').eq('status', 'active').order('start_date'),
-        supabase.from('curriculums').select('*').order('name'),
-        supabase.from('classes').select('*').order('name'),
-        supabase.from('tuition_centers').select('*').order('name')
+    const load = async () => {
+      const [eventRes, curriculumRes, classRes, subjectRes] = await Promise.all([
+        supabase
+          .from('tuition_events')
+          .select('id, name, start_date, end_date, status, is_active')
+          .in('status', ['active', 'upcoming'])
+          .order('start_date', { ascending: true }),
+        supabase.from('curriculums').select('id, name').order('name'),
+        supabase.from('classes').select('id, name, curriculum_id, level').order('level').order('name'),
+        supabase.from('subjects').select('id, name, curriculum_id, class_id').order('name'),
       ])
 
-      setEvents(evtRes.data || [])
-      setCurriculums(currRes.data || [])
-      setClasses(clsRes.data || [])
-      setCenters(cenRes.data || [])
-      
-      // Auto-select event if passed in URL (Optional feature)
-      const urlParams = new URLSearchParams(window.location.search)
-      const eventId = urlParams.get('eventId')
-      if (eventId && evtRes.data?.find(e => e.id === eventId)) {
-        setFormData(prev => ({ ...prev, event_id: eventId }))
-      }
-    } catch (err) {
-      toast.error('Failed to load form data')
-    } finally {
+      const loadedEvents = eventRes.data || []
+      const configuredCurriculums = (curriculumRes.data || []).filter((item: any) => isSupportedCurriculum(item.name))
+      setEvents(loadedEvents)
+      setCurriculums(configuredCurriculums)
+      setClasses(classRes.data || [])
+      setSubjects(subjectRes.data || [])
+
+      const params = new URLSearchParams(window.location.search)
+      const eventId = params.get('eventId')
+      const shortEventId = params.get('e')
+      const programme = params.get('programme')
+      const selected = loadedEvents.find((event) => event.id === eventId)
+        || loadedEvents.find((event) => shortEventId && String(event.id).startsWith(shortEventId))
+        || loadedEvents[0]
+
+      setForm((prev) => ({
+        ...prev,
+        event_id: selected?.id || '',
+        programme_selected: programme || selected?.name || '',
+      }))
       setLoading(false)
     }
-  }
+    load()
+  }, [supabase])
 
-  const loadSubjects = async (currId: string, clsId: string) => {
-    const { data } = await supabase
-      .from('subjects')
-      .select('*')
-      .eq('curriculum_id', currId)
-      // Note: Ideally we filter by class_id if schema supports it, for now we load all for curriculum
-    
-    if (data) setSubjects(data)
-  }
+  const selectedCurriculum = curriculums.find((item) => item.name === form.curriculum)
+  const classOptions = selectedCurriculum
+    ? classes.filter((item) => item.curriculum_id === selectedCurriculum.id)
+    : []
+  const curriculumSubjects = selectedCurriculum
+    ? subjects.filter((item) => item.curriculum_id === selectedCurriculum.id)
+    : []
+  const classSpecificSubjects = selectedClassId
+    ? curriculumSubjects.filter((item) => item.class_id === selectedClassId)
+    : []
+  const availableSubjects = selectedCurriculum && selectedClassId
+    ? (classSpecificSubjects.length > 0 ? classSpecificSubjects : curriculumSubjects.filter((item) => !item.class_id))
+    : []
+  const grades = gradeOptions(form.curriculum)
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      if (file.size > 2 * 1024 * 1024) {
-        toast.error('Image must be less than 2MB')
-        return
-      }
-      setAvatarFile(file)
-      const reader = new FileReader()
-      reader.onloadend = () => setAvatarPreview(reader.result as string)
-      reader.readAsDataURL(file)
-    }
-  }
+  useEffect(() => {
+    setForm((prev) => ({ ...prev, class_level: '', overall_grade: '' }))
+    setSelectedClassId('')
+    setSubjectResults([])
+  }, [form.curriculum])
 
-  const toggleSubject = (subId: string) => {
-    setSelectedSubjects(prev => 
-      prev.includes(subId) ? prev.filter(id => id !== subId) : [...prev, subId]
+  useEffect(() => {
+    setSubjectResults([])
+  }, [selectedClassId])
+
+  const selectedEventName = useMemo(() => {
+    return events.find((event) => event.id === form.event_id)?.name || form.programme_selected
+  }, [events, form.event_id, form.programme_selected])
+
+  const toggleSubject = (subjectName: string) => {
+    setSubjectResults((prev) => prev.some((item) => item.subjectName === subjectName)
+      ? prev.filter((item) => item.subjectName !== subjectName)
+      : [...prev, { subjectName, grade: '', struggle: '' }]
     )
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    
-    if (!formData.full_name || !formData.event_id || !formData.curriculum_id || !formData.class_id) {
-      toast.error('Please fill all required fields')
-      return
-    }
-
-    setSubmitting(true)
-    
-    const formPayload = new FormData()
-    formPayload.append('full_name', formData.full_name)
-    formPayload.append('email', formData.email)
-    formPayload.append('phone', formData.phone)
-    formPayload.append('event_id', formData.event_id)
-    formPayload.append('curriculum_id', formData.curriculum_id)
-    formPayload.append('class_id', formData.class_id)
-    if (formData.center_id) formPayload.append('center_id', formData.center_id)
-    formPayload.append('subjects', JSON.stringify(selectedSubjects))
-    if (avatarFile) formPayload.append('avatar', avatarFile)
-
-    const result = await processPublicRegistration(formPayload)
-    
-    if (result.success && result.admission_number && result.password) {
-      setSuccessData({ admission_number: result.admission_number, password: result.password })
-      toast.success('Registration Complete!')
-    } else {
-      toast.error(result.error || 'Registration failed')
-    }
-    
-    setSubmitting(false)
+  const updateSubject = (subjectName: string, patch: Partial<{ grade: string; struggle: string }>) => {
+    setSubjectResults((prev) => prev.map((item) => item.subjectName === subjectName ? { ...item, ...patch } : item))
   }
 
-  if (loading) return (
-    <div className="min-h-screen flex items-center justify-center bg-[var(--bg)]">
-      <Loader2 className="animate-spin text-primary w-8 h-8" />
-    </div>
-  )
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (subjectResults.length === 0) return toast.error('Select at least one subject.')
+    setSubmitting(true)
+    const payload = new FormData()
+    Object.entries({ ...form, programme_selected: selectedEventName }).forEach(([key, value]) => payload.append(key, value))
+    payload.append('subject_results', JSON.stringify(subjectResults))
+    const result = await processPublicRegistration(payload)
+    setSubmitting(false)
+    if (!result.success) return toast.error(result.error || 'Registration failed')
+    const message = result.message || 'Registration received successfully. Peak Performance will review your academic details and contact you with the next steps.'
+    setSuccess({ message, whatsappSummary: result.whatsappSummary || '' })
+    toast.success(message)
+  }
 
-  const filteredClasses = formData.curriculum_id 
-    ? classes.filter((c: any) => c.curriculum_id === formData.curriculum_id)
-    : classes
+  if (loading) {
+    return <div className="flex min-h-screen items-center justify-center bg-slate-950 text-white"><Loader2 className="h-8 w-8 animate-spin" /></div>
+  }
+
+  if (success) {
+    return (
+      <div className="min-h-screen bg-slate-950 px-4 py-10 text-white">
+        <div className="mx-auto max-w-3xl rounded-[2rem] border border-white/10 bg-white/10 p-6 shadow-2xl backdrop-blur md:p-10">
+          <CheckCircle className="h-12 w-12 text-emerald-300" />
+          <h1 className="mt-5 text-3xl font-black">Registration received successfully.</h1>
+          <p className="mt-3 text-white/70">Peak Performance will review your academic details and contact you with the next steps.</p>
+          <div className="mt-6 rounded-3xl bg-black/30 p-4">
+            <p className="text-xs font-black uppercase tracking-widest text-emerald-200">WhatsApp-ready admin summary</p>
+            <pre className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-white/85">{success.whatsappSummary}</pre>
+          </div>
+          <Link href="/" className="mt-6 inline-flex rounded-full bg-white px-5 py-3 text-sm font-black text-slate-950">Back to homepage</Link>
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div className="min-h-screen bg-[#F5F5F7] dark:bg-[#0A0A0A] py-12 px-4 sm:px-6 relative selection:bg-emerald-500/30">
-      <Link href="/" className="fixed top-6 left-6 z-50 flex items-center gap-2 text-sm font-bold opacity-50 hover:opacity-100 transition-opacity text-black dark:text-white">
-         <ArrowLeft size={16} /> Back
-      </Link>
-      
-      <div className="max-w-2xl mx-auto relative z-10">
-        
-        <AnimatePresence mode="wait">
-          {!successData ? (
-            <motion.div
-              key="form"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, filter: 'blur(10px)' }}
-              transition={{ duration: 0.5, type: 'spring', bounce: 0.3 }}
-              className="bg-white dark:bg-[#121212] rounded-[32px] p-8 sm:p-12 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.1)] dark:shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] border border-black/5 dark:border-white/5 relative overflow-hidden"
-            >
-              {/* Paper texture overlay (subtle) */}
-              <div className="absolute inset-0 opacity-[0.015] dark:opacity-[0.03] pointer-events-none mix-blend-multiply dark:mix-blend-screen" style={{ backgroundImage: 'url("https://www.transparenttextures.com/patterns/cream-paper.png")' }}></div>
-              
-              <div className="text-center mb-10 relative z-10">
-                <div className="inline-flex items-center justify-center p-3 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-2xl mb-4">
-                  <Sparkles size={24} />
-                </div>
-                <h1 className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight mb-2">Tuition Application Form</h1>
-                <p className="text-slate-500 dark:text-slate-400 font-medium">Please fill out this physical form accurately for enrollment.</p>
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,#dff4ff_0,#f6fbff_34%,#eef7f0_100%)] px-4 py-8 text-slate-950 md:py-12">
+      <Link href="/" className="mx-auto mb-6 flex max-w-6xl items-center gap-2 text-sm font-black text-[#145da0]"><ArrowLeft size={16} /> Back to Peak Performance</Link>
+      <form onSubmit={submit} className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[0.8fr_1.2fr]">
+        <aside className="h-fit overflow-hidden rounded-[2.2rem] bg-[#062744] text-white shadow-[0_30px_80px_rgba(7,49,89,0.22)] lg:sticky lg:top-6">
+          <div className="relative p-6 md:p-8">
+            <div className="absolute -right-16 -top-16 h-44 w-44 rounded-full bg-[#7ed957]/20 blur-2xl" />
+            <div className="absolute -bottom-20 left-8 h-52 w-52 rounded-full bg-[#32b7ff]/20 blur-3xl" />
+            <div className="relative">
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-black uppercase tracking-[0.18em] text-[#bff8a7]">
+                <Sparkles size={14} /> Academic Intake
               </div>
-
-              <form onSubmit={handleSubmit} className="space-y-8 relative z-10">
-                
-                {/* Photo Dropzone - Top Center */}
-                <div className="flex flex-col items-center justify-center mb-8">
-                  <div 
-                    onClick={() => fileInputRef.current?.click()}
-                    className="relative w-32 h-32 rounded-full border-2 border-dashed border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 flex flex-col items-center justify-center cursor-pointer overflow-hidden group transition-all hover:border-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-500/10"
-                  >
-                    {avatarPreview ? (
-                      <Image src={avatarPreview} alt="Preview" fill className="object-cover" />
-                    ) : (
-                      <>
-                        <Upload size={24} className="text-slate-400 group-hover:text-emerald-500 mb-2 transition-colors" />
-                        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 group-hover:text-emerald-500 transition-colors">Add Photo</span>
-                      </>
-                    )}
-                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                      <span className="text-white text-xs font-bold">Change</span>
-                    </div>
+              <h1 className="mt-5 text-4xl font-black leading-tight">Programme Registration</h1>
+              <p className="mt-3 text-sm leading-relaxed text-white/72">A premium learner profile for teachers: curriculum, class, recent performance, and exactly where support is needed.</p>
+              <div className="mt-6 rounded-3xl border border-white/10 bg-white/10 p-4 backdrop-blur">
+                <p className="text-xs font-black uppercase tracking-widest text-white/50">Selected programme</p>
+                <p className="mt-1 text-lg font-black">{selectedEventName || 'Choose a programme'}</p>
+              </div>
+              <div className="mt-5 grid gap-3 text-sm">
+                {[
+                  ['1', 'Student and parent details'],
+                  ['2', 'Curriculum and class'],
+                  ['3', 'Subject performance'],
+                ].map(([step, label]) => (
+                  <div key={step} className="flex items-center gap-3 rounded-2xl bg-white/8 p-3">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-xs font-black text-[#073159]">{step}</span>
+                    <span className="font-bold text-white/85">{label}</span>
                   </div>
-                  <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFileChange} />
-                </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </aside>
 
-                <div className="space-y-6">
-                  {/* Event Selection */}
-                  <div className="bg-slate-50 dark:bg-white/[0.02] p-6 rounded-2xl border border-slate-200 dark:border-white/10">
-                    <label className="block text-xs font-black uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-3">Event Details</label>
-                    <Select 
-                      value={formData.event_id}
-                      onChange={e => setFormData({...formData, event_id: e.target.value})}
-                      className="bg-white dark:bg-[#1A1A1A] border-slate-200 dark:border-white/10 shadow-sm font-semibold"
-                      required
+        <main className="space-y-5">
+          <section className="rounded-[2rem] border border-white bg-white/90 p-5 shadow-[0_18px_55px_rgba(7,49,89,0.08)] backdrop-blur md:p-7">
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#e9f8e2] text-[#2f8517]"><GraduationCap size={22} /></div>
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-[#145da0]">Step 1</p>
+                <h2 className="text-xl font-black">Student Details</h2>
+              </div>
+            </div>
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
+              <Input required placeholder="Student full name" value={form.student_full_name} onChange={(e) => setForm({ ...form, student_full_name: e.target.value })} />
+              <Input required placeholder="Parent/guardian name" value={form.parent_name} onChange={(e) => setForm({ ...form, parent_name: e.target.value })} />
+              <Input required placeholder="Parent/guardian phone number" value={form.parent_phone} onChange={(e) => setForm({ ...form, parent_phone: e.target.value })} />
+              <Input placeholder="Student phone number (optional)" value={form.student_phone} onChange={(e) => setForm({ ...form, student_phone: e.target.value })} />
+              <Input required placeholder="School name" value={form.school_name} onChange={(e) => setForm({ ...form, school_name: e.target.value })} />
+              <Select required value={form.preferred_mode} onChange={(e) => setForm({ ...form, preferred_mode: e.target.value })}>
+                <option value="">Preferred learning mode</option>
+                <option value="Physical">Physical</option>
+                <option value="Online">Online</option>
+                <option value="Hybrid">Hybrid</option>
+              </Select>
+              <Select required value={form.event_id} onChange={(e) => {
+                const chosen = events.find((item) => item.id === e.target.value)
+                setForm({ ...form, event_id: e.target.value, programme_selected: chosen?.name || form.programme_selected })
+              }}>
+                <option value="">Programme selected</option>
+                {events.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </Select>
+            </div>
+          </section>
+
+          <section className="rounded-[2rem] border border-white bg-white/90 p-5 shadow-[0_18px_55px_rgba(7,49,89,0.08)] backdrop-blur md:p-7">
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#eaf3f8] text-[#145da0]"><BookOpenCheck size={22} /></div>
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-[#145da0]">Step 2</p>
+                <h2 className="text-xl font-black">Curriculum & Overall Performance</h2>
+              </div>
+            </div>
+            <div className="mt-5 grid gap-4 md:grid-cols-3">
+              <Select required value={form.curriculum} onChange={(e) => setForm({ ...form, curriculum: e.target.value })}>
+                <option value="">Curriculum</option>
+                {curriculums.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}
+              </Select>
+              <Select required value={selectedClassId} disabled={!selectedCurriculum} onChange={(e) => {
+                const chosen = classOptions.find((item) => item.id === e.target.value)
+                setSelectedClassId(e.target.value)
+                setForm({ ...form, class_level: chosen?.name || '' })
+              }}>
+                <option value="">{form.curriculum ? 'Class/Form/Grade' : 'Select curriculum first'}</option>
+                {classOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </Select>
+              <Select required value={form.overall_grade} onChange={(e) => setForm({ ...form, overall_grade: e.target.value })}>
+                <option value="">Overall grade / performance</option>
+                {grades.map((grade) => <option key={grade} value={grade}>{grade}</option>)}
+              </Select>
+            </div>
+          </section>
+
+          <section className="rounded-[2rem] border border-white bg-white/90 p-5 shadow-[0_18px_55px_rgba(7,49,89,0.08)] backdrop-blur md:p-7">
+            <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#fff5db] text-[#b77900]"><Sparkles size={21} /></div>
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-[#145da0]">Step 3</p>
+                  <h2 className="text-xl font-black">Recent Academic Performance</h2>
+                  <p className="mt-1 text-sm text-slate-500">After curriculum and class, select current subjects, grades, and struggles.</p>
+                </div>
+              </div>
+            </div>
+
+            {!form.curriculum || !selectedClassId ? (
+              <div className="mt-5 rounded-3xl border border-dashed border-[#145da0]/20 bg-[#eaf3f8]/70 p-5 text-sm font-bold text-[#073159]">
+                Select curriculum and class first. The correct subject list will appear here automatically.
+              </div>
+            ) : availableSubjects.length === 0 ? (
+              <div className="mt-5 rounded-3xl border border-dashed border-amber-300 bg-amber-50 p-5 text-sm font-bold text-amber-900">
+                No subjects are configured for {form.curriculum} - {form.class_level}. Ask admin to add subjects for this curriculum/class.
+              </div>
+            ) : (
+              <div className="mt-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {availableSubjects.map((subject) => {
+                  const selected = subjectResults.some((item) => item.subjectName === subject.name)
+                  return (
+                    <button
+                      type="button"
+                      key={subject.id}
+                      onClick={() => toggleSubject(subject.name)}
+                      className={`rounded-2xl border px-4 py-3 text-left text-sm font-black transition ${selected ? 'border-[#073159] bg-[#073159] text-white shadow-lg shadow-[#073159]/15' : 'border-[#145da0]/10 bg-[#f4f9fc] text-[#073159] hover:border-[#145da0]/30 hover:bg-white'}`}
                     >
-                      <option value="">Select Tuition Event...</option>
-                      {events.map(e => <option key={e.id} value={e.id}>{e.name} — {new Date(e.start_date).toLocaleDateString()}</option>)}
+                      <span className="mr-2">{selected ? '✓' : '+'}</span>{subject.name}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+
+            <div className="mt-6 space-y-4">
+              {subjectResults.map((item) => (
+                <div key={item.subjectName} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="font-black">{item.subjectName}</h3>
+                    <button type="button" onClick={() => toggleSubject(item.subjectName)} className="text-xs font-bold text-rose-600">Remove</button>
+                  </div>
+                  <div className="mt-4 grid gap-3 md:grid-cols-[220px_1fr]">
+                    <Select required value={item.grade} onChange={(e) => updateSubject(item.subjectName, { grade: e.target.value })}>
+                      <option value="">Recent grade</option>
+                      {grades.map((grade) => <option key={grade} value={grade}>{grade}</option>)}
                     </Select>
-                  </div>
-
-                  {/* Personal Details */}
-                  <div className="bg-slate-50 dark:bg-white/[0.02] p-6 rounded-2xl border border-slate-200 dark:border-white/10 space-y-4">
-                    <label className="block text-xs font-black uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-1">Applicant Details</label>
-                    <Input 
-                      placeholder="Student Full Name" 
-                      value={formData.full_name}
-                      onChange={e => setFormData({...formData, full_name: e.target.value})}
-                      className="bg-white dark:bg-[#1A1A1A] border-slate-200 dark:border-white/10 shadow-sm font-semibold text-lg py-6"
-                      required
-                    />
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <Input 
-                        placeholder="Email (Optional)" 
-                        type="email"
-                        value={formData.email}
-                        onChange={e => setFormData({...formData, email: e.target.value})}
-                        className="bg-white dark:bg-[#1A1A1A] border-slate-200 dark:border-white/10 shadow-sm"
-                      />
-                      <Input 
-                        placeholder="Phone (Optional)" 
-                        type="tel"
-                        value={formData.phone}
-                        onChange={e => setFormData({...formData, phone: e.target.value})}
-                        className="bg-white dark:bg-[#1A1A1A] border-slate-200 dark:border-white/10 shadow-sm"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Academic Profile */}
-                  <div className="bg-slate-50 dark:bg-white/[0.02] p-6 rounded-2xl border border-slate-200 dark:border-white/10 space-y-4">
-                    <label className="block text-xs font-black uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-1">Academic Profile</label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <Select 
-                        value={formData.curriculum_id}
-                        onChange={e => setFormData({...formData, curriculum_id: e.target.value, class_id: ''})}
-                        className="bg-white dark:bg-[#1A1A1A] border-slate-200 dark:border-white/10 shadow-sm font-semibold"
-                        required
-                      >
-                        <option value="">Select Curriculum...</option>
-                        {curriculums.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                      </Select>
-                      <Select 
-                        value={formData.class_id}
-                        onChange={e => setFormData({...formData, class_id: e.target.value})}
-                        className="bg-white dark:bg-[#1A1A1A] border-slate-200 dark:border-white/10 shadow-sm font-semibold"
-                        required
-                        disabled={!formData.curriculum_id}
-                      >
-                        <option value="">Select Class...</option>
-                        {filteredClasses.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                      </Select>
-                    </div>
-                    
-                    <Select 
-                      value={formData.center_id}
-                      onChange={e => setFormData({...formData, center_id: e.target.value})}
-                      className="bg-white dark:bg-[#1A1A1A] border-slate-200 dark:border-white/10 shadow-sm font-semibold"
-                    >
-                      <option value="">Select Tuition Center (Optional)...</option>
-                      {centers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </Select>
-                  </div>
-
-                  {/* Dynamic Subjects Selection */}
-                  <AnimatePresence>
-                    {subjects.length > 0 && (
-                      <motion.div 
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: 'auto' }}
-                        exit={{ opacity: 0, height: 0 }}
-                        className="bg-emerald-50 dark:bg-emerald-900/10 p-6 rounded-2xl border border-emerald-200 dark:border-emerald-500/20"
-                      >
-                        <label className="block text-xs font-black uppercase tracking-widest text-emerald-800 dark:text-emerald-400 mb-4">Select Target Subjects</label>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                          {subjects.map(sub => (
-                            <button
-                              key={sub.id}
-                              type="button"
-                              onClick={() => toggleSubject(sub.id)}
-                              className={`flex items-center gap-2 p-3 rounded-xl border text-left transition-all ${
-                                selectedSubjects.includes(sub.id) 
-                                  ? 'bg-emerald-500 border-emerald-500 text-white shadow-md' 
-                                  : 'bg-white dark:bg-[#1A1A1A] border-emerald-200 dark:border-emerald-500/30 text-slate-700 dark:text-slate-300 hover:border-emerald-400'
-                              }`}
-                            >
-                              <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${selectedSubjects.includes(sub.id) ? 'border-white' : 'border-emerald-300'}`}>
-                                {selectedSubjects.includes(sub.id) && <div className="w-2 h-2 rounded-full bg-white" />}
-                              </div>
-                              <span className="text-sm font-bold truncate">{sub.name}</span>
-                            </button>
-                          ))}
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-
-                </div>
-
-                <Button 
-                  type="submit" 
-                  size="lg" 
-                  className="w-full h-14 text-lg font-black uppercase tracking-widest bg-emerald-600 hover:bg-emerald-700 shadow-xl shadow-emerald-500/20 rounded-xl"
-                  isLoading={submitting}
-                >
-                  Submit Application
-                </Button>
-              </form>
-            </motion.div>
-          ) : (
-            /* ADMISSION SUCCESS MODAL / LETTER */
-            <motion.div
-              key="success"
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              className="bg-white dark:bg-[#121212] rounded-[32px] p-8 sm:p-12 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.1)] dark:shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] border border-emerald-500/30 relative overflow-hidden"
-            >
-              {/* Confetti / Glow */}
-              <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[300px] h-[300px] bg-emerald-500/20 blur-[100px] pointer-events-none" />
-
-              <div className="text-center relative z-10">
-                <div className="w-20 h-20 bg-emerald-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-xl shadow-emerald-500/30 border-4 border-white dark:border-[#121212]">
-                  <CheckCircle size={40} className="text-white" />
-                </div>
-                <h2 className="text-3xl font-black text-slate-900 dark:text-white mb-2 tracking-tight">Application Approved</h2>
-                <p className="text-slate-500 dark:text-slate-400 mb-8 font-medium">Welcome to Peak Performance. Your student profile has been created.</p>
-
-                <div className="bg-slate-50 dark:bg-white/[0.02] p-8 rounded-2xl border border-slate-200 dark:border-white/10 mb-8 space-y-6">
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Official Admission Number</p>
-                    <div className="flex items-center justify-center gap-3">
-                      <code className="text-3xl font-black text-emerald-600 dark:text-emerald-400 tracking-wider">
-                        {successData.admission_number}
-                      </code>
-                      <button 
-                        onClick={() => { navigator.clipboard.writeText(successData.admission_number); toast.success('Copied!') }}
-                        className="p-2 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 rounded-lg transition-colors text-emerald-600 dark:text-emerald-400"
-                      >
-                        <Copy size={20} />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="w-full h-px bg-slate-200 dark:bg-white/10" />
-
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Temporary Login Password</p>
-                    <div className="flex items-center justify-center gap-3">
-                      <code className="text-xl font-bold text-slate-700 dark:text-slate-300 tracking-widest px-4 py-2 bg-white dark:bg-[#1A1A1A] rounded-xl border border-slate-200 dark:border-white/10">
-                        {successData.password}
-                      </code>
-                      <button 
-                        onClick={() => { navigator.clipboard.writeText(successData.password); toast.success('Copied!') }}
-                        className="p-2 hover:bg-slate-200 dark:hover:bg-white/10 rounded-lg transition-colors text-slate-500"
-                      >
-                        <Copy size={20} />
+                    <div className="space-y-2">
+                      <Textarea required placeholder={STRUGGLE_HINTS[item.subjectName] || `What are you struggling with in ${item.subjectName}?`} value={item.struggle} onChange={(e) => updateSubject(item.subjectName, { struggle: e.target.value })} />
+                      <button type="button" onClick={() => updateSubject(item.subjectName, { struggle: improveStruggle(item.subjectName, item.struggle) })} className="inline-flex items-center gap-2 text-xs font-black uppercase tracking-widest text-[#145da0]">
+                        <Wand2 size={14} /> Help Me Describe My Struggles
                       </button>
                     </div>
                   </div>
                 </div>
+              ))}
+            </div>
+          </section>
 
-                <div className="flex flex-col sm:flex-row gap-4">
-                  <Button 
-                    size="lg" 
-                    className="flex-1 font-black uppercase tracking-widest h-14 bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-500/20"
-                    onClick={() => router.push('/auth/login?role=student')}
-                  >
-                    Proceed to Login
-                  </Button>
-                  <Button 
-                    variant="secondary" 
-                    size="lg" 
-                    className="flex-1 font-black uppercase tracking-widest h-14 border-slate-200 dark:border-white/10"
-                    onClick={() => setSuccessData(null)}
-                  >
-                    Register Another
-                  </Button>
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
+          <Button type="submit" disabled={submitting} className="w-full rounded-2xl py-5 text-sm font-black">
+            {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            Submit Programme Registration
+          </Button>
+        </main>
+      </form>
     </div>
   )
 }

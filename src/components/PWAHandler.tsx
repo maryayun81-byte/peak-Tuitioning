@@ -47,7 +47,7 @@ function IOSInstallHint() {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: 20 }}
-      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] w-[min(calc(100%-3rem),360px)]"
+      className="fixed bottom-24 left-1/2 z-[100] w-[min(calc(100%-3rem),360px)] -translate-x-1/2 md:bottom-6"
     >
       <div 
         className="p-4 rounded-2xl shadow-2xl overflow-hidden"

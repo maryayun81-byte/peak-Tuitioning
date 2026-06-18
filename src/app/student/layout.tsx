@@ -5,7 +5,7 @@ import { useRouter, usePathname } from 'next/navigation'
 import { motion } from 'framer-motion'
 import {
   LayoutDashboard, BookOpen, FileText, BrainCircuit,
-  Trophy, Calendar, Library, GraduationCap,
+  Trophy, Calendar, Library, GraduationCap, Target, Users, Mic, Swords, FolderHeart,
   Award, Settings, LogOut, Bell, Zap, Star, Clock, Receipt, MessageCircle
 } from 'lucide-react'
 import { Sidebar, BottomNav } from '@/components/layout/Sidebar'
@@ -28,20 +28,27 @@ import Link from 'next/link'
 import { useMessageUnreadCount } from '@/hooks/useMessageUnreadCount'
 
 const NAV_ITEMS = [
-  { label: 'My Hub', href: '/student', icon: <LayoutDashboard size={18} /> },
-  { label: 'Live Campus', href: '/student/live', icon: <Zap size={18} className="text-emerald-500" /> },
-  { label: 'Messages', href: '/student/messages', icon: <MessageCircle size={18} /> },
-  { label: 'Trivia', href: '/student/trivia', icon: <Trophy size={18} /> },
-  { label: 'Assignments', href: '/student/assignments', icon: <FileText size={18} /> },
-  { label: 'Quizzes', href: '/student/quizzes', icon: <BrainCircuit size={18} /> },
-  { label: 'Schedule', href: '/student/schedule', icon: <Calendar size={18} /> },
-  { label: 'Study Timer', href: '/student/study', icon: <Clock size={18} /> },
-  { label: 'My Progress', href: '/student/performance', icon: <Trophy size={18} /> },
-  { label: 'Library', href: '/student/resources', icon: <Library size={18} /> },
-  { label: 'Awards', href: '/student/awards', icon: <Star size={18} /> },
-  { label: 'Transcripts', href: '/student/transcripts', icon: <Award size={18} /> },
-  { label: 'Billing', href: '/student/billing', icon: <Receipt size={18} /> },
-  { label: 'Settings', href: '/student/settings', icon: <Settings size={18} /> },
+  { label: 'My Hub', shortLabel: 'Home', group: 'Overview', href: '/student', icon: <LayoutDashboard size={18} /> },
+  { label: 'Assignments', shortLabel: 'Tasks', group: 'Learning', href: '/student/assignments', icon: <FileText size={18} /> },
+  { label: 'Schedule', group: 'Learning', href: '/student/schedule', icon: <Calendar size={18} /> },
+  { label: 'Quizzes', group: 'Learning', href: '/student/quizzes', icon: <BrainCircuit size={18} /> },
+  { label: 'Live Campus', shortLabel: 'Live', group: 'Learning', href: '/student/live', icon: <Zap size={18} className="text-emerald-500" /> },
+  { label: 'Exam Prep', group: 'Learning', href: '/student/exam-prep', icon: <Target size={18} className="text-indigo-500" /> },
+  { label: 'Creator Hub', shortLabel: 'Create', group: 'Learning', href: '/student/flashcards', icon: <BookOpen size={18} className="text-sky-500" /> },
+  { label: 'Daily Brain Gym', shortLabel: 'Brain Gym', group: 'Learning', href: '/student/brain-gym', icon: <BrainCircuit size={18} className="text-orange-500" /> },
+  { label: 'Study Timer', shortLabel: 'Timer', group: 'Learning', href: '/student/study', icon: <Clock size={18} /> },
+  { label: 'Messages', shortLabel: 'Chat', group: 'Community', href: '/student/messages', icon: <MessageCircle size={18} /> },
+  { label: 'Study Pods', shortLabel: 'Pods', group: 'Community', href: '/student/pods', icon: <Users size={18} className="text-violet-500" /> },
+  { label: 'Classroom Duels', shortLabel: 'Duels', group: 'Community', href: '/student/duels', icon: <Swords size={18} className="text-indigo-500" /> },
+  { label: 'Trivia', group: 'Community', href: '/student/trivia', icon: <Trophy size={18} /> },
+  { label: 'Voice Notes', shortLabel: 'Voice', group: 'Create', href: '/student/voice-notes', icon: <Mic size={18} className="text-rose-500" /> },
+  { label: 'Library', group: 'Create', href: '/student/resources', icon: <Library size={18} /> },
+  { label: 'My Portfolio', shortLabel: 'Portfolio', group: 'Create', href: '/student/portfolio', icon: <FolderHeart size={18} className="text-pink-500" /> },
+  { label: 'My Progress', shortLabel: 'Progress', group: 'Results', href: '/student/performance', icon: <Trophy size={18} /> },
+  { label: 'Awards', group: 'Results', href: '/student/awards', icon: <Star size={18} /> },
+  { label: 'Transcripts', group: 'Results', href: '/student/transcripts', icon: <Award size={18} /> },
+  { label: 'Billing', group: 'Account', href: '/student/billing', icon: <Receipt size={18} /> },
+  { label: 'Settings', group: 'Account', href: '/student/settings', icon: <Settings size={18} /> },
 ]
 
 const LogoComponent = (
@@ -78,8 +85,9 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
   // Track if the student was ever confirmed as onboarded in this session.
   // Once we see onboarded=true, we never redirect to /student/onboarding
   // — even if a background re-fetch transiently returns a different value.
-  const wasEverOnboarded = useRef(false)
-  if (student?.onboarded === true) wasEverOnboarded.current = true
+  const wasEverConfirmedOnboarded = useRef(false)
+  const studentHasOnboarded = student?.onboarded === true || profile?.has_onboarded === true
+  if (studentHasOnboarded) wasEverConfirmedOnboarded.current = true
 
   useEffect(() => {
     if (!isLoading && !profile) router.push('/auth/login?role=student')
@@ -87,176 +95,176 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
       router.push(`/${profile.role}`)
     }
 
-    // Redirect to onboarding ONLY when ALL conditions are met:
-    // 1. Fresh DB data confirmed (isInitialRevalidationComplete=true)
-    // 2. Student row exists in the store
-    // 3. onboarded is STRICTLY false (not null, not undefined — only explicit false)
-    // 4. Student was NEVER confirmed as onboarded earlier in this session
-    // 5. Not already on the onboarding page
     if (
       isInitialRevalidationComplete &&
-      student != null &&
-      student.onboarded === false &&
-      !wasEverOnboarded.current &&
-      typeof window !== 'undefined' &&
+      profile &&
+      profile.role === 'student' &&
+      profile.has_onboarded !== true &&
+      !wasEverConfirmedOnboarded.current &&
       pathname !== '/student/onboarding'
     ) {
-      console.log('[StudentLayout] Handshake stable. Directing to onboarding...')
       router.push('/student/onboarding')
     }
-  }, [profile, student, isLoading, isInitialRevalidationComplete, router, pathname])
+  }, [profile, student, isLoading, router, pathname, isInitialRevalidationComplete])
 
-  // Daily XP Login logic — Only fires once handshake is stable
   useEffect(() => {
-    if (!isInitialRevalidationComplete || !student?.id || student.onboarded === false) return
+    if (!student?.id) return
 
-    const checkDailyXP = async () => {
-      try {
-        const today = new Date().toISOString().split('T')[0]
-        const lastLoginDate = (student as any).last_login_date
+    // Setup realtime subscription for XP updates
+    const channel = supabase.channel(`student_xp_${student.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'students',
+          filter: `id=eq.${student.id}`,
+        },
+        (payload) => {
+          if (payload.new && typeof payload.new.xp === 'number') {
+            const oldLevel = calculateLevel(student.xp || 0).level
+            const newLevelInfo = calculateLevel(payload.new.xp)
+            
+            // Only update store if XP actually changed to avoid infinite loops
+            if (payload.new.xp !== student.xp) {
+              setStudent({ ...student, xp: payload.new.xp })
+            }
 
-        if (lastLoginDate !== today) {
-          console.log('[DailyXP] Granting login XP for today:', today)
-          
-          const newXP = (student.xp || 0) + 10
-          
-          const { error } = await supabase
-            .from('students')
-            .update({ 
-               xp: newXP, 
-               last_login_date: today 
-            })
-            .eq('id', student.id)
-
-          if (!error) {
-            // Refresh local state to show the new XP immediately
-            setStudent({ ...student, xp: newXP, last_login_date: today })
-            toast.success('🔥 +10 XP for daily login!', {
-              id: 'daily-login-xp',
-              icon: '⚡',
-              duration: 4000
-            })
+            if (newLevelInfo.level > oldLevel) {
+              toast.success(`Level Up! You are now Level ${newLevelInfo.level} 🌟`, {
+                icon: '🎉',
+                style: {
+                  borderRadius: '16px',
+                  background: 'var(--card)',
+                  color: 'var(--text)',
+                  border: '1px solid var(--card-border)',
+                },
+              })
+            }
           }
         }
-      } catch (e) {
-        console.error('[DailyXP] Error awarding XP:', e)
-      }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
     }
+  }, [student?.id, student?.xp, setStudent, supabase])
 
-    // Short debounce to ensure store is stable
-    const t = setTimeout(checkDailyXP, 1000)
-    return () => clearTimeout(t)
-  }, [student?.id, isInitialRevalidationComplete])
-
-
-  // ─── RULE 1: Only show full-screen splash on true first-load (no session yet) ───
-  // Once profile is in the store (from localStorage OR fresh fetch), we never go
-  // back to a full-screen spinner — that causes all pages to freeze.
+  // Only block the UI if we are truly loading the first time (no persisted profile)
   if (isLoading && !profile) {
     return <SplashScreen done={false} role="student" />
   }
 
-  // ─── RULE 2: Portal UI visibility ──────────────────────────────────────────────
-  // Use stickyProfile (last non-null value) so the sidebar/header never disappear
-  // during a ~1hr token refresh cycle where the store transiently clears profile.
-  const showPortalUI = !!(profile || stickyProfile.current)
+  const p = profile || stickyProfile.current
+  const s = student || stickyStudent.current
 
-  // ─── RULE 3: Pending onboarding UI blocker ─────────────────────────────────────
-  // Only block portal chrome if we KNOW (via fresh DB data) the student hasn't onboarded.
-  // Strict === false prevents null/undefined onboarded values from triggering this.
-  const isPendingOnboarding = isInitialRevalidationComplete && student != null && student.onboarded === false
+  const { level, currentMilestone, nextMilestone, progressPercent } = calculateLevel(s?.xp || 0)
+  const progressPercentage = progressPercent
 
   return (
-    <div className="min-h-screen bg-[var(--bg)]">
-      {showPortalUI && (
-         <Sidebar
-           items={NAV_ITEMS.map(item => item.href === '/student/messages' ? { ...item, badge: messageUnreadCount } : item)}
-           bottomItems={[
-             { label: 'Sign Out', href: '#', icon: <LogOut size={18} />, onClick: () => signOut() },
-           ]}
-           logo={LogoComponent}
-           role="student"
-         />
-      )}
+    <>
+      <div className="min-h-screen transition-all" style={{ background: 'var(--bg)' }}>
+        <SplashScreen storageKey="splash-student" role="student" />
+        <Sidebar
+          items={wasEverConfirmedOnboarded.current ? NAV_ITEMS.map(item => item.href === '/student/messages' ? { ...item, badge: messageUnreadCount } : item) : NAV_ITEMS.filter(i => i.label === 'Settings')}
+          bottomItems={[
+            { label: 'Sign Out', href: '#', icon: <LogOut size={18} />, onClick: () => signOut() },
+          ]}
+          logo={LogoComponent}
+          role="student"
+        >
+          {wasEverConfirmedOnboarded.current && s && (
+            <div className="mt-6 mb-2 px-4 space-y-3">
+              <div className="flex items-center justify-between text-xs font-black">
+                <span style={{ color: 'var(--text-muted)' }}>Level {level}</span>
+                <span style={{ color: 'var(--text)' }}>{s.xp || 0} XP</span>
+              </div>
+              <div className="h-2 w-full bg-[var(--input)] rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-gradient-to-r from-orange-400 to-rose-500" 
+                  style={{ width: `${progressPercentage}%` }} 
+                />
+              </div>
+              <p className="text-[10px] font-bold text-center" style={{ color: 'var(--text-muted)' }}>
+                {nextMilestone - currentMilestone} XP to Level {level + 1}
+              </p>
+            </div>
+          )}
+        </Sidebar>
 
-      <main className={`min-h-screen transition-all duration-300 pb-20 md:pb-0 ${showPortalUI ? 'md:ml-[260px]' : ''}`}>
-        {/* Modern Header for Students (XP & Levels) */}
-        {showPortalUI && (
+        <main className="min-h-screen transition-all duration-300 pb-20 md:pb-0" style={{ marginLeft: 0 }}>
+          {/* Modern Header for Students */}
           <header
-            className="sticky top-0 z-40 px-6 py-4 flex items-center justify-between border-b border-[var(--card-border)] bg-transparent"
+            className="sticky top-0 z-40 px-6 py-4 flex items-center justify-between border-b border-[var(--card-border)] md:ml-[260px]"
             style={{ background: 'rgba(var(--card-rgb), 0.8)', backdropFilter: 'blur(12px)' }}
           >
-             {(() => {
-                 const { level, title, isProspect } = calculateLevel(student?.xp || 0)
-                 const xp = student?.xp || 0
+            <div className="flex-1 min-w-0 mr-2 md:hidden">
+              {LogoComponent}
+            </div>
+            
+            <div className="flex-1 hidden md:block" />
 
-                return (
-                  <>
-                    <div className="flex-1 min-w-0 mr-2">
-                       <h2 className="text-xs md:text-sm font-bold opacity-60 truncate">
-                         {level > 0 ? `Level ${level} • ${title}` : title}
-                       </h2>
-                    </div>
-                  
-                  <div className="flex items-center gap-4 md:gap-6">
-                     <div className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-amber-500/10 border border-amber-500/20">
-                        <Zap size={14} className="text-amber-500 fill-amber-500" />
-                        <span className="text-xs font-black text-amber-500">{student?.xp?.toLocaleString() || 0} XP</span>
-                     </div>
-                     <InstallPWAButton variant="minimal" />
-                     <div className="w-px h-6 bg-[var(--card-border)]" />
-                     <Link href="/student/messages" aria-label={`Messages${messageUnreadCount ? `, ${messageUnreadCount} unread` : ''}`} className="relative p-2 rounded-xl hover:bg-[var(--input)] transition-colors group">
-                        <MessageCircle size={20} className="text-[var(--text-muted)] group-hover:text-primary transition-colors" />
-                        {messageUnreadCount > 0 && (
-                          <span className="absolute top-1 right-1 flex h-4 min-w-[16px] px-1 items-center justify-center bg-sky-500 text-white text-[9px] font-black rounded-full border-2 border-[var(--bg)]">
-                            {messageUnreadCount > 99 ? '99+' : messageUnreadCount}
-                          </span>
-                        )}
-                     </Link>
-                     <Link href="/student/notifications" className="relative p-2 rounded-xl hover:bg-[var(--input)] transition-colors group">
-                        <Bell size={20} className="text-[var(--text-muted)] group-hover:text-primary transition-colors" />
-                        {unreadCount > 0 && (
-                          <span className="absolute top-1.5 right-1.5 flex h-4 min-w-[16px] px-1 items-center justify-center bg-rose-500 text-white text-[10px] font-black rounded-full border-2 border-[var(--bg)] shadow-sm animate-in zoom-in">
-                            {unreadCount > 99 ? '99+' : unreadCount}
-                          </span>
-                        )}
-                     </Link>
-                      <Avatar 
-                        url={profile?.avatar_url} 
-                        name={profile?.full_name} 
-                        size="sm" 
-                        className="cursor-pointer group"
-                      />
-                  </div>
-                </>
-              )
-           })()}
-        </header>
-        )}
+            <div className="flex items-center gap-4 md:gap-6">
+              <Link href="/student/messages" aria-label={`Messages${messageUnreadCount ? `, ${messageUnreadCount} unread` : ''}`} className="relative p-2 rounded-xl hover:bg-[var(--input)] transition-colors group">
+                  <MessageCircle size={20} className="text-[var(--text-muted)] group-hover:text-primary transition-colors" />
+                  {messageUnreadCount > 0 && (
+                    <span className="absolute top-1 right-1 flex h-4 min-w-[16px] px-1 items-center justify-center bg-sky-500 text-white text-[9px] font-black rounded-full border-2 border-[var(--bg)]">
+                      {messageUnreadCount > 99 ? '99+' : messageUnreadCount}
+                    </span>
+                  )}
+              </Link>
+              <Link href="/student/notifications" className="relative p-2 rounded-xl hover:bg-[var(--input)] transition-colors group">
+                  <Bell size={20} className="text-[var(--text-muted)] group-hover:text-primary transition-colors" />
+                  {unreadCount > 0 && (
+                    <span className="absolute top-1.5 right-1.5 flex h-4 min-w-[16px] px-1 items-center justify-center bg-rose-500 text-white text-[10px] font-black rounded-full border-2 border-[var(--bg)] shadow-sm animate-in zoom-in">
+                      {unreadCount > 99 ? '99+' : unreadCount}
+                    </span>
+                  )}
+              </Link>
+              <div className="w-px h-6 bg-[var(--card-border)]" />
+              <Link href="/student/settings">
+                <Avatar 
+                    url={p?.avatar_url} 
+                    name={p?.full_name} 
+                    size="sm" 
+                    className="cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all"
+                  />
+              </Link>
+            </div>
+          </header>
 
-        <div className={!isPendingOnboarding ? "md:px-2" : ""}>
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
-            <PageErrorBoundary>
-              {children}
-            </PageErrorBoundary>
-          </motion.div>
-        </div>
-        <LevelUpManager />
+          <div className="md:ml-[260px]">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
+              <PageErrorBoundary>
+                {children}
+              </PageErrorBoundary>
+            </motion.div>
+          </div>
+        </main>
+
+        <BottomNav 
+          items={wasEverConfirmedOnboarded.current 
+            ? [
+                NAV_ITEMS[0],
+                NAV_ITEMS[1],
+                NAV_ITEMS[2],
+                { ...NAV_ITEMS.find(item => item.href === '/student/messages')!, badge: messageUnreadCount },
+              ]
+            : NAV_ITEMS.filter(i => i.label === 'Settings')
+          } 
+          moreItems={wasEverConfirmedOnboarded.current 
+            ? [
+                ...NAV_ITEMS.filter(item => !['/student', '/student/assignments', '/student/schedule', '/student/messages'].includes(item.href)),
+                { label: 'Sign Out', group: 'Account', href: '#', icon: <LogOut size={18} />, onClick: signOut }
+              ]
+            : [{ label: 'Sign Out', href: '#', icon: <LogOut size={18} />, onClick: signOut }]
+          } 
+        />
         <QuickInfoModal />
         <SessionHeartbeat />
-      </main>
-
-      {!isPendingOnboarding && (
-        <BottomNav 
-          items={NAV_ITEMS.map(item => item.href === '/student/messages' ? { ...item, badge: messageUnreadCount } : item).slice(0, 4)}
-          moreItems={[
-            ...NAV_ITEMS.map(item => item.href === '/student/messages' ? { ...item, badge: messageUnreadCount } : item).slice(4),
-            { label: 'Sign Out', href: '#', icon: <LogOut size={18} /> },
-          ].map(item =>
-            item.label === 'Sign Out' ? { ...item, onClick: signOut } : item
-          )} 
-        />
-      )}
-    </div>
+        <LevelUpManager />
+      </div>
+    </>
   )
 }

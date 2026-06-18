@@ -728,14 +728,19 @@ export default function HomePage() {
                 whileInView="visible"
                 viewport={{ once: true }}
               >
-                <Link href={programme.href} className="group relative block overflow-hidden rounded-2xl border border-[#145da0]/12 bg-[#f4f9fc] p-6 transition hover:-translate-y-2 hover:border-[#4caf25]/40 hover:shadow-[0_22px_55px_rgba(7,49,89,0.12)]">
+                <div className="group relative overflow-hidden rounded-2xl border border-[#145da0]/12 bg-[#f4f9fc] p-6 transition hover:-translate-y-2 hover:border-[#4caf25]/40 hover:shadow-[0_22px_55px_rgba(7,49,89,0.12)]">
                   <span className="absolute inset-x-0 top-0 h-1 origin-left scale-x-0 bg-gradient-to-r from-[#145da0] to-[#4caf25] transition-transform duration-500 group-hover:scale-x-100" />
                   <h3 className="text-2xl font-black tracking-tight">{programme.title}</h3>
                   <p className="mt-3 min-h-24 text-sm leading-relaxed text-slate-600">{programme.body}</p>
-                  <div className="mt-6 inline-flex items-center gap-2 text-sm font-bold text-[#145da0]">
-                    Explore <ArrowRight size={16} className="transition group-hover:translate-x-1" />
+                  <div className="mt-6 flex flex-col gap-2 sm:flex-row">
+                    <Link href={`/events/register?programme=${encodeURIComponent(programme.title)}`} className="inline-flex items-center justify-center gap-2 rounded-full bg-[#073159] px-4 py-2.5 text-sm font-black uppercase tracking-wider text-white transition hover:bg-[#145da0]">
+                      Register Now <ArrowRight size={16} />
+                    </Link>
+                    <Link href={programme.href} className="inline-flex items-center justify-center gap-2 rounded-full border border-[#145da0]/20 px-4 py-2.5 text-sm font-bold text-[#145da0]">
+                      Explore
+                    </Link>
                   </div>
-                </Link>
+                </div>
               </motion.div>
             ))}
           </div>
@@ -771,20 +776,30 @@ export default function HomePage() {
                   whileInView="visible"
                   viewport={{ once: true }}
                 >
-                  <div className="group block rounded-2xl border border-[#145da0]/15 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:border-[#4caf25]/50 hover:shadow-lg">
-                    <div className="mb-4 inline-block rounded-full bg-[#e9f8e2] px-3 py-1 text-xs font-bold uppercase tracking-wider text-[#2f8517]">
-                      {event.is_active ? 'Registering Now' : 'Upcoming'}
+                  <div className="group block overflow-hidden rounded-[1.6rem] border border-[#145da0]/15 bg-white shadow-sm transition hover:-translate-y-1 hover:border-[#4caf25]/50 hover:shadow-xl">
+                    <div className="relative h-52 bg-gradient-to-br from-[#073159] via-[#145da0] to-[#4caf25]">
+                      {event.banner_url && (
+                        <img src={event.banner_url} alt={`${event.name} poster`} className="h-full w-full object-cover" loading="lazy" />
+                      )}
+                      <div className="absolute inset-0 bg-gradient-to-t from-[#071a2d]/90 via-[#071a2d]/25 to-transparent" />
+                      <div className="absolute inset-x-4 bottom-4 text-white">
+                        <div className="mb-3 inline-block rounded-full bg-white/90 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-[#2f8517] shadow-sm">
+                          {event.is_active ? 'Registering Now' : 'Upcoming'}
+                        </div>
+                        <h3 className="text-2xl font-black tracking-tight">{event.name}</h3>
+                      </div>
                     </div>
-                    <h3 className="text-xl font-black tracking-tight text-[#073159]">{event.name}</h3>
-                    <div className="mt-3 space-y-2 text-sm font-medium text-slate-600">
-                      <p className="flex items-center gap-2"><Calendar size={16} className="text-[#145da0]" /> {formatDate(event.start_date)} - {formatDate(event.end_date)}</p>
+                    <div className="p-5">
+                      <div className="space-y-2 text-sm font-bold text-slate-600">
+                        <p className="flex items-center gap-2"><Calendar size={16} className="text-[#145da0]" /> {formatDate(event.start_date)} - {formatDate(event.end_date)}</p>
+                      </div>
+                      <p className="mt-4 min-h-16 text-sm leading-relaxed text-slate-500 line-clamp-3">
+                        {event.description || 'Intensive revision and curriculum coverage. Secure your spot before groups fill up.'}
+                      </p>
+                      <Link href={`/events/register?eventId=${event.id}`} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-full bg-[#073159] px-4 py-2.5 text-sm font-bold uppercase tracking-wider text-white transition group-hover:bg-[#145da0]">
+                        Register Now <ArrowRight size={16} />
+                      </Link>
                     </div>
-                    <p className="mt-4 min-h-16 text-sm leading-relaxed text-slate-500 line-clamp-3">
-                      {event.description || 'Intensive revision and curriculum coverage. Secure your spot before groups fill up.'}
-                    </p>
-                    <Link href={`/events/register?eventId=${event.id}`} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-full bg-[#073159] px-4 py-2.5 text-sm font-bold uppercase tracking-wider text-white transition group-hover:bg-[#145da0]">
-                      Enroll Now <ArrowRight size={16} />
-                    </Link>
                   </div>
                 </motion.div>
               ))}

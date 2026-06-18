@@ -86,6 +86,7 @@ export default function TeacherOnboarding() {
     if (!profile) return
     setLoading(true)
     try {
+      // Mark profile as onboarded
       const { error } = await supabase
         .from('profiles')
         .update({ 
@@ -95,6 +96,13 @@ export default function TeacherOnboarding() {
         .eq('id', profile.id)
       
       if (error) throw error
+
+      // Also mark the teacher row as onboarded so both tables are consistent
+      // This ensures the layout sticky-ref works correctly on next login
+      await supabase
+        .from('teachers')
+        .update({ onboarded: true })
+        .eq('user_id', profile.id)
       
       setProfile({ ...profile, has_onboarded: true })
       toast.success('Onboarding skipped. You can set up your profile later.')

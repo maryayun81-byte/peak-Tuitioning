@@ -16,7 +16,8 @@ import { useAuthStore } from '@/stores/authStore'
 import { formatDate } from '@/lib/utils'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, AreaChart, Area
+  Tooltip, ResponsiveContainer, AreaChart, Area,
+  Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis
 } from 'recharts'
 import { usePageData } from '@/hooks/usePageData'
 import { ShimmerSkeleton } from '@/components/ui/ShimmerSkeleton'
@@ -489,13 +490,13 @@ export default function StudentPerformance() {
           ) : (
             <div className="h-[280px]">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={intel.subjectStats}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--card-border)" />
-                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--text-muted)' }} />
-                  <YAxis hide domain={[0, 100]} />
-                  <Tooltip contentStyle={{ borderRadius: '16px', border: 'none', background: 'var(--card)' }} />
-                  <Bar dataKey="score" fill="var(--primary)" radius={[8, 8, 0, 0]} barSize={40} />
-                </BarChart>
+                <RadarChart cx="50%" cy="50%" outerRadius="70%" data={intel.subjectStats}>
+                  <PolarGrid stroke="var(--card-border)" />
+                  <PolarAngleAxis dataKey="name" tick={{ fill: 'var(--text-muted)', fontSize: 10, fontWeight: 800 }} />
+                  <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
+                  <Radar name="Mastery" dataKey="score" stroke="var(--primary)" fill="var(--primary)" fillOpacity={0.4} />
+                  <Tooltip contentStyle={{ borderRadius: '16px', border: '1px solid var(--card-border)', background: 'var(--card)' }} />
+                </RadarChart>
               </ResponsiveContainer>
             </div>
           )}

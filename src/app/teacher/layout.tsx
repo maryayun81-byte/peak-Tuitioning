@@ -110,12 +110,14 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
     }
     // CRITICAL: Use wasEverConfirmedOnboarded.current — NOT teacherHasOnboarded — as the gate.
     // This ref is sticky: once set to true in any render, it stays true for the session.
-    // This prevents NavigationRefetch (query cache invalidation on route change) from
-    // transiently clearing teacher data and triggering a false redirect to /teacher/onboarding.
+    // ALSO: double-check profile.has_onboarded !== true as a belt-and-suspenders guard
+    // so a teacher who has already onboarded is NEVER redirected even if the ref resets
+    // (e.g. first render where teacher row hasn't loaded yet).
     if (
       isInitialRevalidationComplete &&
       profile &&
       profile.role === 'teacher' &&
+      profile.has_onboarded !== true &&
       !wasEverConfirmedOnboarded.current &&
       pathname !== '/teacher/onboarding'
     ) {

@@ -20,6 +20,7 @@ import toast from 'react-hot-toast'
 import type { WorksheetBlock, WorksheetAnswers } from '@/types/database'
 import Link from 'next/link'
 import { useAutoSave } from '@/hooks/useAutoSave'
+import { sendPushNotification } from '@/app/actions/push'
 
 export default function WorksheetGraderPage() {
   const params = useParams()
@@ -207,6 +208,15 @@ export default function WorksheetGraderPage() {
         related_id: assignment?.id,
         data: { xp: xpAwarded, marks: numericAwarded, total: numericTotal, mastery: isHighPerf, assignment_id: assignment?.id }
       })
+      if (submission?.student?.user_id) {
+        await sendPushNotification([submission.student.user_id], {
+          title: isHighPerf ? 'Mastery Achievement! +50 XP' : 'Assignment Returned (+10 XP)',
+          body: isHighPerf
+            ? `Incredible! You scored ${Math.round((numericAwarded / numericTotal) * 100)}% on "${assignment?.title}".`
+            : `Your worksheet "${assignment?.title}" has been marked. Score: ${numericAwarded}/${numericTotal}`,
+          href: `/student/assignments/${assignment?.id}`,
+        })
+      }
       toast.success(isHighPerf ? '✅ Returned with Mastery Bonus!' : '✅ Submission returned!')
       router.push('/teacher/marking')
     } else {

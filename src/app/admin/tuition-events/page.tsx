@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, Trash2, Edit, Calendar, CheckCircle, Gift, X, AlertTriangle } from 'lucide-react'
+import { Plus, Trash2, Edit, Calendar, Gift, X, AlertTriangle, ImagePlus, Upload } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
@@ -29,6 +29,7 @@ const schema = z.object({
   name: z.string().min(2),
   start_date: z.string(),
   end_date: z.string(),
+  banner_url: z.string().optional().or(z.literal('')),
   active_days: z.array(z.string()).min(1),
   attendance_threshold: z.number().min(0).max(100).default(80),
   status: z.enum(['upcoming', 'active', 'postponed', 'cancelled', 'ended']).default('upcoming'),
@@ -49,6 +50,8 @@ export default function AdminTuitionEvents() {
   const [holidays, setHolidays] = useState<Holiday[]>([])
   const [newHoliday, setNewHoliday] = useState({ name: '', date: '' })
   const [activeTab, setActiveTab] = useState<'events' | 'weeks'>('events')
+  const [uploadingBanner, setUploadingBanner] = useState(false)
+  const [origin, setOrigin] = useState('')
 
   const { register, handleSubmit, reset, control, watch, setValue, formState: { errors } } = useForm<EventForm>({
     resolver: zodResolver(schema),
@@ -57,10 +60,23 @@ export default function AdminTuitionEvents() {
       attendance_threshold: 80,
       status: 'upcoming',
       postponed_to: '',
+      banner_url: '',
     },
   })
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    setOrigin(window.location.origin)
+    load()
+  }, [])
+
+  const copyShareUrl = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url)
+      toast.success('Share link copied')
+    } catch {
+      toast.error('Clipboard is blocked. Select and copy the link manually.')
+    }
+  }
 
   const load = async () => {
     setLoading(true)
@@ -112,6 +128,7 @@ export default function AdminTuitionEvents() {
     setValue('start_date', e.start_date)
     setValue('end_date', e.end_date)
     setValue('active_days', e.active_days)
+    setValue('banner_url', e.banner_url || '')
     setValue('attendance_threshold', e.attendance_threshold)
     setValue('status', e.status || 'upcoming')
     setValue('postponed_to', e.postponed_to || '')
@@ -122,6 +139,7 @@ export default function AdminTuitionEvents() {
     // Keep is_active boolean synced for legacy queries
     data.is_active = data.status === 'active';
     if (!data.postponed_to) data.postponed_to = null;
+    if (!data.banner_url) data.banner_url = null;
 
     if (data.status === 'active') {
       await supabase.from('tuition_events').update({ is_active: false, status: 'ended' }).neq('id', editing?.id ?? '')
@@ -133,6 +151,29 @@ export default function AdminTuitionEvents() {
     if (error) { toast.error(error.message); return }
     toast.success(editing ? 'Event updated!' : 'Event created successfully!')
     reset(); setEditing(null); setAddOpen(false); load()
+  }
+
+  const uploadBanner = async (file?: File) => {
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please upload an image file')
+      return
+    }
+    setUploadingBanner(true)
+    try {
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-')
+      const path = `${Date.now()}-${safeName}`
+      const { error } = await supabase.storage.from('event-posters').upload(path, file, { upsert: true })
+      if (error) {
+        toast.error(`${error.message}. Create a public "event-posters" storage bucket if it does not exist yet.`)
+        return
+      }
+      const { data } = supabase.storage.from('event-posters').getPublicUrl(path)
+      setValue('banner_url', data.publicUrl)
+      toast.success('Event banner uploaded')
+    } finally {
+      setUploadingBanner(false)
+    }
   }
 
   const del = async (id: string) => {
@@ -178,8 +219,26 @@ export default function AdminTuitionEvents() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {events.map((event, i) => (
+            (() => {
+              const fullUrl = `${origin}/events/register?eventId=${event.id}`
+              const shortUrl = `${origin}/events/register?e=${String(event.id).slice(0, 8)}`
+              return (
             <motion.div key={event.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }}>
-              <Card className="p-5">
+              <Card className="overflow-hidden">
+                {event.banner_url ? (
+                  <div className="relative h-40 overflow-hidden bg-[var(--input)]">
+                    <img src={event.banner_url} alt={`${event.name} banner`} className="h-full w-full object-cover" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/10 to-transparent" />
+                    <Badge className="absolute bottom-3 left-3" variant={event.status === 'active' ? 'success' : event.status === 'postponed' ? 'warning' : event.status === 'upcoming' ? 'info' : 'muted'}>
+                      {event.status === 'active' ? 'Registering now' : event.status.charAt(0).toUpperCase() + event.status.slice(1)}
+                    </Badge>
+                  </div>
+                ) : (
+                  <div className="flex h-28 items-center justify-center bg-gradient-to-br from-primary/15 via-[var(--card)] to-emerald-500/10">
+                    <ImagePlus className="h-8 w-8 text-primary" />
+                  </div>
+                )}
+                <div className="p-5">
                 <div className="flex items-start justify-between mb-3">
                   <div>
                     <h3 className="font-black text-lg" style={{ color: 'var(--text)' }}>{event.name}</h3>
@@ -222,8 +281,32 @@ export default function AdminTuitionEvents() {
                     {event.status === 'active' ? 'End Event' : 'Set Active'}
                   </Button>
                 </div>
+                {origin && (
+                  <div className="mt-4 rounded-2xl bg-[var(--input)] p-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-primary">Parent/student share links</p>
+                    <div className="mt-3 grid gap-2">
+                      <div className="rounded-xl bg-[var(--card)] p-2">
+                        <div className="mb-1 flex items-center justify-between gap-2">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-muted">Actual URL</span>
+                          <button type="button" onClick={() => copyShareUrl(fullUrl)} className="text-xs font-black text-primary">Copy</button>
+                        </div>
+                        <input readOnly value={fullUrl} className="w-full bg-transparent text-xs outline-none" style={{ color: 'var(--text)' }} onFocus={(e) => e.currentTarget.select()} />
+                      </div>
+                      <div className="rounded-xl bg-[var(--card)] p-2">
+                        <div className="mb-1 flex items-center justify-between gap-2">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-muted">Short version</span>
+                          <button type="button" onClick={() => copyShareUrl(shortUrl)} className="text-xs font-black text-primary">Copy</button>
+                        </div>
+                        <input readOnly value={shortUrl} className="w-full bg-transparent text-xs outline-none" style={{ color: 'var(--text)' }} onFocus={(e) => e.currentTarget.select()} />
+                      </div>
+                    </div>
+                  </div>
+                )}
+                </div>
               </Card>
             </motion.div>
+              )
+            })()
           ))}
           {events.length === 0 && (
             <div className="col-span-2 text-center py-16" style={{ color: 'var(--text-muted)' }}>
@@ -237,6 +320,24 @@ export default function AdminTuitionEvents() {
       <Modal isOpen={addOpen} onClose={() => { setAddOpen(false); reset(); setEditing(null) }} title={editing ? 'Edit Tuition Event' : 'New Tuition Event'} size="md">
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <Input label="Event Name" placeholder="e.g. April Holiday Tuition" error={errors.name?.message} {...register('name')} />
+          <div className="rounded-2xl border border-[var(--card-border)] bg-[var(--input)] p-3">
+            <label className="mb-2 block text-sm font-bold" style={{ color: 'var(--text)' }}>Poster / Banner</label>
+            {watch('banner_url') ? (
+              <img src={watch('banner_url')} alt="Event banner preview" className="mb-3 h-36 w-full rounded-xl object-cover" />
+            ) : (
+              <div className="mb-3 flex h-28 items-center justify-center rounded-xl border border-dashed border-[var(--card-border)] text-sm text-muted">
+                Upload a wide poster or paste an image URL.
+              </div>
+            )}
+            <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+              <Input placeholder="https://..." {...register('banner_url')} />
+              <label className="inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-black text-white">
+                <Upload size={15} /> {uploadingBanner ? 'Uploading...' : 'Upload'}
+                <input type="file" accept="image/*" className="hidden" disabled={uploadingBanner} onChange={(e) => uploadBanner(e.target.files?.[0])} />
+              </label>
+            </div>
+            <p className="mt-2 text-xs text-muted">Recommended: 1600 x 900 poster. It will be cropped beautifully on cards.</p>
+          </div>
           <div className="grid grid-cols-2 gap-4">
             <Input label="Start Date" type="date" error={errors.start_date?.message} {...register('start_date')} />
             <Input label="End Date" type="date" error={errors.end_date?.message} {...register('end_date')} />

@@ -31,6 +31,7 @@ import {
 } from '@/app/actions/messages'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Avatar } from '@/components/ui/Avatar'
+import { useAuthStore } from '@/stores/authStore'
 
 type Role = 'student' | 'teacher'
 type PeakMessengerProps = { role: Role }
@@ -92,6 +93,8 @@ function contactFor(conversation: any, role: Role) {
 }
 
 export function PeakMessenger({ role }: PeakMessengerProps) {
+  const { profile, student, teacher } = useAuthStore()
+  const actorUserId = profile?.id || (student as any)?.user_id || (teacher as any)?.user_id
   const [bootstrap, setBootstrap] = useState<any>(null)
   const [conversations, setConversations] = useState<any[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -103,7 +106,7 @@ export function PeakMessenger({ role }: PeakMessengerProps) {
 
   const loadBootstrap = async () => {
     try {
-      const result = await getMessagingBootstrap()
+      const result = await getMessagingBootstrap(actorUserId)
       if (!result.ok) {
         toast.error(result.error)
         return
@@ -122,8 +125,8 @@ export function PeakMessenger({ role }: PeakMessengerProps) {
   }
 
   useEffect(() => {
-    loadBootstrap()
-  }, [])
+    if (actorUserId) loadBootstrap()
+  }, [actorUserId])
 
   useEffect(() => {
     if (!selectedId) {
@@ -132,14 +135,14 @@ export function PeakMessenger({ role }: PeakMessengerProps) {
     }
     let active = true
     setLoadingMessages(true)
-    getPeakMessages(selectedId)
+    getPeakMessages(selectedId, actorUserId)
       .then((result) => {
         if (!result.ok) toast.error(result.error)
         if (active) setMessages(result.messages)
       })
       .catch((error) => toast.error(error.message))
       .finally(() => setLoadingMessages(false))
-    markPeakConversationRead(selectedId).catch(() => null)
+    markPeakConversationRead(selectedId, actorUserId).catch(() => null)
 
     const supabase = getSupabaseBrowserClient()
     const channel = supabase
@@ -150,7 +153,7 @@ export function PeakMessenger({ role }: PeakMessengerProps) {
         table: 'peak_messages',
         filter: `conversation_id=eq.${selectedId}`,
       }, () => {
-        getPeakMessages(selectedId).then((result) => active && setMessages(result.messages)).catch(() => null)
+        getPeakMessages(selectedId, actorUserId).then((result) => active && setMessages(result.messages)).catch(() => null)
         loadBootstrap()
       })
       .on('postgres_changes', {
@@ -158,7 +161,7 @@ export function PeakMessenger({ role }: PeakMessengerProps) {
         schema: 'public',
         table: 'peak_message_reactions',
       }, () => {
-        getPeakMessages(selectedId).then((result) => active && setMessages(result.messages)).catch(() => null)
+        getPeakMessages(selectedId, actorUserId).then((result) => active && setMessages(result.messages)).catch(() => null)
       })
       .on('postgres_changes', {
         event: 'UPDATE',
@@ -166,7 +169,7 @@ export function PeakMessenger({ role }: PeakMessengerProps) {
         table: 'peak_conversations',
         filter: `id=eq.${selectedId}`,
       }, () => {
-        getPeakMessages(selectedId).then((result) => active && setMessages(result.messages)).catch(() => null)
+        getPeakMessages(selectedId, actorUserId).then((result) => active && setMessages(result.messages)).catch(() => null)
       })
       .subscribe()
 
@@ -194,7 +197,7 @@ export function PeakMessenger({ role }: PeakMessengerProps) {
 
   const startConversation = async (teacherId: string) => {
     try {
-      const conversation = await startPeakConversation(teacherId)
+      const conversation = await startPeakConversation(teacherId, actorUserId)
       setConversations((previous) => {
         const found = previous.some((item) => item.id === conversation.id)
         return found ? previous.map((item) => item.id === conversation.id ? conversation : item) : [conversation, ...previous]
@@ -210,7 +213,7 @@ export function PeakMessenger({ role }: PeakMessengerProps) {
     if (openingStudentId) return
     setOpeningStudentId(studentId)
     try {
-      const result = await startTeacherPeakConversation(studentId)
+      const result = await startTeacherPeakConversation(studentId, actorUserId)
       if (!result.ok) {
         toast.error(result.error)
         return
@@ -274,7 +277,7 @@ export function PeakMessenger({ role }: PeakMessengerProps) {
               loading={loadingMessages}
               safety={(bootstrap.safety || []).filter((item: any) => item.conversation_id === selected.id)}
               onBack={() => setSelectedId(null)}
-              onRefresh={() => getPeakMessages(selected.id).then((result) => setMessages(result.messages))}
+              onRefresh={() => getPeakMessages(selected.id, actorUserId).then((result) => setMessages(result.messages))}
               onMessageSaved={(message: any) => {
                 if (!message) return
                 setMessages((previous) => {
@@ -714,7 +717,7 @@ function ConversationWorkspace({ role, currentUserId, conversation, messages, lo
               )}
               <button
                 onClick={async () => {
-                  const result = await setPeakConversationPaused(conversation.id, !paused)
+                  const result = await setPeakConversationPaused(conversation.id, !paused, currentUserId)
                   if (!result.ok) return toast.error(result.error)
                   setPaused(result.paused)
                   setShowConversationMenu(false)
@@ -790,6 +793,7 @@ function ConversationWorkspace({ role, currentUserId, conversation, messages, lo
           <MessageComposer
             role={role}
             currentUserId={currentUserId}
+            expectedUserId={currentUserId}
             conversationId={conversation.id}
             replyTo={replyTo}
             editing={editing}
@@ -913,7 +917,7 @@ function LearningCardBubble({ message, own }: any) {
   )
 }
 
-function MessageComposer({ role, currentUserId, conversationId, replyTo, editing, paused, onClearReply, onClearEdit, onSent }: any) {
+function MessageComposer({ role, currentUserId, expectedUserId, conversationId, replyTo, editing, paused, onClearReply, onClearEdit, onSent }: any) {
   const [body, setBody] = useState('')
   const [sending, setSending] = useState(false)
   const [showEmoji, setShowEmoji] = useState(false)
@@ -1033,7 +1037,7 @@ function MessageComposer({ role, currentUserId, conversationId, replyTo, editing
     try {
       const result = editing
         ? await editPeakMessage(editing.id, text, confirmed)
-        : await sendPeakMessage({ conversationId, body: text, replyToId: replyTo?.id, confirmed })
+        : await sendPeakMessage({ conversationId, body: text, replyToId: replyTo?.id, confirmed, expectedUserId })
       if ('error' in result && result.error) {
         toast.error(result.error)
         return

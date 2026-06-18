@@ -24,6 +24,7 @@ import { useAutoSave } from '@/hooks/useAutoSave'
 import { DraftBanner } from '@/components/ui/DraftBanner'
 import { clearPageDataCache } from '@/hooks/usePageData'
 import { useAIFormStore } from '@/stores/aiFormStore'
+import { sendPushNotification } from '@/app/actions/push'
 
 export default function NewWorksheetPage() {
   const router = useRouter()
@@ -326,6 +327,11 @@ export default function NewWorksheetPage() {
             data: { assignment_id: newAssign?.id, subject_id: subjectId }
           }))
           await supabase.from('notifications').insert(notifications)
+          await sendPushNotification(targetUserIds, {
+            title: 'New Assignment Posted',
+            body: `A new assignment "${title}" has been posted in ${derivedSubjects.find(s => s.id === subjectId)?.name || 'your class'}.`,
+            href: `/student/assignments/${newAssign?.id}`,
+          })
         }
       }
 
