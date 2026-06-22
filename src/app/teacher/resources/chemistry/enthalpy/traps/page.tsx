@@ -2,10 +2,10 @@
 
 import React, { useState } from 'react';
 import { BuilderLayout } from '@/components/teacher/resources/BuilderLayout';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
+import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Textarea } from '@/components/ui/Input';
 import { Plus, Trash2, AlertTriangle, Save } from 'lucide-react';
 
 interface Trap {
@@ -90,7 +90,7 @@ export default function ExaminerTrapsPage() {
           {traps.map((trap) => (
             <Card key={trap.id} className="border-red-100 shadow-sm relative group overflow-hidden">
               <div className="absolute top-0 left-0 w-1 h-full bg-red-500"></div>
-              <CardHeader className="pb-3 flex flex-row items-start justify-between">
+              <div className="pb-3 flex flex-row items-start justify-between px-6 pt-6">
                 <div className="flex items-center gap-2 flex-1">
                   <AlertTriangle className="w-5 h-5 text-red-500 shrink-0" />
                   <Input
@@ -108,15 +108,15 @@ export default function ExaminerTrapsPage() {
                 >
                   <Trash2 className="w-4 h-4" />
                 </Button>
-              </CardHeader>
-              <CardContent>
+              </div>
+              <div className="px-6 pb-6">
                 <Textarea
                   value={trap.description}
                   onChange={(e) => updateTrap(trap.id, 'description', e.target.value)}
                   className="min-h-[100px] border-none bg-red-50/50 resize-none focus-visible:ring-1 focus-visible:ring-red-200"
                   placeholder="Describe the common error..."
                 />
-              </CardContent>
+              </div>
             </Card>
           ))}
         </div>

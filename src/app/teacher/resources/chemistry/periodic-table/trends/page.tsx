@@ -124,7 +124,7 @@ export default function PeriodicTrendsEngine() {
               <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Master Explanation Chain</h3>
               <div className="relative border-l-2 border-indigo-200 dark:border-indigo-900/50 ml-4 space-y-6 py-2">
                 {activeData.explanationChain.map((step, idx) => (
-                  <div key={idx} className="relative pl-6 animate-in slide-in-from-left-4 fade-in duration-300" style={{ animationDelay: \`\${idx * 100}ms\`, animationFillMode: 'both' }}>
+                  <div key={idx} className="relative pl-6 animate-in slide-in-from-left-4 fade-in duration-300" style={{ animationDelay: `${idx * 100}ms`, animationFillMode: 'both' }}>
                     <div className="absolute w-3 h-3 bg-indigo-500 rounded-full -left-[7px] top-1.5 border-2 border-white dark:border-slate-900" />
                     <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800/50 p-3 rounded-xl shadow-sm text-sm font-bold text-indigo-900 dark:text-indigo-300">
                       {step}

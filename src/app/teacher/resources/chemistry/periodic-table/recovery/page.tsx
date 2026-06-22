@@ -143,7 +143,7 @@ export default function PeriodicRecoveryPage() {
           <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden mb-8">
             <div
               className="bg-emerald-500 h-full transition-all duration-500 ease-out"
-              style={{ width: \`\${(completedCount / CHECKLIST_ITEMS.length) * 100}%\` }}
+              style={{ width: `${(completedCount / CHECKLIST_ITEMS.length) * 100}%` }}
             />
           </div>
 
