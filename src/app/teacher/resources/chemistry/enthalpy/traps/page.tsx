@@ -49,6 +49,13 @@ const initialTraps: Trap[] = [
 
 export default function ExaminerTrapsPage() {
   const [traps, setTraps] = useState<Trap[]>(initialTraps);
+  const [isSaving, setIsSaving] = useState(false)
+
+  const handleSave = async () => {
+    setIsSaving(true)
+    await new Promise(r => setTimeout(r, 1000))
+    setIsSaving(false)
+  }
 
   const addTrap = () => {
     setTraps([
@@ -74,6 +81,8 @@ export default function ExaminerTrapsPage() {
       title="Examiner Traps Pack"
       subtitle="Enthalpy Changes Engine"
       backHref="/teacher/resources/chemistry/enthalpy"
+      isSaving={isSaving}
+      onSave={handleSave}
     >
       <div className="space-y-6">
         <div className="flex justify-between items-center">

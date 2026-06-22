@@ -4,6 +4,14 @@ import React, { useState } from "react";
 import { BuilderLayout } from '@/components/teacher/resources/BuilderLayout';
 
 export default function EnergyDiagramsVisualizerPage() {
+  const [isSaving, setIsSaving] = useState(false)
+
+  const handleSave = async () => {
+    setIsSaving(true)
+    await new Promise(r => setTimeout(r, 1000))
+    setIsSaving(false)
+  }
+
   const [exothermicExp, setExothermicExp] = useState(
     "In an exothermic reaction, the products have lower energy than the reactants. Energy is released to the surroundings, so ΔH is negative."
   );
@@ -19,6 +27,8 @@ export default function EnergyDiagramsVisualizerPage() {
       title="Energy Diagrams Visualizer"
       subtitle="Enthalpy Changes Engine"
       backHref="/teacher/resources/chemistry/enthalpy"
+      isSaving={isSaving}
+      onSave={handleSave}
     >
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-6">
         

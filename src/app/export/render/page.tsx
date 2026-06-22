@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react'
 import { Map, Package, ListOrdered, AlertTriangle } from 'lucide-react'
-import ReactFlow, { Background, Edge, Node } from 'reactflow'
+import ReactFlow, { Background, Edge, Node, Handle, Position } from 'reactflow'
 import 'reactflow/dist/style.css'
 
 const StageNodePrint = ({ data }: { data: any }) => (

@@ -1,4 +1,6 @@
-import React from 'react';
+"use client";
+
+import React, { useState } from 'react';
 import { BuilderLayout } from '@/components/teacher/resources/BuilderLayout';
 import { 
   ArrowRight, 
@@ -24,11 +26,21 @@ const steps = [
 ];
 
 export default function CalorimetryCalculationsPage() {
+  const [isSaving, setIsSaving] = useState(false)
+
+  const handleSave = async () => {
+    setIsSaving(true)
+    await new Promise(r => setTimeout(r, 1000))
+    setIsSaving(false)
+  }
+
   return (
     <BuilderLayout
       title="Calorimetry & Calculations"
       subtitle="Enthalpy Changes Engine"
       backHref="/teacher/resources/chemistry/enthalpy"
+      isSaving={isSaving}
+      onSave={handleSave}
     >
       <div className="space-y-8 pb-12">
         {/* Visual Flow Builder */}

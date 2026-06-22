@@ -15,6 +15,7 @@ interface ExcalidrawWrapperProps {
   viewModeEnabled?: boolean;
   zenModeEnabled?: boolean;
   libraryItems?: any[];
+  excalidrawApiRef?: React.MutableRefObject<any>;
 }
 
 export default function ExcalidrawWrapper({
@@ -23,6 +24,7 @@ export default function ExcalidrawWrapper({
   viewModeEnabled = false,
   zenModeEnabled = false,
   libraryItems = [],
+  excalidrawApiRef,
 }: ExcalidrawWrapperProps) {
   const [ExcalidrawComponent, setExcalidrawComponent] = useState<any>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -70,6 +72,9 @@ export default function ExcalidrawWrapper({
   return (
     <div style={{ position: 'absolute', inset: 0 }}>
       <ExcalidrawComponent
+        ref={(api: any) => {
+          if (excalidrawApiRef) excalidrawApiRef.current = api;
+        }}
         initialData={{
           elements: initialData?.elements ?? [],
           appState: {

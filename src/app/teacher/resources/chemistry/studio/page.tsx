@@ -6,32 +6,14 @@ import {
   Palette, Save, Download, Share2, ChevronDown,
   FlaskConical, Zap, BookOpen, Layout, Trash2,
   Layers, Settings2, FileText, Image as ImageIcon,
-  Printer, X, Check, ChevronRight, BookMarked, Eye, Info
+  Printer, X, Check, ChevronRight, BookMarked, Eye, Info, Sigma,
+  Cloud, CloudOff, Loader2
 } from 'lucide-react';
 import ExcalidrawWrapper from '@/components/teacher/resources/ExcalidrawWrapper';
+import ChemicalEquationEditor from '@/components/teacher/resources/ChemicalEquationEditor';
 import { chemistryLibraryItems, chemistryTemplates } from '@/lib/chemistry-library';
-
-// ─── Mock Save Store ───────────────────────────────────────────────────────────
-const SAVE_KEY = 'chem_draw_studio_v1';
-
-function mockSave(name: string, elements: any[], appState: any) {
-  const saves = JSON.parse(localStorage.getItem(SAVE_KEY) || '[]');
-  const entry = {
-    id: Date.now().toString(),
-    name,
-    savedAt: new Date().toISOString(),
-    elements,
-    appState,
-    thumbnail: null,
-  };
-  saves.unshift(entry);
-  localStorage.setItem(SAVE_KEY, JSON.stringify(saves.slice(0, 20)));
-  return entry;
-}
-
-function mockLoad(): any[] {
-  return JSON.parse(localStorage.getItem(SAVE_KEY) || '[]');
-}
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { useAuthStore } from '@/stores/authStore';
 
 // ─── Chemistry Templates ────────────────────────────────────────────────────────
   // Map template IDs to actual elements from library
@@ -159,13 +141,16 @@ const CHEM_SYMBOLS = [
 ];
 
 // ─── Sidebar Panel ─────────────────────────────────────────────────────────────
-type SidebarPanel = 'apparatus' | 'templates' | 'saves' | 'symbols' | null;
+type SidebarPanel = 'apparatus' | 'templates' | 'saves' | 'symbols' | 'equation' | null;
 
 export default function ChemistryDrawStudio() {
+  const supabase = getSupabaseBrowserClient();
+  const { profile } = useAuthStore();
+
   const [elements, setElements] = useState<any[]>([]);
   const [appState, setAppState] = useState<any>({});
   const [canvasInitialData, setCanvasInitialData] = useState<{ elements: any[]; appState: any } | undefined>(undefined);
-  const [canvasKey, setCanvasKey] = useState(0); // increment to force re-mount with new template
+  const [canvasKey, setCanvasKey] = useState(0);
   const [activePanel, setActivePanel] = useState<SidebarPanel>('apparatus');
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -173,52 +158,162 @@ export default function ChemistryDrawStudio() {
   const [showShareModal, setShowShareModal] = useState(false);
   const [showSaveNameModal, setShowSaveNameModal] = useState(false);
   const [saveName, setSaveName] = useState('Untitled Chemistry Diagram');
+  const [currentDrawingId, setCurrentDrawingId] = useState<string | null>(null);
   const [savedDrawings, setSavedDrawings] = useState<any[]>([]);
   const [expandedGroups, setExpandedGroups] = useState<string[]>(['Glassware']);
   const [notification, setNotification] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const excalidrawRef = useRef<any>(null);
-
-  useEffect(() => {
-    setSavedDrawings(mockLoad());
-  }, []);
+  const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSavedElements = useRef<string>('');
 
   const showNotification = (msg: string) => {
     setNotification(msg);
     setTimeout(() => setNotification(null), 3000);
   };
 
-  const handleChange = useCallback((els: any[], state: any) => {
-    setElements(els);
-    setAppState(state);
-  }, []);
+  // ── Load drawings from Supabase on mount ──────────────────────────────────
+  const loadDrawings = useCallback(async () => {
+    if (!profile?.id) return;
+    try {
+      const { data, error } = await supabase
+        .from('educational_resources')
+        .select('id, title, description, content, updated_at')
+        .eq('resource_type', 'studio-drawing')
+        .order('updated_at', { ascending: false });
 
+      if (error) throw error;
+      setSavedDrawings(data || []);
+      setLoadError(null);
+    } catch (e: any) {
+      console.error('Failed to load drawings:', e);
+      setLoadError(e.message || 'Failed to load drawings');
+    }
+  }, [supabase, profile?.id]);
+
+  useEffect(() => {
+    loadDrawings();
+  }, [loadDrawings]);
+
+  // ── Save drawing to Supabase ──────────────────────────────────────────────
+  const persistDrawing = useCallback(async (name: string, drawingId: string | null, els: any[], state: any) => {
+    if (!profile?.id) return null;
+    setIsSaving(true);
+
+    try {
+      const payload = {
+        teacher_id: profile.id,
+        subject: 'Chemistry',
+        topic: 'Studio Drawing',
+        resource_type: 'studio-drawing',
+        title: name,
+        content: { elements: els, appState: state },
+        updated_at: new Date().toISOString(),
+      };
+
+      if (drawingId) {
+        const { data, error } = await supabase
+          .from('educational_resources')
+          .update(payload)
+          .eq('id', drawingId)
+          .select('id, title, updated_at')
+          .single();
+
+        if (error) throw error;
+        lastSavedElements.current = JSON.stringify(els);
+        await loadDrawings();
+        return data;
+      } else {
+        const { data, error } = await supabase
+          .from('educational_resources')
+          .insert({ ...payload, created_at: new Date().toISOString() })
+          .select('id, title, updated_at')
+          .single();
+
+        if (error) throw error;
+        lastSavedElements.current = JSON.stringify(els);
+        setCurrentDrawingId(data.id);
+        await loadDrawings();
+        return data;
+      }
+    } catch (e: any) {
+      console.error('Failed to save drawing:', e);
+      showNotification(`Save failed: ${e.message}`);
+      return null;
+    } finally {
+      setIsSaving(false);
+    }
+  }, [supabase, profile?.id, loadDrawings]);
+
+  // ── Manual save triggered by Save button ──────────────────────────────────
   const handleSave = () => {
     setShowSaveNameModal(true);
   };
 
-  const confirmSave = () => {
-    setIsSaving(true);
+  const confirmSave = async () => {
     setShowSaveNameModal(false);
-    mockSave(saveName, elements, appState);
-    setSavedDrawings(mockLoad());
-    setTimeout(() => {
-      setIsSaving(false);
+    const result = await persistDrawing(saveName, currentDrawingId, elements, appState);
+    if (result) {
       setSaveSuccess(true);
-      showNotification(`"${saveName}" saved successfully!`);
+      showNotification(`"${saveName}" saved!`);
       setTimeout(() => setSaveSuccess(false), 2000);
-    }, 800);
+    }
   };
 
-  const handleLoadDrawing = (drawing: any) => {
-    showNotification(`"${drawing.name}" loaded into canvas!`);
-    setActivePanel(null);
+  // ── Auto-save with debounce ───────────────────────────────────────────────
+  const handleChange = useCallback((els: any[], state: any) => {
+    setElements(els);
+    setAppState(state);
+
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = setTimeout(() => {
+      const current = JSON.stringify({ els, state });
+      if (current !== lastSavedElements.current && els.length > 0) {
+        persistDrawing(saveName, currentDrawingId, els, state);
+      }
+    }, 30000);
+  }, [saveName, currentDrawingId, persistDrawing]);
+
+  // ── Load a saved drawing onto the canvas ──────────────────────────────────
+  const handleLoadDrawing = async (drawing: any) => {
+    try {
+      const { data, error } = await supabase
+        .from('educational_resources')
+        .select('*')
+        .eq('id', drawing.id)
+        .single();
+
+      if (error) throw error;
+      if (data?.content?.elements) {
+        setCanvasInitialData({ elements: data.content.elements, appState: data.content.appState || {} });
+        setCanvasKey(k => k + 1);
+        setSaveName(data.title);
+        setCurrentDrawingId(data.id);
+        lastSavedElements.current = JSON.stringify(data.content.elements);
+        setActivePanel(null);
+        showNotification(`"${data.title}" loaded!`);
+      }
+    } catch (e: any) {
+      console.error('Failed to load drawing:', e);
+      showNotification('Failed to load drawing');
+    }
   };
 
-  const handleDeleteSave = (id: string) => {
-    const saves = mockLoad().filter((s: any) => s.id !== id);
-    localStorage.setItem(SAVE_KEY, JSON.stringify(saves));
-    setSavedDrawings(saves);
-    showNotification('Drawing deleted.');
+  // ── Delete a drawing ──────────────────────────────────────────────────────
+  const handleDeleteSave = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('educational_resources')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      setSavedDrawings(prev => prev.filter(d => d.id !== id));
+      showNotification('Drawing deleted.');
+    } catch (e: any) {
+      console.error('Failed to delete drawing:', e);
+      showNotification('Failed to delete drawing');
+    }
   };
 
   const toggleGroup = (name: string) => {
@@ -252,6 +347,7 @@ export default function ChemistryDrawStudio() {
   const panelButtons = [
     { id: 'apparatus' as SidebarPanel, icon: FlaskConical, label: 'Apparatus', tooltip: 'Chemistry Apparatus' },
     { id: 'templates' as SidebarPanel, icon: Layout, label: 'Templates', tooltip: 'Diagram Templates' },
+    { id: 'equation' as SidebarPanel, icon: Sigma, label: 'Equation', tooltip: 'Chemical Equation Editor' },
     { id: 'symbols' as SidebarPanel, icon: Zap, label: 'Symbols', tooltip: 'Chemical Symbols' },
     { id: 'saves' as SidebarPanel, icon: BookMarked, label: 'Saved', tooltip: 'Saved Drawings' },
   ];
@@ -283,6 +379,23 @@ export default function ChemistryDrawStudio() {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Auto-save status */}
+          <div className="hidden md:flex items-center gap-1.5 px-2 text-xs font-bold">
+            {isSaving ? (
+              <span className="flex items-center gap-1 text-amber-500">
+                <Loader2 size={12} className="animate-spin" /> Saving...
+              </span>
+            ) : saveSuccess ? (
+              <span className="flex items-center gap-1 text-emerald-500">
+                <Cloud size={12} /> Saved
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 text-slate-400">
+                <CloudOff size={12} /> Auto-save idle
+              </span>
+            )}
+          </div>
+
           <button
             onClick={() => setShowShareModal(true)}
             className="hidden md:flex items-center gap-1.5 px-3 py-1.5 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-sm font-bold transition-all"
@@ -312,7 +425,7 @@ export default function ChemistryDrawStudio() {
             {saveSuccess ? (
               <><Check size={14} /> Saved!</>
             ) : isSaving ? (
-              <><div className="w-3 h-3 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" /> Saving...</>
+              <><Loader2 size={14} className="animate-spin" /> Saving...</>
             ) : (
               <><Save size={14} /> Save</>
             )}
@@ -329,6 +442,7 @@ export default function ChemistryDrawStudio() {
             onChange={handleChange}
             initialData={canvasInitialData}
             libraryItems={chemistryLibraryItems as any}
+            excalidrawApiRef={excalidrawRef}
           />
         </main>
 
@@ -366,7 +480,8 @@ export default function ChemistryDrawStudio() {
               <h2 className="font-black text-sm text-slate-800 dark:text-white uppercase tracking-widest">
                 {activePanel === 'apparatus' ? '🧪 Apparatus' :
                  activePanel === 'templates' ? '📐 Templates' :
-                 activePanel === 'symbols' ? '⚗️ Symbols' : '💾 Saved'}
+                 activePanel === 'symbols' ? '⚗️ Symbols' :
+                 activePanel === 'equation' ? 'Σ Equation Editor' : '💾 Saved'}
               </h2>
               <button
                 onClick={() => setActivePanel(null)}
@@ -476,40 +591,56 @@ export default function ChemistryDrawStudio() {
                 </div>
               )}
 
+              {/* ── Equation Editor Panel ── */}
+              {activePanel === 'equation' && (
+                <ChemicalEquationEditor
+                  excalidrawApi={excalidrawRef.current}
+                  onNotify={showNotification}
+                />
+              )}
+
               {/* ── Saved Drawings Panel ── */}
               {activePanel === 'saves' && (
                 <div className="p-3 space-y-2">
-                  {savedDrawings.length === 0 ? (
+                  {loadError && (
+                    <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800">
+                      <p className="text-xs font-bold text-red-600 dark:text-red-400">{loadError}</p>
+                    </div>
+                  )}
+                  {savedDrawings.length === 0 && !loadError ? (
                     <div className="text-center py-12">
                       <BookMarked size={32} className="mx-auto text-slate-300 mb-3" />
                       <p className="text-sm font-bold text-slate-400">No saved drawings yet.</p>
                       <p className="text-xs text-slate-400 mt-1">Hit Save to store your current canvas.</p>
                     </div>
                   ) : (
-                    savedDrawings.map((d: any) => (
-                      <div key={d.id} className="border border-slate-200 dark:border-slate-700 rounded-xl p-3 hover:border-indigo-300 dark:hover:border-indigo-700 transition-all">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <p className="font-bold text-sm text-slate-800 dark:text-white truncate">{d.name}</p>
-                            <p className="text-xs text-slate-400 mt-0.5">
-                              {new Date(d.savedAt).toLocaleDateString()} · {d.elements?.length || 0} elements
-                            </p>
+                    savedDrawings.map((d: any) => {
+                      const elementCount = d.content?.elements?.length || 0;
+                      return (
+                        <div key={d.id} className="border border-slate-200 dark:border-slate-700 rounded-xl p-3 hover:border-indigo-300 dark:hover:border-indigo-700 transition-all">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="font-bold text-sm text-slate-800 dark:text-white truncate">{d.title}</p>
+                              <p className="text-xs text-slate-400 mt-0.5">
+                                {new Date(d.updated_at).toLocaleDateString()} · {elementCount} {elementCount === 1 ? 'element' : 'elements'}
+                              </p>
+                            </div>
+                            <button
+                              onClick={() => handleDeleteSave(d.id)}
+                              className="shrink-0 w-6 h-6 rounded-lg text-slate-300 hover:bg-red-100 hover:text-red-500 flex items-center justify-center transition-all"
+                            >
+                              <Trash2 size={12} />
+                            </button>
                           </div>
                           <button
-                            onClick={() => handleDeleteSave(d.id)}
-                            className="shrink-0 w-6 h-6 rounded-lg text-slate-300 hover:bg-red-100 hover:text-red-500 flex items-center justify-center transition-all"
+                            onClick={() => handleLoadDrawing(d)}
+                            className="mt-2 w-full py-1.5 rounded-lg text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-all"
                           >
-                            <Trash2 size={12} />
+                            Load into Canvas
                           </button>
                         </div>
-                        <button
-                          onClick={() => handleLoadDrawing(d)}
-                          className="mt-2 w-full py-1.5 rounded-lg text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-all"
-                        >
-                          Load into Canvas
-                        </button>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               )}

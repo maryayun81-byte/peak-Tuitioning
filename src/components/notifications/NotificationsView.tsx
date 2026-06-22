@@ -208,7 +208,9 @@ export function NotificationsView({ role, backLink }: NotificationsViewProps) {
               onClick={() => {
                 handleMarkAsRead(n.id)
                 setSelectedNotification(n)
-                // if (n.data?.link) router.push(n.data.link as string)
+                if (n.data?.resource_id) {
+                  router.push(`/student/resources/viewer?id=${n.data.resource_id}`)
+                }
               }}
               className="group cursor-pointer"
             >
@@ -315,12 +317,13 @@ export function NotificationsView({ role, backLink }: NotificationsViewProps) {
                </p>
             </div>
 
-            {selectedNotification.data?.link && (
+            {(selectedNotification.data?.link || selectedNotification.data?.resource_id) && (
                <Button 
                   className="w-full rounded-2xl h-12 font-black uppercase text-xs tracking-widest"
                   onClick={() => {
                     setSelectedNotification(null)
-                    router.push(selectedNotification.data.link as string)
+                    const link = selectedNotification.data.link || `/student/resources/viewer?id=${selectedNotification.data.resource_id}`
+                    router.push(link)
                   }}
                >
                   Go to Resource <ArrowRight size={14} className="ml-2" />

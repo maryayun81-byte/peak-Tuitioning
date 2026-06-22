@@ -16,11 +16,21 @@ export default function TopicRecoveryPackPage() {
     setChecklist(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
+  const [isSaving, setIsSaving] = useState(false)
+
+  const handleSave = async () => {
+    setIsSaving(true)
+    await new Promise(r => setTimeout(r, 1000))
+    setIsSaving(false)
+  }
+
   return (
     <BuilderLayout
       title="Topic Recovery Pack"
       subtitle="Enthalpy Changes Engine"
       backHref="/teacher/resources/chemistry/enthalpy"
+      isSaving={isSaving}
+      onSave={handleSave}
     >
       <div className="space-y-8 max-w-4xl mx-auto p-6">
         
