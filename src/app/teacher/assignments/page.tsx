@@ -11,7 +11,6 @@ import { Input, Select } from '@/components/ui/Input'
 import { Pagination } from '@/components/ui/Pagination'
 import { ConfirmModal, Modal } from '@/components/ui/Modal'
 import { SkeletonList } from '@/components/ui/Skeleton'
-import { useAuthStore } from '@/stores/authStore'
 import { formatDate } from '@/lib/utils'
 import Link from 'next/link'
 import toast from 'react-hot-toast'
@@ -20,35 +19,34 @@ import type { Assignment } from '@/types/database'
 import { usePageData, clearPageDataCache } from '@/hooks/usePageData'
 import { PageStates } from '@/components/ui/PageStates'
 import { ShimmerSkeleton } from '@/components/ui/ShimmerSkeleton'
+import { useTeacherIdentity } from '@/hooks/useTeacherIdentity'
 
 export default function TeacherAssignments() {
   const supabase = getSupabaseBrowserClient()
-  const { teacher } = useAuthStore()
+  const { profile, teacher, teacherIds, hasTeacherIdentity } = useTeacherIdentity()
   
   // ── Optimized Page Data Fetching ─────────────────────────────
   const { data: assignmentsData, status, refetch } = usePageData({
-    cacheKey: ['teacher-assignments-optimized', teacher?.id || 'anon'],
+    cacheKey: ['teacher-assignments-optimized', profile?.id || 'anon', teacher?.id || 'anon'],
     fetcher: async () => {
-      if (!teacher?.id) return { data: null, error: 'No teacher ID' }
+      const ids = teacherIds
+      if (ids.length === 0) return { data: null, error: 'No teacher ID' }
       
       // 1. Fetch base assignments
       const { data: assignments } = await supabase
         .from('assignments')
         .select('*, class:classes(name), subject:subjects(name)')
-        .eq('teacher_id', teacher.id)
+        .in('teacher_id', ids)
         .order('created_at', { ascending: false })
       
       if (!assignments?.length) return { data: { assignments: [], submissionsCount: 0 }, error: null }
       
       const assignmentIds = assignments.map(a => a.id)
-      const classIds = Array.from(new Set(assignments.map(a => a.class_id)))
       
       // 2. Batched Parallel Enrichment
-      const [subsRes, totalPendingSubmissions, studentsRes] = await Promise.all([
+      const [subsRes, studentsRes] = await Promise.all([
         // Count submissions per assignment (batched)
-        supabase.from('submissions').select('assignment_id').in('assignment_id', assignmentIds).neq('status', 'not_started'),
-        // Total pending for global stat
-        supabase.from('submissions').select('id', { count: 'exact', head: true }).eq('assignment:assignments!inner(teacher_id)', teacher.id).eq('status', 'submitted'),
+        supabase.from('submissions').select('assignment_id, status').in('assignment_id', assignmentIds).neq('status', 'not_started'),
         // Expected students (batched per class/subject mapping)
         supabase.from('student_subjects').select('subject_id, student:students(class_id)').in('subject_id', assignments.map(a => a.subject_id))
       ])
@@ -80,12 +78,12 @@ export default function TeacherAssignments() {
       return {
         data: {
           assignments: enriched,
-          submissionsCount: (totalPendingSubmissions as any).count || 0
+          submissionsCount: (subsRes.data || []).filter((item: any) => item.status === 'submitted').length
         },
         error: null
       }
     },
-    enabled: !!teacher?.id,
+    enabled: hasTeacherIdentity,
   })
 
   const assignments = assignmentsData?.assignments ?? []

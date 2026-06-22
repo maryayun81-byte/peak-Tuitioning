@@ -399,7 +399,7 @@ function PushNotificationButton() {
 
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return
-    navigator.serviceWorker.getRegistration('/peak-push/')
+    navigator.serviceWorker.getRegistration('/')
       .then((registration) => registration?.pushManager.getSubscription())
       .then((subscription) => setEnabled(Boolean(subscription)))
       .catch(() => null)
@@ -412,7 +412,7 @@ function PushNotificationButton() {
     }
     setBusy(true)
     try {
-      const registration = await navigator.serviceWorker.register('/peak-push-sw.js', { scope: '/peak-push/' })
+      const registration = await navigator.serviceWorker.register('/peak-push-sw.js', { scope: '/' })
       const current = await registration.pushManager.getSubscription()
       if (current) {
         await deletePeakPushSubscription(current.endpoint)

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { motion } from 'framer-motion'
 import {
@@ -67,6 +67,7 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
   const { profile, student, isLoading, isInitialRevalidationComplete, setStudent } = useAuthStore()
   const { unreadCount } = useNotificationStore()
   const { count: messageUnreadCount } = useMessageUnreadCount()
+  const [navCounts, setNavCounts] = useState({ assignments: 0, quizzes: 0, resources: 0 })
   useRealtimeNotifications()
 
   const { signOut } = useAuth()
@@ -151,6 +152,36 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
     }
   }, [student?.id, student?.xp, setStudent, supabase])
 
+  useEffect(() => {
+    const actorUserId = profile?.id || (student as any)?.user_id
+    if (!actorUserId) {
+      setNavCounts({ assignments: 0, quizzes: 0, resources: 0 })
+      return
+    }
+
+    let cancelled = false
+    const loadNavCounts = async () => {
+      const [assignments, quizzes, resources] = await Promise.all([
+        supabase.from('notifications').select('id', { count: 'exact', head: true }).eq('user_id', actorUserId).eq('type', 'assignment').eq('read', false),
+        supabase.from('notifications').select('id', { count: 'exact', head: true }).eq('user_id', actorUserId).eq('type', 'quiz').eq('read', false),
+        supabase.from('notifications').select('id', { count: 'exact', head: true }).eq('user_id', actorUserId).eq('type', 'resource').eq('read', false),
+      ])
+
+      if (!cancelled) {
+        setNavCounts({
+          assignments: assignments.count || 0,
+          quizzes: quizzes.count || 0,
+          resources: resources.count || 0,
+        })
+      }
+    }
+
+    loadNavCounts()
+    return () => {
+      cancelled = true
+    }
+  }, [profile?.id, (student as any)?.user_id, unreadCount, supabase])
+
   // Only block the UI if we are truly loading the first time (no persisted profile)
   if (isLoading && !profile) {
     return <SplashScreen done={false} role="student" />
@@ -161,13 +192,20 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
 
   const { level, currentMilestone, nextMilestone, progressPercent } = calculateLevel(s?.xp || 0)
   const progressPercentage = progressPercent
+  const withNavBadge = (item: typeof NAV_ITEMS[number]) => {
+    if (item.href === '/student/messages') return { ...item, badge: messageUnreadCount }
+    if (item.href === '/student/assignments') return { ...item, badge: navCounts.assignments }
+    if (item.href === '/student/quizzes') return { ...item, badge: navCounts.quizzes }
+    if (item.href === '/student/resources') return { ...item, badge: navCounts.resources }
+    return item
+  }
 
   return (
     <>
       <div className="min-h-screen transition-all" style={{ background: 'var(--bg)' }}>
         <SplashScreen storageKey="splash-student" role="student" />
         <Sidebar
-          items={wasEverConfirmedOnboarded.current ? NAV_ITEMS.map(item => item.href === '/student/messages' ? { ...item, badge: messageUnreadCount } : item) : NAV_ITEMS.filter(i => i.label === 'Settings')}
+          items={wasEverConfirmedOnboarded.current ? NAV_ITEMS.map(withNavBadge) : NAV_ITEMS.filter(i => i.label === 'Settings')}
           bottomItems={[
             { label: 'Sign Out', href: '#', icon: <LogOut size={18} />, onClick: () => signOut() },
           ]}
@@ -246,16 +284,16 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
         <BottomNav 
           items={wasEverConfirmedOnboarded.current 
             ? [
-                NAV_ITEMS[0],
-                NAV_ITEMS[1],
+                withNavBadge(NAV_ITEMS[0]),
+                withNavBadge(NAV_ITEMS[1]),
                 NAV_ITEMS[2],
-                { ...NAV_ITEMS.find(item => item.href === '/student/messages')!, badge: messageUnreadCount },
+                withNavBadge(NAV_ITEMS.find(item => item.href === '/student/messages')!),
               ]
             : NAV_ITEMS.filter(i => i.label === 'Settings')
           } 
           moreItems={wasEverConfirmedOnboarded.current 
             ? [
-                ...NAV_ITEMS.filter(item => !['/student', '/student/assignments', '/student/schedule', '/student/messages'].includes(item.href)),
+                ...NAV_ITEMS.filter(item => !['/student', '/student/assignments', '/student/schedule', '/student/messages'].includes(item.href)).map(withNavBadge),
                 { label: 'Sign Out', group: 'Account', href: '#', icon: <LogOut size={18} />, onClick: signOut }
               ]
             : [{ label: 'Sign Out', href: '#', icon: <LogOut size={18} />, onClick: signOut }]

@@ -81,7 +81,7 @@ export default function StudentWorksheetSolver() {
   const loadAssignment = async () => {
     setLoading(true)
     const [aRes, sRes] = await Promise.all([
-      supabase.from('assignments').select('*, teacher:teachers(full_name)').eq('id', assignmentId).single(),
+      supabase.from('assignments').select('*, teacher:teachers(full_name, user_id)').eq('id', assignmentId).single(),
       supabase.from('submissions').select('*').eq('assignment_id', assignmentId).eq('student_id', student?.id).maybeSingle(),
     ])
 
@@ -256,6 +256,22 @@ export default function StudentWorksheetSolver() {
     }, { onConflict: 'assignment_id,student_id' })
 
     if (error) { toast.error('Submission failed: ' + error.message); setSubmitting(false); return }
+
+    // Notify teacher via push notification
+    try {
+      const teacherUserId = (assignment as any)?.teacher?.user_id
+      if (teacherUserId) {
+        const { sendPushNotification } = await import('@/app/actions/push')
+        await sendPushNotification([teacherUserId], {
+          title: '📝 New Submission',
+          body: `${profile?.full_name || 'A student'} submitted "${assignment.title}"`,
+          href: `/teacher/marking`,
+          tag: `submission-${assignmentId}`,
+        })
+      }
+    } catch (pushErr) {
+      console.warn('[Push] Teacher notification failed:', pushErr)
+    }
 
     // Award Completion XP (+20 XP) - Only if first time submitting
     if (!hasExistingSubmission) {

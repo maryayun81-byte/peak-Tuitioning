@@ -1,18 +1,19 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
   Flame, Swords, Zap, Trophy,
   BrainCircuit, Mic, Users, BookOpen, Target,
   PlayCircle, Star, Sparkles, Rocket,
-  Activity, CheckCircle2, LayoutDashboard, Clock, FileText
+  Activity, CheckCircle2, LayoutDashboard, Clock, FileText, ChevronLeft, ChevronRight
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Avatar } from '@/components/ui/Avatar'
+import { Modal } from '@/components/ui/Modal'
 import { useAuthStore } from '@/stores/authStore'
 import { getStudentYouTubeSuggestions } from '@/app/actions/youtube'
 import { getStudentHomepageFeeds, getStudentNationalExam } from '@/app/actions/student'
@@ -121,6 +122,215 @@ function CreatorReel({ decks }: { decks: any[] }) {
   )
 }
 
+function getYoutubeVideoId(parsed: URL) {
+  const parts = parsed.pathname.split('/').filter(Boolean)
+  if (parsed.hostname.includes('youtu.be')) return parts[0] || ''
+  if (['embed', 'shorts', 'live'].includes(parts[0])) return parts[1] || ''
+  return parsed.searchParams.get('v') || ''
+}
+
+function getEmbeddableVideoUrl(url: string) {
+  if (!url) return ''
+  try {
+    const parsed = new URL(url)
+    if (parsed.hostname.includes('youtube.com') || parsed.hostname.includes('youtu.be')) {
+      const id = getYoutubeVideoId(parsed)
+      return id ? `https://www.youtube-nocookie.com/embed/${id}?rel=0&modestbranding=1&playsinline=1` : ''
+    }
+    if (parsed.hostname.includes('vimeo.com')) {
+      const id = parsed.pathname.split('/').filter(Boolean).pop()
+      return id ? `https://player.vimeo.com/video/${id}?dnt=1` : ''
+    }
+  } catch {}
+  return ''
+}
+
+function getVideoThumbnail(url: string) {
+  if (!url) return ''
+  try {
+    const parsed = new URL(url)
+    const id = parsed.hostname.includes('youtube.com') || parsed.hostname.includes('youtu.be')
+      ? getYoutubeVideoId(parsed)
+      : ''
+    return id ? `https://img.youtube.com/vi/${id}/hqdefault.jpg` : ''
+  } catch {
+    return ''
+  }
+}
+
+function isDirectVideoUrl(url: string) {
+  return /(\.mp4|\.webm|\.mov)($|\?)/i.test(url) || url.startsWith('blob:') || url.startsWith('data:video')
+}
+
+const REEL_ACCENTS = [
+  { icon: '⚡', className: 'from-amber-400 via-orange-500 to-rose-600' },
+  { icon: '🧪', className: 'from-cyan-400 via-teal-500 to-emerald-600' },
+  { icon: '📐', className: 'from-blue-500 via-indigo-600 to-violet-700' },
+  { icon: '🧠', className: 'from-fuchsia-500 via-purple-600 to-indigo-700' },
+  { icon: '🎯', className: 'from-lime-400 via-emerald-500 to-teal-700' },
+  { icon: '🔥', className: 'from-red-500 via-rose-600 to-pink-700' },
+  { icon: '📚', className: 'from-slate-700 via-slate-900 to-indigo-950' },
+  { icon: '💡', className: 'from-yellow-300 via-amber-500 to-orange-700' },
+]
+
+const REEL_ICON_COMPONENTS = [Zap, Sparkles, Target, BrainCircuit, Trophy, Flame, BookOpen, Star]
+
+function getReelAccent(seed: string) {
+  const score = seed.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0)
+  const index = score % REEL_ACCENTS.length
+  return { ...REEL_ACCENTS[index], Icon: REEL_ICON_COMPONENTS[index % REEL_ICON_COMPONENTS.length] }
+}
+
+function InAppVideoCard({ video }: { video: any }) {
+  const [open, setOpen] = useState(false)
+  const [posterFailed, setPosterFailed] = useState(false)
+  const url = video.youtube_url || video.video_url || video.attachment_url || video.url || ''
+  const embedUrl = getEmbeddableVideoUrl(url)
+  const thumb = getVideoThumbnail(url)
+  const title = video.title || 'Video lesson'
+  const teacherName = video.teacher?.full_name || 'your teacher'
+  const subjectName = video.subject?.name || video.chapter || 'Peak lesson'
+  const showThumb = thumb && !posterFailed
+  const accent = getReelAccent(`${video.id || ''}${title}${subjectName}`)
+  const AccentIcon = accent.Icon
+
+  return (
+    <>
+      <motion.div whileHover={{ y: -4 }} className="cursor-pointer" onClick={() => setOpen(true)}>
+        <Card className="overflow-hidden border border-[var(--card-border)] bg-[var(--card)] group hover:shadow-xl hover:shadow-red-500/10 transition-all">
+          <div className="aspect-[9/13] bg-black relative overflow-hidden">
+            {showThumb ? (
+              <img
+                src={thumb}
+                alt={title}
+                onError={() => setPosterFailed(true)}
+                className="h-full w-full object-cover opacity-85 group-hover:opacity-100 group-hover:scale-105 transition-all duration-300"
+              />
+            ) : (
+              <div className={`relative h-full w-full bg-gradient-to-br ${accent.className} p-4 text-white`}>
+                <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,.08)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.08)_1px,transparent_1px)] bg-[length:24px_24px]" />
+                <div className="relative z-10 flex h-full flex-col justify-between">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/18 shadow-inner backdrop-blur">
+                    <AccentIcon size={22} />
+                  </span>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.22em] text-white/70">{subjectName}</p>
+                    <h3 className="mt-2 line-clamp-3 text-xl font-black leading-tight">{title}</h3>
+                  </div>
+                </div>
+              </div>
+            )}
+            <div className="absolute inset-0 bg-gradient-to-b from-black/15 via-black/10 to-black/70 flex items-center justify-center group-hover:bg-black/5 transition-colors">
+              <div className="w-14 h-14 rounded-full bg-red-500 text-white flex items-center justify-center shadow-2xl shadow-red-500/30 group-hover:scale-110 transition-transform">
+                <PlayCircle size={28} className="ml-0.5 fill-current" />
+              </div>
+            </div>
+            <span className="absolute left-3 top-3 flex h-9 w-9 items-center justify-center rounded-2xl bg-black/55 text-lg text-white backdrop-blur">
+              <AccentIcon size={18} />
+            </span>
+            <div className="absolute bottom-0 left-0 right-0 p-3 text-white">
+              <p className="line-clamp-2 text-sm font-black leading-tight">{title}</p>
+              <p className="mt-1 line-clamp-1 text-[10px] font-bold uppercase tracking-widest text-white/70">{subjectName}</p>
+            </div>
+          </div>
+        </Card>
+      </motion.div>
+
+      <Modal isOpen={open} onClose={() => setOpen(false)} size="xl" title={title}>
+        <div className="space-y-5 pt-3">
+          <div className="aspect-video overflow-hidden rounded-3xl border border-[var(--card-border)] bg-black shadow-2xl">
+            {embedUrl ? (
+              <iframe
+                src={embedUrl}
+                title={title}
+                className="h-full w-full"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                referrerPolicy="strict-origin-when-cross-origin"
+                allowFullScreen
+              />
+            ) : isDirectVideoUrl(url) ? (
+              <video src={url} controls className="h-full w-full" />
+            ) : (
+              <div className={`flex h-full flex-col items-center justify-center bg-gradient-to-br ${accent.className} p-6 text-center text-white`}>
+                <span className="flex h-16 w-16 items-center justify-center rounded-3xl bg-white/18 shadow-inner backdrop-blur">
+                  <AccentIcon size={30} />
+                </span>
+                <h3 className="mt-4 text-xl font-black">This video needs an embeddable source</h3>
+                <p className="mt-2 max-w-md text-sm font-semibold text-white/80">
+                  Ask the teacher to upload the video file or use a YouTube/Vimeo link that allows playback inside Peak Performance.
+                </p>
+              </div>
+            )}
+          </div>
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-red-500">Teacher video</p>
+            <p className="mt-2 text-sm font-semibold leading-relaxed text-muted">{video.description || 'Watch this lesson inside Peak Performance, then continue with your tasks.'}</p>
+            {embedUrl && (
+              <p className="mt-3 rounded-2xl border border-[var(--card-border)] bg-[var(--input)] px-4 py-3 text-xs font-semibold text-muted">
+                If the video owner blocks embedded playback, the teacher should upload the video file or replace it with an embeddable YouTube/Vimeo link.
+              </p>
+            )}
+          </div>
+          <Button className="w-full" onClick={() => setOpen(false)}>Close Player</Button>
+        </div>
+      </Modal>
+    </>
+  )
+}
+
+function TeacherVideoReel({ videos }: { videos: any[] }) {
+  const scrollRef = useRef<HTMLDivElement>(null)
+  if (!videos || videos.length === 0) return null
+
+  const scroll = (direction: 'left' | 'right') => {
+    const rail = scrollRef.current
+    if (!rail) return
+    rail.scrollBy({
+      left: direction === 'left' ? -360 : 360,
+      behavior: 'smooth',
+    })
+  }
+
+  return (
+    <section className="border-b border-[var(--card-border)] bg-[var(--card)]/70 px-4 py-4 backdrop-blur md:px-8">
+      <div className="mx-auto max-w-7xl">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[10px] uppercase font-black tracking-[0.25em] text-red-500">New teacher reels</p>
+          <h2 className="text-lg md:text-xl font-black" style={{ color: 'var(--text)' }}>Fresh lessons from the last 24 hours</h2>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => scroll('left')}
+            className="hidden md:flex h-9 w-9 items-center justify-center rounded-full border border-[var(--card-border)] bg-[var(--card)] text-muted hover:text-primary hover:border-primary/40 transition-all"
+            aria-label="Scroll video reel left"
+          >
+            <ChevronLeft size={18} />
+          </button>
+          <button
+            type="button"
+            onClick={() => scroll('right')}
+            className="hidden md:flex h-9 w-9 items-center justify-center rounded-full border border-[var(--card-border)] bg-[var(--card)] text-muted hover:text-primary hover:border-primary/40 transition-all"
+            aria-label="Scroll video reel right"
+          >
+            <ChevronRight size={18} />
+          </button>
+          <Link href="/student/resources" className="text-xs font-black text-primary">Open Library</Link>
+        </div>
+      </div>
+      <div ref={scrollRef} className="flex gap-3 overflow-x-auto scroll-smooth pb-1 snap-x snap-mandatory no-scrollbar">
+        {videos.slice(0, 10).map((video: any) => (
+          <div key={video.id} className="min-w-[142px] max-w-[142px] snap-start sm:min-w-[170px] sm:max-w-[170px] md:min-w-[190px] md:max-w-[190px]">
+            <InAppVideoCard video={video} />
+          </div>
+        ))}
+      </div>
+      </div>
+    </section>
+  )
+}
+
 // ── ELITE SCHOLAR HOMEPAGE (8-4-4 / HIGH SCHOOL) ───────────────────────────
 function LegacyEliteScholarHomepage({ student, profile, data }: { student: any, profile: any, data: any }) {
   const currentXP = student?.xp || 0
@@ -158,6 +368,7 @@ function LegacyEliteScholarHomepage({ student, profile, data }: { student: any, 
           </motion.div>
         )}
       </AnimatePresence>
+      <TeacherVideoReel videos={data.resourceReel || []} />
 
       {/* Sleek, professional header */}
       <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="pt-12 pb-8 px-6 md:px-12 border-b border-[var(--card-border)] bg-[var(--card)]">
@@ -339,27 +550,9 @@ function LegacyEliteScholarHomepage({ student, profile, data }: { student: any, 
               <PlayCircle size={16} /> Recommended Lectures
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {data.youtubeVideos.map((video: any) => {
-                let videoId = ''
-                try {
-                  const url = new URL(video.youtube_url)
-                  if (url.hostname.includes('youtube.com')) videoId = url.searchParams.get('v') || ''
-                  if (url.hostname.includes('youtu.be')) videoId = url.pathname.slice(1)
-                } catch(e) {}
-                const thumb = videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : ''
-
-                return (
-                  <Card key={video.id} className="overflow-hidden group cursor-pointer hover:border-red-500 transition-all border border-[var(--card-border)]" onClick={() => window.open(video.youtube_url, '_blank')}>
-                    <div className="aspect-video bg-[var(--input)] relative">
-                      {thumb && <img src={thumb} alt={video.title} className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity" />}
-                    </div>
-                    <div className="p-4">
-                      <h4 className="font-bold text-sm line-clamp-1 mb-1" style={{ color: 'var(--text)' }}>{video.title}</h4>
-                      <p className="text-xs text-muted line-clamp-1">Via: {video.teacher?.full_name}</p>
-                    </div>
-                  </Card>
-                )
-              })}
+              {data.youtubeVideos.map((video: any) => (
+                <InAppVideoCard key={video.id} video={video} />
+              ))}
             </div>
           </div>
         )}
@@ -373,7 +566,7 @@ function NationalExamCountdownCard({ exam }: { exam: any }) {
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 60_000)
+    const timer = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(timer)
   }, [])
 
@@ -381,33 +574,36 @@ function NationalExamCountdownCard({ exam }: { exam: any }) {
 
   const target = new Date(`${exam.exam_date}T00:00:00`).getTime()
   const diff = Math.max(target - now, 0)
-  const totalMinutes = Math.floor(diff / 60000)
-  const days = Math.floor(totalMinutes / 1440)
-  const hours = Math.floor((totalMinutes % 1440) / 60)
-  const minutes = totalMinutes % 60
+  const days = Math.floor(diff / 86400000)
+  const hours = Math.floor((diff % 86400000) / 3600000)
+  const minutes = Math.floor((diff % 3600000) / 60000)
+  const seconds = Math.floor((diff % 60000) / 1000)
 
   return (
-    <Card className="mb-5 overflow-hidden border border-rose-500/20 bg-gradient-to-br from-rose-500/15 via-[var(--card)] to-orange-500/10 p-4 md:p-5">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-rose-300">National exam countdown</p>
-          <h2 className="mt-1 text-2xl font-black tracking-tight" style={{ color: 'var(--text)' }}>{exam.name}</h2>
-          <p className="mt-1 text-sm font-semibold text-muted">{exam.exam_type} starts on {new Date(exam.exam_date).toLocaleDateString()}</p>
+    <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
+      <Card className="mb-5 overflow-hidden border border-rose-500/30 bg-gradient-to-br from-rose-500/15 via-[var(--card)] to-orange-500/10 p-4 md:p-5">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-rose-400">🎯 National Exam Countdown</p>
+            <h2 className="mt-1 text-2xl font-black tracking-tight" style={{ color: 'var(--text)' }}>{exam.name}</h2>
+            <p className="mt-1 text-sm font-semibold text-muted">{exam.exam_type} · {new Date(exam.exam_date).toLocaleDateString('en-KE', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+          </div>
+          <div className="grid grid-cols-4 gap-2 md:min-w-[400px]">
+            {([
+              ['Days', days],
+              ['Hours', hours],
+              ['Mins', minutes],
+              ['Secs', seconds],
+            ] as [string, number][]).map(([label, value]) => (
+              <div key={label} className={`rounded-2xl border border-rose-500/20 bg-black/25 p-3 text-center backdrop-blur-sm ${label === 'Secs' ? 'ring-1 ring-rose-500/30' : ''}`}>
+                <p className="text-2xl font-black text-white md:text-3xl tabular-nums">{String(value).padStart(2, '0')}</p>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-white/50">{label}</p>
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="grid grid-cols-3 gap-2 md:min-w-[360px]">
-          {[
-            ['Days', days],
-            ['Hours', hours],
-            ['Mins', minutes],
-          ].map(([label, value]) => (
-            <div key={label} className="rounded-2xl border border-white/10 bg-black/20 p-3 text-center">
-              <p className="text-2xl font-black text-white md:text-3xl">{value}</p>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-white/50">{label}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-    </Card>
+      </Card>
+    </motion.div>
   )
 }
 
@@ -483,6 +679,7 @@ function PremiumStudentHome({ student, profile, data, isCBC }: { student: any, p
 
   return (
     <div className="min-h-screen overflow-x-hidden pb-28" style={{ background: 'var(--bg)' }}>
+      <TeacherVideoReel videos={data.resourceReel || []} />
       <div
         className="pointer-events-none fixed inset-x-0 top-0 h-72 opacity-40"
         style={{ background: 'radial-gradient(circle at top left, var(--primary), transparent 34%), radial-gradient(circle at top right, var(--primary-dim), transparent 30%)' }}
@@ -518,7 +715,7 @@ function PremiumStudentHome({ student, profile, data, isCBC }: { student: any, p
             </div>
           </div>
           <div className="mt-5 h-2 overflow-hidden rounded-full bg-[var(--input)]">
-            <div className="h-full rounded-full" style={{ width: `${progressPercent}%`, background: 'linear-gradient(90deg, var(--primary), color-mix(in srgb, var(--primary) 65%, white 35%))' }} />
+            <div className="h-full rounded-full transition-all duration-700" style={{ width: `${progressPercent}%`, background: 'linear-gradient(90deg, var(--primary), color-mix(in srgb, var(--primary) 65%, white 35%))' }} />
           </div>
         </Card>
 
@@ -526,170 +723,230 @@ function PremiumStudentHome({ student, profile, data, isCBC }: { student: any, p
           <NationalExamCountdownCard exam={data.nationalExam} />
         </div>
 
-        <div className="mt-5 grid gap-5 xl:grid-cols-[1.35fr_0.65fr]">
-          <Card className="border border-[var(--card-border)] bg-[var(--card)] p-4 md:p-5">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-muted">Priority Board</p>
-                <h2 className="text-xl font-black tracking-tight" style={{ color: 'var(--text)' }}>Start with what matters</h2>
+        <motion.div
+          initial="hidden"
+          animate="show"
+          variants={{ hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.1 } } }}
+          className="mt-5 grid gap-5 xl:grid-cols-[1.35fr_0.65fr]"
+        >
+          {/* Priority Board */}
+          <motion.div variants={{ hidden: { opacity: 0, y: 24 }, show: { opacity: 1, y: 0, transition: { duration: 0.5 } } }}>
+            <Card className="h-full border border-[var(--card-border)] bg-[var(--card)] p-4 md:p-6 shadow-xl shadow-black/5">
+              <div className="mb-5 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.22em]" style={{ color: 'var(--primary)' }}>Priority Board</p>
+                  <h2 className="text-xl font-black tracking-tight" style={{ color: 'var(--text)' }}>Start with what matters</h2>
+                </div>
+                <Link href="/student/schedule" className="hidden rounded-full border border-[var(--card-border)] px-4 py-1.5 text-xs font-bold text-muted transition-all hover:border-[var(--primary)] hover:text-[var(--primary)] sm:inline-flex">
+                  Full schedule →
+                </Link>
               </div>
-              <Link href="/student/schedule" className="hidden rounded-full border border-[var(--card-border)] px-3 py-2 text-xs font-bold text-muted transition hover:border-[var(--primary)] hover:text-[var(--text)] sm:inline-flex">
-                Full schedule
-              </Link>
-            </div>
-            <div className="grid gap-3 md:grid-cols-3">
-              {feeds.map((feed) => (
-                <div key={feed.title} className="rounded-3xl border border-[var(--card-border)] bg-[var(--input)]/55 p-3">
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-[var(--card)]" style={{ color: 'var(--primary)' }}>{feed.icon}</div>
-                      <div>
-                        <p className="text-[10px] font-black uppercase tracking-widest text-muted">{feed.label}</p>
-                        <h3 className="text-sm font-black" style={{ color: 'var(--text)' }}>{feed.title}</h3>
+              <div className="grid gap-3 md:grid-cols-3">
+                {feeds.map((feed, fi) => (
+                  <motion.div
+                    key={feed.title}
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: fi * 0.08 + 0.15 }}
+                    className="group rounded-2xl border border-[var(--card-border)] bg-[var(--input)]/40 p-3 transition-all duration-200 hover:border-[var(--primary)]/40 hover:bg-[var(--input)] hover:shadow-md"
+                  >
+                    <div className="mb-3 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="flex h-9 w-9 items-center justify-center rounded-xl transition-transform duration-200 group-hover:scale-110"
+                          style={{ background: 'var(--primary)', color: 'white', opacity: 0.9 }}
+                        >{feed.icon}</div>
+                        <div>
+                          <p className="text-[9px] font-black uppercase tracking-widest text-muted">{feed.label}</p>
+                          <h3 className="text-sm font-black" style={{ color: 'var(--text)' }}>{feed.title}</h3>
+                        </div>
                       </div>
+                      <span
+                        className="flex h-6 min-w-[24px] items-center justify-center rounded-full px-1.5 text-[11px] font-black transition-all"
+                        style={{
+                          background: feed.items.length > 0 ? 'var(--primary)' : 'var(--input)',
+                          color: feed.items.length > 0 ? 'white' : 'var(--text-muted)'
+                        }}
+                      >{feed.items.length}</span>
                     </div>
-                    <span className="rounded-full bg-[var(--card)] px-2 py-1 text-[11px] font-black text-muted">{feed.items.length}</span>
+                    {feed.items.length === 0 ? (
+                      <Link href={feed.href} className="block rounded-xl border border-dashed border-[var(--card-border)] bg-[var(--card)]/60 p-3 text-xs font-semibold text-muted transition hover:border-[var(--primary)] hover:text-[var(--text)]">
+                        {feed.empty}
+                      </Link>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {feed.items.slice(0, 2).map((item: any) => (
+                          <Link key={item.id} href={feed.itemHref(item)} className="group/item block rounded-xl bg-[var(--card)] px-3 py-2.5 transition-all hover:ring-1 hover:ring-[var(--primary)]/50 hover:shadow-sm">
+                            <p className="line-clamp-1 text-sm font-bold transition-colors group-hover/item:text-[var(--primary)]" style={{ color: 'var(--text)' }}>{item.title}</p>
+                            <p className="mt-0.5 text-[10px] font-bold uppercase tracking-wider text-muted">{feed.meta(item)}</p>
+                          </Link>
+                        ))}
+                        {feed.items.length > 2 && (
+                          <Link href={feed.href} className="block pt-1 text-center text-[10px] font-black uppercase tracking-wider transition-colors hover:text-[var(--primary)]" style={{ color: 'var(--primary)', opacity: 0.7 }}>
+                            +{feed.items.length - 2} more →
+                          </Link>
+                        )}
+                      </div>
+                    )}
+                  </motion.div>
+                ))}
+              </div>
+            </Card>
+          </motion.div>
+
+          {/* Peak Intelligence Card — completely redesigned */}
+          <motion.div variants={{ hidden: { opacity: 0, y: 24 }, show: { opacity: 1, y: 0, transition: { duration: 0.5 } } }}>
+            <Card className="h-full overflow-hidden border border-[var(--card-border)] bg-[var(--card)] relative shadow-xl shadow-black/5">
+              {/* Decorative glow */}
+              <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full opacity-[0.07]" style={{ background: 'var(--primary)' }} />
+              <div className="p-4 md:p-5">
+                <div className="mb-4 flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl" style={{ background: 'var(--primary)', color: 'white' }}>
+                    <BrainCircuit size={20} />
                   </div>
-                  {feed.items.length === 0 ? (
-                    <Link href={feed.href} className="block rounded-2xl border border-dashed border-[var(--card-border)] bg-[var(--card)]/55 p-3 text-sm font-semibold text-muted transition hover:border-[var(--primary)]">
-                      {feed.empty}
-                    </Link>
-                  ) : (
-                    <div className="space-y-2">
-                      {feed.items.slice(0, 2).map((item: any) => (
-                        <Link key={item.id} href={feed.itemHref(item)} className="block rounded-2xl bg-[var(--card)] p-3 transition hover:ring-1 hover:ring-[var(--primary)]">
-                          <p className="line-clamp-1 text-sm font-bold" style={{ color: 'var(--text)' }}>{item.title}</p>
-                          <p className="mt-1 text-[11px] font-bold uppercase tracking-wider text-muted">{feed.meta(item)}</p>
-                        </Link>
-                      ))}
+                  <div>
+                    <p className="text-[9px] font-black uppercase tracking-[0.22em] text-muted">Peak Intelligence</p>
+                    <h2 className="text-base font-black" style={{ color: 'var(--text)' }}>Today's Nudge ✨</h2>
+                  </div>
+                </div>
+
+                <div className="space-y-2.5">
+                  {/* Word of the Day — accent gradient */}
+                  <div className="relative overflow-hidden rounded-xl p-4" style={{ background: 'var(--primary)' }}>
+                    <div className="pointer-events-none absolute right-0 top-0 h-24 w-24 rounded-full bg-white/10 -translate-y-1/2 translate-x-1/2" />
+                    <p className="text-[9px] font-black uppercase tracking-widest text-white/60 mb-1">📖 Word of the Day</p>
+                    <p className="text-2xl font-black text-white leading-none tracking-tight">{insight.vocabulary?.word}</p>
+                    <p className="text-xs font-semibold text-white/75 mt-1.5 leading-snug">{insight.vocabulary?.meaning}</p>
+                    {insight.vocabulary?.example && (
+                      <p className="text-[10px] italic text-white/50 mt-1.5 leading-snug">"{insight.vocabulary.example}"</p>
+                    )}
+                  </div>
+
+                  {/* Study Tip */}
+                  <div className="rounded-xl border border-[var(--card-border)] bg-[var(--input)] p-3">
+                    <p className="text-[9px] font-black uppercase tracking-widest mb-1.5" style={{ color: 'var(--primary)' }}>📌 {insight.tip?.title || 'Study Tip'}</p>
+                    <p className="text-xs font-semibold leading-relaxed text-muted">{insight.tip?.content}</p>
+                  </div>
+
+                  {/* Did You Know */}
+                  {insight.didYouKnow && (
+                    <div className="rounded-xl border border-[var(--card-border)] bg-[var(--input)] p-3">
+                      <p className="text-[9px] font-black uppercase tracking-widest mb-1.5" style={{ color: 'var(--primary)' }}>💡 Did You Know?</p>
+                      <p className="text-xs font-semibold leading-relaxed text-muted">{insight.didYouKnow}</p>
                     </div>
                   )}
                 </div>
-              ))}
-            </div>
-          </Card>
+              </div>
+            </Card>
+          </motion.div>
+        </motion.div>
 
-          <Card className="border border-[var(--card-border)] bg-[var(--card)] p-4 md:p-5">
-            <div className="mb-4 flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[var(--input)]" style={{ color: 'var(--primary)' }}>
-                <BrainCircuit size={20} />
-              </div>
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-muted">Peak Intelligence</p>
-                <h2 className="text-lg font-black" style={{ color: 'var(--text)' }}>Today&apos;s nudge</h2>
-              </div>
-            </div>
-            <div className="space-y-3">
-              <div className="rounded-2xl bg-[var(--input)] p-3">
-                <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'var(--primary)' }}>Word</p>
-                <p className="mt-1 text-lg font-black" style={{ color: 'var(--text)' }}>{insight.vocabulary?.word}</p>
-                <p className="text-xs font-semibold text-muted">{insight.vocabulary?.meaning}</p>
-              </div>
-              <div className="rounded-2xl bg-[var(--input)] p-3">
-                <p className="text-sm font-black" style={{ color: 'var(--text)' }}>{insight.tip?.title || 'Study tip'}</p>
-                <p className="mt-1 text-sm font-semibold leading-relaxed text-muted">{insight.tip?.content}</p>
-              </div>
-              <p className="text-xs font-semibold leading-relaxed text-muted">{insight.didYouKnow}</p>
-            </div>
-          </Card>
-        </div>
-
-        <div className="mt-6">
-          <div className="mb-3 flex items-end justify-between">
+        {/* Quick Launch Tools */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.35, duration: 0.5 }}
+          className="mt-6"
+        >
+          <div className="mb-4 flex items-center justify-between">
             <div>
               <p className="text-[10px] font-black uppercase tracking-[0.22em] text-muted">Study Tools</p>
-              <h2 className="text-xl font-black tracking-tight" style={{ color: 'var(--text)' }}>Quick launch</h2>
+              <h2 className="text-xl font-black tracking-tight" style={{ color: 'var(--text)' }}>Quick Launch</h2>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            {tools.map((tool) => (
-              <Link key={tool.href} href={tool.href} className="group block">
-                <Card className="h-full border border-[var(--card-border)] bg-[var(--card)] p-3 transition hover:-translate-y-0.5 hover:border-[var(--primary)] hover:shadow-lg hover:shadow-black/5">
-                  <div className="mb-3 flex items-center justify-between">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[var(--input)] transition group-hover:scale-105" style={{ color: 'var(--primary)' }}>{tool.icon}</div>
-                    <span className="text-sm font-black text-muted transition group-hover:translate-x-1 group-hover:text-[var(--primary)]">-&gt;</span>
-                  </div>
-                  <h3 className="text-sm font-black" style={{ color: 'var(--text)' }}>{tool.title}</h3>
-                  <p className="mt-1 text-xs font-semibold leading-relaxed text-muted">{tool.text}</p>
-                </Card>
-              </Link>
+            {tools.map((tool, ti) => (
+              <motion.div
+                key={tool.href}
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 0.4 + ti * 0.07, type: 'spring', stiffness: 200 }}
+                whileHover={{ y: -5, scale: 1.02 }}
+                whileTap={{ scale: 0.97 }}
+              >
+                <Link href={tool.href} className="group block h-full">
+                  <Card className="h-full border border-[var(--card-border)] bg-[var(--card)] p-4 transition-all duration-200 hover:border-[var(--primary)]/50 hover:shadow-lg">
+                    <div className="mb-4 flex items-center justify-between">
+                      <div
+                        className="flex h-11 w-11 items-center justify-center rounded-xl transition-all duration-200 group-hover:scale-110 group-hover:rotate-3"
+                        style={{ background: 'var(--primary)', color: 'white', opacity: 0.9 }}
+                      >{tool.icon}</div>
+                      <span className="text-base font-black text-muted transition-all group-hover:translate-x-1 group-hover:text-[var(--primary)]">→</span>
+                    </div>
+                    <h3 className="text-sm font-black" style={{ color: 'var(--text)' }}>{tool.title}</h3>
+                    <p className="mt-1 text-xs font-semibold leading-relaxed text-muted">{tool.text}</p>
+                  </Card>
+                </Link>
+              </motion.div>
             ))}
           </div>
-        </div>
+        </motion.div>
 
-        <div className="mt-6 grid gap-4 lg:grid-cols-2">
-          <Card className="border border-[var(--card-border)] bg-[var(--card)] p-4">
-            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-muted">Invite and earn</p>
+        {/* Stats Row */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.55, duration: 0.5 }}
+          className="mt-6 grid gap-4 lg:grid-cols-2"
+        >
+          <Card className="border border-[var(--card-border)] bg-[var(--card)] p-4 hover:border-[var(--primary)]/30 transition-colors">
+            <p className="text-[10px] font-black uppercase tracking-[0.22em]" style={{ color: 'var(--primary)' }}>Invite and earn</p>
             <div className="mt-3 flex items-center justify-between gap-4">
               <div>
                 <h3 className="text-lg font-black" style={{ color: 'var(--text)' }}>Refer a classmate</h3>
                 <p className="text-sm font-semibold text-muted">Both students receive the bonus after signup.</p>
               </div>
-              <div className="rounded-2xl bg-[var(--input)] px-4 py-3 text-right">
-                <p className="text-xl font-black" style={{ color: 'var(--primary)' }}>{data.referralSummary?.completedCount || 0}</p>
+              <div className="rounded-2xl bg-[var(--input)] px-4 py-3 text-right min-w-[64px]">
+                <p className="text-2xl font-black" style={{ color: 'var(--primary)' }}>{data.referralSummary?.completedCount || 0}</p>
                 <p className="text-[10px] font-black uppercase tracking-widest text-muted">Invites</p>
               </div>
             </div>
           </Card>
 
-          <Card className="border border-[var(--card-border)] bg-[var(--card)] p-4">
-            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-muted">Friend duels</p>
+          <Card className="border border-[var(--card-border)] bg-[var(--card)] p-4 hover:border-[var(--primary)]/30 transition-colors">
+            <p className="text-[10px] font-black uppercase tracking-[0.22em]" style={{ color: 'var(--primary)' }}>Friend Duels</p>
             <div className="mt-3 grid grid-cols-3 gap-2">
-              {[
-                ['Wins', (student as any)?.duel_wins || 0],
-                ['Draws', (student as any)?.duel_draws || 0],
-                ['Losses', (student as any)?.duel_losses || 0],
-              ].map(([label, value]) => (
+              {([
+                ['Wins', (student as any)?.duel_wins || 0, '#22c55e'],
+                ['Draws', (student as any)?.duel_draws || 0, 'var(--primary)'],
+                ['Losses', (student as any)?.duel_losses || 0, '#ef4444'],
+              ] as [string, number, string][]).map(([label, value, color]) => (
                 <div key={label} className="rounded-2xl bg-[var(--input)] p-3 text-center">
-                  <p className="text-xl font-black" style={{ color: 'var(--text)' }}>{value}</p>
+                  <p className="text-2xl font-black" style={{ color }}>{value}</p>
                   <p className="text-[10px] font-black uppercase tracking-widest text-muted">{label}</p>
                 </div>
               ))}
             </div>
           </Card>
-        </div>
+        </motion.div>
 
         <div className="mt-6">
           <CreatorReel decks={data.creatorReel || []} />
         </div>
 
         {data.youtubeVideos.length > 0 && (
-          <div className="mt-6">
-            <div className="mb-3 flex items-center gap-2">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.65 }}
+            className="mt-6"
+          >
+            <div className="mb-4 flex items-center gap-2">
               <PlayCircle size={18} style={{ color: 'var(--primary)' }} />
               <h2 className="text-xl font-black" style={{ color: 'var(--text)' }}>Teacher picks</h2>
             </div>
             <div className="grid gap-3 md:grid-cols-3">
-              {data.youtubeVideos.map((video: any) => {
-                let videoId = ''
-                try {
-                  const url = new URL(video.youtube_url)
-                  if (url.hostname.includes('youtube.com')) videoId = url.searchParams.get('v') || ''
-                  if (url.hostname.includes('youtu.be')) videoId = url.pathname.slice(1)
-                } catch(e) {}
-                const thumb = videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : ''
-
-                return (
-                  <Card key={video.id} className="overflow-hidden border border-[var(--card-border)] bg-[var(--card)]">
-                    <button type="button" className="block w-full text-left" onClick={() => window.open(video.youtube_url, '_blank')}>
-                      <div className="aspect-video bg-[var(--input)]">
-                        {thumb && <img src={thumb} alt={video.title} className="h-full w-full object-cover" />}
-                      </div>
-                      <div className="p-3">
-                        <h3 className="line-clamp-1 text-sm font-black" style={{ color: 'var(--text)' }}>{video.title}</h3>
-                        <p className="mt-1 line-clamp-1 text-xs font-semibold text-muted">From {video.teacher?.full_name || 'your teacher'}</p>
-                      </div>
-                    </button>
-                  </Card>
-                )
-              })}
+              {data.youtubeVideos.map((video: any) => (
+                <InAppVideoCard key={video.id} video={video} />
+              ))}
             </div>
-          </div>
+          </motion.div>
         )}
       </div>
     </div>
   )
 }
+
 
 function EliteScholarHomepage({ student, profile, data }: { student: any, profile: any, data: any }) {
   const currentXP = student?.xp || 0
@@ -981,6 +1238,7 @@ function EpicStudentHomepage({ student, profile, data }: { student: any, profile
           </motion.div>
         )}
       </AnimatePresence>
+      <TeacherVideoReel videos={data.resourceReel || []} />
 
       {/* Epic Header */}
       <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="relative pt-12 pb-20 px-6 md:px-12 bg-gradient-to-br from-indigo-600 via-purple-600 to-rose-500 overflow-hidden rounded-b-[3rem] shadow-2xl mb-12">
@@ -1236,41 +1494,9 @@ function EpicStudentHomepage({ student, profile, data }: { student: any, profile
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {data.youtubeVideos.map((video: any) => {
-                let videoId = ''
-                try {
-                  const url = new URL(video.youtube_url)
-                  if (url.hostname.includes('youtube.com')) videoId = url.searchParams.get('v') || ''
-                  if (url.hostname.includes('youtu.be')) videoId = url.pathname.slice(1)
-                } catch(e) {}
-                const thumb = videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : ''
-
-                return (
-                  <motion.div key={video.id} whileHover={{ y: -5 }} onClick={() => window.open(video.youtube_url, '_blank')}>
-                    <Card className="overflow-hidden group cursor-pointer hover:shadow-xl hover:shadow-red-500/10 transition-all border-0 ring-1 ring-[var(--card-border)]">
-                      <div className="aspect-video bg-black relative">
-                        {thumb ? (
-                          <img src={thumb} alt={video.title} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center bg-[var(--input)] text-muted">
-                            <PlayCircle size={48} />
-                          </div>
-                        )}
-                        <div className="absolute inset-0 bg-black/20 group-hover:bg-transparent transition-colors flex items-center justify-center">
-                          <div className="w-16 h-16 rounded-full bg-red-500 text-white flex items-center justify-center shadow-lg transform group-hover:scale-110 transition-transform">
-                            <PlayCircle size={32} className="ml-1" />
-                          </div>
-                        </div>
-                      </div>
-                      <div className="p-5">
-                        <h3 className="font-black text-lg line-clamp-1 mb-1" style={{ color: 'var(--text)' }}>{video.title}</h3>
-                        <p className="text-xs font-bold text-muted line-clamp-2 mb-3">{video.description || 'Recommended by your teacher.'}</p>
-                        <p className="text-[10px] uppercase font-black tracking-widest text-red-500">From: {video.teacher?.full_name}</p>
-                      </div>
-                    </Card>
-                  </motion.div>
-                )
-              })}
+              {data.youtubeVideos.map((video: any) => (
+                <InAppVideoCard key={video.id} video={video} />
+              ))}
             </div>
           </div>
         )}
@@ -1306,6 +1532,7 @@ export default function StudentHomepageRouter() {
     nationalExam: any;
     referralSummary: any;
     creatorReel: any[];
+    resourceReel: any[];
   }>({
     youtubeVideos: [],
     activeDuelsCount: 0,
@@ -1316,7 +1543,8 @@ export default function StudentHomepageRouter() {
     dailyInsight: null,
     nationalExam: null,
     referralSummary: null,
-    creatorReel: []
+    creatorReel: [],
+    resourceReel: []
   })
 
   useEffect(() => {
@@ -1339,13 +1567,40 @@ export default function StudentHomepageRouter() {
         return fallback
       }
     }
+    const loadTeacherVideoReel = async () => {
+      const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+      const visibility = [
+        `student_ids.cs.{${student.id}}`,
+        'audience.in.("public","broadcast")',
+      ]
+      if (classId) {
+        visibility.unshift(`class_id.eq.${classId}`, `class_ids.cs.{${classId}}`)
+      }
+
+      const { data, error } = await supabase
+        .from('resources')
+        .select('*, subject:subjects(name), teacher:teachers(full_name)')
+        .gte('created_at', cutoff)
+        .or(visibility.join(','))
+        .order('created_at', { ascending: false })
+        .limit(30)
+
+      if (error) throw error
+      return (data || [])
+        .filter((resource: any) => {
+          const url = `${resource.video_url || ''} ${resource.attachment_url || ''} ${resource.url || ''}`
+          return resource.type === 'video' || /youtube\.com|youtu\.be|vimeo\.com|\.mp4($|\?)|\.webm($|\?)|\.mov($|\?)/i.test(url)
+        })
+        .slice(0, 10)
+    }
 
     try {
-      const [feeds, vids, referralSummary, creatorReel] = await Promise.all([
+      const [feeds, vids, referralSummary, creatorReel, resourceReel] = await Promise.all([
         safeLoad('feeds', getStudentHomepageFeeds(classId), fallbackFeeds),
         safeLoad('videos', getStudentYouTubeSuggestions(classId), []),
         safeLoad('referrals', getReferralSummary(student.id), { referralCode: '', completedCount: 0, pendingCount: 0 }),
         safeLoad('creator reel', getApprovedCreatorReel(student.id, classId, curriculumId), []),
+        safeLoad('teacher video reel', loadTeacherVideoReel(), []),
       ])
       
       const { count: duelsCount } = await supabase
@@ -1406,7 +1661,8 @@ export default function StudentHomepageRouter() {
         dailyInsight: insightData,
         nationalExam,
         referralSummary,
-        creatorReel
+        creatorReel,
+        resourceReel
       })
 
     } catch (e: any) {

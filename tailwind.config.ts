@@ -31,6 +31,18 @@ const config: Config = {
         'ms-primary': '#4F8CFF',
         'ms-accent': '#22D3EE',
         'ms-text': '#E5E7EB',
+        
+        // Theme mapped colors from CSS variables
+        'theme-bg': 'var(--bg)',
+        'theme-card': 'var(--card)',
+        'theme-card-border': 'var(--card-border)',
+        'theme-primary': 'var(--primary)',
+        'theme-primary-hover': 'var(--primary-hover)',
+        'theme-accent': 'var(--accent)',
+        'theme-text': 'var(--text)',
+        'theme-text-muted': 'var(--text-muted)',
+        'theme-sidebar': 'var(--sidebar)',
+        'theme-input': 'var(--input)',
       },
       animation: {
         'fade-in': 'fadeIn 0.5s ease-in-out',

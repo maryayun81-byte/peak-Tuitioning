@@ -236,6 +236,26 @@ export async function getCreatorHubMeta(studentId: string) {
   }
 }
 
+export async function getDeckCreationOptions() {
+  const supabase = await createClient()
+  
+  const [curriculumsRes, classesRes, subjectsRes] = await Promise.all([
+    supabase.from('curriculums').select('id, name').order('name'),
+    supabase.from('classes').select('id, name, curriculum_id').order('name'),
+    supabase.from('subjects').select('id, name, class_id, curriculum_id').order('name')
+  ])
+
+  if (curriculumsRes.error && !isSchemaMismatch(curriculumsRes.error)) throw curriculumsRes.error
+  if (classesRes.error && !isSchemaMismatch(classesRes.error)) throw classesRes.error
+  if (subjectsRes.error && !isSchemaMismatch(subjectsRes.error)) throw subjectsRes.error
+
+  return {
+    curriculums: curriculumsRes.data || [],
+    classes: classesRes.data || [],
+    subjects: subjectsRes.data || [],
+  }
+}
+
 export async function createDeck(
   studentId: string,
   subjectId: string,
@@ -469,6 +489,43 @@ export async function createCard(deckId: string, frontContent: string, backConte
   
   if (error) throw error
   return data
+}
+
+export async function deleteDeck(deckId: string, studentId: string, expectedUserId?: string) {
+  const supabase = await createClient()
+  await assertStudentOwnerForUser(supabase, studentId, expectedUserId)
+  await assertDeckOwner(supabase, deckId, expectedUserId)
+
+  const { data: cards } = await supabase
+    .from('flashcard_cards')
+    .select('id')
+    .eq('deck_id', deckId)
+
+  const cardIds = (cards || []).map((card: any) => card.id).filter(Boolean)
+  if (cardIds.length > 0) {
+    await supabase.from('flashcard_progress').delete().in('card_id', cardIds)
+  }
+
+  await supabase.from('flashcard_cards').delete().eq('deck_id', deckId)
+
+  let { error } = await supabase
+    .from('flashcard_decks')
+    .delete()
+    .eq('id', deckId)
+    .eq('student_id', studentId)
+
+  if (error && isPermissionError(error)) {
+    const admin = await createAdminClient()
+    const adminResult = await admin
+      .from('flashcard_decks')
+      .delete()
+      .eq('id', deckId)
+      .eq('student_id', studentId)
+    error = adminResult.error
+  }
+
+  if (error) throw error
+  return { success: true }
 }
 
 export async function createBeautifulFlashcardDeck(

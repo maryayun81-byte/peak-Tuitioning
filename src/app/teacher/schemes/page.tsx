@@ -13,14 +13,14 @@ import { Button } from '@/components/ui/Button'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import { SkeletonList } from '@/components/ui/Skeleton'
-import { useAuthStore } from '@/stores/authStore'
 import { formatDate } from '@/lib/utils'
 import toast from 'react-hot-toast'
 import type { SchemeOfWork, Subject, Class } from '@/types/database'
+import { useTeacherIdentity } from '@/hooks/useTeacherIdentity'
 
 export default function TeacherSchemes() {
   const supabase = getSupabaseBrowserClient()
-  const { profile, teacher } = useAuthStore()
+  const { teacher, teacherIds, hasTeacherIdentity } = useTeacherIdentity()
   
   const [schemes, setSchemes] = useState<any[]>([])
   const [subjects, setSubjects] = useState<Subject[]>([])
@@ -40,14 +40,14 @@ export default function TeacherSchemes() {
   })
 
   useEffect(() => {
-    if (teacher?.id) loadData()
-  }, [teacher?.id])
+    if (hasTeacherIdentity) loadData()
+  }, [teacherIds.join('|')])
 
   const loadData = async () => {
     setLoading(true)
     try {
       const [scRes, sRes, cRes] = await Promise.all([
-        supabase.from('schemes_of_work').select('*, subject:subjects(name), class:classes(name)').eq('teacher_id', teacher?.id).order('week_number'),
+        supabase.from('schemes_of_work').select('*, subject:subjects(name), class:classes(name)').in('teacher_id', teacherIds).order('week_number'),
         supabase.from('subjects').select('*').order('name'),
         supabase.from('classes').select('*').order('name'),
       ])

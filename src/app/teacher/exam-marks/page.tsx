@@ -8,6 +8,7 @@ import { Card, StatCard, Badge } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
 import { useAuthStore } from '@/stores/authStore'
+import { useTeacherIdentity } from '@/hooks/useTeacherIdentity'
 import { SkeletonList } from '@/components/ui/Skeleton'
 import { Modal } from '@/components/ui/Modal'
 import toast from 'react-hot-toast'
@@ -48,6 +49,7 @@ const PAGE_SIZE = 15
 export default function TeacherExamMarks() {
   const supabase = getSupabaseBrowserClient()
   const { teacher, profile, isLoading: authLoading } = useAuthStore()
+  const { teacherIds, hasTeacherIdentity } = useTeacherIdentity()
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -91,9 +93,9 @@ export default function TeacherExamMarks() {
 
   // Load base data once teacher is available
   useEffect(() => {
-    if (!teacher?.id) return
+    if (!hasTeacherIdentity) return
     loadBaseData()
-  }, [teacher?.id])
+  }, [teacherIds.join('|'), hasTeacherIdentity])
 
   // Load students & marks when exam event + class + subject are all selected
   useEffect(() => {
@@ -146,7 +148,7 @@ export default function TeacherExamMarks() {
           class:classes(id, name, curriculum_id),
           subject:subjects(id, name)
         `)
-        .eq('teacher_id', teacher!.id)
+        .in('teacher_id', teacherIds)
 
       if (assignmentsData) {
         const options: ClassSubjectOption[] = assignmentsData

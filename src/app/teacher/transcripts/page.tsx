@@ -31,6 +31,7 @@ import type { Transcript, ExamEvent, TuitionEvent, GradingSystem, Curriculum, Cl
 import { ClassPerformanceSummary } from '@/components/admin/ClassPerformanceSummary'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useAuthStore } from '@/stores/authStore'
+import { useTeacherIdentity } from '@/hooks/useTeacherIdentity'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
 
@@ -38,7 +39,7 @@ function TeacherTranscriptsContent() {
   const supabase = getSupabaseBrowserClient()
   const searchParams = useSearchParams()
   const router = useRouter()
-  const { teacher } = useAuthStore()
+  const { teacher, teacherIds, hasTeacherIdentity } = useTeacherIdentity()
 
   // STATE
   const [tuitionEvents, setTuitionEvents] = useState<TuitionEvent[]>([])
@@ -102,7 +103,7 @@ function TeacherTranscriptsContent() {
   }, [selectedTranscript, previewOpen])
 
   useEffect(() => {
-    if (teacher?.id) {
+    if (hasTeacherIdentity) {
       loadInitialData().then(() => {
         const examId = searchParams.get('examId')
         if (examId) {
@@ -110,7 +111,7 @@ function TeacherTranscriptsContent() {
         }
       })
     }
-  }, [teacher?.id, searchParams])
+  }, [teacherIds.join('|'), hasTeacherIdentity, searchParams])
 
   const handleExamNavigation = async (examId: string) => {
     try {
@@ -132,14 +133,14 @@ function TeacherTranscriptsContent() {
   }
 
   const loadInitialData = async () => {
-    if (!teacher?.id) return
+    if (!hasTeacherIdentity) return
     setLoading(true)
     try {
       // 1. Get teacher's assigned classes
       const { data: assignments } = await supabase
         .from('teacher_assignments')
         .select('class_id')
-        .eq('teacher_id', teacher.id)
+        .in('teacher_id', teacherIds)
       
       const classIds = (assignments || []).map(a => a.class_id)
       setMyClassIds(classIds)

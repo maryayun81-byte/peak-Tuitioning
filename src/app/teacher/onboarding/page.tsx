@@ -28,7 +28,7 @@ type Step = 'welcome' | 'curriculum' | 'subjects' | 'mapping'
 export default function TeacherOnboarding() {
   const router = useRouter()
   const supabase = getSupabaseBrowserClient()
-  const { profile, setProfile } = useAuthStore()
+  const { profile, teacher, setProfile, setTeacher } = useAuthStore()
   
   const [step, setStep] = useState<Step>('welcome')
   const [loading, setLoading] = useState(false)
@@ -49,8 +49,66 @@ export default function TeacherOnboarding() {
   const [expandedSubject, setExpandedSubject] = useState<string | null>(null)
 
   useEffect(() => {
+    rescueAlreadyOnboardedTeacher()
     loadBaseData()
   }, [])
+
+  const rescueAlreadyOnboardedTeacher = async () => {
+    if (!profile?.id) return
+    if (profile.has_onboarded === true || teacher?.onboarded === true) {
+      router.replace('/teacher')
+      return
+    }
+
+    const { data: teacherRows } = await supabase
+      .from('teachers')
+      .select('*, teacher_assignments(id, is_class_teacher)')
+      .eq('user_id', profile.id)
+
+    if (!teacherRows || teacherRows.length === 0) return
+
+    const teacherIds = teacherRows.map((row: any) => row.id)
+    const hasMapping = teacherRows.some((row: any) => (row.teacher_assignments || []).length > 0)
+    let hasActivity = false
+
+    if (!hasMapping && teacherIds.length > 0) {
+      const [assignmentRes, timetableRes, resourceRes, quizRes, schemeRes] = await Promise.all([
+        supabase.from('assignments').select('id').in('teacher_id', teacherIds).limit(1),
+        supabase.from('timetables').select('id').in('teacher_id', teacherIds).limit(1),
+        supabase.from('resources').select('id').in('teacher_id', teacherIds).limit(1),
+        supabase.from('quizzes').select('id').in('teacher_id', teacherIds).limit(1),
+        supabase.from('schemes_of_work').select('id').in('teacher_id', teacherIds).limit(1),
+      ])
+      hasActivity = Boolean(
+        assignmentRes.data?.length ||
+        timetableRes.data?.length ||
+        resourceRes.data?.length ||
+        quizRes.data?.length ||
+        schemeRes.data?.length
+      )
+    }
+
+    const alreadyOnboarded = teacherRows.some((row: any) => row.onboarded === true) || hasMapping || hasActivity
+    if (!alreadyOnboarded) return
+
+    const bestTeacher = [...teacherRows].sort((a: any, b: any) => {
+      const aScore = (a.onboarded ? 100 : 0) + ((a.teacher_assignments || []).length * 10)
+      const bScore = (b.onboarded ? 100 : 0) + ((b.teacher_assignments || []).length * 10)
+      return bScore - aScore
+    })[0]
+    const isClassTeacher = teacherRows.some((row: any) => (row.teacher_assignments || []).some((item: any) => item.is_class_teacher))
+
+    setProfile({ ...profile, has_onboarded: true })
+    setTeacher({
+      ...bestTeacher,
+      onboarded: true,
+      is_class_teacher: isClassTeacher,
+      linked_teacher_ids: teacherIds,
+    } as any)
+    supabase.from('profiles').update({ has_onboarded: true }).eq('id', profile.id).then(() => {})
+    supabase.from('teachers').update({ onboarded: true }).in('id', teacherIds).then(() => {})
+    router.replace('/teacher')
+  }
 
   const loadBaseData = async () => {
     setLoadingBase(true)

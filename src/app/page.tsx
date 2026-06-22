@@ -31,6 +31,7 @@ import {
   Compass,
   HeartHandshake,
   ScanSearch,
+  Store,
 } from 'lucide-react'
 import { PremiumCarousel } from '@/components/ui/PremiumCarousel'
 import { PublicPortalMenu } from '@/components/ui/PublicPortalMenu'
@@ -807,6 +808,80 @@ export default function HomePage() {
           </div>
         </motion.section>
       )}
+
+      {/* ── Marketplace ── */}
+      <motion.section
+        variants={fadeIn}
+        initial="hidden"
+        whileInView="visible"
+        viewport={{ once: true, amount: 0.1 }}
+        className="px-4 py-16 sm:px-6 lg:px-8 bg-slate-50"
+      >
+        <div className="mx-auto max-w-7xl">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0, transition: { duration: 0.5 } }}
+            viewport={{ once: true }}
+            className="mb-10 text-center"
+          >
+            <p className="text-xs font-black uppercase tracking-[0.22em] text-[#4caf25] flex items-center justify-center gap-2">
+              <Store size={14} /> Peak Marketplace
+            </p>
+            <h2 className="mt-3 text-3xl font-black tracking-tight text-[#073159] sm:text-5xl">High-quality flashcards,<br/> designed by our top students.</h2>
+            <p className="mt-4 text-base text-slate-500 max-w-2xl mx-auto">
+              Buy KCSE revision packs, Mathematics formulas, and Biology diagrams created by verified tutors and A-level students to boost your learning instantly.
+            </p>
+          </motion.div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {[
+              { title: 'Calculus Derivatives', subject: 'Mathematics', topic: 'Calculus', level: 'Form 4', price: 250, rating: 4.8, cards: 24, bg: 'bg-gradient-to-br from-[#073159] to-[#145da0]' },
+              { title: 'Organic Chemistry', subject: 'Chemistry', topic: 'Organic', level: 'Form 3', price: 150, rating: 4.5, cards: 50, bg: 'bg-gradient-to-br from-emerald-600 to-teal-800' },
+              { title: 'KCSE Biology Paper 1', subject: 'Biology', topic: 'Mixed', level: 'Form 4', price: 300, rating: 5.0, cards: 120, bg: 'bg-gradient-to-br from-rose-500 to-pink-700' },
+              { title: 'Geography Map Reading', subject: 'Geography', topic: 'Map Work', level: 'Form 2', price: 100, rating: 4.7, cards: 18, bg: 'bg-gradient-to-br from-amber-500 to-orange-700' },
+            ].map((deck, i) => (
+              <motion.div
+                key={deck.title}
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0, transition: { duration: 0.5, delay: i * 0.1 } }}
+                viewport={{ once: true }}
+                whileHover={{ y: -6 }}
+                className="group flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-xl transition-all duration-300"
+              >
+                <div className={`h-36 w-full relative ${deck.bg} p-4 flex items-end justify-between`}>
+                  <div className="absolute inset-0 opacity-20 bg-[linear-gradient(45deg,rgba(0,0,0,0.2)_25%,transparent_25%,transparent_50%,rgba(0,0,0,0.2)_50%,rgba(0,0,0,0.2)_75%,transparent_75%,transparent)] bg-[length:16px_16px]" />
+                  <span className="relative z-10 px-2 py-1 text-[10px] font-black uppercase tracking-wider bg-white/90 text-slate-900 rounded-md backdrop-blur-sm shadow-sm">
+                    {deck.subject}
+                  </span>
+                  <span className="relative z-10 px-2 py-1 text-[10px] font-black uppercase tracking-wider bg-[#4caf25] text-white rounded-md shadow-sm">
+                    KES {deck.price}
+                  </span>
+                </div>
+                <div className="p-5 flex flex-col flex-1">
+                  <h3 className="font-bold text-lg text-slate-900 leading-tight mb-1">{deck.title}</h3>
+                  <p className="text-sm text-slate-500 mb-4">{deck.level} • {deck.topic}</p>
+                  
+                  <div className="mt-auto flex items-center justify-between">
+                    <div className="flex items-center gap-3 text-xs font-bold">
+                      <span className="text-slate-500 bg-slate-100 px-2 py-1 rounded-md">{deck.cards} Cards</span>
+                      <span className="text-amber-500 flex items-center gap-1"><Star size={12} className="fill-amber-500" /> {deck.rating}</span>
+                    </div>
+                    <button className="flex items-center justify-center p-2 rounded-full bg-slate-100 text-slate-600 hover:bg-[#145da0] hover:text-white transition-colors">
+                      <ArrowRight size={16} />
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+
+          <div className="mt-10 text-center">
+            <Link href="/auth/register" className="inline-flex items-center justify-center gap-2 rounded-full border-2 border-[#145da0] px-6 py-2.5 text-sm font-bold uppercase tracking-[0.14em] text-[#145da0] transition hover:bg-[#145da0] hover:text-white">
+              Explore All Decks <ArrowRight size={16} />
+            </Link>
+          </div>
+        </div>
+      </motion.section>
 
       {/* ── Portals ── */}
       <motion.section

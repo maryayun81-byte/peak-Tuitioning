@@ -1,6 +1,5 @@
 'use server'
 
-import { createClient } from '@supabase/supabase-js'
 import { createClient as createServerClient, createAdminClient } from '@/lib/supabase/server'
 import { requireAdmin } from '@/lib/auth-guards'
 
@@ -59,28 +58,39 @@ export async function updateOwnPassword(newPassword: string) {
 }
 
 export async function getStudentHomepageFeeds(classId: string) {
-  const supabase = await createServerClient()
+  // Guard: if no classId the student has no class assigned yet — return empties immediately
+  if (!classId) {
+    console.warn('[getStudentHomepageFeeds] classId is missing — student may not be assigned to a class yet.')
+    return { recentAssignments: [], recentQuizzes: [], upcomingSessions: [] }
+  }
+
+  // Use admin client so Supabase RLS does NOT silently block student reads
+  const admin = await createAdminClient()
   
   const [assignRes, quizRes, timetableRes] = await Promise.all([
-    supabase.from('assignments')
-      .select('*, teacher:teachers(profiles(full_name)), subject:subjects(name)')
+    admin.from('assignments')
+      .select('id, title, due_date, status, class_id, subject:subjects(name)')
       .eq('class_id', classId)
       .eq('status', 'published')
       .order('created_at', { ascending: false })
-      .limit(3),
-    supabase.from('quizzes')
-      .select('*, teacher:teachers(profiles(full_name)), subject:subjects(name)')
+      .limit(5),
+    admin.from('quizzes')
+      .select('id, title, is_published, class_id, subject:subjects(name)')
       .eq('class_id', classId)
-      .eq('status', 'published')
+      .eq('is_published', true)
       .order('created_at', { ascending: false })
-      .limit(3),
-    supabase.from('timetables')
-      .select('*, subject:subjects(name), teacher:teachers(profiles(full_name))')
+      .limit(5),
+    admin.from('timetables')
+      .select('id, day, start_time, end_time, subject:subjects(name), teacher:teachers(full_name)')
       .eq('class_id', classId)
-      .gte('start_time', new Date().toISOString())
+      .order('day', { ascending: true })
       .order('start_time', { ascending: true })
-      .limit(3)
+      .limit(5)
   ])
+
+  if (assignRes.error) console.error('[getStudentHomepageFeeds] assignments error:', assignRes.error.message)
+  if (quizRes.error) console.error('[getStudentHomepageFeeds] quizzes error:', quizRes.error.message)
+  if (timetableRes.error) console.error('[getStudentHomepageFeeds] timetable error:', timetableRes.error.message)
 
   return {
     recentAssignments: assignRes.data || [],
@@ -103,7 +113,15 @@ async function verifyStudentForUser(studentId: string, expectedUserId?: string) 
     .single()
 
   if (error || !student) throw error || new Error('Student profile was not found.')
-  if (student.user_id && student.user_id !== userId) throw new Error('This student profile does not belong to the current user.')
+  if (student.user_id && student.user_id !== userId) {
+    const { data: ownStudent } = await admin
+      .from('students')
+      .select('id, user_id, class_id, curriculum_id, tuition_center_id')
+      .eq('user_id', userId)
+      .maybeSingle()
+    if (ownStudent) return { admin, student: ownStudent, userId }
+    throw new Error('This student profile does not belong to the current user.')
+  }
 
   return { admin, student, userId }
 }
@@ -119,7 +137,7 @@ export async function getStudentSettingsSubjects(studentId: string, expectedUser
     admin
       .from('student_subjects')
       .select('id, subject_id, subject:subjects(id, name, class_id, curriculum_id)')
-      .eq('student_id', studentId),
+      .eq('student_id', student.id),
     student.class_id
       ? admin
           .from('teacher_assignments')
@@ -172,7 +190,7 @@ export async function getStudentAssignmentBoard(input: {
   const { data: registeredRows } = await admin
     .from('student_subjects')
     .select('subject_id')
-    .eq('student_id', input.studentId)
+    .eq('student_id', student.id)
   const subjectIds = (registeredRows || []).map((row: any) => row.subject_id).filter(Boolean)
 
   const from = (input.page - 1) * input.pageSize
@@ -196,7 +214,7 @@ export async function getStudentAssignmentBoard(input: {
     ? await admin
         .from('submissions')
         .select('id, assignment_id, student_id, status, marks, submitted_at, worksheet_answers')
-        .eq('student_id', input.studentId)
+        .eq('student_id', student.id)
         .in('assignment_id', assignmentIds)
     : { data: [], error: null }
 

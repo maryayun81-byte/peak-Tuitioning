@@ -12,7 +12,7 @@ import { Card, Badge } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { SkeletonList } from '@/components/ui/Skeleton'
-import { useAuthStore } from '@/stores/authStore'
+import { useTeacherIdentity } from '@/hooks/useTeacherIdentity'
 import { toast } from 'react-hot-toast'
 
 // ── Badge definitions ─────────────────────────────────────────────────────────
@@ -311,7 +311,7 @@ const CACHE_TTL = 2 * 60 * 1000
 
 export default function TeacherStudents() {
   const supabase = getSupabaseBrowserClient()
-  const { teacher } = useAuthStore()
+  const { teacher, teacherIds, hasTeacherIdentity } = useTeacherIdentity()
 
   const [loading, setLoading] = useState(true)
   const [students, setStudents] = useState<any[]>([])
@@ -321,11 +321,12 @@ export default function TeacherStudents() {
   const [awardingStudent, setAwardingStudent] = useState<any | null>(null)
   const [badgeCounts, setBadgeCounts] = useState<Record<string, number>>({})
 
-  useEffect(() => { if (teacher) loadAll() }, [teacher?.id])
+  useEffect(() => { if (hasTeacherIdentity) loadAll() }, [teacherIds.join('|'), hasTeacherIdentity])
 
   const loadAll = async () => {
-    if (!teacher?.id) return
-    const cached = studentsCache.get(teacher.id)
+    if (!hasTeacherIdentity) return
+    const cacheKey = teacherIds.join('|')
+    const cached = studentsCache.get(cacheKey)
     if (cached && Date.now() - cached.ts < CACHE_TTL) {
       setStudents(cached.data)
       setLoading(false)
@@ -337,7 +338,7 @@ export default function TeacherStudents() {
       const { data: assignments } = await supabase
         .from('teacher_assignments')
         .select('class_id, subject_id, subject:subjects(name)')
-        .eq('teacher_id', teacher.id)
+        .in('teacher_id', teacherIds)
 
       const classIds = [...new Set((assignments ?? []).map(a => a.class_id))]
       const subjects = (assignments ?? []).map(a => ({
@@ -356,7 +357,7 @@ export default function TeacherStudents() {
         .order('full_name')
 
       const result = studs ?? []
-      studentsCache.set(teacher.id, { data: result, ts: Date.now() })
+      studentsCache.set(cacheKey, { data: result, ts: Date.now() })
       setStudents(result)
 
       // Load badge counts for all students
@@ -365,7 +366,7 @@ export default function TeacherStudents() {
         const { data: badges } = await supabase
           .from('study_badges')
           .select('student_id')
-          .eq('awarded_by_teacher_id', teacher.id)
+          .in('awarded_by_teacher_id', teacherIds)
           .in('student_id', studentIds)
 
         const counts: Record<string, number> = {}
@@ -536,7 +537,7 @@ export default function TeacherStudents() {
                 ...prev,
                 [awardingStudent.id]: (prev[awardingStudent.id] || 0) + 1,
               }))
-              studentsCache.delete(teacher?.id || '')
+              studentsCache.delete(teacherIds.join('|'))
             }}
           />
         )}

@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { SkeletonDashboard } from '@/components/ui/Skeleton'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
-import { useAuthStore } from '@/stores/authStore'
+import { useTeacherIdentity } from '@/hooks/useTeacherIdentity'
 import toast from 'react-hot-toast'
 
 // Module-level cache: keyed by teacherId so it survives tab navigation
@@ -21,7 +21,7 @@ const CACHE_TTL = 2 * 60 * 1000 // 2 minutes
 
 export default function TeacherStudyMonitor() {
   const supabase = getSupabaseBrowserClient()
-  const { teacher } = useAuthStore()
+  const { teacher, teacherIds, hasTeacherIdentity } = useTeacherIdentity()
   
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -49,10 +49,11 @@ export default function TeacherStudyMonitor() {
   }, [loading])
 
   const loadStudents = async () => {
-    if (!teacher?.id) return
+    if (!hasTeacherIdentity) return
 
     // Serve from cache if fresh
-    const cached = studentsCache.get(teacher.id)
+    const cacheKey = teacherIds.join('|')
+    const cached = studentsCache.get(cacheKey)
     if (cached && Date.now() - cached.ts < CACHE_TTL) {
       setStudents(cached.data)
       setLoading(false)
@@ -67,7 +68,7 @@ export default function TeacherStudyMonitor() {
       const { data: assignments, error: aErr } = await supabase
         .from('teacher_assignments')
         .select('class_id')
-        .eq('teacher_id', teacher.id)
+        .in('teacher_id', teacherIds)
 
       if (aErr) throw aErr
       const classIds = (assignments ?? []).map(a => a.class_id).filter(Boolean)
@@ -119,7 +120,7 @@ export default function TeacherStudyMonitor() {
         return { ...s, totalStudyMinutes: agg.totalMin, completedCount: agg.count }
       })
 
-      studentsCache.set(teacher.id, { data: studentsWithStats, ts: Date.now() })
+      studentsCache.set(cacheKey, { data: studentsWithStats, ts: Date.now() })
       setStudents(studentsWithStats)
     } catch (err: any) {
       console.error('[StudyMonitor] loadStudents failed:', err)

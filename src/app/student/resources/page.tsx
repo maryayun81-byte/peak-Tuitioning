@@ -9,7 +9,7 @@ import {
   Filter, GraduationCap, School, Book,
   ChevronRight, ArrowRight, X, PlayCircle,
   ExternalLink, Sparkles, Layers,
-  CheckCircle2, Clock
+  CheckCircle2, Clock, Cpu
 } from 'lucide-react'
 import { Card, Badge } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
@@ -20,15 +20,16 @@ import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/authStore'
 import { SkeletonDashboard } from '@/components/ui/Skeleton'
 import { formatDate } from '@/lib/utils'
+import Link from 'next/link'
 
-type ResourceType = 'all' | 'note' | 'video' | 'link' | 'practice'
+type ResourceType = 'all' | 'note' | 'video' | 'link' | 'practice' | 'interactive'
 
 function ResourcesContent() {
   const supabase = getSupabaseBrowserClient()
   const { student } = useAuthStore()
   const searchParams = useSearchParams()
   const initialSubject = searchParams.get('subjectId')
-  
+
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedSubject, setSelectedSubject] = useState<string>(initialSubject || 'all')
   const [activeType, setActiveType] = useState<ResourceType>('all')
@@ -38,9 +39,10 @@ function ResourcesContent() {
     if (!student) return { resources: [], subjects: [] }
     const [sRes, rRes] = await Promise.all([
       supabase.from('student_subjects').select('subject:subjects(*)').eq('student_id', student.id),
+      // RLS already enforces class/student filtering — just fetch all readable rows
       supabase.from('resources')
         .select('*, subject:subjects(name), teacher:teachers(full_name)')
-        .or(`class_id.eq.${student.class_id},class_ids.cs.{${student.class_id}},student_ids.cs.{${student.id}},audience.in.("public","broadcast")`)
+        .neq('url', 'pending')
         .order('created_at', { ascending: false })
     ])
     const subjects = Array.from(new Set((sRes.data || []).map((s: any) => s.subject))).filter(Boolean)
@@ -59,11 +61,13 @@ function ResourcesContent() {
   const subjects = data?.subjects ?? []
   const loading = isLoading && !data
 
+  const isInteractiveResource = (res: any) => res.url?.startsWith('/student/resources/viewer')
+
   const filteredResources = useMemo(() => {
     return resources.filter(r => {
       const q = searchQuery.toLowerCase()
       const matchesSearch = 
-        r.title.toLowerCase().includes(q) || 
+        r.title?.toLowerCase().includes(q) || 
         r.description?.toLowerCase().includes(q) ||
         r.chapter?.toLowerCase().includes(q) ||
         r.subject?.name?.toLowerCase().includes(q)
@@ -71,9 +75,10 @@ function ResourcesContent() {
       const matchesSubject = selectedSubject === 'all' || r.subject_id === selectedSubject
       
       const matchesType = activeType === 'all' || 
+        (activeType === 'interactive' && isInteractiveResource(r)) ||
         (activeType === 'note' && (r.type === 'pdf' || r.type === 'document' || r.type === 'file' || r.type === 'note')) ||
         (activeType === 'video' && r.type === 'video') ||
-        (activeType === 'link' && r.type === 'link') ||
+        (activeType === 'link' && r.type === 'link' && !isInteractiveResource(r)) ||
         (activeType === 'practice' && r.is_practice)
 
       return matchesSearch && matchesSubject && matchesType
@@ -83,12 +88,17 @@ function ResourcesContent() {
   const getVideoEmbed = (url: string) => {
     if (!url) return null
     if (url.includes('youtube.com') || url.includes('youtu.be')) {
-      const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/
+      const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/
       const match = url.match(regExp)
       const id = (match && match[2].length === 11) ? match[2] : null
       return id ? `https://www.youtube.com/embed/${id}` : null
     }
-    return url // Direct MP4/Others
+    return url
+  }
+
+  const isPlayableVideoResource = (res: any) => {
+    const url = res?.video_url || res?.attachment_url || res?.url || ''
+    return res?.type === 'video' || /youtube\.com|youtu\.be|vimeo\.com|\.mp4($|\?)|\.webm($|\?)|\.mov($|\?)/i.test(url)
   }
 
   if (loading) return <SkeletonDashboard />
@@ -149,9 +159,10 @@ function ResourcesContent() {
             </div>
 
             {/* Type Filter Tabs */}
-            <div className="flex items-center gap-3 border-b border-[var(--card-border)] pb-0">
+            <div className="flex items-center gap-3 border-b border-[var(--card-border)] pb-0 flex-wrap">
                {[
                   { id: 'all', label: 'All Resources', icon: <Layers size={14} /> },
+                  { id: 'interactive', label: 'Interactive Labs', icon: <Cpu size={14} /> },
                   { id: 'note', label: 'Notes & Docs', icon: <FileText size={14} /> },
                   { id: 'video', label: 'Video Lessons', icon: <Video size={14} /> },
                   { id: 'practice', label: 'Practice Tasks', icon: <Sparkles size={14} /> },
@@ -184,14 +195,22 @@ function ResourcesContent() {
                      transition={{ duration: 0.3, delay: i * 0.05 }}
                   >
                      <Card className="glass-card-elite p-0 h-full overflow-hidden flex flex-col group cursor-pointer" onClick={() => {
-                        if (res.type === 'video') setActiveVideo(res)
-                        else if (res.url) window.open(res.url, '_blank')
+                        if (isPlayableVideoResource(res)) setActiveVideo(res)
+                        else if (res.url) {
+                           if (isInteractiveResource(res)) {
+                               window.location.href = res.url // stay in same tab for viewer
+                           } else {
+                               window.open(res.url, '_blank')
+                           }
+                        }
                      }}>
                         {/* Card Header/Icon */}
                         <div className="relative h-40 bg-[var(--input)] flex items-center justify-center border-b border-[var(--card-border)] overflow-hidden">
                            <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-accent/5 opacity-50 group-hover:scale-110 transition-transform duration-700" />
-                           {res.type === 'video' ? (
+                           {isPlayableVideoResource(res) ? (
                               <Video size={48} className="text-rose-500 drop-shadow-[0_0_15px_rgba(244,63,94,0.4)]" />
+                           ) : isInteractiveResource(res) ? (
+                              <Cpu size={48} className="text-purple-500 drop-shadow-[0_0_15px_rgba(168,85,247,0.4)]" />
                            ) : res.type === 'link' ? (
                               <LinkIcon size={48} className="text-blue-500 drop-shadow-[0_0_15px_rgba(59,130,246,0.4)]" />
                            ) : (
@@ -201,7 +220,7 @@ function ResourcesContent() {
                            {/* Hover Overlay */}
                            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                               <div className="bg-white text-primary p-4 rounded-full shadow-2xl scale-75 group-hover:scale-100 transition-transform">
-                                 {res.type === 'video' ? <PlayCircle size={32} /> : <ArrowRight size={32} />}
+                                 {isPlayableVideoResource(res) ? <PlayCircle size={32} /> : <ArrowRight size={32} />}
                               </div>
                            </div>
 
@@ -220,6 +239,7 @@ function ResourcesContent() {
                                     {res.title}
                                  </h3>
                                  {res.is_practice && <Sparkles size={16} className="text-primary animate-pulse shrink-0" />}
+                                 {isInteractiveResource(res) && <Cpu size={16} className="text-purple-500 animate-pulse shrink-0" />}
                               </div>
                               <div className="text-[10px] font-black text-primary uppercase tracking-wider">{res.chapter || 'Foundations'}</div>
                            </div>

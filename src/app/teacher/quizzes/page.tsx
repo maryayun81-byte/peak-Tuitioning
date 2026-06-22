@@ -14,27 +14,28 @@ import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
 import { SkeletonList } from '@/components/ui/Skeleton'
 import { PageStates } from '@/components/ui/PageStates'
-import { useAuthStore } from '@/stores/authStore'
 import { formatDate } from '@/lib/utils'
 import Link from 'next/link'
 import toast from 'react-hot-toast'
 import { usePageData, clearPageDataCache } from '@/hooks/usePageData'
+import { useTeacherIdentity } from '@/hooks/useTeacherIdentity'
 
 export default function TeacherQuizzes() {
   const supabase = getSupabaseBrowserClient()
-  const { profile, teacher } = useAuthStore()
+  const { teacher, teacherIds, hasTeacherIdentity } = useTeacherIdentity()
   
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
 
   const { data: qData, status, refetch } = usePageData({
-    cacheKey: ['teacher-quizzes', teacher?.id || 'anon'],
+    cacheKey: ['teacher-quizzes', teacherIds.join('|') || 'anon'],
     fetcher: async () => {
       try {
+        if (teacherIds.length === 0) return { data: [], error: null }
         const { data, error } = await supabase
           .from('quizzes')
           .select('id, title, created_at, time_limit, passing_score, class:classes(name), subject:subjects(name)')
-          .eq('teacher_id', teacher!.id)
+          .in('teacher_id', teacherIds)
           .order('created_at', { ascending: false })
         
         return { data: data ?? [], error: error?.message }
@@ -42,7 +43,7 @@ export default function TeacherQuizzes() {
         return { data: null, error: err.message }
       }
     },
-    enabled: !!teacher?.id,
+    enabled: hasTeacherIdentity,
   })
 
   const quizzes: any[] = qData || []

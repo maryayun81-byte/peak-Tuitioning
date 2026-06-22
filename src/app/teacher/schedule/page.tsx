@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { SkeletonDashboard } from '@/components/ui/Skeleton'
 import { useAuthStore } from '@/stores/authStore'
+import { useTeacherIdentity } from '@/hooks/useTeacherIdentity'
 import toast from 'react-hot-toast'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
@@ -34,7 +35,8 @@ type ViewType = 'personal' | 'classes'
 
 export default function TeacherSchedule() {
   const supabase = getSupabaseBrowserClient()
-  const { teacher, profile } = useAuthStore()
+  const { profile } = useAuthStore()
+  const { teacher, teacherIds, hasTeacherIdentity } = useTeacherIdentity()
   
   const [loading, setLoading] = useState(true)
   const [schedule, setSchedule] = useState<any[]>([])
@@ -70,11 +72,11 @@ export default function TeacherSchedule() {
   const [submittingSwap, setSubmittingSwap] = useState(false)
 
   useEffect(() => {
-    if (teacher) {
+    if (hasTeacherIdentity) {
       loadData()
       loadTeachers()
     }
-  }, [teacher, viewMode, selectedClassContext])
+  }, [teacherIds.join('|'), hasTeacherIdentity, viewMode, selectedClassContext])
 
   const loadTeachers = async () => {
     const { data } = await supabase.from('teachers').select('id, full_name')
@@ -82,16 +84,16 @@ export default function TeacherSchedule() {
   }
 
   const loadData = useCallback(async () => {
-    if (!teacher) return
+    if (!hasTeacherIdentity) return
     setLoading(true)
     try {
       // 1. Get Teacher Assignments and their existing personal sessions to derive (class, center) context
       const [assignmentsRes, sessionsRes] = await Promise.all([
-        supabase.from('teacher_assignments').select('class_id').eq('teacher_id', teacher.id),
+        supabase.from('teacher_assignments').select('class_id').in('teacher_id', teacherIds),
         supabase
           .from('timetables')
           .select('class_id, tuition_center_id, class:classes(name), center:tuition_centers(name)')
-          .eq('teacher_id', teacher.id)
+          .in('teacher_id', teacherIds)
       ])
       
       const classIds = assignmentsRes.data?.map(a => a.class_id) || []
@@ -110,7 +112,7 @@ export default function TeacherSchedule() {
         .eq('status', 'published')
 
       if (viewMode === 'personal') {
-        query = query.eq('teacher_id', teacher.id)
+        query = query.in('teacher_id', teacherIds)
       } else {
         // "Classes" view: all sessions for classes I teach
         if (selectedClassContext !== 'all') {
@@ -270,7 +272,7 @@ export default function TeacherSchedule() {
                   </div>
                </div>
                <p className="text-sm font-medium max-w-lg leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-                  Welcome, <span className="text-primary font-bold">{profile?.full_name?.split(' ')[0]}</span>. You have <span className="text-primary font-bold">{schedule.filter(s => s.teacher_id === teacher?.id).length} classes</span> assigned this week. Focus on inspiring excellence today.
+                  Welcome, <span className="text-primary font-bold">{profile?.full_name?.split(' ')[0]}</span>. You have <span className="text-primary font-bold">{schedule.filter(s => teacherIds.includes(s.teacher_id)).length} classes</span> assigned this week. Focus on inspiring excellence today.
                </p>
             </div>
 
@@ -356,7 +358,7 @@ export default function TeacherSchedule() {
                                              key={s.id} 
                                              session={s} 
                                              teacher={teacher} 
-                                             isMine={s.teacher_id === teacher?.id}
+                                             isMine={teacherIds.includes(s.teacher_id)}
                                              style={getSessionStyle(s.start_time, s.end_time)}
                                              onSwapRequest={() => { setSelectedSession(s); setSwapModalOpen(true); }}
                                           />
@@ -400,7 +402,7 @@ export default function TeacherSchedule() {
                                        key={s.id} 
                                        session={s} 
                                        teacher={teacher} 
-                                       isMine={s.teacher_id === teacher?.id}
+                                       isMine={teacherIds.includes(s.teacher_id)}
                                        mobile
                                        onSwapRequest={() => { setSelectedSession(s); setSwapModalOpen(true); }}
                                     />
@@ -426,8 +428,8 @@ export default function TeacherSchedule() {
                      <span className="text-xs font-black uppercase tracking-[0.2em] opacity-80">Today's Pulse</span>
                   </div>
                   <div>
-                     <div className="text-4xl font-black">{schedule.filter(s => s.teacher_id === teacher?.id && s.day === (DAYS[new Date().getDay() - 1] || 'Monday')).length}</div>
-                     <div className="text-[10px] font-bold uppercase tracking-widest opacity-60">Sessions across {Array.from(new Set(schedule.filter(s => s.teacher_id === teacher?.id).map(s => s.tuition_center_id))).length} centers</div>
+                     <div className="text-4xl font-black">{schedule.filter(s => teacherIds.includes(s.teacher_id) && s.day === (DAYS[new Date().getDay() - 1] || 'Monday')).length}</div>
+                     <div className="text-[10px] font-bold uppercase tracking-widest opacity-60">Sessions across {Array.from(new Set(schedule.filter(s => teacherIds.includes(s.teacher_id)).map(s => s.tuition_center_id))).length} centers</div>
                   </div>
                   <div className="pt-4 flex gap-2">
                      <div className="flex-1 bg-white/15 p-3 rounded-2xl">
@@ -509,7 +511,7 @@ export default function TeacherSchedule() {
                      onChange={(e) => setTargetTeacherId(e.target.value)}
                   >
                      <option value="">Post to all faculty</option>
-                     {allTeachers.filter(t => t.id !== teacher?.id).map(t => (
+                     {allTeachers.filter(t => !teacherIds.includes(t.id)).map(t => (
                         <option key={t.id} value={t.id}>{t.full_name}</option>
                      ))}
                   </select>

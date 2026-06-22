@@ -299,6 +299,17 @@ export function QuizForm({ initialData, isEditing = false }: QuizFormProps) {
         const { data: stUsers } = await supabase.from('students').select('user_id').eq('class_id', form.class_id)
         const targetUserIds = stUsers?.map(s => s.user_id).filter(Boolean) as string[] || []
         if (targetUserIds.length > 0) {
+          await supabase.from('notifications').insert(targetUserIds.map(userId => ({
+            user_id: userId,
+            title: 'New Quiz Posted',
+            body: `A new quiz "${form.title}" is available.`,
+            type: 'quiz',
+            href: '/student/quizzes',
+            data: {
+              class_id: form.class_id,
+              subject_id: form.subject_id,
+            },
+          })))
           await sendPushNotification(targetUserIds, {
             title: 'New Quiz Posted',
             body: `A new quiz "${form.title}" is available.`,

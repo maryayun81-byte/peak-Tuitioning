@@ -14,6 +14,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { usePageData, clearPageDataCache } from '@/hooks/usePageData'
 import { PageStates } from '@/components/ui/PageStates'
 import toast from 'react-hot-toast'
+import { useTeacherIdentity } from '@/hooks/useTeacherIdentity'
 
 interface TriviaSession {
   id: string
@@ -41,6 +42,7 @@ const PAGE_SIZE = 10
 export default function TeacherTriviaPage() {
   const supabase = getSupabaseBrowserClient()
   const { teacher, isInitialRevalidationComplete } = useAuthStore()
+  const { teacherIds, hasTeacherIdentity } = useTeacherIdentity()
   const router = useRouter()
   const [page, setPage] = useState(0)
 
@@ -49,9 +51,9 @@ export default function TeacherTriviaPage() {
     status, 
     refetch 
   } = usePageData({
-    cacheKey: ['teacher-trivia-sessions', teacher?.id || 'anon', page],
+    cacheKey: ['teacher-trivia-sessions', teacherIds.join('|') || 'anon', String(page)],
     fetcher: async () => {
-      if (!teacher?.id) return { data: null, error: 'No teacher' }
+      if (!hasTeacherIdentity) return { data: null, error: 'No teacher' }
 
       // 1. Fetch main sessions
       const { data, error, count } = await supabase
@@ -60,7 +62,7 @@ export default function TeacherTriviaPage() {
           *,
           subject:subjects(name)
         `, { count: 'exact' })
-        .eq('teacher_id', teacher.id)
+        .in('teacher_id', teacherIds)
         .order('created_at', { ascending: false })
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
 
@@ -89,7 +91,7 @@ export default function TeacherTriviaPage() {
         error: null
       }
     },
-    enabled: isInitialRevalidationComplete && !!teacher?.id,
+    enabled: isInitialRevalidationComplete && hasTeacherIdentity,
   })
 
   const sessions: TriviaSession[] = pageData?.sessions || []

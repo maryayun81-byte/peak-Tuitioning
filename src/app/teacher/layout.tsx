@@ -59,7 +59,7 @@ const LogoComponent = (
 )
 
 export default function TeacherLayout({ children }: { children: React.ReactNode }) {
-  const { profile, teacher, isLoading, isInitialRevalidationComplete, setProfile } = useAuthStore()
+  const { profile, teacher, isLoading, isInitialRevalidationComplete, setProfile, setTeacher } = useAuthStore()
   const { unreadCount } = useNotificationStore()
   const { count: messageUnreadCount } = useMessageUnreadCount()
   useRealtimeNotifications()
@@ -72,6 +72,7 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
   // we lock this ref to true for the entire session. This prevents NavigationRefetch
   // or transient store updates from re-triggering the onboarding redirect mid-session.
   const wasEverConfirmedOnboarded = useRef(false)
+  const onboardingGateCheckRef = useRef(false)
   const teacherHasOnboarded = teacher?.onboarded === true || profile?.has_onboarded === true
   if (teacherHasOnboarded) wasEverConfirmedOnboarded.current = true
 
@@ -103,6 +104,60 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
     }
   }
 
+  const rescueAlreadyOnboardedTeacher = async () => {
+    if (!profile?.id) return false
+    const supabase = getSupabaseBrowserClient()
+    const { data: teacherRows } = await supabase
+      .from('teachers')
+      .select('*, teacher_assignments(id, is_class_teacher)')
+      .eq('user_id', profile.id)
+
+    if (!teacherRows || teacherRows.length === 0) return false
+
+    const teacherIds = teacherRows.map((row: any) => row.id)
+    const hasMapping = teacherRows.some((row: any) => (row.teacher_assignments || []).length > 0)
+    let hasActivity = false
+
+    if (!hasMapping && teacherIds.length > 0) {
+      const [assignmentRes, timetableRes, resourceRes, quizRes, schemeRes] = await Promise.all([
+        supabase.from('assignments').select('id').in('teacher_id', teacherIds).limit(1),
+        supabase.from('timetables').select('id').in('teacher_id', teacherIds).limit(1),
+        supabase.from('resources').select('id').in('teacher_id', teacherIds).limit(1),
+        supabase.from('quizzes').select('id').in('teacher_id', teacherIds).limit(1),
+        supabase.from('schemes_of_work').select('id').in('teacher_id', teacherIds).limit(1),
+      ])
+      hasActivity = Boolean(
+        assignmentRes.data?.length ||
+        timetableRes.data?.length ||
+        resourceRes.data?.length ||
+        quizRes.data?.length ||
+        schemeRes.data?.length
+      )
+    }
+
+    const isAlreadyOnboarded = teacherRows.some((row: any) => row.onboarded === true) || hasMapping || hasActivity
+    if (!isAlreadyOnboarded) return false
+
+    const bestTeacher = [...teacherRows].sort((a: any, b: any) => {
+      const aScore = (a.onboarded ? 100 : 0) + ((a.teacher_assignments || []).length * 10)
+      const bScore = (b.onboarded ? 100 : 0) + ((b.teacher_assignments || []).length * 10)
+      return bScore - aScore
+    })[0]
+    const isClassTeacher = teacherRows.some((row: any) => (row.teacher_assignments || []).some((item: any) => item.is_class_teacher))
+
+    wasEverConfirmedOnboarded.current = true
+    setProfile({ ...profile, has_onboarded: true })
+    setTeacher({
+      ...bestTeacher,
+      onboarded: true,
+      is_class_teacher: isClassTeacher,
+      linked_teacher_ids: teacherIds,
+    } as any)
+    supabase.from('profiles').update({ has_onboarded: true }).eq('id', profile.id).then(() => {})
+    supabase.from('teachers').update({ onboarded: true }).in('id', teacherIds).then(() => {})
+    return true
+  }
+
   useEffect(() => {
     if (!isLoading && !profile) router.push('/auth/login?role=teacher')
     if (!isLoading && profile?.role && profile.role !== 'teacher') {
@@ -121,7 +176,13 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
       !wasEverConfirmedOnboarded.current &&
       pathname !== '/teacher/onboarding'
     ) {
-      router.push('/teacher/onboarding')
+      if (onboardingGateCheckRef.current) return
+      onboardingGateCheckRef.current = true
+      rescueAlreadyOnboardedTeacher().then((rescued) => {
+        if (!rescued) router.push('/teacher/onboarding')
+      }).finally(() => {
+        onboardingGateCheckRef.current = false
+      })
     }
   }, [profile, teacher, isLoading, router, pathname, isInitialRevalidationComplete])
 

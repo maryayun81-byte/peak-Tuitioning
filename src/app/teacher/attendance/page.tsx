@@ -26,6 +26,7 @@ import { Select, Input } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import { SkeletonList } from '@/components/ui/Skeleton'
 import { useAuthStore } from '@/stores/authStore'
+import { useTeacherIdentity } from '@/hooks/useTeacherIdentity'
 import toast from 'react-hot-toast'
 import { getEventWeeks, getCurrentWeekNumber, formatDate, calculateAttendancePercentage, getLocalISODate, type EventWeek } from '@/lib/utils'
 import type { TuitionEvent } from '@/types/database'
@@ -48,6 +49,7 @@ export default function TeacherAttendance() {
   const router = useRouter()
   const supabase = getSupabaseBrowserClient()
   const { teacher, profile, isLoading: authLoading, isInitialRevalidationComplete } = useAuthStore()
+  const { teacherIds, hasTeacherIdentity } = useTeacherIdentity()
 
   // Access Control: Only class teachers can access this page
   useEffect(() => {
@@ -115,13 +117,13 @@ export default function TeacherAttendance() {
   // Load initial data — wait for teacher to be hydrated from auth store
   useEffect(() => {
     if (isInitialRevalidationComplete) {
-       if (teacher?.id) {
+       if (hasTeacherIdentity) {
           loadBaseData()
        } else {
           setLoading(false)
        }
     }
-  }, [teacher?.id, isInitialRevalidationComplete])
+  }, [teacherIds.join('|'), hasTeacherIdentity, isInitialRevalidationComplete])
 
   // Safety fallback for infinite loading
   useEffect(() => {
@@ -184,7 +186,7 @@ export default function TeacherAttendance() {
         supabase
           .from('teacher_assignments')
           .select('class_id, tuition_center_id, class:classes(id, name), center:tuition_centers(id, name)')
-          .eq('teacher_id', teacher?.id ?? '')
+          .in('teacher_id', teacherIds)
           .eq('is_class_teacher', true),
       ])
 

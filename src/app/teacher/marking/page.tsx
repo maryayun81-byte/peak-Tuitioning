@@ -15,20 +15,20 @@ import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import { SkeletonList } from '@/components/ui/Skeleton'
-import { useAuthStore } from '@/stores/authStore'
 import { formatDate } from '@/lib/utils'
 import Link from 'next/link'
 import type { Submission } from '@/types/database'
+import { useTeacherIdentity } from '@/hooks/useTeacherIdentity'
 
 function MarkingQueueContent() {
   const supabase = getSupabaseBrowserClient()
-  const { profile, teacher } = useAuthStore()
+  const { teacher, teacherIds, hasTeacherIdentity } = useTeacherIdentity()
   
   const searchParams = useSearchParams()
   const assignmentId = searchParams.get('assignment_id')
   
   const fetchQueue = async () => {
-    if (!teacher) return []
+    if (teacherIds.length === 0) return []
     let query = supabase
       .from('submissions')
       .select(`
@@ -36,16 +36,16 @@ function MarkingQueueContent() {
         student:students(full_name, admission_number),
         assignment:assignments!inner(title, max_marks, teacher_id)
       `)
-      .eq('assignment.teacher_id', teacher.id)
+      .in('assignment.teacher_id', teacherIds)
     if (assignmentId) query = query.eq('assignment_id', assignmentId)
     const { data } = await query.order('submitted_at', { ascending: true })
     return data ?? []
   }
 
   const { data: submissions = [], isLoading } = useQuery({
-    queryKey: ['teacher-marking', teacher?.id, assignmentId],
+    queryKey: ['teacher-marking', teacherIds.join('|'), assignmentId],
     queryFn: fetchQueue,
-    enabled: !!teacher?.id,
+    enabled: hasTeacherIdentity,
     staleTime: 2 * 60 * 1000,  // Marking queue refreshes more often — 2 min stale
     gcTime: 5 * 60 * 1000,
   })

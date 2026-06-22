@@ -70,7 +70,14 @@ export function useAuth() {
                 new Promise<{ data: any; error: any }>((_, reject) => setTimeout(() => reject(new Error('Student data fetch timed out')), 8000))
               ])
               if (data) {
-                setStudent(data as Student)
+                const derivedOnboarded = data.onboarded === true || p.has_onboarded === true || Boolean(data.class_id && data.curriculum_id)
+                const studentPayload = { ...data, onboarded: derivedOnboarded } as Student
+                setStudent(studentPayload)
+                if (derivedOnboarded && !p.has_onboarded) {
+                  setProfile({ ...p, has_onboarded: true })
+                  supabase.from('profiles').update({ has_onboarded: true }).eq('id', userId).then(() => {})
+                  if (data.onboarded !== true) supabase.from('students').update({ onboarded: true }).eq('id', data.id).then(() => {})
+                }
               } else {
                 console.warn('[useAuth] Student record missing.')
                 setStudent(null)
@@ -88,19 +95,50 @@ export function useAuth() {
                 setParent(null)
               }
             } else if (p.role === 'teacher') {
-              const { data: teacherData, error: teacherError } = await Promise.race([
-                supabase.from('teachers').select('*, teacher_assignments(is_class_teacher)').eq('user_id', userId).single(),
+              const { data: teacherRows } = await Promise.race([
+                supabase.from('teachers').select('*, teacher_assignments(is_class_teacher)').eq('user_id', userId),
                 new Promise<{ data: any; error: any }>((_, reject) => setTimeout(() => reject(new Error('Teacher data fetch timed out')), 8000))
               ])
               
-              if (teacherData) {
-                const isClassTeacher = (teacherData as any).teacher_assignments?.some((a: any) => a.is_class_teacher) || false
-                // Coerce onboarded: treat null/undefined as false so layout guard works correctly
-                const onboarded = teacherData.onboarded === true
-                setTeacher({ ...teacherData, onboarded, is_class_teacher: isClassTeacher } as Teacher)
+              if (teacherRows && teacherRows.length > 0) {
+                const teacherIds = teacherRows.map((row: any) => row.id)
+                const [assignmentRows, timetableRows, resourceRows, quizRows, schemeRows] = await Promise.all([
+                  supabase.from('assignments').select('teacher_id').in('teacher_id', teacherIds),
+                  supabase.from('timetables').select('teacher_id').in('teacher_id', teacherIds),
+                  supabase.from('resources').select('teacher_id').in('teacher_id', teacherIds),
+                  supabase.from('quizzes').select('teacher_id').in('teacher_id', teacherIds),
+                  supabase.from('schemes_of_work').select('teacher_id').in('teacher_id', teacherIds),
+                ])
+
+                const activityScore = new Map<string, number>()
+                ;[assignmentRows.data, timetableRows.data, resourceRows.data, quizRows.data, schemeRows.data].forEach((rows: any[] | null) => {
+                  rows?.forEach((row: any) => activityScore.set(row.teacher_id, (activityScore.get(row.teacher_id) || 0) + 1))
+                })
+
+                const teacherData = [...teacherRows].sort((a: any, b: any) => {
+                  const aSetup = (a.teacher_assignments || []).length
+                  const bSetup = (b.teacher_assignments || []).length
+                  const aScore = (a.onboarded ? 1000 : 0) + aSetup * 100 + (activityScore.get(a.id) || 0)
+                  const bScore = (b.onboarded ? 1000 : 0) + bSetup * 100 + (activityScore.get(b.id) || 0)
+                  return bScore - aScore
+                })[0]
+
+                const allTeacherAssignments = teacherRows.flatMap((row: any) => row.teacher_assignments || [])
+                const isClassTeacher = allTeacherAssignments.some((a: any) => a.is_class_teacher) || false
+                const hasTeachingSetup = allTeacherAssignments.length > 0 || teacherIds.some((id: string) => (activityScore.get(id) || 0) > 0)
+                const onboarded = teacherRows.some((row: any) => row.onboarded === true) || p.has_onboarded === true || hasTeachingSetup
+                const teacherPayload = {
+                  ...teacherData,
+                  onboarded,
+                  is_class_teacher: isClassTeacher,
+                  linked_teacher_ids: teacherIds,
+                } as Teacher
+                setTeacher(teacherPayload)
                 // If teacher is onboarded, also sync the profile flag so the layout guard has two sources of truth
                 if (onboarded && !p.has_onboarded) {
                   setProfile({ ...p, has_onboarded: true })
+                  supabase.from('profiles').update({ has_onboarded: true }).eq('id', userId).then(() => {})
+                  supabase.from('teachers').update({ onboarded: true }).in('id', teacherIds).then(() => {})
                 }
               } else {
                 console.warn('[useAuth] Teacher record expected but not found in DB.')

@@ -25,11 +25,12 @@ import { ClassPulse, ClassInterventionPanel } from '@/components/teacher/ClassHu
 
 import { usePageData } from '@/hooks/usePageData'
 import { ShimmerSkeleton } from '@/components/ui/ShimmerSkeleton'
+import { useTeacherIdentity } from '@/hooks/useTeacherIdentity'
 
 export default function TeacherDashboard() {
   const router = useRouter()
   const supabase = getSupabaseBrowserClient()
-  const { profile, teacher } = useAuthStore()
+  const { profile, teacher, teacherIds, primaryTeacherId } = useTeacherIdentity()
 
   const [missingDates, setMissingDates] = useState<string[]>([])
   const [showReminder, setShowReminder] = useState(false)
@@ -37,15 +38,15 @@ export default function TeacherDashboard() {
 
   // Stats Data Stream
   const { data: stats, status: statsStatus } = usePageData({
-    cacheKey: ['teacher-stats', teacher?.id || 'anon'],
+    cacheKey: ['teacher-stats', teacherIds.join('|') || 'anon'],
     fetcher: async () => {
-       if (!teacher?.id) return { data: null, error: 'No teacher ID' }
-       const { data: assignments } = await supabase.from('teacher_assignments').select('class_id, is_class_teacher, class:classes(name), tuition_center:tuition_centers(name)').eq('teacher_id', teacher.id)
+       if (teacherIds.length === 0) return { data: null, error: 'No teacher ID' }
+       const { data: assignments } = await supabase.from('teacher_assignments').select('class_id, is_class_teacher, class:classes(name), tuition_center:tuition_centers(name)').in('teacher_id', teacherIds)
        const classIds = Array.from(new Set(assignments?.map(a => a.class_id).filter(Boolean) || []))
        
        const [subRes, classCountRes, stdCountRes] = await Promise.all([
           supabase.from('submissions').select('id', { count: 'exact', head: true }).eq('status', 'submitted'),
-          supabase.from('timetables').select('id', { count: 'exact', head: true }).eq('teacher_id', teacher.id).ilike('day', new Date().toLocaleDateString('en-US', { weekday: 'long' })),
+          supabase.from('timetables').select('id', { count: 'exact', head: true }).in('teacher_id', teacherIds).ilike('day', new Date().toLocaleDateString('en-US', { weekday: 'long' })),
           classIds.length > 0 ? supabase.from('students').select('id', { count: 'exact', head: true }).in('class_id', classIds) : Promise.resolve({ count: 0 })
        ])
 
@@ -55,25 +56,25 @@ export default function TeacherDashboard() {
 
        return { data: { activeStudents: (stdCountRes as any).count ?? 0, classesToday: (classCountRes as any).count ?? 0, pendingMarks: (subRes as any).count ?? 0, attendanceRate: 0, breakdown }, error: null }
     },
-    enabled: !!teacher?.id,
+    enabled: teacherIds.length > 0,
   })
 
   // Assignments Data Stream
   const { data: pendingAssignments } = usePageData<any[]>({
-    cacheKey: ['teacher-recent-assignments', teacher?.id || 'anon'],
-    fetcher: async () => supabase.from('assignments').select('*, class:classes(name)').eq('teacher_id', teacher!.id).order('created_at', { ascending: false }).limit(3),
-    enabled: !!teacher?.id,
+    cacheKey: ['teacher-recent-assignments', teacherIds.join('|') || 'anon'],
+    fetcher: async () => supabase.from('assignments').select('*, class:classes(name)').in('teacher_id', teacherIds).order('created_at', { ascending: false }).limit(3),
+    enabled: teacherIds.length > 0,
   })
 
   // Attendance Gap Detection
   useEffect(() => {
-    if (teacher?.id && !checkedGaps) {
+    if (teacherIds.length > 0 && !checkedGaps) {
       checkAttendanceGaps()
     }
-  }, [teacher?.id, checkedGaps])
+  }, [teacherIds.join('|'), checkedGaps])
 
   const checkAttendanceGaps = async () => {
-    if (!teacher?.id) return
+    if (teacherIds.length === 0) return
     const hour = new Date().getHours()
     
     try {
@@ -81,7 +82,7 @@ export default function TeacherDashboard() {
       const { data: primary } = await supabase
         .from('teacher_assignments')
         .select('class_id, tuition_center_id')
-        .eq('teacher_id', teacher.id)
+        .in('teacher_id', teacherIds)
         .eq('is_class_teacher', true)
         .maybeSingle()
       

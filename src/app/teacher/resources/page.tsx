@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
+import Link from 'next/link'
 import { motion } from 'framer-motion'
 import { 
   Plus, Search, File, FileText, Image, 
@@ -264,6 +265,18 @@ export default function TeacherResources() {
           }}>
             <Plus size={16} className="mr-2" /> Add Resource
           </Button>
+      </div>
+
+      {/* Chemistry Engine Banner */}
+      <div className="bg-gradient-to-r from-cyan-500 to-blue-500 rounded-3xl p-6 md:p-8 text-white flex flex-col md:flex-row items-center justify-between gap-6 shadow-lg">
+        <div>
+          <div className="inline-block px-3 py-1 bg-white/20 rounded-full text-xs font-bold uppercase tracking-wider mb-3">New Module</div>
+          <h2 className="text-2xl md:text-3xl font-black tracking-tight mb-2">Chemistry Engine</h2>
+          <p className="text-blue-50 max-w-xl">The ultimate KCSE resource builder. Create Reaction Maps, Conditions Handbooks, and Topic Recovery Packs in minutes.</p>
+        </div>
+        <Link href="/teacher/resources/chemistry" className="shrink-0 px-6 py-3 bg-white text-cyan-600 font-bold rounded-xl hover:scale-105 hover:bg-cyan-50 transition-all shadow-sm">
+          Launch Engine &rarr;
+        </Link>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

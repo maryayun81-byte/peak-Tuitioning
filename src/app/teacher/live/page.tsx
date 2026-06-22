@@ -13,6 +13,7 @@ import Link from 'next/link'
 import LiveSessionManager from '@/components/teacher/LiveSessionManager'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/authStore'
+import { useTeacherIdentity } from '@/hooks/useTeacherIdentity'
 import { toast } from 'react-hot-toast'
 import { startLiveSession } from '@/app/actions/live-sessions'
 
@@ -20,6 +21,7 @@ export default function TeacherLivePage() {
   const router = useRouter()
   const supabase = getSupabaseBrowserClient()
   const { teacher, profile, isLoading } = useAuthStore()
+  const { teacherIds, hasTeacherIdentity } = useTeacherIdentity()
 
   const [pageData, setPageData] = useState<{
     subjects: any[]
@@ -36,18 +38,18 @@ export default function TeacherLivePage() {
   const PAGE_SIZE = 10
 
   const refetchSessions = useCallback(async () => {
-    if (!teacher?.id) return
+    if (!hasTeacherIdentity) return
     try {
       const { data } = await supabase
         .from('live_sessions')
         .select(`*, subject:subjects(name), class:classes(name), outcomes:live_session_outcomes(*)`)
-        .eq('teacher_id', teacher.id)
+        .in('teacher_id', teacherIds)
         .order('scheduled_at', { ascending: true })
       setPageData(prev => prev ? { ...prev, sessions: data || [] } : prev)
     } catch (err) {
       console.error('[TeacherLivePage] Session refetch error:', err)
     }
-  }, [teacher?.id])
+  }, [teacherIds.join('|'), hasTeacherIdentity])
 
   useEffect(() => {
     if (isLoading) return
@@ -55,7 +57,7 @@ export default function TeacherLivePage() {
       router.push('/auth/login?role=teacher')
       return
     }
-    if (!teacher?.id) return
+    if (!hasTeacherIdentity) return
 
     const fetchData = async () => {
       setIsLoadingData(true)
@@ -71,11 +73,11 @@ export default function TeacherLivePage() {
               subject:subjects(id, name),
               tuition_center:tuition_centers(id, name)
             `)
-            .eq('teacher_id', teacher.id),
+            .in('teacher_id', teacherIds),
           supabase
             .from('live_sessions')
             .select(`*, subject:subjects(name), class:classes(name), outcomes:live_session_outcomes(*)`)
-            .eq('teacher_id', teacher.id)
+            .in('teacher_id', teacherIds)
             .order('scheduled_at', { ascending: true })
         ])
 
@@ -93,7 +95,7 @@ export default function TeacherLivePage() {
     }
 
     fetchData()
-  }, [teacher?.id, isLoading, profile])
+  }, [teacherIds.join('|'), hasTeacherIdentity, isLoading, profile])
 
   // Check for errors in URL (e.g. from studio redirect)
   useEffect(() => {
