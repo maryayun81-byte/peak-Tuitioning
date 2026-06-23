@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   AlertTriangle, ArrowLeft, Bell, BookOpen, Bot, CheckCheck, ChevronRight,
-  ClipboardCheck, Edit3, GraduationCap, Heart, MessageCircle, Mic,
+  ClipboardCheck, Edit3, GraduationCap, Heart, Loader2, MessageCircle, Mic,
   MoreHorizontal, Paperclip, Pin, Reply, Search, Send, ShieldCheck,
   Smile, Sparkles, Square, Trash2, Users, Volume2, X,
 } from 'lucide-react'
@@ -284,7 +284,7 @@ export function PeakMessenger({ role }: PeakMessengerProps) {
                   const exists = previous.some((item) => item.id === message.id)
                   return exists
                     ? previous.map((item) => item.id === message.id ? { ...item, ...message } : item)
-                    : [...previous, { ...message, reactions: [], reply: null }]
+                    : [...previous, { ...message, reactions: [] }]
                 })
               }}
             />
@@ -319,6 +319,9 @@ function ConversationRail(props: any) {
 
         {role === 'student' && (
           <TeacherStories contacts={bootstrap.contacts} conversations={conversations} onStart={onStart} />
+        )}
+        {role === 'student' && bootstrap.classmates?.length > 0 && (
+          <ClassmatesStrip classmates={bootstrap.classmates} conversations={conversations} />
         )}
 
         <div className="mt-5 flex gap-2">
@@ -362,6 +365,37 @@ function ConversationRail(props: any) {
         <p className="text-[9px] leading-relaxed text-[var(--text-muted)]">Peak Safeguarding monitors communication patterns and keeps human review in control.</p>
       </div>
     </aside>
+  )
+}
+
+function ClassmatesStrip({ classmates, conversations }: any) {
+  return (
+    <div className="mt-4">
+      <div className="flex items-center gap-2 mb-3 px-1">
+        <Users size={14} className="text-emerald-500" />
+        <span className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Your Classmates</span>
+        <span className="text-[9px] text-[var(--text-muted)]">({classmates.length})</span>
+      </div>
+      <div className="flex gap-2.5 overflow-x-auto pb-2 scrollbar-none">
+        {classmates.map((cm: any) => {
+          const conversation = conversations.find((c: any) => c.student_id === cm.id)
+          return (
+            <div key={cm.id} className="w-[56px] shrink-0 text-center group">
+              <div className={`mx-auto ${conversation ? 'ring-2 ring-emerald-400 rounded-2xl p-[2px]' : ''}`}>
+                <Avatar
+                  url={cm.profile?.avatar_url}
+                  metadata={cm.profile?.avatar_metadata}
+                  name={cm.full_name}
+                  size="sm"
+                  className="!w-12 !h-12 !rounded-2xl mx-auto"
+                />
+              </div>
+              <p className="mt-1.5 text-[8px] font-bold truncate text-[var(--text-muted)]">{cm.full_name?.split(' ')[0]}</p>
+            </div>
+          )
+        })}
+      </div>
+    </div>
   )
 }
 
@@ -633,6 +667,7 @@ function ConversationRow({ role, conversation, active, onClick }: any) {
 function ConversationWorkspace({ role, currentUserId, conversation, messages, loading, safety, onBack, onRefresh, onMessageSaved }: any) {
   const contact = contactFor(conversation, role)
   const [replyTo, setReplyTo] = useState<any>(null)
+  const [replyHighlightId, setReplyHighlightId] = useState<string | null>(null)
   const [editing, setEditing] = useState<any>(null)
   const [otherTyping, setOtherTyping] = useState(false)
   const [showSafetyNotice, setShowSafetyNotice] = useState(true)
@@ -646,6 +681,8 @@ function ConversationWorkspace({ role, currentUserId, conversation, messages, lo
   useEffect(() => {
     setShowSafetyNotice(true)
     setPaused(role === 'student' ? conversation.is_archived_by_student : conversation.is_archived_by_teacher)
+    setReplyTo(null)
+    setReplyHighlightId(null)
   }, [conversation.id])
 
   useEffect(() => {
@@ -761,15 +798,39 @@ function ConversationWorkspace({ role, currentUserId, conversation, messages, lo
             {loading ? <MessageLoading /> : messages.map((message: any, index: number) => {
               const own = message.sender_id === currentUserId
               const showDivider = index === 0 || dateKey(messages[index - 1]?.created_at) !== dateKey(message.created_at)
+              const isReplyTarget = replyHighlightId === message.id
+              // Resolve the replied-to message locally from the messages array (like WhatsApp)
+              let resolvedReply = message.reply
+              if (!resolvedReply && message.reply_to_id) {
+                const original = messages.find(m => m.id === message.reply_to_id)
+                if (original) {
+                  resolvedReply = { id: original.id, body: original.body, sender_id: original.sender_id }
+                }
+              }
               return (
-                <div key={message.id}>
+                <div key={message.id} id={`msg-${message.id}`}>
                   {showDivider && <div className="my-4 flex items-center gap-3"><span className="h-px flex-1 bg-[var(--card-border)]" /><span className="px-3 py-1 rounded-full bg-[var(--card)] border border-[var(--card-border)] text-[9px] font-black text-[var(--text-muted)]">{formatDateDivider(message.created_at)}</span><span className="h-px flex-1 bg-[var(--card-border)]" /></div>}
                   <MessageBubble
-                    message={message}
+                    message={{ ...message, reply: resolvedReply }}
                     own={own}
+                    currentUserId={currentUserId}
+                    otherParticipantName={contact?.full_name || (role === 'teacher' ? 'Student' : 'Teacher')}
+                    isReplyTarget={isReplyTarget}
                     senderName={own ? 'You' : contact?.full_name || (role === 'teacher' ? 'Student' : 'Teacher')}
                     senderAvatar={own ? null : contact}
-                    onReply={() => setReplyTo(message)}
+                    onReply={() => {
+                      setReplyTo(message)
+                      setReplyHighlightId(message.id)
+                      setTimeout(() => {
+                        document.getElementById(`msg-${message.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                      }, 100)
+                    }}
+                    onReplyPreviewClick={(replyId: string) => {
+                      setReplyHighlightId(replyId)
+                      setTimeout(() => {
+                        document.getElementById(`msg-${replyId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                      }, 100)
+                    }}
                     onEdit={() => setEditing(message)}
                     onDelete={async () => {
                       await deletePeakMessage(message.id)
@@ -795,6 +856,7 @@ function ConversationWorkspace({ role, currentUserId, conversation, messages, lo
             currentUserId={currentUserId}
             expectedUserId={currentUserId}
             conversationId={conversation.id}
+            contactName={contact?.full_name || 'User'}
             replyTo={replyTo}
             editing={editing}
             paused={paused}
@@ -803,6 +865,8 @@ function ConversationWorkspace({ role, currentUserId, conversation, messages, lo
             onSent={(message: any) => {
               onMessageSaved(message)
               onRefresh()
+              setReplyTo(null)
+              setReplyHighlightId(null)
             }}
           />
         </div>
@@ -815,18 +879,26 @@ function ConversationWorkspace({ role, currentUserId, conversation, messages, lo
   )
 }
 
-function MessageBubble({ message, own, senderName, senderAvatar, onReply, onEdit, onDelete, onReact, onPin }: any) {
+function MessageBubble({ message, own, currentUserId, otherParticipantName, isReplyTarget, senderName, senderAvatar, onReply, onEdit, onDelete, onReact, onPin, onReplyPreviewClick }: any) {
   const [menu, setMenu] = useState(false)
   const [reactions, setReactions] = useState(false)
   const deleted = Boolean(message.deleted_at)
   return (
-    <div className={`flex ${own ? 'justify-end' : 'justify-start'} gap-2 group`}>
+    <div className={`flex ${own ? 'justify-end' : 'justify-start'} gap-2 group ${isReplyTarget ? 'bg-primary/5 -mx-2 px-2 rounded-2xl ring-1 ring-primary/20' : ''}`}>
       {!own && <Avatar url={senderAvatar?.avatar_url || senderAvatar?.profile?.avatar_url} metadata={senderAvatar?.profile?.avatar_metadata} name={senderName} size="sm" className="!w-7 !h-7 !rounded-xl mt-5 shrink-0" />}
       <div className={`max-w-[85%] md:max-w-[68%] ${own ? 'items-end' : 'items-start'} flex flex-col`}>
         <span className={`mb-1 px-1 text-[9px] font-black uppercase tracking-wider ${own ? 'text-primary' : 'text-[var(--text-muted)]'}`}>{senderName}</span>
-        {message.reply && (
-          <div className="mb-1 px-3 py-2 rounded-xl bg-[var(--input)] border-l-2 border-primary text-[10px] text-[var(--text-muted)] max-w-full truncate">
-            {message.reply.body}
+        {message.reply?.body && (
+          <div
+            className="mb-1.5 px-3 py-2 rounded-xl bg-[var(--card)]/60 border-l-[3px] border-primary/60 min-w-0 max-w-full cursor-pointer hover:bg-[var(--card)] transition-colors"
+            onClick={() => onReplyPreviewClick?.(message.reply.id)}
+          >
+            <p className="text-[8px] font-black uppercase tracking-wider text-primary/70 mb-0.5">
+              {message.reply.sender_id === currentUserId ? 'You' : otherParticipantName || 'Reply'}
+            </p>
+            <p className="text-[10px] text-[var(--text-muted)] leading-relaxed line-clamp-2">
+              {message.reply.body}
+            </p>
           </div>
         )}
         <div className="relative flex items-end gap-2">
@@ -917,10 +989,24 @@ function LearningCardBubble({ message, own }: any) {
   )
 }
 
-function MessageComposer({ role, currentUserId, expectedUserId, conversationId, replyTo, editing, paused, onClearReply, onClearEdit, onSent }: any) {
+const ACADEMIC_STICKERS = [
+  { emoji: '📚', label: 'Books' }, { emoji: '📖', label: 'Reading' }, { emoji: '✏️', label: 'Writing' },
+  { emoji: '📝', label: 'Notes' }, { emoji: '🎓', label: 'Graduate' }, { emoji: '🏆', label: 'Achievement' },
+  { emoji: '⭐', label: 'Star' }, { emoji: '💡', label: 'Idea' }, { emoji: '🔬', label: 'Science' },
+  { emoji: '🧪', label: 'Chemistry' }, { emoji: '📐', label: 'Math' }, { emoji: '🌍', label: 'Geography' },
+  { emoji: '🧠', label: 'Brain' }, { emoji: '💪', label: 'Strength' }, { emoji: '🎯', label: 'Goal' },
+  { emoji: '🔥', label: 'Fire' }, { emoji: '💯', label: 'Perfect' }, { emoji: '✅', label: 'Done' },
+  { emoji: '❌', label: 'Wrong' }, { emoji: '🔄', label: 'Retry' }, { emoji: '📌', label: 'Pin' },
+  { emoji: '📊', label: 'Progress' }, { emoji: '📈', label: 'Growth' }, { emoji: '🏅', label: 'Medal' },
+  { emoji: '🎉', label: 'Celebrate' }, { emoji: '👏', label: 'Clap' }, { emoji: '🙌', label: 'Hooray' },
+  { emoji: '💫', label: 'Magic' }, { emoji: '✨', label: 'Sparkle' }, { emoji: '🌟', label: 'Glow' },
+]
+
+function MessageComposer({ role, currentUserId, expectedUserId, conversationId, contactName = 'User', replyTo, editing, paused, onClearReply, onClearEdit, onSent }: any) {
   const [body, setBody] = useState('')
   const [sending, setSending] = useState(false)
   const [showEmoji, setShowEmoji] = useState(false)
+  const [showStickers, setShowStickers] = useState(false)
   const [emojiGroup, setEmojiGroup] = useState<keyof typeof EMOJI_GROUPS>('Recent')
   const [warning, setWarning] = useState<any>(null)
   const [pendingBody, setPendingBody] = useState('')
@@ -1079,41 +1165,94 @@ function MessageComposer({ role, currentUserId, expectedUserId, conversationId, 
         </div>
       )}
       {(replyTo || editing) && (
-        <div className="mb-2 px-4 py-2 rounded-xl bg-[var(--input)] flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-[9px] font-black uppercase tracking-widest text-primary">{editing ? 'Editing message' : 'Replying to'}</p>
-            <p className="text-xs truncate text-[var(--text-muted)]">{(editing || replyTo).body}</p>
+        <div className="mb-2 px-3 py-3 rounded-2xl bg-[var(--input)] border-l-4 border-primary flex items-start justify-between gap-3">
+          <div className="min-w-0 flex items-start gap-3">
+            {replyTo && (
+              <div className="w-8 h-8 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0 text-xs font-black">
+                {replyTo.sender_id === currentUserId ? 'You' : (contactName?.[0] || '?')}
+              </div>
+            )}
+            {editing && (
+              <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center shrink-0">
+                <Edit3 size={14} />
+              </div>
+            )}
+            <div className="min-w-0">
+              <p className="text-[9px] font-black uppercase tracking-widest text-primary">
+                {editing ? 'Editing' : `Replying to ${replyTo.sender_id === currentUserId ? 'yourself' : (contactName?.split(' ')[0] || 'message')}`}
+              </p>
+              <p className="text-xs mt-0.5 truncate text-[var(--text-muted)]">
+                {(editing || replyTo).body}
+              </p>
+            </div>
           </div>
-          <button onClick={editing ? onClearEdit : onClearReply}><X size={15} /></button>
+          <button
+            onClick={editing ? onClearEdit : onClearReply}
+            className="w-7 h-7 rounded-lg hover:bg-[var(--card-border)] flex items-center justify-center shrink-0 text-[var(--text-muted)]"
+          >
+            <X size={14} />
+          </button>
         </div>
       )}
-      <form onSubmit={submit} className="flex items-end gap-2 md:gap-3">
-        <button type="button" disabled={paused} onClick={() => setShowLearningCard(true)} aria-label="Create learning card" className="flex w-10 sm:w-11 h-11 shrink-0 rounded-2xl bg-[var(--input)] items-center justify-center text-[var(--text-muted)] hover:text-primary disabled:opacity-30"><ClipboardCheck size={18} /></button>
-        <div className="flex-1 min-w-0 rounded-[22px] bg-[var(--input)] border border-[var(--card-border)] flex items-end px-3">
-          <textarea ref={inputRef} value={body} onChange={(event) => handleBodyChange(event.target.value)} onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey) {
-              event.preventDefault()
-              submit()
-            }
-          }} disabled={paused} rows={1} placeholder={paused ? 'Conversation paused' : role === 'student' ? 'Ask your teacher...' : 'Write a thoughtful response...'} className="min-h-11 max-h-32 flex-1 resize-none bg-transparent outline-none py-3 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] disabled:cursor-not-allowed" />
-          <div className="relative">
-            <button type="button" disabled={paused} aria-label="Choose emoji" onClick={() => setShowEmoji(!showEmoji)} className="w-9 h-11 flex items-center justify-center text-[var(--text-muted)] hover:text-primary disabled:opacity-30"><Smile size={18} /></button>
+      <form onSubmit={submit} className="flex items-end gap-2 md:gap-2.5">
+        <div className="flex-1 min-w-0 rounded-[24px] bg-[var(--input)] border-2 border-[var(--card-border)] focus-within:border-primary/40 transition-colors flex items-end px-1.5 py-1 shadow-sm">
+          <textarea
+            ref={inputRef}
+            value={body}
+            onChange={(event) => handleBodyChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault()
+                submit()
+              }
+            }}
+            disabled={paused}
+            rows={1}
+            placeholder={paused ? 'Conversation paused' : role === 'student' ? 'Ask your teacher...' : 'Write a thoughtful response...'}
+            className="min-h-[44px] max-h-32 flex-1 resize-none bg-transparent outline-none py-3 px-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] disabled:cursor-not-allowed"
+          />
+          <div className="flex items-center gap-0.5">
+            <button type="button" disabled={paused} aria-label="Add sticker" onClick={() => { setShowStickers(!showStickers); setShowEmoji(false) }} className="w-9 h-9 rounded-xl flex items-center justify-center text-[var(--text-muted)] hover:text-primary hover:bg-primary/5 disabled:opacity-30 transition-all">
+              <span className="text-lg leading-none">🎯</span>
+            </button>
+            <button type="button" disabled={paused} aria-label="Choose emoji" onClick={() => { setShowEmoji(!showEmoji); setShowStickers(false) }} className="w-9 h-9 rounded-xl flex items-center justify-center text-[var(--text-muted)] hover:text-primary hover:bg-primary/5 disabled:opacity-30 transition-all">
+              <Smile size={19} />
+            </button>
+            {role === 'teacher' && (
+              <button type="button" disabled={paused} onClick={() => setShowLearningCard(true)} aria-label="Create learning card" className="w-9 h-9 rounded-xl flex items-center justify-center text-[var(--text-muted)] hover:text-primary hover:bg-primary/5 disabled:opacity-30 transition-all">
+                <ClipboardCheck size={18} />
+              </button>
+            )}
           </div>
         </div>
-        <button
-          type="button"
-          disabled={paused || sendingVoice}
-          onClick={recording ? stopRecording : startRecording}
-          aria-label={recording ? 'Stop voice note' : 'Record voice note'}
-          className={`w-11 h-11 rounded-2xl flex items-center justify-center transition-all disabled:opacity-40 ${recording ? 'bg-red-500 text-white animate-pulse' : 'bg-[var(--input)] text-[var(--text-muted)] hover:text-primary'}`}
-        >
-          {recording ? <Square size={16} fill="currentColor" /> : <Mic size={18} />}
-        </button>
-        <button aria-label={sending ? 'Sending message' : 'Send message'} disabled={paused || !body.trim() || sending} className="w-11 h-11 rounded-2xl bg-primary text-white flex items-center justify-center shadow-lg shadow-primary/25 disabled:opacity-40 disabled:shadow-none hover:scale-105 transition-transform">
-          <Send size={17} />
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            disabled={paused || sendingVoice}
+            onClick={recording ? stopRecording : startRecording}
+            aria-label={recording ? 'Stop voice note' : 'Record voice note'}
+            className={`w-11 h-11 rounded-2xl flex items-center justify-center transition-all disabled:opacity-40 ${recording ? 'bg-red-500 text-white shadow-lg shadow-red-500/30 scale-110' : 'bg-[var(--input)] text-[var(--text-muted)] hover:text-primary hover:bg-primary/5'}`}
+          >
+            {recording ? <Square size={15} fill="currentColor" /> : <Mic size={18} />}
+          </button>
+          <button
+            type="submit"
+            aria-label={sending ? 'Sending message' : 'Send message'}
+            disabled={paused || !body.trim() || sending}
+            className="w-11 h-11 rounded-2xl bg-gradient-to-br from-primary to-indigo-600 text-white flex items-center justify-center shadow-lg shadow-primary/30 disabled:opacity-40 disabled:shadow-none hover:scale-105 active:scale-95 transition-transform"
+          >
+            {sending ? <Loader2 size={17} className="animate-spin" /> : <Send size={17} />}
+          </button>
+        </div>
       </form>
-      {(recording || sendingVoice) && <p className="mt-2 text-center text-[10px] font-black text-red-500">{sendingVoice ? 'Sending voice note...' : `Recording ${recordingSeconds}s / 120s`}</p>}
+      {(recording || sendingVoice) && (
+        <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className="mt-2 flex items-center justify-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+          <span className="text-[10px] font-black text-red-500">
+            {sendingVoice ? 'Sending voice note...' : `Recording ${recordingSeconds}s / 120s`}
+          </span>
+        </motion.div>
+      )}
       <p className="mt-2 text-center text-[8px] text-[var(--text-muted)]">Peak Safeguarding checks context and communication patterns before delivery.</p>
 
       <AnimatePresence>
@@ -1179,6 +1318,53 @@ function MessageComposer({ role, currentUserId, expectedUserId, conversationId, 
                     className="aspect-square min-h-10 rounded-xl text-xl hover:bg-primary/10 active:scale-90 transition-all"
                   >
                     {emoji}
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showStickers && (
+          <>
+            <motion.button
+              type="button"
+              aria-label="Close sticker picker"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowStickers(false)}
+              className="fixed inset-0 z-40 bg-black/20 md:absolute md:bg-transparent"
+            />
+            <motion.div
+              initial={{ opacity: 0, y: 14, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.98 }}
+              className="fixed z-50 left-3 right-3 bottom-[82px] p-3 rounded-[24px] bg-[var(--card)] border border-[var(--card-border)] shadow-2xl md:absolute md:left-auto md:right-14 md:bottom-[76px] md:w-[330px]"
+            >
+              <div className="mb-2 px-1 flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-[#a855f7]">Study stickers</p>
+                  <p className="text-[9px] text-[var(--text-muted)]">Express your learning journey.</p>
+                </div>
+                <button type="button" onClick={() => setShowStickers(false)} aria-label="Close sticker picker" className="w-8 h-8 rounded-xl bg-[var(--input)] flex items-center justify-center"><X size={14} /></button>
+              </div>
+              <div className="grid grid-cols-5 gap-2 max-h-[260px] overflow-y-auto pr-1">
+                {ACADEMIC_STICKERS.map((sticker) => (
+                  <button
+                    key={sticker.emoji}
+                    type="button"
+                    aria-label={`Add ${sticker.label} sticker`}
+                    onClick={() => {
+                      handleBodyChange(body + sticker.emoji)
+                      inputRef.current?.focus()
+                    }}
+                    className="aspect-square min-h-[52px] rounded-2xl text-2xl bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 hover:scale-110 active:scale-90 transition-all flex items-center justify-center"
+                    title={sticker.label}
+                  >
+                    {sticker.emoji}
                   </button>
                 ))}
               </div>

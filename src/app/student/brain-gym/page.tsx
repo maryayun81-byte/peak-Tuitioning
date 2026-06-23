@@ -120,6 +120,7 @@ export default function DailyBrainGym() {
   )
 
   const isTodayCompleted = streakData?.last_played_date === new Date().toISOString().split('T')[0]
+  const totalQuestions = questions.length || 5
 
   return (
     <div className="p-6 md:p-8 max-w-4xl mx-auto pb-32">
@@ -201,7 +202,7 @@ export default function DailyBrainGym() {
             <div className="mb-8">
               <div className="flex justify-between text-sm font-black mb-2" style={{ color: 'var(--text-muted)' }}>
                 <span>Question {currentQIndex + 1} of 5</span>
-                <span className="text-emerald-500">{score} Correct</span>
+                <span className="text-emerald-500">{score} / 5</span>
               </div>
               <div className="h-3 w-full bg-[var(--input)] rounded-full overflow-hidden">
                 <div 
@@ -283,8 +284,22 @@ export default function DailyBrainGym() {
               <Trophy className="text-emerald-500" size={56} />
             </div>
             
-            <h2 className="text-3xl font-black mb-2 text-emerald-500">Gym Completed!</h2>
-            <p className="text-lg font-bold mb-8" style={{ color: 'var(--text-muted)' }}>
+            <motion.h2
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ type: 'spring', stiffness: 200, damping: 12 }}
+              className="text-3xl font-black mb-2 text-emerald-500"
+            >
+              Gym Completed! 🎉
+            </motion.h2>
+            {score === totalQuestions ? (
+              <p className="text-lg font-bold text-amber-500 mb-2">Perfect score! You're on fire! 🔥</p>
+            ) : score >= totalQuestions * 0.6 ? (
+              <p className="text-lg font-bold text-emerald-500 mb-2">Great job! Keep it up! 💪</p>
+            ) : (
+              <p className="text-lg font-bold text-blue-500 mb-2">Good try! Practice makes perfect! 📚</p>
+            )}
+            <p className="text-sm font-bold mb-8" style={{ color: 'var(--text-muted)' }}>
               You've completed your daily brain workout. Come back tomorrow!
             </p>
 
@@ -296,8 +311,8 @@ export default function DailyBrainGym() {
               </div>
               <div className="bg-[var(--card)] p-4 rounded-2xl border border-[var(--card-border)] flex flex-col items-center">
                 <Star className="text-amber-500 mb-2 fill-current" size={24} />
-                <span className="text-xl font-black" style={{ color: 'var(--text)' }}>{score || '-'}</span>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Today's Score</span>
+                <span className="text-xl font-black" style={{ color: 'var(--text)' }}>{score} / {totalQuestions}</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">{Math.round((score / totalQuestions) * 100)}%</span>
               </div>
             </div>
           </motion.div>

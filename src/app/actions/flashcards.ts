@@ -773,3 +773,147 @@ export async function submitCardReview(studentId: string, cardId: string, qualit
   
   return { nextDate, interval }
 }
+
+interface StudioCardFace {
+  background: string
+  font?: string
+  elements: Array<{
+    id: string
+    type: 'text' | 'image' | 'sticker' | 'math'
+    content: string
+    x: number
+    y: number
+    width?: number
+    height?: number
+    fontSize?: number
+    color?: string
+    fontFamily?: string
+    zIndex: number
+  }>
+}
+
+interface SaveStudioDeckPayload {
+  deckId?: string
+  title: string
+  subjectId?: string
+  coverFace: StudioCardFace
+  cards: Array<{
+    id: string
+    front: StudioCardFace
+    back: StudioCardFace
+  }>
+  themeStyle: string
+}
+
+export async function saveStudioDeck(studentId: string, payload: SaveStudioDeckPayload) {
+  const supabase = await createClient()
+
+  let deckId = payload.deckId
+
+  const coverConfig = {
+    title: payload.title,
+    background: payload.coverFace.background,
+    font: payload.coverFace.font || null,
+    elements: payload.coverFace.elements,
+  }
+
+  if (deckId) {
+    // Update existing deck
+    const { error: updateError } = await supabase
+      .from('flashcard_decks')
+      .update({
+        title: payload.title,
+        subject_id: payload.subjectId || null,
+        cover_config: coverConfig,
+        theme_style: payload.themeStyle,
+      })
+      .eq('id', deckId)
+      .eq('student_id', studentId)
+
+    if (updateError && isPermissionError(updateError)) {
+      const admin = await createAdminClient()
+      const adminResult = await admin
+        .from('flashcard_decks')
+        .update({
+          title: payload.title,
+          subject_id: payload.subjectId || null,
+          cover_config: coverConfig,
+          theme_style: payload.themeStyle,
+        })
+        .eq('id', deckId)
+        .eq('student_id', studentId)
+      if (adminResult.error) throw adminResult.error
+    } else if (updateError) {
+      throw updateError
+    }
+
+    // Delete existing cards and re-insert
+    await supabase.from('flashcard_cards').delete().eq('deck_id', deckId)
+  } else {
+    // Create new deck
+    const deck = await createDeck(studentId, payload.subjectId || '', payload.title, false, undefined, payload.themeStyle, {
+      coverConfig,
+      themeStyle: payload.themeStyle,
+    })
+    deckId = deck.id
+  }
+
+  // Insert all cards
+  for (let i = 0; i < payload.cards.length; i++) {
+    const card = payload.cards[i]
+    const frontText = card.front.elements
+      .filter(el => el.type === 'text')
+      .map(el => el.content.replace(/<[^>]*>/g, ''))
+      .join('; ')
+    const backText = card.back.elements
+      .filter(el => el.type === 'text')
+      .map(el => el.content.replace(/<[^>]*>/g, ''))
+      .join('; ')
+
+    await createCard(deckId, frontText || ' ', backText || ' ', {
+      visualConfig: {
+        front: card.front,
+        back: card.back,
+        order: i,
+      },
+    })
+  }
+
+  return { deckId }
+}
+
+export async function getStudentIdForUser() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const { data: student } = await supabase
+    .from('students')
+    .select('id')
+    .eq('user_id', user.id)
+    .single()
+
+  if (!student) throw new Error('Student profile not found')
+  return student.id
+}
+
+export async function loadStudioDeck(deckId: string) {
+  const supabase = await createClient()
+  const { data: deck, error: dError } = await supabase
+    .from('flashcard_decks')
+    .select('*')
+    .eq('id', deckId)
+    .single()
+
+  if (dError) throw dError
+
+  const { data: cards, error: cError } = await supabase
+    .from('flashcard_cards')
+    .select('*')
+    .eq('deck_id', deckId)
+    .order('created_at', { ascending: true })
+
+  if (cError) throw cError
+
+  return { deck: normalizeDeck(deck), cards: cards || [] }
+}

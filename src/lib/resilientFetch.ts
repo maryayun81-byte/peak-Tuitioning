@@ -29,9 +29,12 @@ function isRetryableError(error: any): boolean {
     code === 'ADDRNOTAVAIL' ||
     code === 'UND_ERR_CONNECT_TIMEOUT' ||
     msg.includes('fetch failed') ||
+    msg.includes('failed to fetch') ||
     msg.includes('timeout') ||
     msg.includes('network error') ||
-    msg.includes('connection reset')
+    msg.includes('connection reset') ||
+    msg.includes('internet') ||
+    msg.includes('network request failed')
   )
 }
 
@@ -139,7 +142,7 @@ export async function resilientFetch(
       }
 
       // If not retryable or max retries reached, throw
-      console.error(`[ResilientFetch] Critical failure after ${attempt} retries:`, err.message)
+      console.warn(`[ResilientFetch] Unreachable after ${attempt} retries:`, err.message)
       throw err
     }
   }

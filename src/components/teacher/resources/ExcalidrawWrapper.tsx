@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 // ⚠️ CRITICAL: Excalidraw CSS must be imported for the canvas to work correctly.
 // Without this, the toolbar renders vertically and pointer events are broken.
@@ -16,6 +16,7 @@ interface ExcalidrawWrapperProps {
   zenModeEnabled?: boolean;
   libraryItems?: any[];
   excalidrawApiRef?: React.MutableRefObject<any>;
+  onReady?: () => void;
 }
 
 export default function ExcalidrawWrapper({
@@ -25,11 +26,19 @@ export default function ExcalidrawWrapper({
   zenModeEnabled = false,
   libraryItems = [],
   excalidrawApiRef,
+  onReady,
 }: ExcalidrawWrapperProps) {
+  const readyRef = useRef(false);
   const [ExcalidrawComponent, setExcalidrawComponent] = useState<any>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (key?.includes('excalidraw-library')) {
+        localStorage.removeItem(key);
+      }
+    }
     import('@excalidraw/excalidraw')
       .then((mod) => {
         setExcalidrawComponent(() => mod.Excalidraw);
@@ -74,6 +83,10 @@ export default function ExcalidrawWrapper({
       <ExcalidrawComponent
         ref={(api: any) => {
           if (excalidrawApiRef) excalidrawApiRef.current = api;
+          if (!readyRef.current && api?.setActiveTool) {
+            readyRef.current = true;
+            onReady?.();
+          }
         }}
         initialData={{
           elements: initialData?.elements ?? [],

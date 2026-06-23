@@ -6,7 +6,8 @@ import { motion } from 'framer-motion'
 import { 
   Plus, Search, File, FileText, Image, 
   Video, Download, Trash2, Globe, Lock,
-  Filter, MoreVertical, ExternalLink, Library
+  Filter, MoreVertical, ExternalLink, Library,
+  PlayCircle
 } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Card, Badge, StatCard } from '@/components/ui/Card'
@@ -18,12 +19,37 @@ import { PageStates } from '@/components/ui/PageStates'
 import { ResourceFileUploader } from '@/components/ui/ResourceFileUploader'
 import { useAuthStore } from '@/stores/authStore'
 import { formatDate } from '@/lib/utils'
+import { getVideoThumbnail } from '@/lib/video'
 import { useAutoSave } from '@/hooks/useAutoSave'
 import { usePageData, clearPageDataCache } from '@/hooks/usePageData'
 import { DraftBanner } from '@/components/ui/DraftBanner'
 import toast from 'react-hot-toast'
 import { useAIFormStore } from '@/stores/aiFormStore'
 import type { Resource } from '@/types/database'
+
+function TeacherVideoThumbnail({ res }: { res: any }) {
+  const [thumbFailed, setThumbFailed] = useState(false)
+  const videoUrl = res?.video_url || res?.attachment_url || res?.url || ''
+  const thumb = getVideoThumbnail(videoUrl)
+  const showThumb = thumb && !thumbFailed
+
+  if (!showThumb) return null
+
+  return (
+    <div className="relative h-36 bg-black overflow-hidden">
+      <img
+        src={thumb}
+        alt=""
+        onError={() => setThumbFailed(true)}
+        className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-500"
+      />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
+      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+        <PlayCircle size={36} className="text-white/80 drop-shadow-lg" />
+      </div>
+    </div>
+  )
+}
 
 export default function TeacherResources() {
   const supabase = getSupabaseBrowserClient()
@@ -302,37 +328,47 @@ export default function TeacherResources() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
            {filtered.map((r, i) => (
              <motion.div key={r.id} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: i * 0.03 }}>
-                <Card className="p-4 h-full flex flex-col group border-2 border-transparent hover:border-primary/20 transition-all">
-                   <div className="flex items-start justify-between mb-4">
-                      <div className="p-3 rounded-2xl bg-[var(--input)]">
-                         {getIcon(r.type)}
-                      </div>
-                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                         <button onClick={() => deleteResource(r.id)} className="p-1.5 rounded-lg text-danger hover:bg-danger-light"><Trash2 size={14} /></button>
-                         <a href={r.url} target="_blank" rel="noreferrer" className="p-1.5 rounded-lg text-muted hover:bg-input"><ExternalLink size={14} /></a>
-                      </div>
-                   </div>
+                 <Card className="p-4 h-full flex flex-col group border-2 border-transparent hover:border-primary/20 transition-all overflow-hidden">
+                    {r.type === 'video' ? (
+                       <div className="-mx-4 -mt-4 mb-3 relative">
+                          <TeacherVideoThumbnail res={r} />
+                          <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                             <button onClick={() => deleteResource(r.id)} className="p-1.5 rounded-lg bg-black/50 text-white hover:bg-red-500/80 backdrop-blur-sm"><Trash2 size={14} /></button>
+                             <a href={r.url} target="_blank" rel="noreferrer" className="p-1.5 rounded-lg bg-black/50 text-white hover:bg-white/20 backdrop-blur-sm"><ExternalLink size={14} /></a>
+                          </div>
+                       </div>
+                    ) : (
+                       <div className="flex items-start justify-between mb-3">
+                          <div className="p-3 rounded-2xl bg-[var(--input)]">
+                             {getIcon(r.type)}
+                          </div>
+                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                             <button onClick={() => deleteResource(r.id)} className="p-1.5 rounded-lg text-danger hover:bg-danger-light"><Trash2 size={14} /></button>
+                             <a href={r.url} target="_blank" rel="noreferrer" className="p-1.5 rounded-lg text-muted hover:bg-input"><ExternalLink size={14} /></a>
+                          </div>
+                       </div>
+                    )}
 
-                   <h3 className="font-bold text-sm mb-1 line-clamp-2" style={{ color: 'var(--text)' }}>{r.title}</h3>
-                   <div className="flex items-center gap-2 mb-4">
-                      <div className="text-[10px] opacity-60">{r.subject?.name}</div>
-                      <div className="w-1 h-1 rounded-full bg-current opacity-20" />
-                      <div className="text-[10px] font-bold text-primary">{r.chapter || 'General'}</div>
-                   </div>
+                    <h3 className="font-bold text-sm mb-1 line-clamp-2" style={{ color: 'var(--text)' }}>{r.title}</h3>
+                    <div className="flex items-center gap-2 mb-4">
+                       <div className="text-[10px] opacity-60">{r.subject?.name}</div>
+                       <div className="w-1 h-1 rounded-full bg-current opacity-20" />
+                       <div className="text-[10px] font-bold text-primary">{r.chapter || 'General'}</div>
+                    </div>
 
-                   {r.is_practice && (
-                      <Badge variant="primary" className="mb-4 w-fit py-0.5 text-[8px] tracking-wider uppercase font-black bg-primary/10 text-primary border-primary/20">
-                         PRACTICE TASK
-                      </Badge>
-                   )}
+                    {r.is_practice && (
+                       <Badge variant="primary" className="mb-4 w-fit py-0.5 text-[8px] tracking-wider uppercase font-black bg-primary/10 text-primary border-primary/20">
+                          PRACTICE TASK
+                       </Badge>
+                    )}
 
-                   <div className="mt-auto pt-3 border-t flex items-center justify-between" style={{ borderColor: 'var(--card-border)' }}>
-                      <Badge variant={r.is_public ? 'success' : 'muted'} className="text-[9px]">
-                         {r.is_public ? 'Shared' : 'Private'}
-                      </Badge>
-                      <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{formatDate(r.created_at, 'short')}</span>
-                   </div>
-                </Card>
+                    <div className="mt-auto pt-3 border-t flex items-center justify-between" style={{ borderColor: 'var(--card-border)' }}>
+                       <Badge variant={r.is_public ? 'success' : 'muted'} className="text-[9px]">
+                          {r.is_public ? 'Shared' : 'Private'}
+                       </Badge>
+                       <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{formatDate(r.created_at, 'short')}</span>
+                    </div>
+                 </Card>
              </motion.div>
            ))}
            {filtered.length === 0 && <div className="col-span-full py-20 text-center text-sm" style={{ color: 'var(--text-muted)' }}>The library is empty. Upload your first resource!</div>}

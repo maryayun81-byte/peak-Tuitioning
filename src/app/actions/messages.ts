@@ -206,11 +206,33 @@ async function getMessagingBootstrapUnsafe(expectedUserId?: string) {
       })
     }
 
+    // Fetch classmates (other students in same class)
+    let classmates: any[] = []
+    if (student.class_id) {
+      const { data: classStudents } = await actor.admin
+        .from('students')
+        .select('id, full_name, user_id')
+        .eq('class_id', student.class_id)
+        .neq('id', student.id)
+        .order('full_name')
+        .limit(50)
+      const classStudentUserIds = (classStudents || []).map((s: any) => s.user_id).filter(Boolean)
+      const { data: classProfiles } = classStudentUserIds.length
+        ? await actor.admin.from('profiles').select('id, avatar_url, avatar_metadata').in('id', classStudentUserIds)
+        : { data: [] }
+      const profileMap = new Map((classProfiles || []).map((p: any) => [p.id, p]))
+      classmates = (classStudents || []).map((s: any) => ({
+        ...s,
+        profile: profileMap.get(s.user_id) || null,
+      }))
+    }
+
     return {
       role: actor.role,
       currentUserId: actor.user.id,
       currentProfile: student,
       contacts: [...teacherMap.values()],
+      classmates,
       conversations: conversations || [],
     }
   }
@@ -654,7 +676,7 @@ async function sendPeakMessageUnsafe(input: {
     return { sent: false, blocked: shouldBlock, requiresConfirmation: shouldWarn, safety }
   }
 
-  const { data: message, error } = await actor.admin
+  const { data: insertResult, error: insertError } = await actor.admin
     .from('peak_messages')
     .insert({
       conversation_id: input.conversationId,
@@ -663,9 +685,17 @@ async function sendPeakMessageUnsafe(input: {
       reply_to_id: input.replyToId || null,
       metadata: { safety_categories: safety.categories },
     })
-    .select('*')
+    .select('id, conversation_id, sender_id, body, reply_to_id, created_at, message_type, metadata')
     .single()
-  if (error) throw new Error(error.message)
+  if (insertError) throw new Error(insertError.message)
+
+  // Fetch the message with reply data via a proper self-join SELECT
+  const { data: message, error: fetchError } = await actor.admin
+    .from('peak_messages')
+    .select('*, reactions:peak_message_reactions(emoji, user_id), reply:peak_messages!reply_to_id(id, body, sender_id)')
+    .eq('id', insertResult.id)
+    .single()
+  if (fetchError || !message) throw new Error(fetchError?.message || 'Failed to fetch sent message')
 
   await Promise.all([
     actor.admin.from('peak_conversations').update({

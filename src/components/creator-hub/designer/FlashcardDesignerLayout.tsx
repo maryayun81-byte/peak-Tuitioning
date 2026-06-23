@@ -1,36 +1,56 @@
 import React, { useState } from 'react'
-import { 
-  Type, ImageIcon, Square, Layers, Sparkles, LayoutTemplate, 
-  Settings, Save, Undo, Redo, Download, Share2, Eye, LayoutGrid, 
-  ChevronLeft, ChevronRight, Plus, Trash2, ArrowLeft, Sigma, Library
+import {
+  Type, ImageIcon, Square, Sparkles, LayoutTemplate,
+  Settings, Save, Undo, Redo, Download, Share2, Eye,
+  ChevronLeft, ChevronRight, Plus, Trash2, ArrowLeft, Sigma, Library,
+  Maximize2, Minus, Plus as ZoomIn, Grid3X3, Loader2
 } from 'lucide-react'
 import Link from 'next/link'
-
-import { Menu, Transition } from '@headlessui/react'
-import { Fragment } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 
 interface DesignerLayoutProps {
   title?: string
   children: React.ReactNode
-  activeTab: 'text' | 'media' | 'shapes' | 'templates' | 'ai' | 'math' | 'subjects'
-  setActiveTab: (tab: 'text' | 'media' | 'shapes' | 'templates' | 'ai' | 'math' | 'subjects') => void
+  activeTab: 'text' | 'media' | 'shapes' | 'templates' | 'ai' | 'math' | 'subjects' | null
+  setActiveTab: (tab: 'text' | 'media' | 'shapes' | 'templates' | 'ai' | 'math' | 'subjects' | null) => void
   activeFace: 'cover' | 'front' | 'back'
   setActiveFace: (activeFace: 'cover' | 'front' | 'back') => void
   sidebarContent: React.ReactNode
   propertiesContent: React.ReactNode
   onShare?: () => void
   onExport?: () => void
+  onSave?: () => void
   isExporting?: boolean
+  isSaving?: boolean
   activeCardIndex?: number
   totalCards?: number
   onNextCard?: () => void
   onPrevCard?: () => void
   onAddCard?: () => void
   onDeleteCard?: () => void
+  onUndo?: () => void
+  onRedo?: () => void
+  canUndo?: boolean
+  canRedo?: boolean
+  layersPanel?: React.ReactNode
+  zoom?: number
+  onZoomIn?: () => void
+  onZoomOut?: () => void
+  onZoomReset?: () => void
+  onPreview?: () => void
 }
 
-export default function FlashcardDesignerLayout({ 
-  title = 'Untitled Deck', 
+const tools = [
+  { id: 'text' as const, icon: Type, label: 'Text' },
+  { id: 'media' as const, icon: ImageIcon, label: 'Media' },
+  { id: 'shapes' as const, icon: Square, label: 'Shapes' },
+  { id: 'math' as const, icon: Sigma, label: 'Math' },
+  { id: 'subjects' as const, icon: Library, label: 'Subjects' },
+  { id: 'templates' as const, icon: LayoutTemplate, label: 'Templates' },
+]
+
+export default function FlashcardDesignerLayout({
+  title = 'Untitled Deck',
   children,
   activeTab,
   setActiveTab,
@@ -40,180 +60,325 @@ export default function FlashcardDesignerLayout({
   propertiesContent,
   onShare,
   onExport,
+  onSave,
   isExporting = false,
+  isSaving = false,
   activeCardIndex = 0,
   totalCards = 1,
   onNextCard,
   onPrevCard,
   onAddCard,
-  onDeleteCard
+  onDeleteCard,
+  onUndo,
+  onRedo,
+  canUndo = false,
+  canRedo = false,
+  layersPanel,
+  zoom = 1,
+  onZoomIn,
+  onZoomOut,
+  onZoomReset,
+  onPreview,
 }: DesignerLayoutProps) {
+  const [showProperties, setShowProperties] = useState(false)
+  const [showLayers, setShowLayers] = useState(false)
+  const showPanel = activeTab !== null
+
   return (
-    <div className="flex flex-col h-[100dvh] bg-slate-100 dark:bg-slate-950 font-sans overflow-hidden">
-      
-      {/* Top Action Bar */}
-      <header className="h-14 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-4 z-20 shrink-0">
-        <div className="flex items-center gap-4">
-          <Link href="/student/flashcards" className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-500 transition-colors">
+    <div className="flex flex-col fixed inset-0 z-50 bg-[#f0f2f5] dark:bg-[#0f1117] font-sans overflow-hidden">
+
+      {/* ── Top Bar ─────────────────────────────────────────────── */}
+      <header className="h-14 bg-white dark:bg-[#1a1d27] border-b border-[#e5e7eb] dark:border-[#2a2d3a] flex items-center justify-between px-4 z-30 shrink-0">
+        <div className="flex items-center gap-3 min-w-0">
+          <Link
+            href="/student/flashcards"
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-[#6b7280] hover:bg-[#f3f4f6] dark:hover:bg-[#2a2d3a] transition-colors"
+          >
             <ArrowLeft size={18} />
           </Link>
-          <div className="h-4 w-px bg-slate-200 dark:bg-slate-700" />
-          <h1 className="font-bold text-slate-900 dark:text-white truncate max-w-[200px] sm:max-w-[300px]">{title}</h1>
-          <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 px-2 py-1 rounded-md">Auto-saved</span>
+          <div className="w-px h-5 bg-[#e5e7eb] dark:bg-[#2a2d3a]" />
+          <div className="min-w-0">
+            <h1 className="text-sm font-bold text-[#111] dark:text-white truncate max-w-[200px] sm:max-w-[320px]">{title}</h1>
+          </div>
+          <span className="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#059669] bg-[#ecfdf5] dark:bg-[#064e3b]/40 dark:text-[#6ee7b7] px-2.5 py-1 rounded-full">
+            <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+            Auto-saved
+          </span>
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="hidden sm:flex items-center gap-1 mr-4">
-            <button className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"><Undo size={18} /></button>
-            <button className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"><Redo size={18} /></button>
+        <div className="flex items-center gap-1.5">
+          <div className="hidden sm:flex items-center gap-1 mr-2">
+            <button onClick={onUndo} disabled={!canUndo} className="w-8 h-8 flex items-center justify-center rounded-lg text-[#9ca3af] hover:text-[#111] dark:hover:text-white hover:bg-[#f3f4f6] dark:hover:bg-[#2a2d3a] transition-colors disabled:opacity-30 disabled:pointer-events-none">
+              <Undo size={16} />
+            </button>
+            <button onClick={onRedo} disabled={!canRedo} className="w-8 h-8 flex items-center justify-center rounded-lg text-[#9ca3af] hover:text-[#111] dark:hover:text-white hover:bg-[#f3f4f6] dark:hover:bg-[#2a2d3a] transition-colors disabled:opacity-30 disabled:pointer-events-none">
+              <Redo size={16} />
+            </button>
           </div>
-          
-          <button onClick={() => alert('Preview mode will be implemented in Phase 7!')} className="hidden sm:flex items-center gap-2 px-3 py-1.5 text-sm font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">
+
+          <button
+            onClick={onPreview}
+            className="hidden sm:flex items-center gap-2 h-8 px-3 text-sm font-semibold text-[#6b7280] hover:text-[#111] dark:hover:text-white hover:bg-[#f3f4f6] dark:hover:bg-[#2a2d3a] rounded-lg transition-colors"
+          >
             <Eye size={16} /> Preview
           </button>
-          <button onClick={onShare} className="hidden sm:flex items-center gap-2 px-3 py-1.5 text-sm font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">
+          <button
+            onClick={onShare}
+            className="hidden sm:flex items-center gap-2 h-8 px-3 text-sm font-semibold text-[#6b7280] hover:text-[#111] dark:hover:text-white hover:bg-[#f3f4f6] dark:hover:bg-[#2a2d3a] rounded-lg transition-colors"
+          >
             <Share2 size={16} /> Share
           </button>
-
-          <button onClick={onExport} disabled={isExporting} className="flex items-center gap-2 px-3 py-1.5 text-sm font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors disabled:opacity-50 hidden sm:flex">
+          <button
+            onClick={onExport}
+            disabled={isExporting}
+            className="hidden sm:flex items-center gap-2 h-8 px-3 text-sm font-semibold text-[#6b7280] hover:text-[#111] dark:hover:text-white hover:bg-[#f3f4f6] dark:hover:bg-[#2a2d3a] rounded-lg transition-colors disabled:opacity-50"
+          >
             <Download size={16} /> {isExporting ? 'Exporting...' : 'Export'}
           </button>
 
-          <button onClick={() => alert('Deck saved successfully!')} className="flex items-center gap-2 px-4 py-1.5 text-sm font-bold bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg shadow-sm transition-colors">
-            <Save size={16} /> Save
+          <div className="w-px h-5 bg-[#e5e7eb] dark:bg-[#2a2d3a] mx-1" />
+
+          <button
+            onClick={onSave}
+            disabled={isSaving}
+            className="flex items-center gap-2 h-8 px-4 text-sm font-bold bg-[#6366f1] hover:bg-[#4f46e5] text-white rounded-lg transition-colors shadow-sm disabled:opacity-60"
+          >
+            {isSaving ? (
+              <><Loader2 size={15} className="animate-spin" /> Saving...</>
+            ) : (
+              <><Save size={15} /> Save</>
+            )}
           </button>
         </div>
       </header>
 
-      {/* Main Workspace */}
+      {/* ── Main Workspace ──────────────────────────────────────── */}
       <div className="flex flex-1 overflow-hidden">
-        
-        {/* Left Tools Sidebar */}
-        <aside className="w-16 sm:w-20 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col items-center py-4 gap-2 z-10 shrink-0 overflow-y-auto">
-          <ToolButton icon={<Type size={20} />} label="Text" active={activeTab === 'text'} onClick={() => setActiveTab('text')} />
-          <ToolButton icon={<ImageIcon size={20} />} label="Media" active={activeTab === 'media'} onClick={() => setActiveTab('media')} />
-          <ToolButton icon={<Square size={20} />} label="Shapes" active={activeTab === 'shapes'} onClick={() => setActiveTab('shapes')} />
-          <ToolButton icon={<Sigma size={20} />} label="Math" active={activeTab === 'math'} onClick={() => setActiveTab('math')} />
-          <ToolButton icon={<Library size={20} />} label="Subjects" active={activeTab === 'subjects'} onClick={() => setActiveTab('subjects')} />
-          <ToolButton icon={<LayoutTemplate size={20} />} label="Templates" active={activeTab === 'templates'} onClick={() => setActiveTab('templates')} />
-          <div className="w-8 h-px bg-slate-200 dark:bg-slate-800 my-2" />
-          <ToolButton icon={<Sparkles size={20} />} label="AI Coach" active={activeTab === 'ai'} onClick={() => setActiveTab('ai')} className="text-purple-500 hover:text-purple-600 dark:text-purple-400" />
-        </aside>
 
-        {/* Tool Settings Panel (Slide-out) */}
-        <div className="w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 z-0 flex flex-col overflow-hidden shrink-0 hidden md:flex">
-          <div className="p-4 border-b border-slate-100 dark:border-slate-800">
-            <h2 className="font-bold text-sm text-slate-900 dark:text-white capitalize">{activeTab} Tools</h2>
-          </div>
-          <div className="flex-1 overflow-y-auto p-4">
-            {sidebarContent}
-          </div>
-        </div>
+        {/* ── Left Tool Rail ─────────────────────────────────── */}
+        <nav className="w-[68px] bg-white dark:bg-[#1a1d27] border-r border-[#e5e7eb] dark:border-[#2a2d3a] flex flex-col items-center pt-3 gap-1 z-20 shrink-0">
+          {tools.map(t => {
+            const Icon = t.icon
+            const isActive = activeTab === t.id
+            return (
+              <button
+                key={t.id}
+                onClick={() => setActiveTab(isActive ? null : t.id)}
+                className={`w-12 h-12 flex flex-col items-center justify-center gap-0.5 rounded-xl transition-all ${
+                  isActive
+                    ? 'bg-[#6366f1]/10 text-[#6366f1] shadow-sm'
+                    : 'text-[#9ca3af] hover:bg-[#f3f4f6] dark:hover:bg-[#2a2d3a] hover:text-[#374151] dark:hover:text-white'
+                }`}
+              >
+                <Icon size={20} strokeWidth={1.5} />
+                <span className="text-[8px] font-bold uppercase tracking-wider">{t.label}</span>
+              </button>
+            )
+          })}
+          <div className="w-6 h-px bg-[#e5e7eb] dark:bg-[#2a2d3a] my-2" />
+          <button
+            onClick={() => setActiveTab('ai')}
+            className={`w-12 h-12 flex flex-col items-center justify-center gap-0.5 rounded-xl transition-all ${
+              activeTab === 'ai'
+                ? 'bg-[#a855f7]/10 text-[#a855f7] shadow-sm'
+                : 'text-[#9ca3af] hover:bg-[#f3f4f6] dark:hover:bg-[#2a2d3a] hover:text-[#374151] dark:hover:text-white'
+            }`}
+          >
+            <Sparkles size={20} strokeWidth={1.5} />
+            <span className="text-[8px] font-bold uppercase tracking-wider">AI</span>
+          </button>
+        </nav>
 
-        {/* Center Canvas Area */}
-        <main className="flex-1 relative flex flex-col bg-slate-100 dark:bg-slate-950 overflow-hidden">
-          {/* View toggle (Cover/Front/Back) */}
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center bg-white dark:bg-slate-800 rounded-full shadow-sm border border-slate-200 dark:border-slate-700 p-1 z-10">
-            <button 
-              className={`px-4 py-1.5 rounded-full text-sm font-bold transition-colors ${activeFace === 'cover' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'}`}
-              onClick={() => setActiveFace('cover')}
+        {/* ── Tool Panel (slide-out) ─────────────────────────── */}
+        <AnimatePresence>
+          {showPanel && (
+            <motion.aside
+              initial={{ width: 0, opacity: 0 }}
+              animate={{ width: 300, opacity: 1 }}
+              exit={{ width: 0, opacity: 0 }}
+              transition={{ duration: 0.2, ease: 'easeInOut' }}
+              className="bg-white dark:bg-[#1a1d27] border-r border-[#e5e7eb] dark:border-[#2a2d3a] flex flex-col overflow-hidden shrink-0 hidden md:flex"
             >
-              Cover
-            </button>
-            <button 
-              className={`px-4 py-1.5 rounded-full text-sm font-bold transition-colors ${activeFace === 'front' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'}`}
-              onClick={() => setActiveFace('front')}
-            >
-              Front
-            </button>
-            <button 
-              className={`px-4 py-1.5 rounded-full text-sm font-bold transition-colors ${activeFace === 'back' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'}`}
-              onClick={() => setActiveFace('back')}
-            >
-              Back
-            </button>
+              <div className="shrink-0 px-5 py-4 border-b border-[#e5e7eb] dark:border-[#2a2d3a] flex items-center justify-between">
+                <h2 className="text-sm font-bold text-[#111] dark:text-white capitalize">
+                  {activeTab === 'ai' ? 'AI Coach' : `${tools.find(t => t.id === activeTab)?.label || ''} Tools`}
+                </h2>
+                <button
+                  onClick={() => setActiveTab(null)}
+                  className="w-6 h-6 flex items-center justify-center rounded-md text-[#9ca3af] hover:text-[#111] dark:hover:text-white hover:bg-[#f3f4f6] dark:hover:bg-[#2a2d3a] transition-colors"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-5">
+                {sidebarContent}
+              </div>
+            </motion.aside>
+          )}
+        </AnimatePresence>
+
+        {/* ── Canvas Area ──────────────────────────────────────── */}
+        <main className="flex-1 flex flex-col overflow-hidden">
+
+          {/* Face tabs — shrink-0 so they never overlap the card */}
+          <div className="shrink-0 flex items-center justify-center pt-2 pb-1 z-10">
+            <div className="flex items-center bg-white dark:bg-[#1a1d27] rounded-xl shadow-sm border border-[#e5e7eb] dark:border-[#2a2d3a] p-1">
+              {(['cover', 'front', 'back'] as const).map(face => (
+                <button
+                  key={face}
+                  onClick={() => setActiveFace(face)}
+                  className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${
+                    activeFace === face
+                      ? 'bg-[#6366f1] text-white shadow-sm'
+                      : 'text-[#6b7280] hover:text-[#111] dark:hover:text-white'
+                  }`}
+                >
+                  {face === 'cover' ? 'Cover' : face === 'front' ? 'Front' : 'Back'}
+                </button>
+              ))}
+            </div>
           </div>
 
-          {/* Actual Canvas */}
-          <div className="flex-1 overflow-auto flex items-center justify-center p-8">
-            <div className="w-full max-w-2xl aspect-[4/3] bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 relative group overflow-hidden">
+          {/* Canvas */}
+          <div className="flex-1 overflow-auto flex items-center justify-center px-8 lg:px-12 pb-8 lg:pb-12">
+            <motion.div
+              layout
+              className={`w-full max-w-[640px] aspect-[4/3] bg-white dark:bg-[#1a1d27] rounded-2xl shadow-xl border border-[#e5e7eb] dark:border-[#2a2d3a] relative group overflow-hidden transition-shadow hover:shadow-2xl`}
+            >
               {children}
-            </div>
+            </motion.div>
           </div>
 
-          {/* Bottom Card Navigation */}
-          <div className="h-16 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between px-4 shrink-0">
-            <div className="flex items-center gap-2">
-              <button className="p-2 rounded-lg text-slate-400 hover:text-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800"><LayoutGrid size={18} /></button>
-            </div>
-            
+          {/* Bottom card navigation */}
+          <div className="h-16 bg-white dark:bg-[#1a1d27] border-t border-[#e5e7eb] dark:border-[#2a2d3a] flex items-center justify-between px-6 shrink-0">
+            <button
+              onClick={() => setShowLayers(!showLayers)}
+              className={`w-9 h-9 flex items-center justify-center rounded-lg transition-colors ${
+                showLayers
+                  ? 'bg-[#6366f1]/10 text-[#6366f1]'
+                  : 'text-[#9ca3af] hover:text-[#111] dark:hover:text-white hover:bg-[#f3f4f6] dark:hover:bg-[#2a2d3a]'
+              }`}
+            >
+              <Grid3X3 size={16} />
+            </button>
+
             <div className="flex items-center gap-4">
-              <button 
+              <button
                 onClick={onPrevCard}
                 disabled={activeCardIndex === 0}
-                className="p-2 rounded-full border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors disabled:opacity-50"
+                className="w-9 h-9 flex items-center justify-center rounded-full border border-[#e5e7eb] dark:border-[#2a2d3a] text-[#6b7280] hover:bg-[#f3f4f6] dark:hover:bg-[#2a2d3a] transition-colors disabled:opacity-40"
               >
                 <ChevronLeft size={16} />
               </button>
-              <span className="text-sm font-bold text-slate-700 dark:text-slate-300">
-                Card {activeCardIndex + 1} <span className="text-slate-400 font-medium">of {totalCards}</span>
+              <span className="text-sm font-semibold text-[#374151] dark:text-[#d1d5db] select-none">
+                Card <span className="text-[#111] dark:text-white">{activeCardIndex + 1}</span>
+                <span className="text-[#9ca3af] font-normal"> / {totalCards}</span>
               </span>
-              <button 
+              <button
                 onClick={onNextCard}
                 disabled={activeCardIndex === totalCards - 1}
-                className="p-2 rounded-full border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors disabled:opacity-50"
+                className="w-9 h-9 flex items-center justify-center rounded-full border border-[#e5e7eb] dark:border-[#2a2d3a] text-[#6b7280] hover:bg-[#f3f4f6] dark:hover:bg-[#2a2d3a] transition-colors disabled:opacity-40"
               >
                 <ChevronRight size={16} />
               </button>
             </div>
 
             <div className="flex items-center gap-2">
-              <button 
+              <button
                 onClick={onDeleteCard}
                 disabled={totalCards <= 1}
-                className="p-2 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 disabled:opacity-50"
+                className="w-9 h-9 flex items-center justify-center rounded-lg text-[#9ca3af] hover:text-[#ef4444] hover:bg-[#fef2f2] dark:hover:bg-[#450a0a]/40 transition-colors disabled:opacity-40"
               >
-                <Trash2 size={18} />
+                <Trash2 size={16} />
               </button>
-              <div className="w-px h-4 bg-slate-200 dark:bg-slate-700 mx-1" />
-              <button 
+              <div className="w-px h-5 bg-[#e5e7eb] dark:bg-[#2a2d3a]" />
+              <button
                 onClick={onAddCard}
-                className="flex items-center gap-2 px-3 py-1.5 text-sm font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors"
+                className="flex items-center gap-2 h-9 px-4 text-sm font-bold bg-[#f3f4f6] dark:bg-[#2a2d3a] text-[#374151] dark:text-[#d1d5db] hover:bg-[#e5e7eb] dark:hover:bg-[#3a3d4a] rounded-lg transition-colors"
               >
                 <Plus size={16} /> Add Card
+              </button>
+
+              <button
+                onClick={() => setShowProperties(!showProperties)}
+                className={`ml-2 w-9 h-9 flex items-center justify-center rounded-lg transition-colors ${
+                  showProperties
+                    ? 'bg-[#6366f1]/10 text-[#6366f1]'
+                    : 'text-[#9ca3af] hover:text-[#111] dark:hover:text-white hover:bg-[#f3f4f6] dark:hover:bg-[#2a2d3a]'
+                }`}
+              >
+                <Settings size={16} />
               </button>
             </div>
           </div>
         </main>
 
-        {/* Right Settings Sidebar (Properties) */}
-        <aside className="w-64 bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col shrink-0 hidden lg:flex overflow-y-auto">
-          <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-            <h2 className="font-bold text-sm text-slate-900 dark:text-white">Properties</h2>
-            <Settings size={16} className="text-slate-400" />
-          </div>
-          <div className="p-4 flex-1">
-            {propertiesContent}
-          </div>
-        </aside>
+        {/* ── Right Panels ──────────────────────────────────── */}
+        <AnimatePresence>
+          {showProperties && (
+            <motion.aside
+              initial={{ width: 0, opacity: 0 }}
+              animate={{ width: 280, opacity: 1 }}
+              exit={{ width: 0, opacity: 0 }}
+              transition={{ duration: 0.2, ease: 'easeInOut' }}
+              className="bg-white dark:bg-[#1a1d27] border-l border-[#e5e7eb] dark:border-[#2a2d3a] flex flex-col shrink-0 hidden lg:flex overflow-hidden"
+            >
+              <div className="shrink-0 px-5 py-4 border-b border-[#e5e7eb] dark:border-[#2a2d3a] flex items-center justify-between">
+                <h2 className="text-sm font-bold text-[#111] dark:text-white">Properties</h2>
+                <button
+                  onClick={() => setShowProperties(false)}
+                  className="w-6 h-6 flex items-center justify-center rounded-md text-[#9ca3af] hover:text-[#111] dark:hover:text-white hover:bg-[#f3f4f6] dark:hover:bg-[#2a2d3a] transition-colors"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-5">
+                {propertiesContent}
+              </div>
+            </motion.aside>
+          )}
+          {showLayers && (
+            <motion.aside
+              initial={{ width: 0, opacity: 0 }}
+              animate={{ width: 260, opacity: 1 }}
+              exit={{ width: 0, opacity: 0 }}
+              transition={{ duration: 0.2, ease: 'easeInOut' }}
+              className="bg-white dark:bg-[#1a1d27] border-l border-[#e5e7eb] dark:border-[#2a2d3a] flex flex-col shrink-0 hidden lg:flex overflow-hidden"
+            >
+              <div className="shrink-0 px-5 py-4 border-b border-[#e5e7eb] dark:border-[#2a2d3a] flex items-center justify-between">
+                <h2 className="text-sm font-bold text-[#111] dark:text-white">Layers</h2>
+                <button
+                  onClick={() => setShowLayers(false)}
+                  className="w-6 h-6 flex items-center justify-center rounded-md text-[#9ca3af] hover:text-[#111] dark:hover:text-white hover:bg-[#f3f4f6] dark:hover:bg-[#2a2d3a] transition-colors"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-5">
+                {layersPanel || (
+                  <p className="text-xs text-[#9ca3af]">Move elements on the canvas to see their layers.</p>
+                )}
+              </div>
+            </motion.aside>
+          )}
+        </AnimatePresence>
 
       </div>
-    </div>
-  )
-}
 
-function ToolButton({ icon, label, active, onClick, className = '' }: any) {
-  return (
-    <button 
-      onClick={onClick}
-      className={`w-12 h-12 flex flex-col items-center justify-center gap-1 rounded-xl transition-all ${
-        active 
-        ? 'bg-primary/10 text-primary shadow-sm' 
-        : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
-      } ${className}`}
-    >
-      {icon}
-      <span className="text-[9px] font-bold uppercase tracking-wider">{label}</span>
-    </button>
+      {/* ── Zoom / Layout controls ───────────────────────────── */}
+      <div className="hidden lg:flex absolute bottom-20 left-1/2 -translate-x-1/2 items-center gap-2 bg-white/90 dark:bg-[#1a1d27]/90 backdrop-blur-md border border-[#e5e7eb] dark:border-[#2a2d3a] rounded-full px-3 py-1.5 shadow-lg z-10">
+        <button onClick={onZoomOut} className="w-7 h-7 flex items-center justify-center rounded-full text-[#6b7280] hover:text-[#111] dark:hover:text-white hover:bg-[#f3f4f6] dark:hover:bg-[#2a2d3a] transition-colors">
+          <Minus size={14} />
+        </button>
+        <button onClick={onZoomReset} className="text-xs font-semibold text-[#374151] dark:text-[#d1d5db] min-w-[36px] text-center hover:text-primary transition-colors">{Math.round((zoom || 1) * 100)}%</button>
+        <button onClick={onZoomIn} className="w-7 h-7 flex items-center justify-center rounded-full text-[#6b7280] hover:text-[#111] dark:hover:text-white hover:bg-[#f3f4f6] dark:hover:bg-[#2a2d3a] transition-colors">
+          <ZoomIn size={14} />
+        </button>
+        <div className="w-px h-4 bg-[#e5e7eb] dark:bg-[#2a2d3a]" />
+        <button onClick={onPreview} className="w-7 h-7 flex items-center justify-center rounded-full text-[#6b7280] hover:text-[#111] dark:hover:text-white hover:bg-[#f3f4f6] dark:hover:bg-[#2a2d3a] transition-colors">
+          <Maximize2 size={14} />
+        </button>
+      </div>
+    </div>
   )
 }

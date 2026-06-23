@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, Suspense, useMemo } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
@@ -8,21 +9,79 @@ import {
   Link as LinkIcon, Download, Search, 
   Filter, GraduationCap, School, Book,
   ChevronRight, ArrowRight, X, PlayCircle,
-  ExternalLink, Sparkles, Layers,
+  Sparkles, Layers,
   CheckCircle2, Clock, Cpu
 } from 'lucide-react'
 import { Card, Badge } from '@/components/ui/Card'
+import { Modal } from '@/components/ui/Modal'
+import { SkeletonDashboard } from '@/components/ui/Skeleton'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
-import { Modal } from '@/components/ui/Modal'
-import { useSearchParams } from 'next/navigation'
-import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/authStore'
-import { SkeletonDashboard } from '@/components/ui/Skeleton'
+import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { formatDate } from '@/lib/utils'
+import { getVideoThumbnail } from '@/lib/video'
 import Link from 'next/link'
 
 type ResourceType = 'all' | 'note' | 'video' | 'link' | 'practice' | 'interactive'
+
+function ResourceCardHeader({ res, isPlayable }: { res: any; isPlayable: boolean }) {
+  const [thumbFailed, setThumbFailed] = useState(false)
+  const videoUrl = res?.video_url || res?.attachment_url || res?.url || ''
+  const thumb = isPlayable ? getVideoThumbnail(videoUrl) : ''
+  const showThumb = thumb && !thumbFailed
+
+  if (showThumb) {
+    return (
+      <div className="relative h-40 bg-black flex items-center justify-center border-b border-[var(--card-border)] overflow-hidden">
+        <img
+          src={thumb}
+          alt=""
+          onError={() => setThumbFailed(true)}
+          className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-500"
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/20" />
+        {/* Play icon overlay */}
+        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 flex items-center justify-center transition-colors">
+          <div className="scale-75 group-hover:scale-100 transition-transform">
+            <PlayCircle size={40} className="text-white/90 drop-shadow-2xl" />
+          </div>
+        </div>
+        <div className="absolute top-4 left-4">
+          <Badge variant="muted" className="bg-black/40 backdrop-blur-md border border-white/10 text-[8px] tracking-widest uppercase font-black px-3 py-1 text-white">
+            {res.subject?.name}
+          </Badge>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="relative h-40 bg-[var(--input)] flex items-center justify-center border-b border-[var(--card-border)] overflow-hidden">
+      <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-accent/5 opacity-50 group-hover:scale-110 transition-transform duration-700" />
+      {isPlayable ? (
+        <Video size={48} className="text-rose-500 drop-shadow-[0_0_15px_rgba(244,63,94,0.4)]" />
+      ) : res.url?.startsWith('/student/resources/viewer') ? (
+        <Cpu size={48} className="text-purple-500 drop-shadow-[0_0_15px_rgba(168,85,247,0.4)]" />
+      ) : res.type === 'link' ? (
+        <LinkIcon size={48} className="text-blue-500 drop-shadow-[0_0_15px_rgba(59,130,246,0.4)]" />
+      ) : (
+        <FileText size={48} className="text-emerald-500 drop-shadow-[0_0_15px_rgba(16,185,129,0.4)]" />
+      )}
+      {/* Hover Overlay */}
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="bg-white text-primary p-4 rounded-full shadow-2xl scale-75 group-hover:scale-100 transition-transform">
+          {isPlayable ? <PlayCircle size={32} /> : <ArrowRight size={32} />}
+        </div>
+      </div>
+      <div className="absolute top-4 left-4">
+        <Badge variant="muted" className="bg-black/20 backdrop-blur-md border-none text-[8px] tracking-widest uppercase font-black px-3 py-1">
+          {res.subject?.name}
+        </Badge>
+      </div>
+    </div>
+  )
+}
 
 function ResourcesContent() {
   const supabase = getSupabaseBrowserClient()
@@ -91,7 +150,9 @@ function ResourcesContent() {
       const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/
       const match = url.match(regExp)
       const id = (match && match[2].length === 11) ? match[2] : null
-      return id ? `https://www.youtube.com/embed/${id}` : null
+      if (!id) return null
+      const origin = typeof window !== 'undefined' ? window.location.origin : ''
+      return `https://www.youtube.com/embed/${id}?rel=0&modestbranding=1&playsinline=1${origin ? `&origin=${encodeURIComponent(origin)}` : ''}`
     }
     return url
   }
@@ -194,42 +255,18 @@ function ResourcesContent() {
                      exit={{ opacity: 0, scale: 0.9 }}
                      transition={{ duration: 0.3, delay: i * 0.05 }}
                   >
-                     <Card className="glass-card-elite p-0 h-full overflow-hidden flex flex-col group cursor-pointer" onClick={() => {
-                        if (isPlayableVideoResource(res)) setActiveVideo(res)
-                        else if (res.url) {
-                           if (isInteractiveResource(res)) {
-                               window.location.href = res.url // stay in same tab for viewer
-                           } else {
-                               window.open(res.url, '_blank')
-                           }
-                        }
-                     }}>
-                        {/* Card Header/Icon */}
-                        <div className="relative h-40 bg-[var(--input)] flex items-center justify-center border-b border-[var(--card-border)] overflow-hidden">
-                           <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-accent/5 opacity-50 group-hover:scale-110 transition-transform duration-700" />
-                           {isPlayableVideoResource(res) ? (
-                              <Video size={48} className="text-rose-500 drop-shadow-[0_0_15px_rgba(244,63,94,0.4)]" />
-                           ) : isInteractiveResource(res) ? (
-                              <Cpu size={48} className="text-purple-500 drop-shadow-[0_0_15px_rgba(168,85,247,0.4)]" />
-                           ) : res.type === 'link' ? (
-                              <LinkIcon size={48} className="text-blue-500 drop-shadow-[0_0_15px_rgba(59,130,246,0.4)]" />
-                           ) : (
-                              <FileText size={48} className="text-emerald-500 drop-shadow-[0_0_15px_rgba(16,185,129,0.4)]" />
-                           )}
-                           
-                           {/* Hover Overlay */}
-                           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                              <div className="bg-white text-primary p-4 rounded-full shadow-2xl scale-75 group-hover:scale-100 transition-transform">
-                                 {isPlayableVideoResource(res) ? <PlayCircle size={32} /> : <ArrowRight size={32} />}
-                              </div>
-                           </div>
-
-                           <div className="absolute top-4 left-4">
-                              <Badge variant="muted" className="bg-black/20 backdrop-blur-md border-none text-[8px] tracking-widest uppercase font-black px-3 py-1">
-                                 {res.subject?.name}
-                              </Badge>
-                           </div>
-                        </div>
+                      <Card className="glass-card-elite p-0 h-full overflow-hidden flex flex-col group cursor-pointer" onClick={() => {
+                         if (isPlayableVideoResource(res)) setActiveVideo(res)
+                         else if (res.url) {
+                            if (isInteractiveResource(res)) {
+                                window.location.href = res.url
+                            } else {
+                                window.open(res.url, '_blank')
+                            }
+                         }
+                      }}>
+                          {/* Card Header/Icon */}
+                          <ResourceCardHeader res={res} isPlayable={isPlayableVideoResource(res)} />
 
                         {/* Content */}
                         <div className="p-6 flex flex-col flex-1 gap-4">
@@ -285,20 +322,20 @@ function ResourcesContent() {
       {/* Video Modal */}
       <Modal isOpen={!!activeVideo} onClose={() => setActiveVideo(null)} size="xl" title={activeVideo?.title || 'Video Lesson'}>
          <div className="space-y-6 pt-4">
-            <div className="aspect-video bg-black rounded-3xl overflow-hidden shadow-2xl border border-[var(--card-border)]">
-               {activeVideo && (
-                  getVideoEmbed(activeVideo.video_url || activeVideo.url) ? (
-                     <iframe 
-                        src={getVideoEmbed(activeVideo.video_url || activeVideo.url) || ''} 
-                        className="w-full h-full" 
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-                        allowFullScreen
-                     />
-                  ) : (
-                     <video src={activeVideo.attachment_url || activeVideo.url} controls className="w-full h-full" />
-                  )
-               )}
-            </div>
+             <div className="aspect-video bg-black rounded-3xl overflow-hidden shadow-2xl border border-[var(--card-border)]">
+                {activeVideo && (
+                   getVideoEmbed(activeVideo.video_url || activeVideo.url) ? (
+                      <iframe
+                         src={getVideoEmbed(activeVideo.video_url || activeVideo.url) || ''}
+                         className="w-full h-full"
+                         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+                         allowFullScreen
+                      />
+                   ) : (
+                      <video src={activeVideo.attachment_url || activeVideo.url} controls className="w-full h-full" />
+                   )
+                )}
+             </div>
             <div className="space-y-2">
                <div className="flex items-center gap-3">
                   <Badge variant="primary" className="uppercase font-black text-[10px] tracking-widest">{activeVideo?.subject?.name}</Badge>
@@ -306,14 +343,14 @@ function ResourcesContent() {
                </div>
                <p className="text-sm font-medium opacity-70 leading-relaxed" style={{ color: 'var(--text)' }}>{activeVideo?.description}</p>
             </div>
-            <div className="flex gap-4 pt-4">
-               <Button className="flex-1" onClick={() => setActiveVideo(null)}>Close Player</Button>
-               {activeVideo?.attachment_url && (
-                  <a href={activeVideo.attachment_url} download className="flex-1">
-                     <Button variant="secondary" className="w-full"><Download size={18} className="mr-2" /> Download Video</Button>
-                  </a>
-               )}
-            </div>
+         <div className="flex gap-4 pt-4">
+                <Button className="flex-1" onClick={() => setActiveVideo(null)}>Close Player</Button>
+                {activeVideo?.attachment_url && (
+                   <a href={activeVideo.attachment_url} download className="flex-1">
+                      <Button variant="secondary" className="w-full"><Download size={18} className="mr-2" /> Download Video</Button>
+                   </a>
+                )}
+             </div>
          </div>
       </Modal>
     </div>

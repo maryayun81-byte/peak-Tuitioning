@@ -50,7 +50,7 @@ export function useAuth() {
         const { data: profileData, error: profileError } = profileResult
         
         if (profileError || !profileData) {
-          if (profileError) console.error('[useAuth] Profile fetch error:', profileError)
+          if (profileError) console.warn('[useAuth] Profile fetch error (Supabase might be unreachable):', profileError)
           // If we have a metadata role but profiles fetch failed, don't reset yet
           // unless we have no profile at all.
           if (!sessionRole && !hasProfile) reset()
@@ -66,8 +66,8 @@ export function useAuth() {
           try {
             if (p.role === 'student') {
               const { data, error: fetchError } = await Promise.race([
-                supabase.from('students').select('*, class:classes(*), curriculum:curriculums(*)').eq('user_id', userId).single(),
-                new Promise<{ data: any; error: any }>((_, reject) => setTimeout(() => reject(new Error('Student data fetch timed out')), 8000))
+                supabase.from('students').select('*, class:classes(id, name), curriculum:curriculums(id, name)').eq('user_id', userId).single(),
+                new Promise<{ data: any; error: any }>((_, reject) => setTimeout(() => reject(new Error('Student data fetch timed out')), 15000))
               ])
               if (data) {
                 const derivedOnboarded = data.onboarded === true || p.has_onboarded === true || Boolean(data.class_id && data.curriculum_id)
@@ -85,7 +85,7 @@ export function useAuth() {
             } else if (p.role === 'parent') {
               const { data: parentListData } = await Promise.race([
                 supabase.from('parents').select('*').eq('user_id', userId),
-                new Promise<{ data: any; error: any }>((_, reject) => setTimeout(() => reject(new Error('Parent data fetch timed out')), 8000))
+                new Promise<{ data: any; error: any }>((_, reject) => setTimeout(() => reject(new Error('Parent data fetch timed out')), 15000))
               ])
               if (parentListData && parentListData.length > 0) {
                 const anyOnboarded = parentListData.some((r: any) => r.onboarded === true)

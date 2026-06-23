@@ -74,6 +74,7 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
   const supabase = getSupabaseBrowserClient()
   const router = useRouter()
   const pathname = usePathname()
+  const isCreatorHub = pathname.startsWith('/student/flashcards')
 
   // Sticky refs — hold the last non-null profile/student so the portal never goes
   // blank during a token refresh re-fetch (~every 1 hr) when the store transiently
@@ -231,8 +232,9 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
           )}
         </Sidebar>
 
-        <main className="min-h-screen transition-all duration-300 pb-20 md:pb-0" style={{ marginLeft: 0 }}>
-          {/* Modern Header for Students */}
+        <main className={`min-h-screen transition-all duration-300 ${isCreatorHub ? 'pb-0' : 'pb-20 md:pb-0'}`} style={{ marginLeft: 0 }}>
+          {/* Modern Header for Students — hidden on creator hub for full-screen */}
+          {!isCreatorHub && (
           <header
             className="sticky top-0 z-40 px-6 py-4 flex items-center justify-between border-b border-[var(--card-border)] md:ml-[260px]"
             style={{ background: 'rgba(var(--card-rgb), 0.8)', backdropFilter: 'blur(12px)' }}
@@ -271,6 +273,7 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
               </Link>
             </div>
           </header>
+          )}
 
           <div className="md:ml-[260px]">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>

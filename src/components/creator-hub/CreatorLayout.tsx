@@ -139,7 +139,7 @@ export default function CreatorLayout({ children }: { children: React.ReactNode 
       </motion.div>
 
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-col overflow-hidden pt-16 lg:pt-0">
+      <main className="flex-1 flex flex-col overflow-hidden pt-16 lg:pt-0 h-full">
         <div className="flex-1 overflow-y-auto">
           {children}
         </div>

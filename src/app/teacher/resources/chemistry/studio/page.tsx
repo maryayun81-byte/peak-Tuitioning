@@ -7,10 +7,15 @@ import {
   FlaskConical, Zap, BookOpen, Layout, Trash2,
   Layers, Settings2, FileText, Image as ImageIcon,
   Printer, X, Check, ChevronRight, BookMarked, Eye, Info, Sigma,
-  Cloud, CloudOff, Loader2
+  Cloud, CloudOff, Loader2, Paintbrush, Type, Grid3X3
 } from 'lucide-react';
 import ExcalidrawWrapper from '@/components/teacher/resources/ExcalidrawWrapper';
 import ChemicalEquationEditor from '@/components/teacher/resources/ChemicalEquationEditor';
+import CanvasToolbar from '@/components/teacher/resources/DrawStudio/CanvasToolbar';
+import StatusBar from '@/components/teacher/resources/DrawStudio/StatusBar';
+import LayersPanel from '@/components/teacher/resources/DrawStudio/LayersPanel';
+import ChemistryTypeTool from '@/components/teacher/resources/DrawStudio/ChemistryTypeTool';
+
 import { chemistryLibraryItems, chemistryTemplates } from '@/lib/chemistry-library';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { useAuthStore } from '@/stores/authStore';
@@ -141,7 +146,7 @@ const CHEM_SYMBOLS = [
 ];
 
 // ─── Sidebar Panel ─────────────────────────────────────────────────────────────
-type SidebarPanel = 'apparatus' | 'templates' | 'saves' | 'symbols' | 'equation' | null;
+type SidebarPanel = 'apparatus' | 'templates' | 'saves' | 'symbols' | 'equation' | 'tools' | 'typetool' | 'layers' | null;
 
 export default function ChemistryDrawStudio() {
   const supabase = getSupabaseBrowserClient();
@@ -163,7 +168,14 @@ export default function ChemistryDrawStudio() {
   const [expandedGroups, setExpandedGroups] = useState<string[]>(['Glassware']);
   const [notification, setNotification] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [gridMode, setGridMode] = useState(false);
+  const [snapToGrid, setSnapToGrid] = useState(false);
+  const [darkMode, setDarkMode] = useState(false);
+  const [isCanvasReady, setIsCanvasReady] = useState(false);
+  const [zoom, setZoom] = useState(1);
   const excalidrawRef = useRef<any>(null);
+
+  const handleCanvasReady = useCallback(() => setIsCanvasReady(true), []);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedElements = useRef<string>('');
 
@@ -221,7 +233,7 @@ export default function ChemistryDrawStudio() {
 
         if (error) throw error;
         lastSavedElements.current = JSON.stringify(els);
-        await loadDrawings();
+        try { await loadDrawings(); } catch { }
         return data;
       } else {
         const { data, error } = await supabase
@@ -233,12 +245,12 @@ export default function ChemistryDrawStudio() {
         if (error) throw error;
         lastSavedElements.current = JSON.stringify(els);
         setCurrentDrawingId(data.id);
-        await loadDrawings();
+        try { await loadDrawings(); } catch { }
         return data;
       }
     } catch (e: any) {
-      console.error('Failed to save drawing:', e);
-      showNotification(`Save failed: ${e.message}`);
+      console.error('Failed to save drawing:', JSON.stringify(e), e);
+      showNotification(`Save failed: ${e?.message || 'Unknown error'}`);
       return null;
     } finally {
       setIsSaving(false);
@@ -285,6 +297,7 @@ export default function ChemistryDrawStudio() {
 
       if (error) throw error;
       if (data?.content?.elements) {
+        setIsCanvasReady(false);
         setCanvasInitialData({ elements: data.content.elements, appState: data.content.appState || {} });
         setCanvasKey(k => k + 1);
         setSaveName(data.title);
@@ -316,6 +329,99 @@ export default function ChemistryDrawStudio() {
     }
   };
 
+  // ── Tool handlers ──────────────────────────────────────────────────────
+  const handleUndo = useCallback(() => {
+    excalidrawRef.current?.history?.undo?.()
+  }, [])
+
+  const handleRedo = useCallback(() => {
+    excalidrawRef.current?.history?.redo?.()
+  }, [])
+
+  const handleToggleGrid = useCallback(() => {
+    const api = excalidrawRef.current
+    if (api?.toggleGridMode) {
+      api.toggleGridMode()
+      setGridMode(!gridMode)
+    }
+  }, [gridMode])
+
+  const handleToggleSnap = useCallback(() => {
+    setSnapToGrid(!snapToGrid)
+    showNotification(`Snap to grid ${snapToGrid ? 'off' : 'on'}`)
+  }, [snapToGrid, showNotification])
+
+  const handleZoomIn = useCallback(() => {
+    const api = excalidrawRef.current
+    if (api?.zoom?.zoomIn) api.zoom.zoomIn()
+    else if (api?.zoom) api.zoom(api.zoom() * 1.2)
+  }, [])
+
+  const handleZoomOut = useCallback(() => {
+    const api = excalidrawRef.current
+    if (api?.zoom?.zoomOut) api.zoom.zoomOut()
+    else if (api?.zoom) api.zoom(api.zoom() * 0.8)
+  }, [])
+
+  const handleToggleFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen()
+    } else {
+      document.exitFullscreen()
+    }
+  }, [])
+
+  const handleToggleDarkMode = useCallback(() => {
+    setDarkMode(!darkMode)
+    const api = excalidrawRef.current
+    if (api?.updateScene) {
+      const state = api.getAppState?.() || {}
+      api.updateScene({
+        appState: { ...state, theme: !darkMode ? 'dark' : 'light' },
+      })
+    }
+  }, [darkMode])
+
+  const handleLayerToggleVisibility = useCallback((id: string) => {
+    const api = excalidrawRef.current
+    if (!api) return
+    const scene = api.getSceneElements() || []
+    const updated = scene.map((el: any) =>
+      el.id === id ? { ...el, isDeleted: !el.isDeleted } : el
+    )
+    api.updateScene({ elements: updated, appState: api.getAppState() })
+  }, [])
+
+  const handleLayerToggleLock = useCallback((id: string) => {
+    const api = excalidrawRef.current
+    if (!api) return
+    const scene = api.getSceneElements() || []
+    const updated = scene.map((el: any) =>
+      el.id === id ? { ...el, locked: !el.locked } : el
+    )
+    api.updateScene({ elements: updated, appState: api.getAppState() })
+  }, [])
+
+  const handleLayerDelete = useCallback((id: string) => {
+    const api = excalidrawRef.current
+    if (!api) return
+    const scene = api.getSceneElements() || []
+    const updated = scene.filter((el: any) => el.id !== id)
+    api.updateScene({ elements: updated, appState: api.getAppState() })
+  }, [])
+
+  const handleLayerReorder = useCallback((id: string, direction: 'up' | 'down') => {
+    const api = excalidrawRef.current
+    if (!api) return
+    const scene = [...(api.getSceneElements() || [])]
+    const idx = scene.findIndex((el: any) => el.id === id)
+    if (idx === -1) return
+    const swapIdx = direction === 'up' ? idx + 1 : idx - 1
+    if (swapIdx < 0 || swapIdx >= scene.length) return
+    [scene[idx], scene[swapIdx]] = [scene[swapIdx], scene[idx]]
+    api.updateScene({ elements: scene, appState: api.getAppState() })
+  }, [])
+
   const toggleGroup = (name: string) => {
     setExpandedGroups(prev =>
       prev.includes(name) ? prev.filter(g => g !== name) : [...prev, name]
@@ -333,6 +439,7 @@ export default function ChemistryDrawStudio() {
   };
 
   const handleTemplateLoad = (template: typeof TEMPLATES[0]) => {
+    setIsCanvasReady(false);
     const tmpl = chemistryTemplates.find(t => t.id === (template as any).templateId);
     if (tmpl) {
       setCanvasInitialData({ elements: tmpl.elements, appState: {} });
@@ -345,6 +452,9 @@ export default function ChemistryDrawStudio() {
   };
 
   const panelButtons = [
+    { id: 'tools' as SidebarPanel, icon: Paintbrush, label: 'Tools', tooltip: 'Drawing Tools' },
+    { id: 'typetool' as SidebarPanel, icon: Type, label: 'Type', tooltip: 'Chemistry Typing Tool' },
+    { id: 'layers' as SidebarPanel, icon: Layers, label: 'Layers', tooltip: 'Layers Panel' },
     { id: 'apparatus' as SidebarPanel, icon: FlaskConical, label: 'Apparatus', tooltip: 'Chemistry Apparatus' },
     { id: 'templates' as SidebarPanel, icon: Layout, label: 'Templates', tooltip: 'Diagram Templates' },
     { id: 'equation' as SidebarPanel, icon: Sigma, label: 'Equation', tooltip: 'Chemical Equation Editor' },
@@ -353,7 +463,7 @@ export default function ChemistryDrawStudio() {
   ];
 
   return (
-    <div className="fixed inset-0 bg-white dark:bg-slate-950 font-sans overflow-hidden">
+    <div className="fixed inset-0 z-50 bg-white dark:bg-slate-950 font-sans overflow-hidden">
 
       {/* ─── Top Header (floating glassmorphism bar) ──────────────────── */}
       <header className="absolute top-0 left-14 right-0 h-12 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200/60 dark:border-slate-700/60 flex items-center justify-between px-4 z-40 shadow-sm">
@@ -435,14 +545,15 @@ export default function ChemistryDrawStudio() {
       {/* ─── Main Body: Canvas fills 100% of screen, all UI floats on top ── */}
       <div className="absolute inset-0">
 
-        {/* ─── Canvas Area (always full size) ─────────────────────────── */}
-        <main className="absolute inset-0 bg-white dark:bg-slate-950">
+          {/* ─── Canvas Area (below header, full width) ──────────────── */}
+        <main className="absolute left-0 right-0 bottom-0 top-12 bg-white dark:bg-slate-950">
           <ExcalidrawWrapper
             key={canvasKey}
             onChange={handleChange}
             initialData={canvasInitialData}
             libraryItems={chemistryLibraryItems as any}
             excalidrawApiRef={excalidrawRef}
+            onReady={handleCanvasReady}
           />
         </main>
 
@@ -478,7 +589,10 @@ export default function ChemistryDrawStudio() {
           <aside className="absolute left-14 top-0 bottom-0 w-72 bg-white/97 dark:bg-slate-900/97 backdrop-blur-md border-r border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden z-20 shadow-2xl">
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-800">
               <h2 className="font-black text-sm text-slate-800 dark:text-white uppercase tracking-widest">
-                {activePanel === 'apparatus' ? '🧪 Apparatus' :
+                {activePanel === 'tools' ? '🎨 Draw Tools' :
+                 activePanel === 'typetool' ? '⌨️ Type Tool' :
+                 activePanel === 'layers' ? '📑 Layers' :
+                 activePanel === 'apparatus' ? '🧪 Apparatus' :
                  activePanel === 'templates' ? '📐 Templates' :
                  activePanel === 'symbols' ? '⚗️ Symbols' :
                  activePanel === 'equation' ? 'Σ Equation Editor' : '💾 Saved'}
@@ -492,6 +606,37 @@ export default function ChemistryDrawStudio() {
             </div>
 
             <div className="flex-1 overflow-y-auto">
+              {/* ── Draw Tools Panel ── */}
+              {activePanel === 'tools' && (
+                <CanvasToolbar
+                  excalidrawRef={excalidrawRef}
+                  onNotify={showNotification}
+                  isCanvasReady={isCanvasReady}
+                />
+              )}
+
+              {/* ── Type Tool Panel ── */}
+              {activePanel === 'typetool' && (
+                <ChemistryTypeTool
+                  excalidrawRef={excalidrawRef}
+                  onNotify={showNotification}
+                  isCanvasReady={isCanvasReady}
+                />
+              )}
+
+              {/* ── Layers Panel ── */}
+              {activePanel === 'layers' && (
+                <div className="p-3">
+                  <LayersPanel
+                    elements={elements}
+                    onToggleVisibility={handleLayerToggleVisibility}
+                    onToggleLock={handleLayerToggleLock}
+                    onDelete={handleLayerDelete}
+                    onReorder={handleLayerReorder}
+                  />
+                </div>
+              )}
+
               {/* ── Apparatus Panel ── */}
               {activePanel === 'apparatus' && (
                 <div className="p-3 space-y-2">
@@ -648,12 +793,24 @@ export default function ChemistryDrawStudio() {
           </aside>
         )}
 
-        {/* Floating tip badge */}
-        <div className="absolute top-3 right-4 z-10 pointer-events-none">
-          <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-500 dark:text-slate-400 shadow-lg">
-            ✏️ Draw freely · Stylus & touch supported
-          </div>
-        </div>
+        {/* Status Bar */}
+        <StatusBar
+          elementCount={elements.length}
+          zoom={zoom}
+          gridMode={gridMode}
+          snapToGrid={snapToGrid}
+          darkMode={darkMode}
+          isSaving={isSaving}
+          saveSuccess={saveSuccess}
+          onZoomIn={handleZoomIn}
+          onZoomOut={handleZoomOut}
+          onToggleGrid={handleToggleGrid}
+          onToggleSnap={handleToggleSnap}
+          onToggleFullscreen={handleToggleFullscreen}
+          onToggleDarkMode={handleToggleDarkMode}
+          onUndo={handleUndo}
+          onRedo={handleRedo}
+        />
       </div>
 
       {/* ─── Notification Toast ───────────────────────────────────────────────── */}

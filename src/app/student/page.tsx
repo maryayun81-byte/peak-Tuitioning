@@ -21,6 +21,7 @@ import { generateDailyInsights } from '@/app/actions/ai'
 import { getReferralSummary } from '@/app/actions/referrals'
 import { getApprovedCreatorReel } from '@/app/actions/flashcards'
 import { calculateLevel } from '@/lib/gamification'
+import confetti from 'canvas-confetti'
 import Link from 'next/link'
 
 // ── DAILY INSIGHTS COMPONENT ───────────────────────────────────────────────
@@ -129,13 +130,23 @@ function getYoutubeVideoId(parsed: URL) {
   return parsed.searchParams.get('v') || ''
 }
 
+function normalizeUrl(url: string) {
+  if (!url) return ''
+  if (!/^https?:\/\//i.test(url)) return `https://${url}`
+  return url
+}
+
 function getEmbeddableVideoUrl(url: string) {
   if (!url) return ''
+  const normalized = normalizeUrl(url)
   try {
-    const parsed = new URL(url)
-    if (parsed.hostname.includes('youtube.com') || parsed.hostname.includes('youtu.be')) {
+    const parsed = new URL(normalized)
+    const isYt = parsed.hostname.includes('youtube.com') || parsed.hostname.includes('youtu.be') || parsed.hostname.includes('youtube-nocookie.com')
+    if (isYt) {
       const id = getYoutubeVideoId(parsed)
-      return id ? `https://www.youtube-nocookie.com/embed/${id}?rel=0&modestbranding=1&playsinline=1` : ''
+      if (!id) return ''
+      const origin = typeof window !== 'undefined' ? window.location.origin : ''
+      return `https://www.youtube.com/embed/${id}?rel=0&modestbranding=1&playsinline=1${origin ? `&origin=${encodeURIComponent(origin)}` : ''}`
     }
     if (parsed.hostname.includes('vimeo.com')) {
       const id = parsed.pathname.split('/').filter(Boolean).pop()
@@ -147,15 +158,21 @@ function getEmbeddableVideoUrl(url: string) {
 
 function getVideoThumbnail(url: string) {
   if (!url) return ''
+  const normalized = normalizeUrl(url)
   try {
-    const parsed = new URL(url)
-    const id = parsed.hostname.includes('youtube.com') || parsed.hostname.includes('youtu.be')
-      ? getYoutubeVideoId(parsed)
-      : ''
-    return id ? `https://img.youtube.com/vi/${id}/hqdefault.jpg` : ''
-  } catch {
-    return ''
-  }
+    const parsed = new URL(normalized)
+    const isYt = parsed.hostname.includes('youtube.com') || parsed.hostname.includes('youtu.be') || parsed.hostname.includes('youtube-nocookie.com')
+    const id = isYt ? getYoutubeVideoId(parsed) : ''
+    if (id) return `https://img.youtube.com/vi/${id}/hqdefault.jpg`
+  } catch {}
+  const fallbackId = extractYoutubeIdFallback(url)
+  if (fallbackId) return `https://img.youtube.com/vi/${fallbackId}/hqdefault.jpg`
+  return ''
+}
+
+function extractYoutubeIdFallback(url: string) {
+  const match = url.match(/^.*(?:youtu\.be\/|v\/|u\/\w\/|embed\/|shorts\/|live\/|watch\?v=|&v=)([^#&?]*).*/)
+  return match && match[1] ? match[1] : ''
 }
 
 function isDirectVideoUrl(url: string) {
@@ -184,6 +201,7 @@ function getReelAccent(seed: string) {
 function InAppVideoCard({ video }: { video: any }) {
   const [open, setOpen] = useState(false)
   const [posterFailed, setPosterFailed] = useState(false)
+  const [imgLoaded, setImgLoaded] = useState(false)
   const url = video.youtube_url || video.video_url || video.attachment_url || video.url || ''
   const embedUrl = getEmbeddableVideoUrl(url)
   const thumb = getVideoThumbnail(url)
@@ -196,41 +214,99 @@ function InAppVideoCard({ video }: { video: any }) {
 
   return (
     <>
-      <motion.div whileHover={{ y: -4 }} className="cursor-pointer" onClick={() => setOpen(true)}>
-        <Card className="overflow-hidden border border-[var(--card-border)] bg-[var(--card)] group hover:shadow-xl hover:shadow-red-500/10 transition-all">
-          <div className="aspect-[9/13] bg-black relative overflow-hidden">
+      <motion.div
+        whileHover={{ y: -6, scale: 1.02 }}
+        transition={{ type: 'spring', stiffness: 200, damping: 15 }}
+        className="cursor-pointer group"
+        onClick={() => setOpen(true)}
+      >
+        <Card className="overflow-hidden border-0 bg-transparent shadow-none">
+          <div className="aspect-[9/13] bg-black relative overflow-hidden rounded-2xl shadow-lg shadow-black/20 group-hover:shadow-2xl group-hover:shadow-black/40 transition-all duration-500">
+            {/* Subtle border that glows on hover */}
+            <div className="absolute inset-0 rounded-2xl ring-1 ring-inset ring-white/10 group-hover:ring-primary/40 transition-all duration-500 z-20 pointer-events-none" />
+
             {showThumb ? (
-              <img
-                src={thumb}
-                alt={title}
-                onError={() => setPosterFailed(true)}
-                className="h-full w-full object-cover opacity-85 group-hover:opacity-100 group-hover:scale-105 transition-all duration-300"
-              />
+              <>
+                {/* Thumbnail with cinematic reveal */}
+                <motion.img
+                  src={thumb}
+                  alt={title}
+                  onLoad={() => setImgLoaded(true)}
+                  onError={() => setPosterFailed(true)}
+                  initial={{ scale: 1.1, filter: 'blur(8px)' }}
+                  animate={imgLoaded ? { scale: 1, filter: 'blur(0px)' } : {}}
+                  transition={{ duration: 0.6 }}
+                  className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-700 ease-out"
+                />
+                {/* Cinematic top/bottom vignette */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-black/40 group-hover:via-black/30 transition-all duration-500" />
+              </>
             ) : (
-              <div className={`relative h-full w-full bg-gradient-to-br ${accent.className} p-4 text-white`}>
-                <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,.08)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.08)_1px,transparent_1px)] bg-[length:24px_24px]" />
+              <div className={`relative h-full w-full bg-gradient-to-br ${accent.className} p-5 text-white`}>
+                <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,.06)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.06)_1px,transparent_1px)] bg-[length:20px_20px]" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
                 <div className="relative z-10 flex h-full flex-col justify-between">
-                  <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/18 shadow-inner backdrop-blur">
-                    <AccentIcon size={22} />
+                  <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/20 shadow-inner backdrop-blur-md">
+                    <AccentIcon size={22} className="text-white" />
                   </span>
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-[0.22em] text-white/70">{subjectName}</p>
-                    <h3 className="mt-2 line-clamp-3 text-xl font-black leading-tight">{title}</h3>
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-black uppercase tracking-[0.22em] text-white/60">{subjectName}</p>
+                    <h3 className="line-clamp-3 text-xl font-black leading-tight">{title}</h3>
+                    <p className="text-[11px] font-bold text-white/60">{teacherName}</p>
                   </div>
                 </div>
               </div>
             )}
-            <div className="absolute inset-0 bg-gradient-to-b from-black/15 via-black/10 to-black/70 flex items-center justify-center group-hover:bg-black/5 transition-colors">
-              <div className="w-14 h-14 rounded-full bg-red-500 text-white flex items-center justify-center shadow-2xl shadow-red-500/30 group-hover:scale-110 transition-transform">
-                <PlayCircle size={28} className="ml-0.5 fill-current" />
+
+            {/* Top-left subject badge — glass pill */}
+            <div className="absolute top-3 left-3 z-10">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-black/50 px-2.5 py-1 text-[9px] font-black uppercase tracking-wider text-white/90 backdrop-blur-md border border-white/10 shadow-lg">
+                <AccentIcon size={10} />
+                {subjectName}
+              </span>
+            </div>
+
+            {/* Time-based freshness badge */}
+            {video.created_at && Date.now() - new Date(video.created_at).getTime() < 4 * 60 * 60 * 1000 && (
+              <div className="absolute top-3 right-3 z-10">
+                <span className="inline-flex items-center gap-1 rounded-full bg-red-500/80 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-white backdrop-blur-md animate-pulse">
+                  <span className="w-1.5 h-1.5 rounded-full bg-white" />
+                  NEW
+                </span>
+              </div>
+            )}
+
+            {/* Play button — minimal, elegant, appears on hover */}
+            <div className="absolute inset-0 z-10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-500">
+              <motion.div
+                initial={{ scale: 0.6, opacity: 0 }}
+                whileInView={{ scale: 1, opacity: 1 }}
+                className="relative"
+              >
+                <div className="w-14 h-14 rounded-full bg-white/20 backdrop-blur-xl flex items-center justify-center shadow-2xl shadow-black/40 border border-white/30 group-hover:bg-white/30 group-hover:scale-110 transition-all duration-300">
+                  <PlayCircle size={28} className="ml-0.5 text-white fill-current" />
+                </div>
+                {/* Subtle ring glow */}
+                <div className="absolute -inset-3 rounded-full bg-white/5 animate-ping opacity-0 group-hover:opacity-100 transition-opacity duration-700" style={{ animationDuration: '2.5s' }} />
+              </motion.div>
+            </div>
+
+            {/* Bottom info bar — always visible with glass effect */}
+            <div className="absolute bottom-0 left-0 right-0 z-10 p-3 pt-8 bg-gradient-to-t from-black/90 via-black/50 to-transparent">
+              <p className="line-clamp-1 text-sm font-black text-white drop-shadow-lg">{title}</p>
+              <div className="mt-1 flex items-center gap-2 text-[10px] font-bold text-white/60">
+                <span>{teacherName}</span>
+                <span className="w-1 h-1 rounded-full bg-white/30" />
+                <span>{video.created_at ? formatRelativeTime(video.created_at) : 'Recent'}</span>
               </div>
             </div>
-            <span className="absolute left-3 top-3 flex h-9 w-9 items-center justify-center rounded-2xl bg-black/55 text-lg text-white backdrop-blur">
-              <AccentIcon size={18} />
-            </span>
-            <div className="absolute bottom-0 left-0 right-0 p-3 text-white">
-              <p className="line-clamp-2 text-sm font-black leading-tight">{title}</p>
-              <p className="mt-1 line-clamp-1 text-[10px] font-bold uppercase tracking-widest text-white/70">{subjectName}</p>
+
+            {/* Bottom-right play hint on idle */}
+            <div className="absolute bottom-3 right-3 z-10 opacity-0 group-hover:opacity-0 transition-opacity duration-300">
+              <div className="flex items-center gap-1 text-[8px] font-black uppercase tracking-wider text-white/40">
+                <PlayCircle size={10} />
+                Watch
+              </div>
             </div>
           </div>
         </Card>
@@ -244,8 +320,7 @@ function InAppVideoCard({ video }: { video: any }) {
                 src={embedUrl}
                 title={title}
                 className="h-full w-full"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                referrerPolicy="strict-origin-when-cross-origin"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
                 allowFullScreen
               />
             ) : isDirectVideoUrl(url) ? (
@@ -265,17 +340,26 @@ function InAppVideoCard({ video }: { video: any }) {
           <div>
             <p className="text-[10px] font-black uppercase tracking-widest text-red-500">Teacher video</p>
             <p className="mt-2 text-sm font-semibold leading-relaxed text-muted">{video.description || 'Watch this lesson inside Peak Performance, then continue with your tasks.'}</p>
-            {embedUrl && (
-              <p className="mt-3 rounded-2xl border border-[var(--card-border)] bg-[var(--input)] px-4 py-3 text-xs font-semibold text-muted">
-                If the video owner blocks embedded playback, the teacher should upload the video file or replace it with an embeddable YouTube/Vimeo link.
-              </p>
-            )}
           </div>
           <Button className="w-full" onClick={() => setOpen(false)}>Close Player</Button>
         </div>
       </Modal>
     </>
   )
+}
+
+function formatRelativeTime(dateString: string) {
+  const now = Date.now()
+  const then = new Date(dateString).getTime()
+  const diffSec = Math.floor((now - then) / 1000)
+  if (diffSec < 60) return 'Just now'
+  const diffMin = Math.floor(diffSec / 60)
+  if (diffMin < 60) return `${diffMin}m ago`
+  const diffHr = Math.floor(diffMin / 60)
+  if (diffHr < 24) return `${diffHr}h ago`
+  const diffDay = Math.floor(diffHr / 24)
+  if (diffDay < 7) return `${diffDay}d ago`
+  return new Date(dateString).toLocaleDateString('en-KE', { day: 'numeric', month: 'short' })
 }
 
 function TeacherVideoReel({ videos }: { videos: any[] }) {
@@ -285,47 +369,76 @@ function TeacherVideoReel({ videos }: { videos: any[] }) {
   const scroll = (direction: 'left' | 'right') => {
     const rail = scrollRef.current
     if (!rail) return
+    const cardWidth = rail.querySelector('div:first-child')?.getBoundingClientRect().width || 200
     rail.scrollBy({
-      left: direction === 'left' ? -360 : 360,
+      left: direction === 'left' ? -(cardWidth * 2 + 12) : (cardWidth * 2 + 12),
       behavior: 'smooth',
     })
   }
 
   return (
-    <section className="border-b border-[var(--card-border)] bg-[var(--card)]/70 px-4 py-4 backdrop-blur md:px-8">
+    <section className="relative overflow-hidden border-b border-[var(--card-border)] bg-gradient-to-b from-[var(--card)]/90 to-transparent px-4 py-5 backdrop-blur md:px-8">
+      {/* Ambient glow */}
+      <div className="pointer-events-none absolute -top-20 left-1/4 h-40 w-96 -translate-x-1/2 rounded-full opacity-[0.07]" style={{ background: 'var(--primary)' }} />
+      <div className="pointer-events-none absolute -right-20 top-0 h-32 w-32 rounded-full opacity-[0.04]" style={{ background: 'var(--primary)' }} />
       <div className="mx-auto max-w-7xl">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div>
-          <p className="text-[10px] uppercase font-black tracking-[0.25em] text-red-500">New teacher reels</p>
-          <h2 className="text-lg md:text-xl font-black" style={{ color: 'var(--text)' }}>Fresh lessons from the last 24 hours</h2>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => scroll('left')}
-            className="hidden md:flex h-9 w-9 items-center justify-center rounded-full border border-[var(--card-border)] bg-[var(--card)] text-muted hover:text-primary hover:border-primary/40 transition-all"
-            aria-label="Scroll video reel left"
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ type: 'spring', stiffness: 120, damping: 14 }}
           >
-            <ChevronLeft size={18} />
-          </button>
-          <button
-            type="button"
-            onClick={() => scroll('right')}
-            className="hidden md:flex h-9 w-9 items-center justify-center rounded-full border border-[var(--card-border)] bg-[var(--card)] text-muted hover:text-primary hover:border-primary/40 transition-all"
-            aria-label="Scroll video reel right"
-          >
-            <ChevronRight size={18} />
-          </button>
-          <Link href="/student/resources" className="text-xs font-black text-primary">Open Library</Link>
-        </div>
-      </div>
-      <div ref={scrollRef} className="flex gap-3 overflow-x-auto scroll-smooth pb-1 snap-x snap-mandatory no-scrollbar">
-        {videos.slice(0, 10).map((video: any) => (
-          <div key={video.id} className="min-w-[142px] max-w-[142px] snap-start sm:min-w-[170px] sm:max-w-[170px] md:min-w-[190px] md:max-w-[190px]">
-            <InAppVideoCard video={video} />
+            <p className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.3em]" style={{ color: 'var(--primary)' }}>
+              <span className="inline-block w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: 'var(--primary)' }} />
+              Fresh lessons
+            </p>
+            <h2 className="mt-0.5 text-lg font-black tracking-tight md:text-xl" style={{ color: 'var(--text)' }}>Video Reel</h2>
+          </motion.div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => scroll('left')}
+              className="hidden md:flex h-9 w-9 items-center justify-center rounded-full border border-[var(--card-border)] bg-[var(--card)] text-muted hover:text-primary hover:border-primary/40 hover:bg-primary/5 transition-all active:scale-90"
+              aria-label="Scroll left"
+            >
+              <ChevronLeft size={17} />
+            </button>
+            <button
+              type="button"
+              onClick={() => scroll('right')}
+              className="hidden md:flex h-9 w-9 items-center justify-center rounded-full border border-[var(--card-border)] bg-[var(--card)] text-muted hover:text-primary hover:border-primary/40 hover:bg-primary/5 transition-all active:scale-90"
+              aria-label="Scroll right"
+            >
+              <ChevronRight size={17} />
+            </button>
+            <Link
+              href="/student/resources"
+              className="group inline-flex items-center gap-1 rounded-full border border-[var(--card-border)] bg-[var(--card)] px-3.5 py-1.5 text-[10px] font-black uppercase tracking-wider text-primary hover:bg-primary hover:text-white transition-all active:scale-95"
+            >
+              All videos
+              <ChevronRight size={13} className="group-hover:translate-x-0.5 transition-transform" />
+            </Link>
           </div>
-        ))}
-      </div>
+        </div>
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ type: 'spring', stiffness: 100, damping: 16 }}
+        >
+          <div ref={scrollRef} className="flex gap-3 overflow-x-auto scroll-smooth pb-2 snap-x snap-mandatory no-scrollbar">
+            {videos.slice(0, 10).map((video: any, i: number) => (
+              <motion.div
+                key={video.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.06, type: 'spring', stiffness: 150, damping: 18 }}
+                className="min-w-[148px] max-w-[148px] snap-start sm:min-w-[176px] sm:max-w-[176px] md:min-w-[196px] md:max-w-[196px]"
+              >
+                <InAppVideoCard video={video} />
+              </motion.div>
+            ))}
+          </div>
+        </motion.div>
       </div>
     </section>
   )
@@ -627,313 +740,494 @@ function PremiumStudentHome({ student, profile, data, isCBC }: { student: any, p
   const firstName = profile?.full_name?.split(' ')[0] || (isCBC ? 'Learner' : 'Scholar')
   const insight = data.dailyInsight || getLocalDailyInsight(isCBC)
   const displayTitle = isCBC
-    ? level >= 8 ? 'Knowledge King' : level >= 4 ? 'Learning Lion' : 'Curious Cub'
-    : 'KCSE Focus Mode'
+    ? level >= 8 ? 'Knowledge King 👑' : level >= 4 ? 'Learning Lion 🦁' : 'Curious Cub 🐻'
+    : 'KCSE Warrior ⚔️'
 
-  const feeds = [
-    {
-      title: 'Assignments',
-      label: 'Due work',
-      href: '/student/assignments',
-      items: data.recentAssignments || [],
-      icon: <FileText size={17} />,
-      empty: 'No assignments due.',
-      meta: (item: any) => item.subject?.name || 'Assignment',
-      itemHref: (item: any) => `/student/assignments/${item.id}`,
-    },
-    {
-      title: 'Quizzes',
-      label: 'Practice',
-      href: '/student/quizzes',
-      items: data.recentQuizzes || [],
-      icon: <CheckCircle2 size={17} />,
-      empty: 'No quizzes waiting.',
-      meta: (item: any) => item.subject?.name || 'Quiz',
-      itemHref: (item: any) => `/student/quizzes/${item.id}`,
-    },
-    {
-      title: 'Classes',
-      label: 'Timetable',
-      href: '/student/schedule',
-      items: data.upcomingSessions || [],
-      icon: <Clock size={17} />,
-      empty: 'No upcoming class.',
-      meta: (item: any) => item.start_time ? new Date(item.start_time).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : 'Class session',
-      itemHref: () => '/student/schedule',
-    },
+  const streakCount = isCBC ? Math.max(1, Math.floor(currentXP / 50)) : data.brainGymStreak
+
+  const [leaderboard, setLeaderboard] = useState<any[]>([])
+  const classId = (student as any)?.class_id
+
+  useEffect(() => {
+    if (!classId) return
+    const supabase = getSupabaseBrowserClient()
+    supabase.rpc('get_class_leaderboard', { p_class_id: classId, p_limit: 5 }).then(({ data, error }) => {
+      if (!error && data) setLeaderboard(data)
+    })
+  }, [classId])
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      confetti({
+        particleCount: 30,
+        spread: 60,
+        origin: { y: 0.6 },
+        colors: ['#8b5cf6', '#f59e0b', '#22c55e', '#ef4444'],
+        disableForReducedMotion: true,
+      })
+    }, 800)
+    return () => clearTimeout(timer)
+  }, [])
+
+  const quests = [
+    { emoji: '📝', title: 'Complete a quiz', done: (data.recentQuizzes?.length || 0) > 0, href: '/student/quizzes', color: 'from-violet-500 to-purple-600' },
+    { emoji: '⚡', title: 'Study 30 minutes', done: data.brainGymStreak > 0, href: '/student/study', color: 'from-amber-400 to-orange-500' },
+    { emoji: '🎯', title: 'Win a duel', done: (student?.duel_wins || 0) > 0, href: '/student/duels', color: 'from-rose-500 to-pink-600' },
+    { emoji: '📋', title: 'Submit an assignment', done: (data.recentAssignments?.length || 0) > 0, href: '/student/assignments', color: 'from-blue-500 to-indigo-600' },
   ]
 
   const tools = isCBC
     ? [
-        { title: 'Brain Gym', text: 'Three quick questions.', href: '/student/brain-gym', icon: <BrainCircuit size={18} /> },
-        { title: 'Creator Hub', text: 'Cards, drawings, stickers.', href: '/student/flashcards', icon: <BookOpen size={18} /> },
-        { title: 'Portfolio', text: 'Show your best work.', href: '/student/portfolio', icon: <Star size={18} /> },
-        { title: 'Duels', text: 'Play a 5-question match.', href: '/student/duels', icon: <Swords size={18} /> },
+        { emoji: '🧠', title: 'Brain Gym', color: '#8b5cf6', href: '/student/brain-gym' },
+        { emoji: '🃏', title: 'Creator Hub', color: '#f59e0b', href: '/student/flashcards' },
+        { emoji: '🏆', title: 'Portfolio', color: '#10b981', href: '/student/portfolio' },
+        { emoji: '⚔️', title: 'Duels', color: '#ef4444', href: '/student/duels' },
       ]
     : [
-        { title: 'Exam Prep', text: 'Plan revision blocks.', href: '/student/exam-prep', icon: <Target size={18} /> },
-        { title: 'Performance', text: 'Find weak topics.', href: '/student/performance', icon: <Activity size={18} /> },
-        { title: 'Creator Hub', text: 'Build revision decks.', href: '/student/flashcards', icon: <BookOpen size={18} /> },
-        { title: 'Voice Notes', text: 'Turn speech to notes.', href: '/student/voice-notes', icon: <Mic size={18} /> },
+        { emoji: '📋', title: 'Exam Prep', color: '#6366f1', href: '/student/exam-prep' },
+        { emoji: '📊', title: 'Performance', color: '#22c55e', href: '/student/performance' },
+        { emoji: '🃏', title: 'Creator Hub', color: '#f59e0b', href: '/student/flashcards' },
+        { emoji: '🎙️', title: 'Voice Notes', color: '#ec4899', href: '/student/voice-notes' },
       ]
 
   return (
-    <div className="min-h-screen overflow-x-hidden pb-28" style={{ background: 'var(--bg)' }}>
+    <div className="min-h-screen overflow-x-hidden pb-32" style={{ background: 'var(--bg)' }}>
       <TeacherVideoReel videos={data.resourceReel || []} />
-      <div
-        className="pointer-events-none fixed inset-x-0 top-0 h-72 opacity-40"
-        style={{ background: 'radial-gradient(circle at top left, var(--primary), transparent 34%), radial-gradient(circle at top right, var(--primary-dim), transparent 30%)' }}
-      />
 
-      <div className="relative mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
-        <Card className="overflow-hidden border border-[var(--card-border)] bg-[var(--card)]/95 p-4 shadow-xl shadow-black/5 md:p-6">
-          <div className="grid gap-5 lg:grid-cols-[1.3fr_0.7fr] lg:items-center">
-            <div className="flex min-w-0 gap-4">
-              <Avatar url={profile?.avatar_url} name={profile?.full_name} size="lg" className="ring-2 ring-[var(--primary)]/25" />
+      {/* ── Floating Streak Banner ─────────────────────────── */}
+      <motion.div
+        initial={{ y: -80, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ type: 'spring', stiffness: 120, damping: 12 }}
+        className="sticky top-0 z-40 mx-auto flex max-w-6xl items-center justify-center gap-3 px-4 pt-2 pb-1"
+      >
+        <div className="flex items-center gap-3 rounded-2xl bg-gradient-to-r from-amber-500/90 to-orange-500/90 px-5 py-2.5 text-white shadow-xl shadow-amber-500/30 backdrop-blur-md">
+          <motion.span
+            animate={{ scale: [1, 1.25, 1] }}
+            transition={{ repeat: Infinity, duration: 2 }}
+            className="text-2xl">🔥</motion.span>
+          <span className="text-sm font-black uppercase tracking-wider">
+            {streakCount > 0 ? `${streakCount}-Day Streak!` : 'Start your streak today!'}
+          </span>
+          <span className="ml-2 text-xs font-bold text-white/70">Keep going! 💪</span>
+        </div>
+      </motion.div>
+
+      <div className="relative mx-auto max-w-6xl px-4 py-4 sm:px-6">
+
+        {/* ── Hero Card ─────────────────────────────────────── */}
+        <motion.div
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ type: 'spring', stiffness: 100, damping: 15 }}
+          className="relative overflow-hidden rounded-3xl border border-[var(--card-border)] bg-[var(--card)] p-5 md:p-7 shadow-2xl shadow-black/10"
+        >
+          <div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full opacity-[0.06]" style={{ background: 'var(--primary)' }} />
+          <div className="pointer-events-none absolute -left-8 bottom-0 h-32 w-32 rounded-full opacity-[0.04]" style={{ background: 'var(--primary)' }} />
+
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-center gap-4 min-w-0">
+              <motion.div whileHover={{ scale: 1.05 }} className="relative shrink-0">
+                <Avatar url={profile?.avatar_url} name={profile?.full_name} size="xl" className="ring-4 ring-[var(--primary)]/30 shadow-xl" />
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  transition={{ type: 'spring', stiffness: 300, damping: 12, delay: 0.3 }}
+                  className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-orange-500 text-[11px] font-black text-white shadow-lg"
+                >
+                  <motion.span
+                    animate={{ scale: [1, 1.15, 1] }}
+                    transition={{ repeat: Infinity, duration: 3, ease: 'easeInOut' }}
+                  >
+                    {level}
+                  </motion.span>
+                </motion.div>
+              </motion.div>
               <div className="min-w-0">
-                <p className="text-[10px] font-black uppercase tracking-[0.24em]" style={{ color: 'var(--primary)' }}>
-                  {isCBC ? 'Our Kids Dashboard' : 'Student Dashboard'}
+                <p className="text-[10px] font-black uppercase tracking-[0.22em]" style={{ color: 'var(--primary)' }}>
+                  {isCBC ? '🌟 Kids Dashboard' : '⚡ Student Dashboard'}
                 </p>
-                <h1 className="mt-1 truncate text-2xl font-black tracking-tight md:text-4xl" style={{ color: 'var(--text)' }}>
-                  Good to see you, {firstName}
+                <h1 className="mt-1 truncate text-2xl font-black tracking-tight md:text-3xl" style={{ color: 'var(--text)' }}>
+                  Hey {firstName}! 👋
                 </h1>
-                <p className="mt-1 text-sm font-semibold text-muted">{displayTitle} - Level {level}</p>
+                <p className="mt-0.5 text-sm font-bold text-muted">{displayTitle}</p>
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-2">
+            <div className="flex gap-2 sm:gap-3">
               {[
-                ['XP', currentXP],
-                [isCBC ? 'Stars' : 'Streak', isCBC ? Math.max(1, Math.floor(currentXP / 50)) : data.brainGymStreak],
-                ['Next', Math.max(nextMilestone - currentXP, 0)],
-              ].map(([label, value]) => (
-                <div key={label} className="rounded-2xl border border-[var(--card-border)] bg-[var(--input)] p-3">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-muted">{label}</p>
-                  <p className="mt-1 text-lg font-black" style={{ color: 'var(--text)' }}>{value}</p>
-                </div>
+                ['⭐ XP', currentXP, 'from-amber-400 to-orange-500', false],
+                ['🔥 Streak', streakCount, 'from-rose-500 to-pink-600', false],
+                ['🎯 Next', Math.max(nextMilestone - currentXP, 0), 'from-blue-500 to-indigo-600', true],
+              ].map(([label, value, grad, isNext]) => (
+                <motion.div
+                  key={label}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.4, type: 'spring', stiffness: 200 }}
+                  whileHover={{ y: -3, scale: 1.02 }}
+                  className={`rounded-2xl bg-gradient-to-br ${grad} p-3 min-w-[72px] text-center shadow-lg`}
+                >
+                  <p className="text-[10px] font-black uppercase tracking-wider text-white/70">{label}</p>
+                  <motion.p
+                    key={value}
+                    initial={isNext ? { scale: 0.5, opacity: 0 } : undefined}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ type: 'spring', stiffness: 200, damping: 15 }}
+                    className="mt-0.5 text-xl font-black text-white"
+                  >
+                    {typeof value === 'number' ? value.toLocaleString() : value}
+                  </motion.p>
+                </motion.div>
               ))}
             </div>
           </div>
-          <div className="mt-5 h-2 overflow-hidden rounded-full bg-[var(--input)]">
-            <div className="h-full rounded-full transition-all duration-700" style={{ width: `${progressPercent}%`, background: 'linear-gradient(90deg, var(--primary), color-mix(in srgb, var(--primary) 65%, white 35%))' }} />
-          </div>
-        </Card>
 
-        <div className="mt-5">
+          {/* XP Progress Bar */}
+          <div className="mt-5">
+            <div className="flex items-center justify-between text-xs font-bold mb-2">
+              <span className="text-muted">Level {level} → Level {level + 1}</span>
+              <span style={{ color: 'var(--primary)' }}>{progressPercent}%</span>
+            </div>
+            <div className="h-3 overflow-hidden rounded-full bg-[var(--input)] shadow-inner">
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: `${progressPercent}%` }}
+                transition={{ duration: 1, ease: 'easeOut' }}
+                className="h-full rounded-full"
+                style={{ background: 'linear-gradient(90deg, var(--primary), color-mix(in srgb, var(--primary) 60%, white 40%))' }}
+              />
+            </div>
+          </div>
+        </motion.div>
+
+        {/* ── National Exam Countdown ─────────────────────────── */}
+        <div className="mt-4">
           <NationalExamCountdownCard exam={data.nationalExam} />
         </div>
 
-        <motion.div
-          initial="hidden"
-          animate="show"
-          variants={{ hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.1 } } }}
-          className="mt-5 grid gap-5 xl:grid-cols-[1.35fr_0.65fr]"
-        >
-          {/* Priority Board */}
-          <motion.div variants={{ hidden: { opacity: 0, y: 24 }, show: { opacity: 1, y: 0, transition: { duration: 0.5 } } }}>
-            <Card className="h-full border border-[var(--card-border)] bg-[var(--card)] p-4 md:p-6 shadow-xl shadow-black/5">
-              <div className="mb-5 flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-[0.22em]" style={{ color: 'var(--primary)' }}>Priority Board</p>
-                  <h2 className="text-xl font-black tracking-tight" style={{ color: 'var(--text)' }}>Start with what matters</h2>
-                </div>
-                <Link href="/student/schedule" className="hidden rounded-full border border-[var(--card-border)] px-4 py-1.5 text-xs font-bold text-muted transition-all hover:border-[var(--primary)] hover:text-[var(--primary)] sm:inline-flex">
-                  Full schedule →
-                </Link>
-              </div>
-              <div className="grid gap-3 md:grid-cols-3">
-                {feeds.map((feed, fi) => (
-                  <motion.div
-                    key={feed.title}
-                    initial={{ opacity: 0, y: 16 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: fi * 0.08 + 0.15 }}
-                    className="group rounded-2xl border border-[var(--card-border)] bg-[var(--input)]/40 p-3 transition-all duration-200 hover:border-[var(--primary)]/40 hover:bg-[var(--input)] hover:shadow-md"
-                  >
-                    <div className="mb-3 flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <div
-                          className="flex h-9 w-9 items-center justify-center rounded-xl transition-transform duration-200 group-hover:scale-110"
-                          style={{ background: 'var(--primary)', color: 'white', opacity: 0.9 }}
-                        >{feed.icon}</div>
-                        <div>
-                          <p className="text-[9px] font-black uppercase tracking-widest text-muted">{feed.label}</p>
-                          <h3 className="text-sm font-black" style={{ color: 'var(--text)' }}>{feed.title}</h3>
-                        </div>
-                      </div>
-                      <span
-                        className="flex h-6 min-w-[24px] items-center justify-center rounded-full px-1.5 text-[11px] font-black transition-all"
-                        style={{
-                          background: feed.items.length > 0 ? 'var(--primary)' : 'var(--input)',
-                          color: feed.items.length > 0 ? 'white' : 'var(--text-muted)'
-                        }}
-                      >{feed.items.length}</span>
-                    </div>
-                    {feed.items.length === 0 ? (
-                      <Link href={feed.href} className="block rounded-xl border border-dashed border-[var(--card-border)] bg-[var(--card)]/60 p-3 text-xs font-semibold text-muted transition hover:border-[var(--primary)] hover:text-[var(--text)]">
-                        {feed.empty}
-                      </Link>
-                    ) : (
-                      <div className="space-y-1.5">
-                        {feed.items.slice(0, 2).map((item: any) => (
-                          <Link key={item.id} href={feed.itemHref(item)} className="group/item block rounded-xl bg-[var(--card)] px-3 py-2.5 transition-all hover:ring-1 hover:ring-[var(--primary)]/50 hover:shadow-sm">
-                            <p className="line-clamp-1 text-sm font-bold transition-colors group-hover/item:text-[var(--primary)]" style={{ color: 'var(--text)' }}>{item.title}</p>
-                            <p className="mt-0.5 text-[10px] font-bold uppercase tracking-wider text-muted">{feed.meta(item)}</p>
-                          </Link>
-                        ))}
-                        {feed.items.length > 2 && (
-                          <Link href={feed.href} className="block pt-1 text-center text-[10px] font-black uppercase tracking-wider transition-colors hover:text-[var(--primary)]" style={{ color: 'var(--primary)', opacity: 0.7 }}>
-                            +{feed.items.length - 2} more →
-                          </Link>
-                        )}
-                      </div>
-                    )}
-                  </motion.div>
-                ))}
-              </div>
-            </Card>
-          </motion.div>
-
-          {/* Peak Intelligence Card — completely redesigned */}
-          <motion.div variants={{ hidden: { opacity: 0, y: 24 }, show: { opacity: 1, y: 0, transition: { duration: 0.5 } } }}>
-            <Card className="h-full overflow-hidden border border-[var(--card-border)] bg-[var(--card)] relative shadow-xl shadow-black/5">
-              {/* Decorative glow */}
-              <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full opacity-[0.07]" style={{ background: 'var(--primary)' }} />
-              <div className="p-4 md:p-5">
-                <div className="mb-4 flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl" style={{ background: 'var(--primary)', color: 'white' }}>
-                    <BrainCircuit size={20} />
-                  </div>
-                  <div>
-                    <p className="text-[9px] font-black uppercase tracking-[0.22em] text-muted">Peak Intelligence</p>
-                    <h2 className="text-base font-black" style={{ color: 'var(--text)' }}>Today's Nudge ✨</h2>
-                  </div>
-                </div>
-
-                <div className="space-y-2.5">
-                  {/* Word of the Day — accent gradient */}
-                  <div className="relative overflow-hidden rounded-xl p-4" style={{ background: 'var(--primary)' }}>
-                    <div className="pointer-events-none absolute right-0 top-0 h-24 w-24 rounded-full bg-white/10 -translate-y-1/2 translate-x-1/2" />
-                    <p className="text-[9px] font-black uppercase tracking-widest text-white/60 mb-1">📖 Word of the Day</p>
-                    <p className="text-2xl font-black text-white leading-none tracking-tight">{insight.vocabulary?.word}</p>
-                    <p className="text-xs font-semibold text-white/75 mt-1.5 leading-snug">{insight.vocabulary?.meaning}</p>
-                    {insight.vocabulary?.example && (
-                      <p className="text-[10px] italic text-white/50 mt-1.5 leading-snug">"{insight.vocabulary.example}"</p>
-                    )}
-                  </div>
-
-                  {/* Study Tip */}
-                  <div className="rounded-xl border border-[var(--card-border)] bg-[var(--input)] p-3">
-                    <p className="text-[9px] font-black uppercase tracking-widest mb-1.5" style={{ color: 'var(--primary)' }}>📌 {insight.tip?.title || 'Study Tip'}</p>
-                    <p className="text-xs font-semibold leading-relaxed text-muted">{insight.tip?.content}</p>
-                  </div>
-
-                  {/* Did You Know */}
-                  {insight.didYouKnow && (
-                    <div className="rounded-xl border border-[var(--card-border)] bg-[var(--input)] p-3">
-                      <p className="text-[9px] font-black uppercase tracking-widest mb-1.5" style={{ color: 'var(--primary)' }}>💡 Did You Know?</p>
-                      <p className="text-xs font-semibold leading-relaxed text-muted">{insight.didYouKnow}</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </Card>
-          </motion.div>
-        </motion.div>
-
-        {/* Quick Launch Tools */}
+        {/* ── Daily Quests ───────────────────────────────────── */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.35, duration: 0.5 }}
+          transition={{ delay: 0.15 }}
           className="mt-6"
         >
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-muted">Study Tools</p>
-              <h2 className="text-xl font-black tracking-tight" style={{ color: 'var(--text)' }}>Quick Launch</h2>
-            </div>
+          <div className="mb-3 flex items-center gap-2">
+            <span className="text-lg">📋</span>
+            <h2 className="text-lg font-black tracking-tight" style={{ color: 'var(--text)' }}>Daily Quests</h2>
+            <span className="text-xs font-bold text-muted">— {quests.filter(q => q.done).length}/{quests.length} completed</span>
           </div>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            {tools.map((tool, ti) => (
+          <div className="grid gap-3 sm:grid-cols-3">
+            {quests.map((quest, qi) => (
               <motion.div
-                key={tool.href}
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: 0.4 + ti * 0.07, type: 'spring', stiffness: 200 }}
-                whileHover={{ y: -5, scale: 1.02 }}
-                whileTap={{ scale: 0.97 }}
+                key={quest.title}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 + qi * 0.08 }}
+                whileHover={{ y: -3, scale: 1.01 }}
               >
-                <Link href={tool.href} className="group block h-full">
-                  <Card className="h-full border border-[var(--card-border)] bg-[var(--card)] p-4 transition-all duration-200 hover:border-[var(--primary)]/50 hover:shadow-lg">
-                    <div className="mb-4 flex items-center justify-between">
-                      <div
-                        className="flex h-11 w-11 items-center justify-center rounded-xl transition-all duration-200 group-hover:scale-110 group-hover:rotate-3"
-                        style={{ background: 'var(--primary)', color: 'white', opacity: 0.9 }}
-                      >{tool.icon}</div>
-                      <span className="text-base font-black text-muted transition-all group-hover:translate-x-1 group-hover:text-[var(--primary)]">→</span>
+                <Link href={quest.href} className="group block">
+                  <div className={`relative overflow-hidden rounded-2xl border p-4 transition-all duration-200 ${
+                    quest.done
+                      ? 'border-emerald-500/40 bg-emerald-500/5'
+                      : 'border-[var(--card-border)] bg-[var(--card)] hover:border-[var(--primary)]/40 hover:shadow-lg'
+                  }`}>
+                    <div className={`pointer-events-none absolute right-0 top-0 h-20 w-20 rounded-full bg-gradient-to-br ${quest.color} opacity-[0.06]`} />
+                    <div className="flex items-center gap-3">
+                      <motion.div
+                        whileHover={{ rotate: 10 }}
+                        className={`flex h-10 w-10 items-center justify-center rounded-xl text-lg transition-all ${
+                          quest.done
+                            ? 'bg-emerald-500/15'
+                            : `bg-gradient-to-br ${quest.color} text-white shadow-md`
+                        }`}
+                      >
+                        {quest.done ? '✅' : quest.emoji}
+                      </motion.div>
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-sm font-black ${quest.done ? 'text-emerald-500 line-through' : ''}`} style={{ color: 'var(--text)' }}>
+                          {quest.title}
+                        </p>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted">{quest.done ? 'Done! 🎉' : 'Tap to start →'}</p>
+                      </div>
                     </div>
-                    <h3 className="text-sm font-black" style={{ color: 'var(--text)' }}>{tool.title}</h3>
-                    <p className="mt-1 text-xs font-semibold leading-relaxed text-muted">{tool.text}</p>
-                  </Card>
+                  </div>
                 </Link>
               </motion.div>
             ))}
           </div>
         </motion.div>
 
-        {/* Stats Row */}
+        {/* ── Assignments ──────────────────────────────────────── */}
+        {data.recentAssignments?.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.25 }}
+            className="mt-6"
+          >
+            <div className="mb-3 flex items-center gap-2">
+              <span className="text-lg">📝</span>
+              <h2 className="text-lg font-black tracking-tight" style={{ color: 'var(--text)' }}>Assignments</h2>
+              <Link href="/student/assignments" className="ml-auto text-[10px] font-black uppercase tracking-wider hover:underline" style={{ color: 'var(--primary)' }}>View all →</Link>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {data.recentAssignments.slice(0, 3).map((a: any) => {
+                const daysLeft = a.due_date ? Math.ceil((new Date(a.due_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : null
+                return (
+                  <motion.div
+                    key={a.id}
+                    whileHover={{ y: -3 }}
+                    className="rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-4 shadow-lg"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white text-sm shadow-md">
+                        {a.subject?.name?.charAt(0) || '📋'}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-black truncate" style={{ color: 'var(--text)' }}>{a.title}</p>
+                        <p className="text-[10px] font-bold text-muted">{a.subject?.name || 'General'}</p>
+                        {daysLeft !== null && (
+                          <p className={`text-[10px] font-black mt-1 ${daysLeft <= 1 ? 'text-red-500' : 'text-muted'}`}>
+                            {daysLeft <= 0 ? '⚠️ Overdue!' : daysLeft === 1 ? '🔥 Due tomorrow!' : `📅 ${daysLeft} days left`}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </motion.div>
+                )
+              })}
+            </div>
+          </motion.div>
+        )}
+
+        {/* ── Upcoming Sessions / Timetable ──────────────────────── */}
+        {data.upcomingSessions?.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className="mt-6"
+          >
+            <div className="mb-3 flex items-center gap-2">
+              <span className="text-lg">📅</span>
+              <h2 className="text-lg font-black tracking-tight" style={{ color: 'var(--text)' }}>Upcoming Sessions</h2>
+              <Link href="/student/schedule" className="ml-auto text-[10px] font-black uppercase tracking-wider hover:underline" style={{ color: 'var(--primary)' }}>Full schedule →</Link>
+            </div>
+            <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide -mx-4 px-4">
+              {data.upcomingSessions.slice(0, 8).map((s: any) => (
+                <motion.div
+                  key={s.id}
+                  whileHover={{ y: -4, scale: 1.02 }}
+                  className="min-w-[180px] shrink-0 rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-4 shadow-lg"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 text-white text-xs shadow-md">
+                      {s.subject?.name?.charAt(0) || '📚'}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-black truncate" style={{ color: 'var(--text)' }}>{s.subject?.name || 'Class'}</p>
+                      <p className="text-[9px] font-bold text-muted">{s.day}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-[11px] font-bold text-muted">
+                    <Clock size={12} />
+                    <span>{s.start_time} — {s.end_time}</span>
+                  </div>
+                  {s.teacher?.full_name && (
+                    <p className="text-[10px] font-semibold text-muted mt-1.5 truncate">👤 {s.teacher.full_name}</p>
+                  )}
+                </motion.div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+
+        {/* ── Quick Launch + Daily Nudge (side by side) ──────── */}
+        <div className="mt-6 grid gap-5 lg:grid-cols-[1.4fr_0.6fr]">
+          {/* Quick Launch */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+          >
+            <div className="mb-4 flex items-center gap-2">
+              <span className="text-lg">🚀</span>
+              <h2 className="text-lg font-black tracking-tight" style={{ color: 'var(--text)' }}>Quick Launch</h2>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              {tools.map((tool, ti) => (
+                <motion.div
+                  key={tool.href}
+                  initial={{ opacity: 0, scale: 0.85 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.35 + ti * 0.06, type: 'spring', stiffness: 200 }}
+                  whileHover={{ y: -5, scale: 1.03 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <Link href={tool.href} className="group block h-full">
+                    <div className="relative h-full overflow-hidden rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-4 transition-all duration-200 hover:shadow-xl">
+                      <div className="pointer-events-none absolute -right-6 -top-6 h-16 w-16 rounded-full opacity-[0.08]" style={{ background: tool.color }} />
+                      <div className="flex flex-col items-center gap-3 text-center">
+                        <motion.div
+                          whileHover={{ rotate: [0, -10, 10, 0], scale: 1.15 }}
+                          transition={{ duration: 0.4 }}
+                          className="text-3xl"
+                        >
+                          {tool.emoji}
+                        </motion.div>
+                        <span className="text-sm font-black" style={{ color: 'var(--text)' }}>{tool.title}</span>
+                      </div>
+                    </div>
+                  </Link>
+                </motion.div>
+              ))}
+            </div>
+          </motion.div>
+
+          {/* Daily Nudge */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.35 }}
+          >
+            <div className="mb-4 flex items-center gap-2">
+              <span className="text-lg">💡</span>
+              <h2 className="text-lg font-black tracking-tight" style={{ color: 'var(--text)' }}>Daily Nudge</h2>
+            </div>
+            <div className="space-y-3">
+              <motion.div
+                whileHover={{ y: -2 }}
+                className="relative overflow-hidden rounded-2xl p-5 shadow-lg"
+                style={{ background: 'linear-gradient(135deg, var(--primary), color-mix(in srgb, var(--primary) 70%, black 30%))' }}
+              >
+                <div className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full bg-white/8" />
+                <p className="text-[10px] font-black uppercase tracking-widest text-white/60 mb-1">📖 Word of the Day</p>
+                <p className="text-2xl font-black text-white leading-none">{insight.vocabulary?.word || 'Focus'}</p>
+                <p className="text-xs font-bold text-white/70 mt-1.5">{insight.vocabulary?.meaning || 'Stay on track!'}</p>
+              </motion.div>
+
+              <div className="rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-4">
+                <p className="text-[10px] font-black uppercase tracking-widest mb-1" style={{ color: 'var(--primary)' }}>
+                  📌 {insight.tip?.title || 'Study Tip'}
+                </p>
+                <p className="text-xs font-semibold leading-relaxed text-muted">{insight.tip?.content}</p>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+
+        {/* ── Leaderboard + Duels row ─────────────────────────── */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.55, duration: 0.5 }}
+          transition={{ delay: 0.45 }}
           className="mt-6 grid gap-4 lg:grid-cols-2"
         >
-          <Card className="border border-[var(--card-border)] bg-[var(--card)] p-4 hover:border-[var(--primary)]/30 transition-colors">
-            <p className="text-[10px] font-black uppercase tracking-[0.22em]" style={{ color: 'var(--primary)' }}>Invite and earn</p>
-            <div className="mt-3 flex items-center justify-between gap-4">
-              <div>
-                <h3 className="text-lg font-black" style={{ color: 'var(--text)' }}>Refer a classmate</h3>
-                <p className="text-sm font-semibold text-muted">Both students receive the bonus after signup.</p>
+          {/* Leaderboard preview */}
+          <div className="rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-5 shadow-lg">
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">🏆</span>
+                <h3 className="font-black text-sm" style={{ color: 'var(--text)' }}>Class Leaderboard</h3>
               </div>
-              <div className="rounded-2xl bg-[var(--input)] px-4 py-3 text-right min-w-[64px]">
-                <p className="text-2xl font-black" style={{ color: 'var(--primary)' }}>{data.referralSummary?.completedCount || 0}</p>
-                <p className="text-[10px] font-black uppercase tracking-widest text-muted">Invites</p>
-              </div>
+              <Link href="/student/performance" className="text-[10px] font-black uppercase tracking-wider hover:underline" style={{ color: 'var(--primary)' }}>View all →</Link>
             </div>
-          </Card>
+            <div className="space-y-2">
+              {(leaderboard.length > 0 ? leaderboard : []).map((entry: any, i: number) => {
+                const isMe = entry.id === student?.id
+                const medals = ['🥇', '🥈', '🥉']
+                return (
+                  <div
+                    key={entry.id || i}
+                    className={`flex items-center justify-between rounded-xl px-4 py-2.5 transition-all ${
+                      isMe
+                        ? 'bg-gradient-to-r from-[var(--primary)]/15 to-[var(--primary)]/5 border border-[var(--primary)]/30'
+                        : 'bg-[var(--input)]'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="text-lg shrink-0">{medals[i] || `#${i + 1}`}</span>
+                      <Avatar url={entry.avatar_url} name={entry.full_name} size="sm" />
+                      <span className={`text-sm font-bold truncate ${isMe ? 'text-[var(--primary)]' : ''}`} style={{ color: isMe ? undefined : 'var(--text)' }}>
+                        {entry.full_name || 'Unknown'}
+                        {isMe && <span className="ml-1.5 text-[10px] font-black uppercase tracking-wider text-muted">(You)</span>}
+                      </span>
+                    </div>
+                    <span className="text-xs font-black font-mono text-muted shrink-0 ml-2">{entry.xp?.toLocaleString()} XP</span>
+                  </div>
+                )
+              })}
+              {leaderboard.length === 0 && (
+                <p className="text-xs text-muted text-center py-4">No leaderboard data yet. Start earning XP!</p>
+              )}
+            </div>
+          </div>
 
-          <Card className="border border-[var(--card-border)] bg-[var(--card)] p-4 hover:border-[var(--primary)]/30 transition-colors">
-            <p className="text-[10px] font-black uppercase tracking-[0.22em]" style={{ color: 'var(--primary)' }}>Friend Duels</p>
-            <div className="mt-3 grid grid-cols-3 gap-2">
-              {([
-                ['Wins', (student as any)?.duel_wins || 0, '#22c55e'],
-                ['Draws', (student as any)?.duel_draws || 0, 'var(--primary)'],
-                ['Losses', (student as any)?.duel_losses || 0, '#ef4444'],
-              ] as [string, number, string][]).map(([label, value, color]) => (
-                <div key={label} className="rounded-2xl bg-[var(--input)] p-3 text-center">
-                  <p className="text-2xl font-black" style={{ color }}>{value}</p>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-muted">{label}</p>
+          {/* Duels + Referrals */}
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-5 shadow-lg">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">⚔️</span>
+                  <div>
+                    <h3 className="font-black text-sm" style={{ color: 'var(--text)' }}>Friend Duels</h3>
+                    <p className="text-[10px] font-bold text-muted">{data.activeDuelsCount} active challenges</p>
+                  </div>
                 </div>
-              ))}
+                <Link href="/student/duels" className="rounded-xl bg-gradient-to-r from-rose-500 to-pink-600 px-4 py-2 text-xs font-black text-white shadow-lg shadow-rose-500/30 hover:shadow-xl hover:shadow-rose-500/40 transition-all">
+                  ⚔️ Duel Now
+                </Link>
+              </div>
+              <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+                {([
+                  ['Wins', student?.duel_wins || 0, '#22c55e', '🏆'],
+                  ['Draws', student?.duel_draws || 0, 'var(--primary)', '🤝'],
+                  ['Losses', student?.duel_losses || 0, '#ef4444', '💪'],
+                ] as [string, number, string, string][]).map(([label, value, color, emoji]) => (
+                  <div key={label} className="rounded-xl bg-[var(--input)] p-3">
+                    <p className="text-lg font-black" style={{ color }}>{value}</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted">{emoji} {label}</p>
+                  </div>
+                ))}
+              </div>
             </div>
-          </Card>
+
+            <div className="rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-5 shadow-lg">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">👥</span>
+                  <div>
+                    <h3 className="font-black text-sm" style={{ color: 'var(--text)' }}>Invite Friends</h3>
+                    <p className="text-[10px] font-bold text-muted">Earn bonus XP!</p>
+                  </div>
+                </div>
+                <div className="rounded-xl bg-gradient-to-r from-amber-400 to-orange-500 px-4 py-2 text-center shadow-lg shadow-amber-500/30">
+                  <p className="text-xl font-black text-white">{data.referralSummary?.completedCount || 0}</p>
+                  <p className="text-[8px] font-black uppercase tracking-widest text-white/70">Invites</p>
+                </div>
+              </div>
+            </div>
+          </div>
         </motion.div>
 
+        {/* ── Creator Reel ─────────────────────────────────────── */}
         <div className="mt-6">
           <CreatorReel decks={data.creatorReel || []} />
         </div>
 
+        {/* ── Teacher Picks Videos ─────────────────────────────── */}
         {data.youtubeVideos.length > 0 && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.65 }}
+            transition={{ delay: 0.6 }}
             className="mt-6"
           >
             <div className="mb-4 flex items-center gap-2">
-              <PlayCircle size={18} style={{ color: 'var(--primary)' }} />
-              <h2 className="text-xl font-black" style={{ color: 'var(--text)' }}>Teacher picks</h2>
+              <span className="text-lg">📺</span>
+              <h2 className="text-lg font-black tracking-tight" style={{ color: 'var(--text)' }}>Teacher Picks</h2>
             </div>
             <div className="grid gap-3 md:grid-cols-3">
               {data.youtubeVideos.map((video: any) => (

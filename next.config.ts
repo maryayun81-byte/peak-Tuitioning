@@ -33,7 +33,7 @@ const nextConfig: NextConfig = {
         headers: [
           {
             key: 'Content-Security-Policy',
-            value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.posthog.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https://*.supabase.co https://cdn.pixabay.com https://www.transparenttextures.com https://upload.wikimedia.org; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.posthog.com https://*.livekit.cloud wss://*.livekit.cloud; media-src 'self' blob: mediastream:; frame-ancestors 'none';",
+            value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.posthog.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https://*.supabase.co https://cdn.pixabay.com https://www.transparenttextures.com https://upload.wikimedia.org; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.posthog.com https://*.livekit.cloud wss://*.livekit.cloud; media-src 'self' blob: mediastream:; frame-src https://www.youtube.com https://player.vimeo.com; frame-ancestors 'none';",
           },
           {
             key: 'X-Frame-Options',
