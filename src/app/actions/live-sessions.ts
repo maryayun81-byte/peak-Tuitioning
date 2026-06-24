@@ -113,10 +113,18 @@ export async function createLiveSession(input: CreateSessionInput) {
           title: 'New Live Session Scheduled 📅',
           body: `Your instructor has scheduled "${input.title}". Be ready to peak! 🏔️`,
           type: 'alert',
-          data: { session_id: session.id, type: 'live_session_scheduled' }
+          data: { session_id: session.id, type: 'live_session_scheduled', href: '/student/live' }
         }))
 
         await supabase.from('notifications').insert(notifications)
+        const userIds = students.map(s => s.user_id).filter(Boolean) as string[]
+        const { sendPushNotification } = await import('./push')
+        await sendPushNotification(userIds, {
+          title: 'New Live Session Scheduled 📅',
+          body: `Your instructor has scheduled "${input.title}". Be ready to peak! 🏔️`,
+          href: '/student/live',
+          tag: 'live-session-scheduled',
+        })
       }
     } catch (notifErr) {
       console.error('[createLiveSession] Notification Warning:', notifErr)
@@ -190,10 +198,18 @@ export async function dispatchLiveSessionReminders() {
             title: `Session Starts in ${phase.label}! ⚡`,
             body: `Your session "${session.title}" is about to begin. Join the Live Campus now!`,
             type: 'alert',
-            data: { session_id: session.id, type: phase.type }
+            data: { session_id: session.id, type: phase.type, href: '/student/live' }
           }))
 
           await supabase.from('notifications').insert(reminders)
+          const userIds = students.map(s => s.user_id).filter(Boolean) as string[]
+          const { sendPushNotification } = await import('./push')
+          await sendPushNotification(userIds, {
+            title: `Session Starts in ${phase.label}! ⚡`,
+            body: `Your session "${session.title}" is about to begin. Join the Live Campus now!`,
+            href: '/student/live',
+            tag: `live-session-${phase.type}`,
+          })
           totalNotifs += reminders.length
         }
       }

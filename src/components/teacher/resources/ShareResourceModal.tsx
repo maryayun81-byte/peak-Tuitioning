@@ -183,16 +183,23 @@ export function ShareResourceModal({ isOpen, onClose, resourceTitle, resourceSec
              // Now update URL with the actual resource ID for self-referencing
              await supabase.from('resources').update({ url: `/student/resources/viewer?id=${resData.id}` }).eq('id', resData.id)
 
-             if (cls.students.length > 0) {
-               const notifications = cls.students.map(s => ({
-                 user_id: s.user_id,
-                 title: '📚 New Resource Shared',
-                 body: `Your teacher shared a new resource: ${resourceTitle}`,
-                 type: 'resource',
-                 data: { resource_id: resData.id }
-               }))
-               await supabase.from('notifications').insert(notifications)
-             }
+              if (cls.students.length > 0) {
+                const notifications = cls.students.map(s => ({
+                  user_id: s.user_id,
+                  title: '📚 New Resource Shared',
+                  body: `Your teacher shared a new resource: ${resourceTitle}`,
+                  type: 'resource',
+                  data: { resource_id: resData.id }
+                }))
+                await supabase.from('notifications').insert(notifications)
+                const { sendPushNotification } = await import('@/app/actions/push')
+                await sendPushNotification(cls.students.map(s => s.user_id).filter(Boolean) as string[], {
+                  title: '📚 New Resource Shared',
+                  body: `Your teacher shared a new resource: ${resourceTitle}`,
+                  href: `/student/resources/viewer?id=${resData.id}`,
+                  tag: 'resource-shared',
+                })
+              }
            } else {
              console.error('Error creating resource:', resError)
            }
@@ -237,16 +244,23 @@ export function ShareResourceModal({ isOpen, onClose, resourceTitle, resourceSec
                  return null
                }).filter(Boolean) as string[]
 
-               if (selectedUserIds.length > 0) {
-                 const notifications = selectedUserIds.map(uid => ({
-                   user_id: uid,
-                   title: '📚 New Resource Shared',
-                   body: `Your teacher specifically shared a resource with you: ${resourceTitle}`,
-                   type: 'resource',
-                   data: { resource_id: resData.id }
-                 }))
-                 await supabase.from('notifications').insert(notifications)
-               }
+                if (selectedUserIds.length > 0) {
+                  const notifications = selectedUserIds.map(uid => ({
+                    user_id: uid,
+                    title: '📚 New Resource Shared',
+                    body: `Your teacher specifically shared a resource with you: ${resourceTitle}`,
+                    type: 'resource',
+                    data: { resource_id: resData.id }
+                  }))
+                  await supabase.from('notifications').insert(notifications)
+                  const { sendPushNotification } = await import('@/app/actions/push')
+                  await sendPushNotification(selectedUserIds, {
+                    title: '📚 New Resource Shared',
+                    body: `Your teacher shared a resource with you: ${resourceTitle}`,
+                    href: `/student/resources/viewer?id=${resData.id}`,
+                    tag: 'resource-shared',
+                  })
+                }
              }
            } else {
              console.error('Error creating resource for students:', resError)

@@ -23,6 +23,7 @@ import { Button } from '@/components/ui/Button'
 import { TranscriptCollectionCard } from '@/components/admin/TranscriptCollectionCard'
 import { TranscriptList } from '@/components/admin/TranscriptList'
 import { PremiumTranscript } from '@/components/admin/PremiumTranscript'
+import { sendPushNotification } from '@/app/actions/push'
 import { Modal } from '@/components/ui/Modal'
 import { SkeletonList } from '@/components/ui/Skeleton'
 import { Card } from '@/components/ui/Card'
@@ -633,6 +634,12 @@ function AdminTranscriptsContent() {
         
         if (notifications.length > 0) {
           await supabase.from('notifications').insert(notifications)
+          await sendPushNotification(notifications.map(n => n.user_id), {
+            title: 'Academic Transcript Published',
+            body: 'Your official academic transcript has been published and is now available in your portal.',
+            href: '/student/transcripts',
+            tag: 'transcript-published',
+          })
         }
       }
 
@@ -668,6 +675,12 @@ function AdminTranscriptsContent() {
             body: 'Your official academic transcript has been published and is now available in your portal.',
             related_id: t.id,
             data: { transcript_id: t.id }
+         })
+         await sendPushNotification([studentData.student.user_id], {
+            title: 'Academic Transcript Published',
+            body: 'Your official academic transcript has been published and is now available in your portal.',
+            href: '/student/transcripts',
+            tag: 'transcript-published',
          })
       }
 

@@ -257,10 +257,17 @@ export default function StudentWorksheetSolver() {
 
     if (error) { toast.error('Submission failed: ' + error.message); setSubmitting(false); return }
 
-    // Notify teacher via push notification
+    // Notify teacher via DB notification + push
     try {
       const teacherUserId = (assignment as any)?.teacher?.user_id
       if (teacherUserId) {
+        await supabase.from('notifications').insert({
+          user_id: teacherUserId,
+          title: '📝 New Submission',
+          body: `${profile?.full_name || 'A student'} submitted "${assignment.title}"`,
+          type: 'submission',
+          data: { assignment_id: assignmentId, student_id: student?.id, student_name: profile?.full_name },
+        })
         const { sendPushNotification } = await import('@/app/actions/push')
         await sendPushNotification([teacherUserId], {
           title: '📝 New Submission',
@@ -290,6 +297,13 @@ export default function StudentWorksheetSolver() {
           body: 'You earned +20 XP for submitting your worksheet.',
           type: 'info',
           data: { xp: 20, category: 'assignment_completion' }
+        })
+        const { sendPushNotification: sendPush2 } = await import('@/app/actions/push')
+        await sendPush2([profile!.id], {
+          title: 'Quest Submitted! +20 XP',
+          body: 'You earned +20 XP for submitting your worksheet.',
+          href: '/student/assignments',
+          tag: 'xp-submission',
         })
         toast.success('✅ Worksheet submitted! +20 XP earned!', { icon: '🚀' })
       } else {

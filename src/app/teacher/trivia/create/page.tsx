@@ -253,9 +253,16 @@ export default function CreateTriviaPage() {
     }
 
     if (publish && classIds.length > 0) {
-      const { data: stUsers } = await supabase.from('students').select('user_id').in('class_id', classIds)
+      const { data: stUsers } = await supabase.from('students').select('id, user_id').in('class_id', classIds)
       const targetUserIds = stUsers?.map(s => s.user_id).filter(Boolean) as string[] || []
       if (targetUserIds.length > 0) {
+        await supabase.from('notifications').insert(targetUserIds.map(uid => ({
+          user_id: uid,
+          title: '🏆 New Trivia Challenge!',
+          body: `A new trivia session "${title.trim()}" is starting soon!`,
+          type: 'trivia',
+          data: { trivia_id: session.id, href: `/student/trivia/${session.id}` },
+        })))
         await sendPushNotification(targetUserIds, {
           title: 'New Trivia Challenge!',
           body: `A new trivia session "${title.trim()}" is starting soon!`,

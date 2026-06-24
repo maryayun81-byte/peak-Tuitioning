@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { 
   Highlighter, ArrowRight, Circle, Minus, Type, 
-  Pen, Check, X, RotateCcw, Trash2, CheckCircle2 
+  Pen, Check, X, RotateCcw, Trash2, CheckCircle2,
+  Eraser, Palette, PaintBucket, Droplets
 } from 'lucide-react'
 
 interface AnnotationCanvasProps {
@@ -17,7 +18,7 @@ interface AnnotationCanvasProps {
   height?: number
 }
 
-type Tool = 'highlight' | 'line' | 'circle' | 'underline' | 'arrow' | 'text' | 'draw' | 'tick' | 'cross' | 'select' | 'pan' | 'ruler' | 'protractor'
+type Tool = 'highlight' | 'line' | 'circle' | 'underline' | 'arrow' | 'text' | 'draw' | 'tick' | 'cross' | 'select' | 'pan' | 'ruler' | 'protractor' | 'eraser'
 
 const TOOL_CONFIG: { tool: Tool; icon: React.ReactNode; label: string; color?: string }[] = [
   { tool: 'select',     icon: <CheckCircle2 size={14} />, label: 'Select',     color: '#6366f1' },
@@ -33,7 +34,31 @@ const TOOL_CONFIG: { tool: Tool; icon: React.ReactNode; label: string; color?: s
   { tool: 'underline',  icon: <Minus size={14} />,       label: 'Underline',   color: undefined },
   { tool: 'circle',     icon: <Circle size={14} />,      label: 'Circle',      color: undefined },
   { tool: 'arrow',      icon: <ArrowRight size={14} />,  label: 'Arrow',       color: undefined },
+  { tool: 'eraser',     icon: <Eraser size={14} />,     label: 'Eraser',      color: undefined },
 ]
+
+interface ColorOption { name: string; hex: string }
+const COLORS: ColorOption[] = [
+  { name: 'Correct Green', hex: '#059669' },
+  { name: 'Error Red', hex: '#DC2626' },
+  { name: 'Warning Amber', hex: '#F59E0B' },
+  { name: 'Rose', hex: '#F43F5E' },
+  { name: 'Emerald', hex: '#10B981' },
+  { name: 'Teal', hex: '#14B8A6' },
+  { name: 'Sky Blue', hex: '#0EA5E9' },
+  { name: 'Blue', hex: '#3B82F6' },
+  { name: 'Indigo', hex: '#6366F1' },
+  { name: 'Violet', hex: '#8B5CF6' },
+  { name: 'Purple', hex: '#A855F7' },
+  { name: 'Pink', hex: '#EC4899' },
+  { name: 'Orange', hex: '#F97316' },
+  { name: 'Black', hex: '#000000' },
+  { name: 'Slate', hex: '#475569' },
+  { name: 'Stone', hex: '#78716C' },
+  { name: 'Gray', hex: '#94A3B8' },
+  { name: 'Highlight Yellow', hex: '#FDE047' },
+]
+const STROKE_WIDTHS = [1, 2, 3, 4, 5, 6, 8, 10, 15, 20]
 
 export function AnnotationCanvas({
   backgroundText, backgroundJson, backgroundImageUrl, initialJson,
@@ -46,6 +71,57 @@ export function AnnotationCanvas({
   const [activeTool, setActiveTool] = useState<Tool>(readOnly ? 'select' : 'draw')
   const [color, setColor]           = useState(defaultColor)
   const [zoom, setZoom]             = useState(1)
+  const [strokeWidth, setStrokeWidth] = useState(3)
+  const [fontSize, setFontSize]     = useState(18)
+  const [fillMode, setFillMode]     = useState<'fill' | 'outline'>('outline')
+  const [opacity, setOpacity]       = useState(100)
+  const [colorHistory, setColorHistory] = useState<string[]>(['#EF4444', '#3B82F6', '#10B981'])
+  const [hexInput, setHexInput] = useState('')
+  const [showColorPicker, setShowColorPicker] = useState(false)
+
+  useEffect(() => {
+    if (color && !colorHistory.includes(color)) {
+      setColorHistory(prev => [color, ...prev].slice(0, 6))
+    }
+  }, [color])
+
+  // Apply color changes to selected objects on canvas
+  useEffect(() => {
+    const canvas = fabricRef.current
+    if (!canvas) return
+    if (canvas.isDrawingMode && canvas.freeDrawingBrush) {
+      canvas.freeDrawingBrush.color = color
+    }
+    const active = canvas.getActiveObject() as any
+    if (!active || active.data?.background) return
+    const isText = active.type === 'i-text' || active.type === 'textbox'
+    if (isText) {
+      if (active.isEditing) {
+        // Apply to the selected character range inside the text box
+        const start = active.selectionStart ?? 0
+        const end   = active.selectionEnd   ?? 0
+        if (start !== end) {
+          active.setSelectionStyles({ fill: color }, start, end)
+        } else {
+          // Nothing selected — color the whole object and set as default for next chars
+          active.set('fill', color)
+        }
+      } else {
+        active.set('fill', color)
+      }
+      canvas.renderAll()
+    } else if (active.type === 'activeSelection') {
+      active.forEachObject((o: any) => {
+        if (o.type === 'i-text' || o.type === 'textbox') o.set('fill', color)
+        else if (o.stroke) o.set('stroke', color)
+      })
+      canvas.renderAll()
+    } else if (active.stroke) {
+      active.set('stroke', color)
+      if (active.fill && active.fill !== 'transparent') active.set('fill', color + '33')
+      canvas.renderAll()
+    }
+  }, [color])
 
   const onSaveRef = useRef(onSave)
   useEffect(() => { onSaveRef.current = onSave }, [onSave])
@@ -58,6 +134,18 @@ export function AnnotationCanvas({
   const backgroundJsonRef = useRef(backgroundJson)
   const backgroundImageUrlRef = useRef(backgroundImageUrl)
   const defaultColorRef   = useRef(defaultColor)
+
+  // Refs to read live state inside effect closures (canvas event handlers)
+  const colorRef       = useRef(color)
+  const widthRef       = useRef(strokeWidth)
+  const fontSizeRef    = useRef(fontSize)
+  const fillRef        = useRef(fillMode)
+  const opacityRef     = useRef(opacity)
+  useEffect(() => { colorRef.current = color }, [color])
+  useEffect(() => { widthRef.current = strokeWidth }, [strokeWidth])
+  useEffect(() => { fontSizeRef.current = fontSize }, [fontSize])
+  useEffect(() => { fillRef.current = fillMode }, [fillMode])
+  useEffect(() => { opacityRef.current = opacity }, [opacity])
 
   const serialize = useCallback((canvas: any) => {
     if (!canvas) return ''
@@ -304,6 +392,7 @@ export function AnnotationCanvas({
       })
 
       let isPanning = false
+      let isErasing = false
       let isDrawingShape = false
       let shapeObj: any = null
       let shapeStart: { x: number, y: number } | null = null
@@ -312,7 +401,14 @@ export function AnnotationCanvas({
 
       canvas.on('mouse:down', async (opt: any) => {
          const activeTool = (fabricRef.current as any).activeTool
-         if (activeTool === 'pan' || opt.e.altKey) {
+         if (activeTool === 'eraser') {
+             isErasing = true
+             const obj = canvas.findTarget(opt.e, true)
+             if (obj && !obj.data?.background) {
+                canvas.remove(obj)
+                canvas.requestRenderAll()
+             }
+          } else if (activeTool === 'pan' || opt.e.altKey) {
             isPanning = true
             canvas.selection = false
             lastPosX = opt.e.clientX
@@ -322,14 +418,18 @@ export function AnnotationCanvas({
             const pointer = canvas.getScenePoint(opt.e)
             shapeStart = { x: pointer.x, y: pointer.y }
             const { Line, Circle: FC, Group, Triangle } = await import('fabric')
+            const sw = widthRef.current
+            const c  = colorRef.current
+            const op = opacityRef.current / 100
             
             if (activeTool === 'line' || activeTool === 'underline') {
-               shapeObj = new Line([pointer.x, pointer.y, pointer.x, pointer.y], { stroke: color, strokeWidth: 3, selectable: true })
+               shapeObj = new Line([pointer.x, pointer.y, pointer.x, pointer.y], { stroke: c, strokeWidth: sw, selectable: true, opacity: op })
             } else if (activeTool === 'circle') {
-               shapeObj = new FC({ left: pointer.x, top: pointer.y, radius: 0, fill: 'transparent', stroke: color, strokeWidth: 3, selectable: true, originX: 'center', originY: 'center' })
+               const fill = fillRef.current === 'fill' ? c + '33' : 'transparent'
+               shapeObj = new FC({ left: pointer.x, top: pointer.y, radius: 0, stroke: c, strokeWidth: sw, fill, selectable: true, originX: 'center', originY: 'center', opacity: op })
             } else if (activeTool === 'arrow') {
-               const line = new Line([0, 0, 0, 0], { stroke: color, strokeWidth: 3 })
-               const head = new Triangle({ left: 0, top: 0, angle: 90, width: 15, height: 15, fill: color, originX: 'center', originY: 'center', selectable: false })
+               const line = new Line([0, 0, 0, 0], { stroke: c, strokeWidth: sw, opacity: op })
+               const head = new Triangle({ left: 0, top: 0, angle: 90, width: Math.max(10, sw * 3), height: Math.max(10, sw * 3), fill: c, originX: 'center', originY: 'center', selectable: false, opacity: op })
                shapeObj = new Group([line, head], { left: pointer.x, top: pointer.y, selectable: true })
                shapeObj.set('data', { isArrow: true })
             }
@@ -341,7 +441,13 @@ export function AnnotationCanvas({
          const activeTool = (fabricRef.current as any).activeTool
          const pointer = canvas.getScenePoint(opt.e)
 
-         if (isPanning && fabricRef.current) {
+         if (isErasing && activeTool === 'eraser') {
+            const obj = canvas.findTarget(opt.e, true)
+            if (obj && !obj.data?.background) {
+               canvas.remove(obj)
+               canvas.requestRenderAll()
+            }
+         } else if (isPanning && fabricRef.current) {
             const e = opt.e
             const vpt = canvas.viewportTransform
             vpt[4] += e.clientX - lastPosX
@@ -366,6 +472,10 @@ export function AnnotationCanvas({
          }
       })
       canvas.on('mouse:up', () => {
+         if (isErasing) {
+            isErasing = false
+            save(canvas)
+         }
          isPanning = false
          if (isDrawingShape) {
             isDrawingShape = false
@@ -390,7 +500,7 @@ export function AnnotationCanvas({
       canvas.isDrawingMode = true
       const brush = new PencilBrush(canvas)
       brush.color = defaultColorRef.current
-      brush.width = 2
+      brush.width = widthRef.current
       canvas.freeDrawingBrush = brush
 
       canvas.on('object:modified', () => save(canvas))
@@ -439,6 +549,9 @@ export function AnnotationCanvas({
     const cx = w / 2
     // Place new marks at vertical center of the *current viewport scroll position*
     const cy = 200
+    const sw = widthRef.current
+    const c  = colorRef.current
+    const op = opacityRef.current / 100
 
     canvas.isDrawingMode = false
 
@@ -475,17 +588,31 @@ export function AnnotationCanvas({
          protractor.set('data', { isInstrument: true })
          canvas.add(protractor); canvas.setActiveObject(protractor); break
       }
-      case 'highlight': canvas.add(new Rect({ left: 40, top: cy, width: w - 80, height: 28, fill: color, opacity: 0.4, selectable: true })); break
+      case 'highlight': canvas.add(new Rect({ left: 40, top: cy, width: w - 80, height: 28, fill: c, opacity: op * 0.6, selectable: true })); break
       case 'text': {
-        const t = new IText('Comment...', { left: 40, top: cy, fontSize: 16, fill: color, fontWeight: 'bold', selectable: true, editable: true })
+        // Place text at the center of the currently visible scroll area
+        const scrollTop = wrapperRef.current?.closest('[data-scroll]')?.scrollTop
+          ?? wrapperRef.current?.parentElement?.scrollTop
+          ?? 0
+        const visibleCy = scrollTop + (wrapperRef.current?.offsetHeight ?? 400) / 2
+        const t = new IText('Comment...', {
+          left: 40,
+          top: Math.max(20, visibleCy - 20),
+          fontSize: fontSizeRef.current,
+          fill: c,
+          fontWeight: 'bold',
+          selectable: true,
+          editable: true,
+          opacity: op,
+        })
         canvas.add(t); canvas.setActiveObject(t); t.enterEditing(); t.selectAll(); break
       }
-      case 'tick':  canvas.add(new IText('✓', { left: cx - 20, top: cy - 20, fontSize: 46, fill: '#10B981', fontWeight: 'bold', selectable: true })); break
-      case 'cross': canvas.add(new IText('✗', { left: cx - 20, top: cy - 20, fontSize: 46, fill: '#EF4444', fontWeight: 'bold', selectable: true })); break
+      case 'tick':  canvas.add(new IText('✓', { left: cx - 20, top: cy - 20, fontSize: Math.max(24, sw * 6), fill: '#10B981', fontWeight: 'bold', selectable: true, opacity: op })); break
+      case 'cross': canvas.add(new IText('✗', { left: cx - 20, top: cy - 20, fontSize: Math.max(24, sw * 6), fill: '#EF4444', fontWeight: 'bold', selectable: true, opacity: op })); break
       case 'draw': {
         canvas.isDrawingMode = true
         const b = new PencilBrush(canvas)
-        b.color = color; b.width = 5
+        b.color = c; b.width = sw
         canvas.freeDrawingBrush = b
         return
       }
@@ -496,27 +623,28 @@ export function AnnotationCanvas({
     }
     canvas.renderAll()
     save(canvas)
-  }, [color, save])
+  }, [save])
 
   const setTool = (t: Tool) => {
     setActiveTool(t)
     if (fabricRef.current) fabricRef.current.activeTool = t
-    const tc = TOOL_CONFIG.find(c => c.tool === t)?.color ?? color
-    setColor(tc)
     const canvas = fabricRef.current
     if (!canvas) return
-    if (t === 'select' || t === 'pan') {
+    if (t === 'select' || t === 'pan' || t === 'eraser') {
       canvas.isDrawingMode = false
       canvas.selection = (t === 'select')
       canvas.forEachObject((o: any) => { 
          if (!o.data?.background) { 
             o.selectable = (t === 'select')
-            o.evented = (t === 'select')
+            o.evented = (t === 'select' || t === 'eraser')
          } 
       })
+      canvas.defaultCursor = t === 'eraser' ? 'not-allowed' : 'default'
       canvas.renderAll()
       return
     }
+    const tc = TOOL_CONFIG.find(c => c.tool === t)?.color
+    if (tc) setColor(tc)
     addObject(t)
   }
 
@@ -555,34 +683,257 @@ export function AnnotationCanvas({
       style={height ? { height: height + 52, overflow: 'hidden' } : {}}
     >
       {!readOnly && (
-        <div
-          className="flex flex-wrap items-center gap-1.5 px-3 py-2 bg-slate-50 border-b border-slate-100 sticky top-0 z-10"
-          style={{ touchAction: 'none' }}
-        >
-          {TOOL_CONFIG.map(t => (
-            <button
-              key={t.tool}
-              onClick={() => setTool(t.tool)}
-              title={t.label}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-black uppercase tracking-wide transition-all shadow-sm border"
-              style={{
-                background:   activeTool === t.tool ? (t.color || color) : 'white',
-                color:        activeTool === t.tool ? 'white' : '#64748b',
-                borderColor:  activeTool === t.tool ? 'transparent' : '#f1f5f9',
-              }}
-            >
-              {t.icon}
-              <span className="hidden sm:inline">{t.label}</span>
-            </button>
-          ))}
-          <div className="ml-auto flex gap-2">
-            <div className="flex bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden mr-2">
-               <button onClick={() => handleManualZoom('out')} className="px-2.5 py-1.5 text-slate-400 hover:bg-slate-50 hover:text-slate-700 border-r border-slate-50 text-xs font-black">-</button>
-               <button onClick={() => handleManualZoom('reset')} className="px-2.5 py-1.5 text-slate-400 hover:bg-slate-50 hover:text-slate-700 border-r border-slate-50 text-[10px] font-black">{Math.round(zoom * 100)}%</button>
-               <button onClick={() => handleManualZoom('in')} className="px-2.5 py-1.5 text-slate-400 hover:bg-slate-50 hover:text-slate-700 text-xs font-black">+</button>
+        <div className="sticky top-0 z-20" style={{ touchAction: 'none' }}>
+          <div style={{
+            background: 'var(--card)',
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
+            borderBottom: '1px solid var(--card-border)',
+          }}>
+            {/* Row 1: Tools */}
+            <div className="flex items-center gap-0.5 px-1.5 py-1 overflow-x-auto no-scrollbar" style={{ color: 'var(--text)' }}>
+              {/* Selection */}
+              <div className="flex items-center gap-0.5">
+                {(['select', 'pan'] as const).map(t => {
+                  const cfg = TOOL_CONFIG.find(c => c.tool === t)!
+                  const active = activeTool === t
+                  return (
+                    <button key={t} onClick={() => setTool(t)}
+                      className="px-1.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all whitespace-nowrap flex items-center gap-1"
+                      style={{
+                        background: active ? (cfg.color || color) : 'transparent',
+                        color: active ? 'white' : 'var(--text-muted)',
+                      }}
+                      title={cfg.label}>
+                      {cfg.icon}
+                    </button>
+                  )
+                })}
+              </div>
+              <div className="w-px h-4 mx-0.5 shrink-0" style={{ background: 'var(--card-border)' }} />
+
+              {/* Draw */}
+              <div className="flex items-center gap-0.5">
+                {(['draw', 'line', 'arrow', 'circle', 'underline'] as const).map(t => {
+                  const cfg = TOOL_CONFIG.find(c => c.tool === t)!
+                  const active = activeTool === t
+                  return (
+                    <button key={t} onClick={() => setTool(t)}
+                      className="px-1.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all whitespace-nowrap flex items-center gap-1"
+                      style={{
+                        background: active ? (cfg.color || color) : 'transparent',
+                        color: active ? 'white' : 'var(--text-muted)',
+                      }}
+                      title={cfg.label}>
+                      {cfg.icon}
+                      {t === 'draw' && <span className="hidden sm:inline text-[9px]">Pen</span>}
+                    </button>
+                  )
+                })}
+              </div>
+              <div className="w-px h-4 mx-0.5 shrink-0" style={{ background: 'rgba(0,0,0,0.06)' }} />
+
+              {/* Mark */}
+              <div className="flex items-center gap-0.5">
+                {(['tick', 'cross', 'highlight'] as const).map(t => {
+                  const cfg = TOOL_CONFIG.find(c => c.tool === t)!
+                  const active = activeTool === t
+                  return (
+                    <button key={t} onClick={() => setTool(t)}
+                      className="px-1.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all whitespace-nowrap flex items-center gap-1"
+                      style={{
+                        background: active ? (t === 'tick' ? '#10B981' : t === 'cross' ? '#EF4444' : '#FDE047') : 'transparent',
+                        color: active ? (t === 'highlight' ? '#000' : 'white') : 'var(--text-muted)',
+                      }}
+                      title={cfg.label}>
+                      {cfg.icon}
+                    </button>
+                  )
+                })}
+              </div>
+              <div className="w-px h-4 mx-0.5 shrink-0" style={{ background: 'rgba(0,0,0,0.06)' }} />
+
+              {/* Text */}
+              <div className="flex items-center gap-0.5">
+                {(['text'] as const).map(t => {
+                  const cfg = TOOL_CONFIG.find(c => c.tool === t)!
+                  const active = activeTool === t
+                  return (
+                    <button key={t} onClick={() => setTool(t)}
+                      className="px-1.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all whitespace-nowrap flex items-center gap-1"
+                      style={{
+                        background: active ? (cfg.color || color) : 'transparent',
+                        color: active ? 'white' : 'var(--text-muted)',
+                      }}
+                      title={cfg.label}>
+                      {cfg.icon}
+                    </button>
+                  )
+                })}
+              </div>
+              <div className="w-px h-4 mx-0.5 shrink-0" style={{ background: 'rgba(0,0,0,0.06)' }} />
+
+              {/* Eraser */}
+              <div className="flex items-center gap-0.5">
+                {(['eraser'] as const).map(t => {
+                  const cfg = TOOL_CONFIG.find(c => c.tool === t)!
+                  const active = activeTool === t
+                  return (
+                    <button key={t} onClick={() => setTool(t)}
+                      className="px-1.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all whitespace-nowrap flex items-center gap-1"
+                      style={{
+                        background: active ? 'rgba(239,68,68,0.15)' : 'transparent',
+                        color: active ? '#EF4444' : 'var(--text-muted)',
+                      }}
+                      title={cfg.label}>
+                      {cfg.icon}
+                    </button>
+                  )
+                })}
+              </div>
+              <div className="w-px h-4 mx-0.5 shrink-0" style={{ background: 'rgba(0,0,0,0.06)' }} />
+
+              {/* Instruments */}
+              <div className="flex items-center gap-0.5">
+                {(['ruler', 'protractor'] as const).map(t => {
+                  const cfg = TOOL_CONFIG.find(c => c.tool === t)!
+                  const active = activeTool === t
+                  return (
+                    <button key={t} onClick={() => setTool(t)}
+                      className="px-1.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all whitespace-nowrap flex items-center gap-1"
+                      style={{
+                        background: active ? '#94a3b8' : 'transparent',
+                        color: active ? 'white' : 'var(--text-muted)',
+                      }}
+                      title={cfg.label}>
+                      {cfg.icon}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
-            <button onClick={undo}  className="p-2 rounded-xl bg-white border border-slate-100 shadow-sm text-slate-400 hover:text-slate-700" title="Undo"><RotateCcw size={14} /></button>
-            <button onClick={clear} className="p-2 rounded-xl bg-white border border-slate-100 shadow-sm text-red-300 hover:text-red-500"   title="Clear"><Trash2 size={14} /></button>
+
+            {/* Row 2: Color, Width, Font Size, Opacity, Fill, Zoom, Undo, Clear */}
+            <div className="flex items-center gap-2 px-3 py-1.5 border-t flex-wrap" style={{ borderColor: 'var(--card-border)' }}>
+              {/* Color Picker */}
+              <div className="relative">
+                <button
+                  onClick={() => setShowColorPicker(v => !v)}
+                  className="w-7 h-7 rounded-lg border-2 transition-all hover:scale-105"
+                  style={{
+                    background: color,
+                    borderColor: 'rgba(0,0,0,0.1)',
+                    boxShadow: showColorPicker ? '0 0 0 2px rgba(99,102,241,0.35)' : 'none',
+                  }}
+                  title={`Color: ${color}`}
+                />
+                {showColorPicker && (
+                  <div
+                    className="absolute top-full left-0 mt-1.5 p-2.5 rounded-2xl border shadow-2xl z-30 min-w-[220px]"
+                    style={{
+                      background: 'var(--card)',
+                      backdropFilter: 'blur(20px)',
+                      borderColor: 'var(--card-border)',
+                    }}
+                    onClick={e => e.stopPropagation()}
+                  >
+                    {colorHistory.length > 0 && (
+                      <div className="mb-2">
+                        <div className="text-[7px] font-black uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>Recent</div>
+                        <div className="flex gap-1 flex-wrap">
+                          {colorHistory.map(c => (
+                            <button key={c} onClick={() => { setColor(c); setShowColorPicker(false) }}
+                              className="w-5 h-5 rounded-md border transition-transform hover:scale-125"
+                              style={{ backgroundColor: c, borderColor: 'rgba(0,0,0,0.08)' }} />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <div className="grid grid-cols-6 gap-1 mb-2">
+                      {COLORS.map(c => (
+                        <button key={c.hex} onClick={() => { setColor(c.hex); setShowColorPicker(false) }}
+                          className="w-6 h-6 rounded-lg border transition-all hover:scale-110"
+                          style={{
+                            backgroundColor: c.hex,
+                            borderColor: color === c.hex ? 'rgba(99,102,241,0.5)' : 'rgba(0,0,0,0.06)',
+                            outline: color === c.hex ? '2px solid #6366f1' : 'none',
+                            outlineOffset: '1px',
+                          }}
+                          title={c.name} />
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[9px] font-mono font-black" style={{ color: 'var(--text-muted)' }}>#</span>
+                      <input value={hexInput} onChange={e => setHexInput(e.target.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 6))}
+                        onKeyDown={e => { if (e.key === 'Enter' && hexInput.length === 6) { setColor(`#${hexInput}`); setShowColorPicker(false) } }}
+                        className="flex-1 px-2 py-1 text-[10px] font-mono rounded-lg border focus:outline-none focus:ring-2"
+                        style={{ background: 'var(--input)', borderColor: 'var(--card-border)', color: 'var(--text)' }}
+                        placeholder="000000" maxLength={6} />
+                      {hexInput.length === 6 && (
+                        <div className="w-5 h-5 rounded border shrink-0" style={{ backgroundColor: `#${hexInput}`, borderColor: 'rgba(0,0,0,0.08)' }} />
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Stroke Width */}
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg" style={{ background: 'var(--input)' }}>
+                <Pen size={10} style={{ color: 'var(--text-muted)' }} />
+                <input type="range" min={1} max={20} value={strokeWidth}
+                  onChange={e => setStrokeWidth(Number(e.target.value))}
+                  className="w-12 h-0.5 accent-indigo-500 cursor-pointer" />
+                <div className="flex items-center gap-1 min-w-[26px]">
+                  <div className="w-3 h-3 rounded-full shrink-0" style={{ background: color, opacity: 0.3 + (strokeWidth / 20) * 0.7 }} />
+                  <span className="text-[8px] font-black tabular-nums" style={{ color: 'var(--text-muted)' }}>{strokeWidth}</span>
+                </div>
+              </div>
+
+              {/* Font Size — only relevant when text tool is active */}
+              {activeTool === 'text' && (
+                <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg" style={{ background: 'var(--input)' }}>
+                  <Type size={10} style={{ color: 'var(--text-muted)' }} />
+                  <input type="range" min={10} max={72} step={2} value={fontSize}
+                    onChange={e => setFontSize(Number(e.target.value))}
+                    className="w-12 h-0.5 accent-indigo-500 cursor-pointer" />
+                  <span className="text-[8px] font-black tabular-nums" style={{ color: 'var(--text-muted)' }}>{fontSize}px</span>
+                </div>
+              )}
+
+              {/* Opacity */}
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg" style={{ background: 'var(--input)' }}>
+                <Droplets size={10} style={{ color: 'var(--text-muted)' }} />
+                <input type="range" min={10} max={100} step={10} value={opacity}
+                  onChange={e => setOpacity(Number(e.target.value))}
+                  className="w-10 h-0.5 accent-indigo-500 cursor-pointer" />
+                <span className="text-[8px] font-black tabular-nums" style={{ color: 'var(--text-muted)' }}>{opacity}%</span>
+              </div>
+
+              {/* Fill toggle */}
+              <button onClick={() => setFillMode(f => f === 'fill' ? 'outline' : 'fill')}
+                className="w-7 h-7 rounded-lg flex items-center justify-center transition-all"
+                style={{
+                  background: fillMode === 'fill' ? 'rgba(99,102,241,0.12)' : 'var(--input)',
+                  color: fillMode === 'fill' ? '#6366f1' : 'var(--text-muted)',
+                }}
+                title={`Fill: ${fillMode}`}>
+                <PaintBucket size={12} />
+              </button>
+
+              <div className="w-px h-4" style={{ background: 'var(--card-border)' }} />
+
+              {/* Zoom */}
+              <div className="flex items-center rounded-lg overflow-hidden" style={{ background: 'rgba(0,0,0,0.03)', border: '1px solid rgba(0,0,0,0.04)' }}>
+                <button onClick={() => handleManualZoom('out')} className="px-1.5 py-1 text-[10px] font-black transition-all hover:bg-black/5" style={{ color: 'rgba(0,0,0,0.4)' }}>-</button>
+                <button onClick={() => handleManualZoom('reset')} className="px-1.5 py-1 text-[8px] font-black tracking-tight border-x" style={{ color: 'rgba(0,0,0,0.5)', borderColor: 'rgba(0,0,0,0.04)' }}>{Math.round(zoom * 100)}%</button>
+                <button onClick={() => handleManualZoom('in')} className="px-1.5 py-1 text-[10px] font-black transition-all hover:bg-black/5" style={{ color: 'rgba(0,0,0,0.4)' }}>+</button>
+              </div>
+
+              <div className="flex-1" />
+
+              <button onClick={undo} className="w-7 h-7 rounded-lg flex items-center justify-center transition-all hover:bg-[var(--input)]" style={{ color: 'var(--text-muted)' }} title="Undo"><RotateCcw size={11} /></button>
+              <button onClick={clear} className="w-7 h-7 rounded-lg flex items-center justify-center transition-all hover:bg-rose-500/10" style={{ color: 'var(--text-muted)' }} title="Clear all annotations"><Trash2 size={11} /></button>
+            </div>
           </div>
         </div>
       )}

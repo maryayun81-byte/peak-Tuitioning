@@ -1,0 +1,24 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/brain-gym",
+      "schedule": "55 9 * * *",
+      "description": "Brain Gym 5-min morning reminder"
+    },
+    {
+      "path": "/api/cron/brain-gym",
+      "schedule": "0 10 * * *",
+      "description": "Brain Gym morning ready"
+    },
+    {
+      "path": "/api/cron/brain-gym",
+      "schedule": "55 19 * * *",
+      "description": "Brain Gym 5-min evening reminder"
+    },
+    {
+      "path": "/api/cron/brain-gym",
+      "schedule": "0 20 * * *",
+      "description": "Brain Gym evening ready"
+    }
+  ]
+}

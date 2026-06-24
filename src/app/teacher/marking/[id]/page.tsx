@@ -6,7 +6,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   ArrowLeft, Check, Send, MessageSquare, Star,
   ChevronLeft, ChevronRight, User, BookOpen, CheckCircle2,
-  BarChart3, Users, AlertCircle, Clock, Zap, Trophy
+  BarChart3, Users, AlertCircle, Clock, Zap, Trophy,
+  Maximize2, Minimize2
 } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
@@ -46,10 +47,22 @@ export default function WorksheetGraderPage() {
   const [classStatus, setClassStatus] = useState<any[]>([])
   const [activeBlockId, setActiveBlockId] = useState<string | null>(null)
   const [pageImages, setPageImages] = useState<string[]>([])
+  const [currentPageIndex, setCurrentPageIndex] = useState(0)
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [questionComments, setQuestionComments] = useState<Record<string, string>>({})
   const [showJumpList, setShowJumpList] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  // workspaceMode is always true — the layout bypasses sidebar/header for this page
+  const workspaceMode = true
   const prevAwardedRef = useRef(0)
+
+  useEffect(() => {
+    const onFSChange = () => {
+      setIsFullscreen(!!document.fullscreenElement)
+    }
+    document.addEventListener('fullscreenchange', onFSChange)
+    return () => document.removeEventListener('fullscreenchange', onFSChange)
+  }, [])
 
   useEffect(() => { loadSubmission() }, [submissionId])
 
@@ -277,11 +290,13 @@ export default function WorksheetGraderPage() {
   const ringCirc = 2 * Math.PI * ringRadius
   const ringOffset = ringCirc - (percentage / 100) * ringCirc
 
+ 
+
   return (
-    <div className="h-[100dvh] flex flex-col overflow-hidden" style={{ background: 'var(--bg)' }}>
+    <div className={`${workspaceMode ? 'h-screen' : 'h-[100dvh]'} flex flex-col overflow-hidden`} style={{ background: 'var(--bg)' }}>
 
       {/* ═══ TOP HEADER BAR ════════════════════════════════════════ */}
-      <div className="shrink-0 z-30 flex items-center gap-2 px-3 py-2.5 border-b"
+      <div className={`shrink-0 z-30 flex items-center gap-2 px-3 py-2.5 border-b ${workspaceMode ? 'py-1.5' : ''}`}
         style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}>
 
         {/* Back */}
@@ -333,6 +348,20 @@ export default function WorksheetGraderPage() {
           <Send size={14} />
           <span className="hidden sm:inline ml-1">Return</span>
         </Button>
+        <button
+          onClick={() => {
+            if (isFullscreen) {
+              document.exitFullscreen()
+            } else {
+              document.documentElement.requestFullscreen()
+            }
+          }}
+          className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 hover:opacity-70 transition-opacity"
+          style={{ background: workspaceMode ? 'var(--primary)' : 'var(--input)', color: workspaceMode ? 'white' : 'var(--text-muted)' }}
+          title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+        >
+          {workspaceMode ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+        </button>
       </div>
 
       {/* Draft recovery banner */}
@@ -355,7 +384,7 @@ export default function WorksheetGraderPage() {
       </AnimatePresence>
 
       {/* ═══ TABS ══════════════════════════════════════════════════ */}
-      <div className="shrink-0 flex border-b px-4" style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}>
+      <div className="shrink-0 flex border-b px-4" style={{ display: workspaceMode ? 'none' : undefined, background: 'var(--card)', borderColor: 'var(--card-border)' }}>
         {['marking', 'progress'].map(tab => (
           <button key={tab}
             onClick={() => setActiveTab(tab as any)}
@@ -424,44 +453,76 @@ export default function WorksheetGraderPage() {
         /* DOCUMENT / WORKBOOK MARKING — Always-visible score panel below canvas */
         <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
 
-          {/* Canvas area */}
-          <div className="flex-1 overflow-y-auto p-3" style={{ background: 'var(--bg)' }}>
+          {/* Canvas area — single page at a time */}
+          <div className="flex-1 flex flex-col overflow-hidden" style={{ background: 'var(--bg)' }}>
             {renderingPdf ? (
               <div className="flex flex-col items-center justify-center py-20 gap-4">
                 <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />
                 <div className="text-sm font-bold opacity-50" style={{ color: 'var(--text)' }}>Rendering PDF…</div>
               </div>
-        ) : (answers?.__workbook_photos__ as any)?.length > 0 || answers?.__workbook_photo__ || pageImages.length > 0 ? (
+            ) : (answers?.__workbook_photos__ as any)?.length > 0 || answers?.__workbook_photo__ || pageImages.length > 0 ? (
               (() => {
-                // Collect all workbook pages — support both new multi-photo and legacy single photo
                 const wbPhotos: string[] = [
                   ...((answers?.__workbook_photos__ as string[]) || []),
                   ...(!((answers?.__workbook_photos__ as any)?.length) && answers?.__workbook_photo__ ? [answers.__workbook_photo__ as string] : []),
                 ]
                 const displayImages = wbPhotos.length > 0 ? wbPhotos : pageImages
-                return displayImages.map((img, idx) => {
-                  const studentAnnMap = typeof answers.__annotation__ === 'string'
-                    ? { "0": answers.__annotation__ }
-                    : (answers.__annotation__ as any || {})
-                  return (
+                const totalPages = displayImages.length
+                const safeIdx = Math.min(currentPageIndex, totalPages - 1)
+                const img = displayImages[safeIdx]
+                const studentAnnMap = typeof answers.__annotation__ === 'string'
+                  ? { "0": answers.__annotation__ }
+                  : (answers.__annotation__ as any || {})
 
-                  <div key={idx} className="mb-6">
-                    <div className="px-2 pb-2 text-[10px] font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
-                      {answers?.__workbook_photo__ ? 'Workbook Photo' : `Page ${idx + 1}`}
-                    </div>
-                    <div className="rounded-2xl overflow-hidden border-2 shadow-xl" style={{ borderColor: 'var(--card-border)' }}>
-                      <AnnotationCanvas
-                        key={`grader-page-${idx}`}
-                        backgroundImageUrl={img}
-                        backgroundJson={studentAnnMap[idx.toString()]}
-                        initialJson={annotations[`doc_${idx}`] || annotations[idx.toString()]}
-                        onSave={json => setAnnotations(p => ({ ...p, [`doc_${idx}`]: json }))}
-                        defaultColor="#EF4444"
-                      />
+                return (
+                  <div className="flex-1 flex flex-col overflow-hidden">
+                    {/* Page navigation bar */}
+                    {totalPages > 1 && (
+                      <div className="shrink-0 flex items-center justify-between px-4 py-2 border-b"
+                        style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}>
+                        <button
+                          onClick={() => setCurrentPageIndex(i => Math.max(0, i - 1))}
+                          disabled={safeIdx === 0}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all disabled:opacity-30"
+                          style={{ background: 'var(--input)', color: 'var(--text)' }}>
+                          <ChevronLeft size={14} /> Prev
+                        </button>
+                        <div className="flex items-center gap-2">
+                          {displayImages.map((_, i) => (
+                            <button key={i} onClick={() => setCurrentPageIndex(i)}
+                              className="w-2 h-2 rounded-full transition-all"
+                              style={{ background: i === safeIdx ? 'var(--primary)' : 'var(--card-border)', transform: i === safeIdx ? 'scale(1.4)' : 'scale(1)' }} />
+                          ))}
+                          <span className="ml-1 text-[11px] font-black tabular-nums" style={{ color: 'var(--text-muted)' }}>
+                            {safeIdx + 1} / {totalPages}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => setCurrentPageIndex(i => Math.min(totalPages - 1, i + 1))}
+                          disabled={safeIdx === totalPages - 1}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all disabled:opacity-30"
+                          style={{ background: 'var(--input)', color: 'var(--text)' }}>
+                          Next <ChevronRight size={14} />
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Single page canvas — fills remaining height */}
+                    <div className="flex-1 overflow-y-auto">
+                      <div className="rounded-2xl overflow-hidden border-2 shadow-xl m-3"
+                        style={{ borderColor: 'var(--card-border)' }}>
+                        <AnnotationCanvas
+                          key={`grader-page-${safeIdx}`}
+                          backgroundImageUrl={img}
+                          backgroundJson={studentAnnMap[safeIdx.toString()]}
+                          initialJson={annotations[`doc_${safeIdx}`] || annotations[safeIdx.toString()]}
+                          onSave={json => setAnnotations(p => ({ ...p, [`doc_${safeIdx}`]: json }))}
+                          defaultColor="#EF4444"
+                        />
+                      </div>
                     </div>
                   </div>
-                 )
-                })
+                )
               })()
             ) : (
               <div className="py-20 text-center">
@@ -498,7 +559,7 @@ export default function WorksheetGraderPage() {
         <div className="flex-1 flex flex-col overflow-hidden">
 
           {/* Question number bubbles nav */}
-          <div className="shrink-0 border-b" style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}>
+          <div className="shrink-0 border-b" style={{ display: workspaceMode ? 'none' : undefined, background: 'var(--card)', borderColor: 'var(--card-border)' }}>
             <div className="flex items-center gap-2 px-3 py-2 overflow-x-auto no-scrollbar">
               <button onClick={() => navQuestion(-1)} disabled={activeIndex <= 0}
                 className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition-opacity disabled:opacity-30 font-black text-lg"
@@ -586,14 +647,14 @@ export default function WorksheetGraderPage() {
             </div>
 
             {/* Progress bar across full width */}
-            <div className="h-1" style={{ background: 'var(--card-border)' }}>
-              <motion.div
-                className="h-full rounded-full"
-                style={{ background: getScoreColor(percentage) }}
-                animate={{ width: `${percentage}%` }}
-                transition={{ duration: 0.5, ease: 'easeOut' }}
-              />
-            </div>
+          <div className="h-1" style={{ display: workspaceMode ? 'none' : undefined, background: 'var(--card-border)' }}>
+            <motion.div
+              className="h-full rounded-full"
+              style={{ background: getScoreColor(percentage) }}
+              animate={{ width: `${percentage}%` }}
+              transition={{ duration: 0.5, ease: 'easeOut' }}
+            />
+          </div>
           </div>
 
           {/* Main layout: scrollable question | fixed marking strip */}
@@ -601,7 +662,7 @@ export default function WorksheetGraderPage() {
 
             {/* Left: Question content */}
             <div className="flex-1 overflow-y-auto" style={{ paddingBottom: '0' }}>
-              <div className="p-4 space-y-4 max-w-2xl mx-auto">
+              <div className={`p-4 space-y-4 ${isFullscreen ? '' : 'max-w-2xl mx-auto'}`}>
                 {activeBlock ? (
                   <>
                     {/* Question card */}
@@ -1064,5 +1125,9 @@ function DocScoringPanel({
         />
       </div>
     </div>
-  )
+  );
+
+  return workspaceMode && typeof window !== 'undefined'
+    ? createPortal(markingPage, document.body)
+    : markingPage
 }

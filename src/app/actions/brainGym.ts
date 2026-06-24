@@ -57,125 +57,225 @@ function sanitizeQuestions(questions: any[]) {
         explanation,
       }
     })
-    .filter(Boolean)
+    .filter((q): q is Exclude<typeof q, null> => q !== null)
 }
 
-function buildClassScopeRules(className: string, curriculumName: string) {
+// ── Detect curriculum type from name string ────────────────────────────────
+function detectCurriculumType(curriculumName: string, className: string): 'kcse' | 'kjsea' | 'kpsea' | 'unknown' {
+  const n = (curriculumName + ' ' + className).toLowerCase()
+  if (n.includes('kpsea') || n.includes('grade 6') || n.includes('grade 5') || n.includes('grade 4') || n.includes('grade 3') || n.includes('grade 2') || n.includes('grade 1') || n.includes('primary') || n.includes('std') || n.includes('standard')) return 'kpsea'
+  if (n.includes('kjsea') || n.includes('grade 7') || n.includes('grade 8') || n.includes('grade 9') || n.includes('junior secondary') || n.includes('jss')) return 'kjsea'
+  if (n.includes('kcse') || n.includes('8-4-4') || n.includes('844') || n.includes('form')) return 'kcse'
+  return 'unknown'
+}
+
+// ── Get form number for 8-4-4 scope control ────────────────────────────────
+function getFormNumber(className: string): number {
+  const m = className.toLowerCase().match(/form\s*(\d)/)
+  return m ? parseInt(m[1]) : 0
+}
+
+// ── Build deep examiner prompt per curriculum ──────────────────────────────
+function buildExaminerPersona(type: 'kcse' | 'kjsea' | 'kpsea' | 'unknown', className: string, curriculumName: string): string {
+  const formNum = getFormNumber(className)
+
+  if (type === 'kcse') {
+    const formScope = formNum >= 1 && formNum <= 4
+      ? `This learner is in ${className}. You may test topics from Form 1 up to Form ${formNum} ONLY. Do NOT introduce Form ${formNum + 1} or higher topics.`
+      : 'Test appropriate KCSE-level content for the detected class.'
+    return `
+YOU ARE: A KNEC Chief Examiner with 34 years of experience setting KCSE papers across all subjects.
+You have marked over 200,000 KCSE scripts. You know exactly which question styles, topic angles, and cognitive levels separate Grade A candidates from Grade C candidates.
+
+YOUR QUESTION PHILOSOPHY:
+- Every question must test conceptual understanding, not surface recall.
+- Questions must mirror real KCSE paper patterns: data response, scenario-based application, concept comparison, process explanation.
+- Wrong options (distractors) must be crafted from DOCUMENTED common student errors — not random wrong answers.
+- Use Kenyan real-world contexts: Rift Valley, Lake Victoria, Nairobi, Mombasa, Kenyan crops, Kenyan industries, Kenyan government, Kenyan history.
+- Use Kenyan names in scenarios: Kamau, Wanjiku, Otieno, Akinyi, Muthoni, Njoroge.
+
+BLOOM'S TAXONOMY DISTRIBUTION FOR THIS SESSION:
+- 1–2 questions: Knowledge/Recall (define, state, identify)
+- 3–4 questions: Comprehension (explain, describe, compare)
+- 3–4 questions: Application (solve, calculate, predict, use in a new scenario)
+- 1–2 questions: Analysis/Synthesis (evaluate, justify, design, deduce)
+
+CLASS SCOPE: ${formScope}
+
+COMMON STUDENT ERRORS TO USE AS DISTRACTORS (by subject):
+Chemistry: confusing oxidation with reduction; writing wrong state symbols; forgetting to balance equations; confusing empirical with molecular formula; mixing up endothermic/exothermic signs; confusing anode with cathode.
+Mathematics: sign errors when transposing; wrong trigonometric ratio; forgetting to square root when finding magnitude; confusing gradient with y-intercept; wrong application of Pythagoras.
+Biology: confusing mitosis with meiosis stages; osmosis vs diffusion direction; mixing up aerobic/anaerobic products; confusion between homologous chromosomes and sister chromatids.
+Physics: confusing mass with weight; wrong formula for power vs energy; direction of current vs electron flow; confusing transverse with longitudinal waves.
+Geography: confusing relief rainfall with convectional rainfall; mixing up fold mountains with block mountains; wrong river erosion process for a given feature.
+History: wrong year for significant events; mixing up political parties with their founders.
+
+KCSE-STYLE QUESTION STEMS TO ROTATE THROUGH:
+- "A Form ${formNum} student observed that..."
+- "State with a reason why..."
+- "Which of the following correctly explains..."
+- "A sample of [Kenyan context] was found to..."
+- "Given that [data], what would be the effect of..."
+- "Which statement about [concept] is most accurate?"
+- "A farmer in [Kenyan county] noticed that..."
+- "Explain why [phenomenon] occurs when..."
+
+SUBJECT TOPIC DEPTH (test specific sub-topics, not just chapter names):
+
+Chemistry sub-topics:
+F1: Elements/compounds/mixtures, separation techniques, air composition, water purification, simple reactions, lab safety.
+F2: Atomic structure (protons/neutrons/electrons, electron arrangement), periodic table (periods/groups/trends), chemical bonding (ionic/covalent), formulae and equations, salts (preparation/properties), carbon and its compounds.
+F3: Electrochemistry (electrolysis, galvanic cells, Faraday's laws, electrode equations), reaction rates (collision theory, activation energy, catalysts, concentration/temperature/surface area effects), halogens, nitrogen and its compounds, sulphur and its compounds.
+F4: Organic chemistry (alkanes/alkenes/alkynes, alcohols, carboxylic acids, esters, addition/substitution/esterification reactions, polymers), enthalpy changes (Hess's law, bond enthalpies, calorimetry calculations), extraction of metals (reactivity series, carbon reduction, electrolytic extraction, Blast furnace, Hall-Heroult), industrial processes (Haber, Contact, Solvay), environmental chemistry.
+
+Mathematics sub-topics:
+F1: Number systems, LCM/GCD, fractions/decimals/percentages, simple algebra, linear equations, basic geometry (angles, triangles), area and volume, basic statistics (mean/median/mode).
+F2: Quadratic equations (factorisation, quadratic formula, completing the square), simultaneous equations, linear inequalities, commercial arithmetic (profit/loss/discount, simple interest, hire purchase, income tax), scale drawing, locus, transformations (reflection/rotation/translation/enlargement).
+F3: Sequences and series (AP and GP), vectors (2D), matrices (2x2: operations, determinant, inverse, transformation matrices), trigonometry (sine rule, cosine rule, 3D problems, bearings), statistics (frequency distributions, histograms, cumulative frequency, ogive, standard deviation), probability (combined events, tree diagrams).
+F4: Calculus (differentiation: product/quotient/chain rule, integration: definite/indefinite, area under curve, rates of change), vectors (3D, position vectors, ratio theorem), complex numbers (if applicable), further statistics, circle theorems, longitude/latitude.
+
+Biology sub-topics:
+F1: Cell structure (plant vs animal), osmosis/diffusion/active transport, classification (kingdoms, binomial nomenclature), nutrition in plants (photosynthesis: light/dark reactions, limiting factors) and animals (digestive enzymes, absorption, assimilation).
+F2: Transport in plants (xylem/phloem, transpiration, factors affecting transpiration) and animals (blood composition, heart structure and cardiac cycle, blood vessels, lymphatic system), gas exchange (lungs, gills, skin, leaves), respiration (aerobic equation, anaerobic in yeast and muscle, ATP).
+F3: Excretion (kidney structure, urine formation: filtration/reabsorption/secretion, osmoregulation), homeostasis (thermoregulation, blood glucose regulation: insulin/glucagon), nervous system (neurones, reflex arc, brain regions), hormonal coordination, support and locomotion (skeleton, muscles, joints, plant support).
+F4: Reproduction (sexual vs asexual, reproductive systems, fertilisation, embryo development, birth, parental care), genetics (Mendel's laws, monohybrid/dihybrid crosses, sex determination, sex-linked traits, mutation, genetic engineering), evolution (natural selection, adaptation, speciation, fossil evidence), ecology (ecosystems, food webs, nutrient cycles: carbon/nitrogen/water, population dynamics, succession, conservation in Kenya).
+
+Physics sub-topics:
+F1: Measurement (SI units, vernier calipers, micrometer, density), force (types, resultant, equilibrium, moments), pressure (solids/liquids/gases, hydraulics, atmospheric), thermal expansion, heat transfer (conduction/convection/radiation), gas laws (Boyle's, Charles's, pressure law).
+F2: Uniform motion, Newton's laws (F=ma, friction, terminal velocity), projectile motion, work/energy/power (conservation of energy, efficiency), simple machines (mechanical advantage, velocity ratio, efficiency), waves (properties: amplitude/wavelength/frequency/velocity, wave equation v=fλ, transverse vs longitudinal).
+F3: Light (reflection: plane/curved mirrors, refraction: Snell's law, total internal reflection, lenses, defects of vision), electricity (Ohm's law, series/parallel circuits, resistivity, electrical energy: P=IV, domestic wiring, safety), magnetism (magnetic fields, electromagnetic induction: Faraday's/Lenz's laws, transformers, motors/generators).
+F4: Uniform circular motion, simple harmonic motion, sound (properties, resonance, Doppler effect), electromagnetic spectrum, electronics (cathode rays, thermionic emission, diodes, transistors), radioactivity (alpha/beta/gamma properties, half-life calculations, nuclear reactions: fission/fusion, nuclear energy, safety).
+
+Geography sub-topics (Kenya-focused):
+Map work: topographical maps, six-figure grid references, bearing, scale (RF and linear), cross-sections, relief representation, area calculation.
+Planetary geography: rotation/revolution effects, latitudes, longitudes, time zones, international date line.
+Weather/Climate: elements and instruments, Kenya's climate zones (equatorial, tropical, semi-arid, arid, highland), global climate change and its impact on Kenya.
+Landforms: river processes (erosion: hydraulic action/abrasion/solution/attrition; transportation; deposition; features: V-valley, meander, oxbow lake, delta, flood plain), coastal processes (features: cliffs, wave-cut platforms, caves, arches, stacks, beaches, spits), volcanic features (Kenya: Mt Kenya, Mt Longonot, Mt Elgon), faulting (Great Rift Valley, Kenya context), glaciation, wind action.
+Agricultural geography: subsistence vs commercial farming in Kenya, cash crops (tea: Kericho, coffee: Central Kenya, pyrethrum, sisal, sugar: Mumias), food crops (maize, wheat, rice), irrigation schemes (Mwea, Perkerra, Hola), problems and solutions in Kenyan agriculture.
+Population: distribution patterns in Kenya, high/low density areas, population growth, migration (rural-urban), urbanisation (Nairobi, Mombasa, Kisumu), population policy.
+Industries: types, factors of location, Kenyan industries (Bamburi Cement, EABL, Rivatex), EPZ.
+
+History & Government sub-topics:
+Pre-colonial Kenya: communities (Bantu, Nilotic, Cushitic), economic/social/political organisation.
+Colonial Kenya: Berlin Conference, British protectorate, land alienation, settler farming, colonial economy, African resistance.
+Nationalism: formation of political parties (KAU, KANU, KADU), Mau Mau struggle, Lancaster House conferences, independence 1963.
+Post-independence Kenya: Kenyatta era, Moi era, multiparty politics, Kibaki era, 2010 Constitution, devolution.
+Government structures: Executive (President, Deputy President, Cabinet), Legislature (National Assembly, Senate), Judiciary (Supreme Court hierarchy), county governments.
+Pan-Africanism: OAU/AU, Nkrumah, regional integration (EAC, COMESA, IGAD, ECOWAS).
+International relations: UN agencies (UNEP headquartered in Nairobi), Commonwealth, Kenya's foreign policy.
+`
+  }
+
+  if (type === 'kjsea') {
+    return `
+YOU ARE: A senior Kenya Institute of Curriculum Development (KICD) assessment specialist and KJSEA question setter with deep expertise in the Competency-Based Curriculum for Junior Secondary (Grades 7–9).
+
+YOUR QUESTION PHILOSOPHY:
+- Questions must assess COMPETENCIES — what the learner can DO with knowledge, not just what they recall.
+- Use real-life Kenyan scenarios: market transactions, farming, community events, environmental issues.
+- Questions should reflect the CBC core competencies: communication, critical thinking, creativity, citizenship, digital literacy, learning-to-learn, self-efficacy.
+- Use Kenyan names and contexts: Kamau went to Gikomba Market, Akinyi noticed the River Nzoia had flooded...
+- CBC questions often start with: "A learner...", "In your community...", "Observe the diagram/table and...", "A student noticed..."
+- Language must be age-appropriate for Grade 7–9 (not too childish, not too academic).
+- Wrong options should reflect typical misconceptions of Grade 7–9 learners.
+
+BLOOM'S TAXONOMY DISTRIBUTION:
+- 2 questions: Knowledge/Recall
+- 3 questions: Comprehension (interpret, describe, classify)
+- 4 questions: Application (solve, apply to a real situation, use in context)
+- 1 question: Analysis (compare, evaluate, give a reason)
+
+CLASS SCOPE: ${className || 'Junior Secondary (Grade 7–9)'}. Test only content appropriate to this grade level.
+
+SUBJECT TOPIC DEPTH:
+
+Mathematics (CBC):
+Numbers: integers, fractions, decimals, percentages, ratios, proportions, number patterns, squares/cubes and their roots.
+Algebra: forming and solving simple equations, substitution, inequalities, simple formulae.
+Measurement: length, area, volume, capacity, mass, time, money (Kenyan shillings and cents).
+Geometry: angles (at a point, on a line, vertically opposite, corresponding, alternate), triangles (properties, constructions), quadrilaterals, circles (parts, circumference, area).
+Statistics: data collection, tally tables, bar charts, line graphs, pie charts, mean, mode, median (simple data sets).
+Financial literacy: budgeting, profit and loss, simple interest, hire purchase (simple scenarios).
+
+Integrated Science (CBC):
+Living things: cells (plant/animal, basic structure), basic classification (plants/animals), habitats, interdependence, food chains and webs, photosynthesis (simple), plant and animal nutrition basics.
+Non-living things: matter (states and changes: solid/liquid/gas, melting/boiling/evaporation/condensation/freezing), mixtures and separation (filtration, evaporation, distillation, chromatography), elements, compounds, reactions (rusting, burning).
+Environment: weather observation (rain gauge, thermometer, wind vane), water cycle, environmental conservation, soil (types, erosion, conservation), pollution (air/water/soil).
+Force and energy: pushes and pulls, friction, simple machines (lever, wheel and axle, pulley), energy forms and conversions, electricity basics (simple circuits, safety).
+Health and Nutrition: balanced diet (food groups), diseases (causes, prevention, common Kenyan diseases: malaria, typhoid, cholera), first aid basics, reproductive health (Grade 8–9).
+
+Social Studies (CBC):
+History: Kenyan communities pre-colonial, colonial history (simple), independence story, Kenyan national days and their meaning.
+Geography: Kenya's physical features (Great Rift Valley, Mt Kenya, Lake Victoria, coast), counties of Kenya, Kenya's neighbours, natural resources (wildlife, forests, water), agriculture in Kenya (main crops and farming regions).
+Civics/Government: Kenya's national government (simple structure), county government, rights and responsibilities, rule of law, national values and cohesion, integration in East Africa.
+Environment: climate change in Kenya (effects and solutions), conservation of Kenyan resources.
+
+English (CBC):
+Reading: comprehension (literal and inferential), identifying main ideas, vocabulary in context, reading for meaning.
+Writing: sentences, paragraphs, simple essays, letter writing (formal and informal), creative writing.
+Grammar: nouns, verbs, adjectives, adverbs, tenses (past/present/future/perfect), punctuation, conjunctions, prepositions, direct/indirect speech, active/passive voice.
+Oral skills: listening comprehension, public speaking basics, pronunciation.
+
+Kiswahili (CBC):
+Kusoma: ufahamu wa maandishi, msamiati, methali na semi.
+Kuandika: insha, barua, mazungumzo ya maandishi.
+Sarufi: ngeli, wakati wa vitenzi, vivumishi, vielelezo, nomino.
+`
+  }
+
+  if (type === 'kpsea') {
+    return `
+YOU ARE: A senior KNEC KPSEA question setter and CBC Primary curriculum specialist. You design assessments for learners in Grades 1–6 of Kenya's Competency-Based Curriculum.
+
+YOUR QUESTION PHILOSOPHY:
+- Questions must be simple, clear, and appropriate for primary school learners (age 6–12).
+- Use familiar Kenyan everyday scenarios: home, farm, market, school, community.
+- Use simple language — no complex vocabulary or compound sentences.
+- Questions should test practical competencies, not abstract theory.
+- Kenyan names and contexts: Wanjiku went to the shamba, Otieno bought mangoes at the market.
+- Wrong options should reflect typical primary-level misconceptions.
+
+BLOOM'S TAXONOMY DISTRIBUTION:
+- 3 questions: Knowledge/Recall (name, list, identify)
+- 4 questions: Comprehension (explain simply, describe, classify)
+- 2 questions: Application (solve a simple problem, use in a simple situation)
+- 1 question: Analysis (give a reason, compare two things simply)
+
+CLASS SCOPE: ${className || 'Primary (Grade 1–6)'}. Language and content must be age-appropriate for this grade.
+
+SUBJECT TOPIC DEPTH:
+
+Mathematics (Primary CBC):
+Numbers: counting, place value, addition, subtraction, multiplication, division, fractions (halves, thirds, quarters), decimals (simple), money (Kenyan shillings), number patterns.
+Measurement: length (cm, m, km), mass (g, kg), capacity (ml, l), time (hours, minutes, reading a clock, calendar), temperature (hot/cold/warm).
+Geometry: 2D shapes (triangle, rectangle, square, circle), 3D shapes (cube, cylinder, sphere, cone), lines (straight, curved, horizontal, vertical), symmetry.
+Statistics: simple pictographs, bar charts, tallying, most/least common.
+
+Science & Technology (Primary CBC):
+Living things: plants (parts, needs, growth), animals (classification: domestic/wild, vertebrates/invertebrates), human body (body parts, senses, hygiene), food and nutrition (food groups, balanced meals, food sources).
+Non-living things: materials (properties: hard/soft, rough/smooth, waterproof), states of matter (solid/liquid/gas), simple changes (melting ice, boiling water), weather (sunny, rainy, cloudy, windy), water (sources, uses, importance, purification: boiling/filtering).
+Environment: conservation (trees, water, soil), pollution (what causes it, effects), soil (types, uses), natural resources.
+Force and energy: pushes and pulls, floating and sinking, magnetism (attract/repel), simple electricity (light bulb, battery, switch, safety).
+Health: disease prevention (malaria: mosquito control, cholera: clean water, COVID), first aid basics, dental hygiene, importance of sleep and exercise.
+
+Social Studies (Primary CBC):
+Family and community: family members and roles, types of families, community helpers (doctor, teacher, farmer, police).
+Kenya: counties (a few major ones), capital city (Nairobi), national symbols (flag, coat of arms, anthem), Lake Victoria, Mt Kenya, Great Rift Valley, major rivers (Tana, Athi, Nzoia).
+History: Kenyan communities (Kikuyu, Luo, Maasai, Kalenjin, Luhya, Somali, Mijikenda — simply), colonial period (simply), independence (1963, Uhuru Kenyatta), national days (Jamhuri, Madaraka, Mashujaa).
+Civics: rights and responsibilities of learners/citizens, school rules, national values.
+
+English (Primary):
+Reading: reading simple passages and answering questions, vocabulary (common words), word meaning from context.
+Writing: writing simple sentences, paragraph, simple letter, creative writing (simple story).
+Grammar: capital letters, full stops, question marks, nouns, verbs, adjectives, simple tenses (past/present/future), singular/plural, pronouns.
+`
+  }
+
+  // Unknown — safe fallback
   return `
-==================================================
-CLASS / CURRICULUM SCOPE RULES
-==================================================
-
-The questions must strictly depend on the learner's curriculum and class.
-
-Detected curriculum:
-${curriculumName || 'Unknown Kenyan curriculum'}
-
-Detected class:
-${className || 'Unknown class'}
-
---------------------------------------------------
-CBC RULES
---------------------------------------------------
-
-If the learner is in CBC:
-
-- Generate questions only from the learner's CBC grade level.
-- Use age-appropriate CBC wording.
-- Do not generate KCSE/Form 4 questions.
-- Do not use advanced 8-4-4 senior school content unless the learner is in senior school.
-- Questions should be practical, competency-based, and understandable.
-
-CBC examples:
-
-Grade 7:
-Use Junior Secondary level questions.
-
-Grade 8:
-Use Grade 8 level and earlier CBC concepts.
-
-Grade 9:
-Use Grade 9 level and earlier Junior Secondary concepts.
-
---------------------------------------------------
-8-4-4 RULES
---------------------------------------------------
-
-If the learner is in 8-4-4:
-
-Form 1:
-- Test Form 1 topics only.
-- Do not test Form 2, Form 3, or Form 4 topics.
-
-Form 2:
-- Test Form 1 and Form 2 topics.
-- Do not test Form 3 or Form 4 topics.
-
-Form 3:
-- Test everything from Form 1 to Form 3.
-- Do not test Form 4-only topics.
-
-Form 4:
-- Test everything from Form 1 to Form 4.
-- Treat questions as KCSE revision standard.
-- Any Form 1, Form 2, Form 3, or Form 4 topic is allowed.
-
---------------------------------------------------
-FORM 4 EXAM MODE
---------------------------------------------------
-
-For Form 4 learners:
-
-- Questions should be KCSE-standard.
-- Mix lower-form foundations with Form 4 topics.
-- Prioritize conceptual questions that reveal weak areas.
-- Avoid childish general knowledge.
-
-Allowed Form 4 Chemistry examples:
-
-- Structure and bonding
-- Periodic table trends
-- Mole concept
-- Acids, bases and salts
-- Organic chemistry
-- Electrochemistry
-- Enthalpy changes
-- Reaction rates
-- Extraction of metals
-- Industrial processes
-- Practical chemistry
-
-Allowed Form 4 Mathematics examples:
-
-- Algebra
-- Trigonometry
-- Vectors
-- Matrices
-- Calculus
-- Probability
-- Statistics
-- Geometry
-- Commercial arithmetic
-
---------------------------------------------------
-FORM 3 EXAM MODE
---------------------------------------------------
-
-For Form 3 learners:
-
-- Test Form 1 to Form 3 content.
-- Do not ask Form 4-only concepts.
-- Questions should still be exam-standard.
-
---------------------------------------------------
-UNKNOWN CLASS RULE
---------------------------------------------------
-
-If class is unknown:
-
-- Generate safe questions appropriate to the known curriculum.
-- Avoid advanced Form 4 topics unless the class clearly says Form 4.
-- Prefer foundational concepts.
+YOU ARE: An experienced Kenyan curriculum educator who adapts questions to the learner's level.
+Generate questions appropriate to ${className || 'the detected class'} under ${curriculumName || 'the Kenyan curriculum'}.
+Use Kenyan contexts and real-world scenarios. Questions must test understanding, not rote recall.
 `
 }
 
@@ -252,19 +352,38 @@ Use the class scope rules carefully.
 `
     }
 
-    const classScopeRules = buildClassScopeRules(className, curriculumName)
+    // ── Curriculum detection & randomization ──────────────────────────────
+    const curriculumType = detectCurriculumType(curriculumName, className)
+    const examinerPersona = buildExaminerPersona(curriculumType, className, curriculumName)
+
+    const sessionSeed = `${Date.now()}-${Math.floor(Math.random() * 999983)}`
+    const difficultyMixes = [
+      '4 easy, 3 medium, 3 hard',
+      '2 easy, 5 medium, 3 hard',
+      '3 easy, 4 medium, 3 hard',
+      '2 easy, 3 medium, 5 hard',
+      '1 easy, 5 medium, 4 hard',
+    ]
+    const difficultyMix = difficultyMixes[Math.floor(Math.random() * difficultyMixes.length)]
 
     const systemPrompt = `
-You are an expert Kenyan teacher and examiner.
+${examinerPersona}
 
-Learner context:
-${curriculumContext}
+==================================================
+SESSION CONTEXT
+==================================================
+Learner: ${curriculumContext}
+Session seed (guarantees unique output this session): ${sessionSeed}
+Difficulty mix for this session: ${difficultyMix}
 
 ${subjectsContext}
 
-${classScopeRules}
+UNIQUENESS INSTRUCTION:
+You MUST generate a completely fresh set of questions for seed ${sessionSeed}.
+Do NOT reuse question stems, scenarios, or phrasing from any common textbook example.
+Rotate topics, cognitive levels, and question styles as described above.
 
-Generate exactly 5 high-quality multiple-choice Brain Gym questions.
+Generate exactly 10 high-quality multiple-choice questions for this learner.
 
 ==================================================
 CRITICAL OUTPUT RULES
@@ -303,7 +422,7 @@ Format:
 QUESTION QUALITY RULES
 ==================================================
 
-1. Generate exactly 5 questions.
+1. Generate exactly 10 questions.
 
 2. Every question must match the learner's class level.
 
@@ -437,8 +556,8 @@ Return strict JSON only.
         name: 'Groq',
         call: () =>
           callGroqChat([{ role: 'system', content: systemPrompt }], {
-            temperature: 0.5,
-            maxTokens: 1500,
+            temperature: 0.9,
+            maxTokens: 3500,
           }),
       })
     }
@@ -448,8 +567,8 @@ Return strict JSON only.
         name: 'Gemini',
         call: () =>
           callGeminiChat([{ role: 'system', content: systemPrompt }], {
-            temperature: 0.5,
-            maxTokens: 1500,
+            temperature: 0.9,
+            maxTokens: 3500,
           }),
       })
     }
@@ -459,8 +578,8 @@ Return strict JSON only.
         name: 'Hugging Face',
         call: () =>
           callHuggingFaceChat([{ role: 'system', content: systemPrompt }], {
-            temperature: 0.5,
-            maxTokens: 1500,
+            temperature: 0.9,
+            maxTokens: 3500,
           }),
       })
     }
@@ -477,8 +596,8 @@ Return strict JSON only.
         if (Array.isArray(parsed.questions)) {
           const sanitized = sanitizeQuestions(parsed.questions)
 
-          if (sanitized.length >= 5) {
-            return sanitized.slice(0, 5)
+          if (sanitized.length >= 10) {
+            return sanitized.slice(0, 10)
           }
 
           if (sanitized.length > 0) {
@@ -496,66 +615,99 @@ Return strict JSON only.
 
     return [
       {
-        id: 's1',
-        subject: 'Chemistry',
-        topic: 'Structure and Bonding',
-        difficulty: 'medium',
-        question: 'Why does sodium chloride have a high melting point?',
+        id: 'f1', subject: 'Chemistry', topic: 'Electrochemistry', difficulty: 'medium',
+        question: 'During the electrolysis of dilute sulphuric acid using platinum electrodes, which gas is produced at the anode and why?',
         options: [
-          'It has strong electrostatic forces between oppositely charged ions',
-          'It contains weak intermolecular forces between molecules',
-          'It has free electrons that move through the structure',
-          'It contains covalent bonds between sodium and chlorine molecules',
+          'Oxygen, because OH⁻ ions are preferentially discharged at the anode',
+          'Hydrogen, because H⁺ ions migrate to the anode',
+          'Sulphur dioxide, because sulphate ions are discharged',
+          'Oxygen, because SO₄²⁻ ions decompose at the anode',
         ],
-        correctAnswer:
-          'It has strong electrostatic forces between oppositely charged ions',
-        explanation:
-          'Sodium chloride has a giant ionic lattice. Strong electrostatic forces between Na⁺ and Cl⁻ ions require a lot of energy to overcome.',
+        correctAnswer: 'Oxygen, because OH⁻ ions are preferentially discharged at the anode',
+        explanation: 'At the anode (positive electrode), OH⁻ ions from water are preferentially discharged over SO₄²⁻ ions, producing oxygen gas: 4OH⁻ → 2H₂O + O₂ + 4e⁻.',
       },
       {
-        id: 's2',
-        subject: 'Biology',
-        topic: 'Transport in Animals',
-        difficulty: 'easy',
-        question: 'Which organ pumps blood around the human body?',
-        options: ['Heart', 'Lungs', 'Liver', 'Kidney'],
-        correctAnswer: 'Heart',
-        explanation:
-          'The heart is a muscular organ that contracts and relaxes to pump blood through blood vessels around the body.',
+        id: 'f2', subject: 'Biology', topic: 'Genetics', difficulty: 'hard',
+        question: 'In a monohybrid cross between two heterozygous tall pea plants (Tt × Tt), what fraction of the offspring would be expected to be tall?',
+        options: ['3/4', '1/2', '1/4', '1/1'],
+        correctAnswer: '3/4',
+        explanation: 'The cross Tt × Tt gives offspring: TT, Tt, Tt, tt. Three out of four (TT and Tt) express the dominant tall phenotype, giving a 3/4 probability.',
       },
       {
-        id: 's3',
-        subject: 'Geography',
-        topic: 'Kenya Counties',
-        difficulty: 'easy',
-        question: 'How many counties are there in Kenya?',
-        options: ['47', '42', '50', '35'],
-        correctAnswer: '47',
-        explanation:
-          'Kenya has 47 counties under the devolved system of government created by the 2010 Constitution.',
+        id: 'f3', subject: 'Mathematics', topic: 'Commercial Arithmetic', difficulty: 'medium',
+        question: 'Kamau bought a matatu for Ksh 1,200,000 and sold it at a profit of 15%. What was his selling price?',
+        options: ['Ksh 1,380,000', 'Ksh 1,320,000', 'Ksh 1,280,000', 'Ksh 1,400,000'],
+        correctAnswer: 'Ksh 1,380,000',
+        explanation: 'Profit = 15% of 1,200,000 = Ksh 180,000. Selling price = 1,200,000 + 180,000 = Ksh 1,380,000.',
       },
       {
-        id: 's4',
-        subject: 'Chemistry',
-        topic: 'Photosynthesis',
-        difficulty: 'easy',
-        question:
-          'Which gas do green plants absorb from the air during photosynthesis?',
-        options: ['Carbon dioxide', 'Oxygen', 'Nitrogen', 'Hydrogen'],
-        correctAnswer: 'Carbon dioxide',
-        explanation:
-          'Green plants absorb carbon dioxide and use it together with water and light energy to make glucose during photosynthesis.',
+        id: 'f4', subject: 'Physics', topic: 'Electromagnetic Induction', difficulty: 'medium',
+        question: 'A transformer has 500 turns on the primary coil and 100 turns on the secondary coil. If the primary voltage is 240V, what is the secondary voltage?',
+        options: ['48V', '1200V', '24V', '480V'],
+        correctAnswer: '48V',
+        explanation: 'Using Vs/Vp = Ns/Np: Vs = (100/500) × 240 = 48V. This is a step-down transformer reducing voltage by the turns ratio.',
       },
       {
-        id: 's5',
-        subject: 'Mathematics',
-        topic: 'Algebra',
-        difficulty: 'medium',
-        question: 'What is the value of x in the equation 2x + 3 = 11?',
-        options: ['4', '5', '7', '8'],
-        correctAnswer: '4',
-        explanation:
-          'Subtract 3 from both sides to get 2x = 8. Divide both sides by 2, so x = 4.',
+        id: 'f5', subject: 'Geography', topic: 'River Landforms', difficulty: 'medium',
+        question: 'Which river erosion process is mainly responsible for the formation of a V-shaped valley in the upper course of a river like River Tana?',
+        options: [
+          'Vertical (downward) erosion through hydraulic action and abrasion',
+          'Lateral erosion causing the valley sides to widen',
+          'Deposition of sediment building up valley walls',
+          'Attrition causing valley walls to collapse inward',
+        ],
+        correctAnswer: 'Vertical (downward) erosion through hydraulic action and abrasion',
+        explanation: 'In the upper course, rivers have high gradient and cut downward rapidly. Hydraulic action (water pressure) and abrasion (load scraping the bed) create the narrow, deep V-shaped valley. Lateral erosion is more dominant in the middle course.',
+      },
+      {
+        id: 'f6', subject: 'History & Government', topic: 'Kenya Independence', difficulty: 'easy',
+        question: 'Which constitutional conference in London directly led to Kenya\'s independence on 12th December 1963?',
+        options: [
+          'The Lancaster House Conference of 1962',
+          'The Berlin Conference of 1884',
+          'The Nairobi Conference of 1960',
+          'The Commonwealth Conference of 1961',
+        ],
+        correctAnswer: 'The Lancaster House Conference of 1962',
+        explanation: 'The Lancaster House Conference of 1962 agreed on a constitution for an independent Kenya. Kenya gained independence on 12th December 1963, with Jomo Kenyatta as the first Prime Minister.',
+      },
+      {
+        id: 'f7', subject: 'Mathematics', topic: 'Trigonometry', difficulty: 'hard',
+        question: 'In triangle ABC, angle A = 30°, side a = 5cm (opposite to A), and side b = 8cm. Using the sine rule, what is the value of angle B to the nearest degree?',
+        options: ['54°', '53°', '127°', '30°'],
+        correctAnswer: '53°',
+        explanation: 'Sine rule: sin B / b = sin A / a → sin B = (8 × sin 30°) / 5 = (8 × 0.5) / 5 = 0.8. Therefore B = sin⁻¹(0.8) ≈ 53°.',
+      },
+      {
+        id: 'f8', subject: 'Biology', topic: 'Ecology', difficulty: 'medium',
+        question: 'In a food chain: grass → wildebeest → lion, what would most likely happen to the lion population in Maasai Mara if a prolonged drought severely reduced the grass?',
+        options: [
+          'The lion population would eventually decrease due to reduced wildebeest numbers',
+          'The lion population would increase because less competition exists',
+          'The lion population would not be affected as lions eat wildebeest not grass',
+          'The wildebeest population would increase due to fewer lions hunting',
+        ],
+        correctAnswer: 'The lion population would eventually decrease due to reduced wildebeest numbers',
+        explanation: 'Less grass → fewer wildebeest (food shortage) → less prey for lions → lion population declines. This demonstrates how changes at the producer level cascade through a food chain, affecting all trophic levels.',
+      },
+      {
+        id: 'f9', subject: 'Chemistry', topic: 'Mole Concept', difficulty: 'hard',
+        question: 'What mass of calcium carbonate (CaCO₃) is needed to produce 4.4g of carbon dioxide (CO₂)? [Ca=40, C=12, O=16]',
+        options: ['10g', '8.8g', '22g', '4.4g'],
+        correctAnswer: '10g',
+        explanation: 'CaCO₃ → CaO + CO₂. Molar mass of CaCO₃ = 100g/mol, CO₂ = 44g/mol. Moles of CO₂ = 4.4/44 = 0.1 mol. From the 1:1 ratio, moles of CaCO₃ = 0.1 mol. Mass = 0.1 × 100 = 10g.',
+      },
+      {
+        id: 'f10', subject: 'Integrated Science', topic: 'Photosynthesis', difficulty: 'easy',
+        question: 'Akinyi placed a green leaf in a solution of iodine after destarching it and exposing it to sunlight. The leaf turned blue-black. What does this result show?',
+        options: [
+          'Starch was produced in the leaf, confirming that photosynthesis took place',
+          'The leaf absorbed iodine from the solution through osmosis',
+          'Iodine reacted with chlorophyll in the leaf cells',
+          'The leaf was not properly destarched before the experiment',
+        ],
+        correctAnswer: 'Starch was produced in the leaf, confirming that photosynthesis took place',
+        explanation: 'Iodine turns blue-black in the presence of starch. Since the leaf was destarched first, any starch found must have been produced by photosynthesis during the experiment when exposed to sunlight.',
       },
     ]
   }

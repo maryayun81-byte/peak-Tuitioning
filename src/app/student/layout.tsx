@@ -23,6 +23,7 @@ import { calculateLevel } from '@/lib/gamification'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { PageErrorBoundary } from '@/components/ui/PageErrorBoundary'
 import { SessionHeartbeat } from '@/components/shared/SessionHeartbeat'
+import { PushNotificationSetup } from '@/components/PushNotificationSetup'
 import toast from 'react-hot-toast'
 import Link from 'next/link'
 import { useMessageUnreadCount } from '@/hooks/useMessageUnreadCount'
@@ -302,6 +303,7 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
             : [{ label: 'Sign Out', href: '#', icon: <LogOut size={18} />, onClick: signOut }]
           } 
         />
+        <PushNotificationSetup />
         <QuickInfoModal />
         <SessionHeartbeat />
         <LevelUpManager />

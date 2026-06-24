@@ -21,6 +21,7 @@ import { PageErrorBoundary } from '@/components/ui/PageErrorBoundary'
 import { TeacherAIAssistant } from '@/components/teacher/TeacherAIAssistant'
 import { SessionHeartbeat } from '@/components/shared/SessionHeartbeat'
 import { useMessageUnreadCount } from '@/hooks/useMessageUnreadCount'
+import { PushNotificationSetup } from '@/components/PushNotificationSetup'
 
 import { useNotificationStore } from '@/stores/notificationStore'
 import { useRealtimeNotifications } from '@/hooks/useRealtimeNotifications'
@@ -192,6 +193,23 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
     return <SplashScreen done={false} role="teacher" />
   }
 
+  // ── Full-screen bypass for the marking grader page ──────────────────────────
+  // The marking/[id] page needs to occupy the full viewport (no sidebar/header).
+  // We detect the route here and render children directly, while still running
+  // all auth & onboarding guards above.
+  const isMarkingPage = /^\/teacher\/marking\/.+/.test(pathname)
+
+  if (isMarkingPage) {
+    return (
+      <div style={{ background: 'var(--bg)' }} className="min-h-screen">
+        <PageErrorBoundary>
+          {children}
+        </PageErrorBoundary>
+        <SessionHeartbeat />
+      </div>
+    )
+  }
+
   return (
     <>
       {pendingTerm && <TermsEnforcementModal assignment={pendingTerm} onSuccess={() => setPendingTerm(null)} />}
@@ -268,6 +286,7 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
           : [{ label: 'Sign Out', href: '#', icon: <LogOut size={18} />, onClick: signOut }]
         } 
       />
+      <PushNotificationSetup />
       <TeacherAIAssistant />
       <SessionHeartbeat />
       </div>

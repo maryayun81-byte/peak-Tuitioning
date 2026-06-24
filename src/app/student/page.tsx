@@ -1,19 +1,19 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
   Flame, Swords, Zap, Trophy,
   BrainCircuit, Mic, Users, BookOpen, Target,
   PlayCircle, Star, Sparkles, Rocket,
-  Activity, CheckCircle2, LayoutDashboard, Clock, FileText, ChevronLeft, ChevronRight
+  Activity, CheckCircle2, LayoutDashboard, Clock, FileText, ChevronLeft, ChevronRight, X
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Avatar } from '@/components/ui/Avatar'
-import { Modal } from '@/components/ui/Modal'
 import { useAuthStore } from '@/stores/authStore'
 import { getStudentYouTubeSuggestions } from '@/app/actions/youtube'
 import { getStudentHomepageFeeds, getStudentNationalExam } from '@/app/actions/student'
@@ -156,18 +156,22 @@ function getEmbeddableVideoUrl(url: string) {
   return ''
 }
 
-function getVideoThumbnail(url: string) {
-  if (!url) return ''
+function getVideoThumbnail(url: string): { hq: string; mq: string } {
+  const empty = { hq: '', mq: '' }
+  if (!url) return empty
   const normalized = normalizeUrl(url)
+  let id = ''
   try {
     const parsed = new URL(normalized)
     const isYt = parsed.hostname.includes('youtube.com') || parsed.hostname.includes('youtu.be') || parsed.hostname.includes('youtube-nocookie.com')
-    const id = isYt ? getYoutubeVideoId(parsed) : ''
-    if (id) return `https://img.youtube.com/vi/${id}/hqdefault.jpg`
+    id = isYt ? getYoutubeVideoId(parsed) : ''
   } catch {}
-  const fallbackId = extractYoutubeIdFallback(url)
-  if (fallbackId) return `https://img.youtube.com/vi/${fallbackId}/hqdefault.jpg`
-  return ''
+  if (!id) id = extractYoutubeIdFallback(url)
+  if (!id) return empty
+  return {
+    hq: `https://img.youtube.com/vi/${id}/hqdefault.jpg`,
+    mq: `https://img.youtube.com/vi/${id}/mqdefault.jpg`,
+  }
 }
 
 function extractYoutubeIdFallback(url: string) {
@@ -198,19 +202,114 @@ function getReelAccent(seed: string) {
   return { ...REEL_ACCENTS[index], Icon: REEL_ICON_COMPONENTS[index % REEL_ICON_COMPONENTS.length] }
 }
 
-function InAppVideoCard({ video }: { video: any }) {
-  const [open, setOpen] = useState(false)
-  const [posterFailed, setPosterFailed] = useState(false)
-  const [imgLoaded, setImgLoaded] = useState(false)
+// ── Cinematic video player portal — renders above everything ────────────────
+function VideoPlayerPortal({ video, onClose }: { video: any; onClose: () => void }) {
   const url = video.youtube_url || video.video_url || video.attachment_url || video.url || ''
   const embedUrl = getEmbeddableVideoUrl(url)
-  const thumb = getVideoThumbnail(url)
   const title = video.title || 'Video lesson'
   const teacherName = video.teacher?.full_name || 'your teacher'
   const subjectName = video.subject?.name || video.chapter || 'Peak lesson'
-  const showThumb = thumb && !posterFailed
   const accent = getReelAccent(`${video.id || ''}${title}${subjectName}`)
   const AccentIcon = accent.Icon
+
+  useEffect(() => {
+    document.body.style.overflow = 'hidden'
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = ''
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [onClose])
+
+  if (typeof document === 'undefined') return null
+
+  return createPortal(
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 z-[200] flex flex-col"
+        style={{ background: '#000' }}
+      >
+        {/* Header bar */}
+        <div className="shrink-0 flex items-center gap-3 px-4 py-3" style={{ background: 'rgba(0,0,0,0.9)' }}>
+          <div className="flex-1 min-w-0">
+            <p className="text-[9px] font-black uppercase tracking-widest text-white/40 mb-0.5">{subjectName} · {teacherName}</p>
+            <h2 className="text-sm font-black text-white truncate">{title}</h2>
+          </div>
+          <button
+            onClick={onClose}
+            className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center transition-all hover:bg-white/10 active:scale-95"
+            style={{ color: 'rgba(255,255,255,0.7)', background: 'rgba(255,255,255,0.06)' }}
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Video — fills all remaining space, never overflows screen */}
+        <div className="flex-1 min-h-0 flex flex-col items-center justify-center bg-black">
+          <motion.div
+            initial={{ scale: 0.97, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ type: 'spring', stiffness: 260, damping: 24, delay: 0.05 }}
+            className="w-full h-full max-w-5xl flex flex-col"
+          >
+            {embedUrl ? (
+              <iframe
+                src={embedUrl + '&autoplay=1'}
+                title={title}
+                className="w-full h-full"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+                allowFullScreen
+              />
+            ) : isDirectVideoUrl(url) ? (
+              <video src={url} controls autoPlay className="w-full h-full object-contain" />
+            ) : (
+              <div className={`flex h-full flex-col items-center justify-center bg-gradient-to-br ${accent.className} p-6 text-center text-white`}>
+                <span className="flex h-16 w-16 items-center justify-center rounded-3xl bg-white/20 shadow-inner backdrop-blur">
+                  <AccentIcon size={30} />
+                </span>
+                <h3 className="mt-4 text-xl font-black">Can't play this video</h3>
+                <p className="mt-2 max-w-sm text-sm font-semibold text-white/70">
+                  Ask the teacher to share it as a YouTube link or direct video file.
+                </p>
+              </div>
+            )}
+          </motion.div>
+        </div>
+
+        {/* Description footer — optional, slim */}
+        {video.description && (
+          <div className="shrink-0 px-4 py-2 text-center" style={{ background: 'rgba(0,0,0,0.9)' }}>
+            <p className="text-xs text-white/35 max-w-xl mx-auto line-clamp-2">{video.description}</p>
+          </div>
+        )}
+      </motion.div>
+    </AnimatePresence>,
+    document.body
+  )
+}
+
+function InAppVideoCard({ video }: { video: any }) {
+  const [open, setOpen] = useState(false)
+  const [thumbSrc, setThumbSrc] = useState('')
+  const [imgLoaded, setImgLoaded] = useState(false)
+  const url = video.youtube_url || video.video_url || video.attachment_url || video.url || ''
+  const thumbs = getVideoThumbnail(url)
+  const title = video.title || 'Video lesson'
+  const teacherName = video.teacher?.full_name || 'your teacher'
+  const subjectName = video.subject?.name || video.chapter || 'Peak lesson'
+  const accent = getReelAccent(`${video.id || ''}${title}${subjectName}`)
+  const AccentIcon = accent.Icon
+  const hasThumb = !!thumbSrc && imgLoaded
+
+  // Try hq first, fall back to mq on error
+  useEffect(() => {
+    if (!thumbs.hq) return
+    setThumbSrc(thumbs.hq)
+  }, [thumbs.hq])
 
   return (
     <>
@@ -222,51 +321,73 @@ function InAppVideoCard({ video }: { video: any }) {
       >
         <Card className="overflow-hidden border-0 bg-transparent shadow-none">
           <div className="aspect-[9/13] bg-black relative overflow-hidden rounded-2xl shadow-lg shadow-black/20 group-hover:shadow-2xl group-hover:shadow-black/40 transition-all duration-500">
-            {/* Subtle border that glows on hover */}
+            {/* Subtle border glow on hover */}
             <div className="absolute inset-0 rounded-2xl ring-1 ring-inset ring-white/10 group-hover:ring-primary/40 transition-all duration-500 z-20 pointer-events-none" />
 
-            {showThumb ? (
+            {thumbSrc ? (
               <>
-                {/* Thumbnail with cinematic reveal */}
-                <motion.img
-                  src={thumb}
-                  alt={title}
+                {/* Hidden preload img — drives load/error */}
+                <img
+                  src={thumbSrc}
+                  alt=""
+                  referrerPolicy="no-referrer"
+                  crossOrigin="anonymous"
                   onLoad={() => setImgLoaded(true)}
-                  onError={() => setPosterFailed(true)}
-                  initial={{ scale: 1.1, filter: 'blur(8px)' }}
-                  animate={imgLoaded ? { scale: 1, filter: 'blur(0px)' } : {}}
-                  transition={{ duration: 0.6 }}
-                  className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-700 ease-out"
+                  onError={() => {
+                    if (thumbSrc === thumbs.hq && thumbs.mq) {
+                      setThumbSrc(thumbs.mq)
+                    } else {
+                      setThumbSrc('')
+                    }
+                  }}
+                  className="sr-only"
                 />
-                {/* Cinematic top/bottom vignette */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-black/40 group-hover:via-black/30 transition-all duration-500" />
+                {imgLoaded && (
+                  <>
+                    <motion.img
+                      src={thumbSrc}
+                      alt={title}
+                      referrerPolicy="no-referrer"
+                      initial={{ scale: 1.08, filter: 'blur(6px)' }}
+                      animate={{ scale: 1, filter: 'blur(0px)' }}
+                      transition={{ duration: 0.5 }}
+                      className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-700 ease-out"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-black/30 group-hover:via-black/20 transition-all duration-500" />
+                  </>
+                )}
               </>
-            ) : (
-              <div className={`relative h-full w-full bg-gradient-to-br ${accent.className} p-5 text-white`}>
+            ) : null}
+
+            {/* Fallback gradient — shown when no thumb or thumb failed */}
+            {!hasThumb && (
+              <div className={`absolute inset-0 bg-gradient-to-br ${accent.className} p-5 text-white`}>
                 <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,.06)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.06)_1px,transparent_1px)] bg-[length:20px_20px]" />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
                 <div className="relative z-10 flex h-full flex-col justify-between">
                   <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/20 shadow-inner backdrop-blur-md">
                     <AccentIcon size={22} className="text-white" />
                   </span>
-                  <div className="space-y-2">
+                  <div className="space-y-1">
                     <p className="text-[10px] font-black uppercase tracking-[0.22em] text-white/60">{subjectName}</p>
-                    <h3 className="line-clamp-3 text-xl font-black leading-tight">{title}</h3>
-                    <p className="text-[11px] font-bold text-white/60">{teacherName}</p>
+                    <h3 className="line-clamp-3 text-lg font-black leading-tight">{title}</h3>
+                    <p className="text-[11px] font-bold text-white/50">{teacherName}</p>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Top-left subject badge — glass pill */}
-            <div className="absolute top-3 left-3 z-10">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-black/50 px-2.5 py-1 text-[9px] font-black uppercase tracking-wider text-white/90 backdrop-blur-md border border-white/10 shadow-lg">
-                <AccentIcon size={10} />
-                {subjectName}
-              </span>
-            </div>
+            {/* Subject badge — top left, only when thumbnail is showing */}
+            {hasThumb && (
+              <div className="absolute top-3 left-3 z-10">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-black/50 px-2.5 py-1 text-[9px] font-black uppercase tracking-wider text-white/90 backdrop-blur-md border border-white/10 shadow-lg">
+                  <AccentIcon size={10} />
+                  {subjectName}
+                </span>
+              </div>
+            )}
 
-            {/* Time-based freshness badge */}
+            {/* NEW badge */}
             {video.created_at && Date.now() - new Date(video.created_at).getTime() < 4 * 60 * 60 * 1000 && (
               <div className="absolute top-3 right-3 z-10">
                 <span className="inline-flex items-center gap-1 rounded-full bg-red-500/80 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-white backdrop-blur-md animate-pulse">
@@ -276,74 +397,29 @@ function InAppVideoCard({ video }: { video: any }) {
               </div>
             )}
 
-            {/* Play button — minimal, elegant, appears on hover */}
+            {/* Play button on hover */}
             <div className="absolute inset-0 z-10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-500">
-              <motion.div
-                initial={{ scale: 0.6, opacity: 0 }}
-                whileInView={{ scale: 1, opacity: 1 }}
-                className="relative"
-              >
-                <div className="w-14 h-14 rounded-full bg-white/20 backdrop-blur-xl flex items-center justify-center shadow-2xl shadow-black/40 border border-white/30 group-hover:bg-white/30 group-hover:scale-110 transition-all duration-300">
-                  <PlayCircle size={28} className="ml-0.5 text-white fill-current" />
+              <div className="w-14 h-14 rounded-full bg-white/20 backdrop-blur-xl flex items-center justify-center shadow-2xl shadow-black/40 border border-white/30 group-hover:bg-white/30 group-hover:scale-110 transition-all duration-300">
+                <PlayCircle size={28} className="ml-0.5 text-white fill-current" />
+              </div>
+            </div>
+
+            {/* Bottom info — only when thumbnail showing (no duplicate with fallback) */}
+            {hasThumb && (
+              <div className="absolute bottom-0 left-0 right-0 z-10 p-3 pt-8 bg-gradient-to-t from-black/90 via-black/40 to-transparent">
+                <p className="line-clamp-1 text-sm font-black text-white drop-shadow-lg">{title}</p>
+                <div className="mt-0.5 flex items-center gap-2 text-[10px] font-bold text-white/55">
+                  <span>{teacherName}</span>
+                  <span className="w-1 h-1 rounded-full bg-white/30" />
+                  <span>{video.created_at ? formatRelativeTime(video.created_at) : 'Recent'}</span>
                 </div>
-                {/* Subtle ring glow */}
-                <div className="absolute -inset-3 rounded-full bg-white/5 animate-ping opacity-0 group-hover:opacity-100 transition-opacity duration-700" style={{ animationDuration: '2.5s' }} />
-              </motion.div>
-            </div>
-
-            {/* Bottom info bar — always visible with glass effect */}
-            <div className="absolute bottom-0 left-0 right-0 z-10 p-3 pt-8 bg-gradient-to-t from-black/90 via-black/50 to-transparent">
-              <p className="line-clamp-1 text-sm font-black text-white drop-shadow-lg">{title}</p>
-              <div className="mt-1 flex items-center gap-2 text-[10px] font-bold text-white/60">
-                <span>{teacherName}</span>
-                <span className="w-1 h-1 rounded-full bg-white/30" />
-                <span>{video.created_at ? formatRelativeTime(video.created_at) : 'Recent'}</span>
               </div>
-            </div>
-
-            {/* Bottom-right play hint on idle */}
-            <div className="absolute bottom-3 right-3 z-10 opacity-0 group-hover:opacity-0 transition-opacity duration-300">
-              <div className="flex items-center gap-1 text-[8px] font-black uppercase tracking-wider text-white/40">
-                <PlayCircle size={10} />
-                Watch
-              </div>
-            </div>
+            )}
           </div>
         </Card>
       </motion.div>
 
-      <Modal isOpen={open} onClose={() => setOpen(false)} size="xl" title={title}>
-        <div className="space-y-5 pt-3">
-          <div className="aspect-video overflow-hidden rounded-3xl border border-[var(--card-border)] bg-black shadow-2xl">
-            {embedUrl ? (
-              <iframe
-                src={embedUrl}
-                title={title}
-                className="h-full w-full"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
-                allowFullScreen
-              />
-            ) : isDirectVideoUrl(url) ? (
-              <video src={url} controls className="h-full w-full" />
-            ) : (
-              <div className={`flex h-full flex-col items-center justify-center bg-gradient-to-br ${accent.className} p-6 text-center text-white`}>
-                <span className="flex h-16 w-16 items-center justify-center rounded-3xl bg-white/18 shadow-inner backdrop-blur">
-                  <AccentIcon size={30} />
-                </span>
-                <h3 className="mt-4 text-xl font-black">This video needs an embeddable source</h3>
-                <p className="mt-2 max-w-md text-sm font-semibold text-white/80">
-                  Ask the teacher to upload the video file or use a YouTube/Vimeo link that allows playback inside Peak Performance.
-                </p>
-              </div>
-            )}
-          </div>
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-red-500">Teacher video</p>
-            <p className="mt-2 text-sm font-semibold leading-relaxed text-muted">{video.description || 'Watch this lesson inside Peak Performance, then continue with your tasks.'}</p>
-          </div>
-          <Button className="w-full" onClick={() => setOpen(false)}>Close Player</Button>
-        </div>
-      </Modal>
+      {open && <VideoPlayerPortal video={video} onClose={() => setOpen(false)} />}
     </>
   )
 }

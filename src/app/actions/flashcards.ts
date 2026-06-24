@@ -858,6 +858,8 @@ export async function saveStudioDeck(studentId: string, payload: SaveStudioDeckP
     deckId = deck.id
   }
 
+  if (!deckId) throw new Error('Failed to resolve deck ID')
+
   // Insert all cards
   for (let i = 0; i < payload.cards.length; i++) {
     const card = payload.cards[i]

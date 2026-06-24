@@ -1,14 +1,18 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { BrainCircuit, Flame, Trophy, Play, CheckCircle2, XCircle, ChevronRight, Star } from 'lucide-react'
+import { BrainCircuit, Flame, Trophy, Play, CheckCircle2, XCircle, ChevronRight, Star, RotateCcw, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { useAuthStore } from '@/stores/authStore'
 import { generateBrainGymQuestions, submitBrainGymScore, getBrainGymStreak } from '@/app/actions/brainGym'
+import { sendPushNotification } from '@/app/actions/push'
 import toast from 'react-hot-toast'
 import confetti from 'canvas-confetti'
+
+const SESSION_KEY = 'brain_gym_session'
+const ABANDON_TIMEOUT_MS = 10 * 60 * 1000
 
 type Question = {
   id: string
@@ -16,34 +20,125 @@ type Question = {
   options: string[]
   correctAnswer: string
   explanation: string
+  subject?: string
+  topic?: string
+  difficulty?: string
+}
+
+type SavedSession = {
+  questions: Question[]
+  currentQIndex: number
+  score: number
+  answers: Record<number, string>
+  startedAt: number
+  studentId: string
+}
+
+function saveSession(data: SavedSession) {
+  try { localStorage.setItem(SESSION_KEY, JSON.stringify(data)) } catch {}
+}
+
+function loadSession(): SavedSession | null {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY)
+    if (!raw) return null
+    return JSON.parse(raw) as SavedSession
+  } catch { return null }
+}
+
+function clearSession() {
+  try { localStorage.removeItem(SESSION_KEY) } catch {}
 }
 
 export default function DailyBrainGym() {
   const { student } = useAuthStore()
-  const [streakData, setStreakData] = useState<{ current_streak: number, highest_streak: number, last_played_date: string } | null>(null)
+  const [streakData, setStreakData] = useState<{ current_streak: number; highest_streak: number; last_played_date: string } | null>(null)
   const [loading, setLoading] = useState(true)
   const [questions, setQuestions] = useState<Question[]>([])
-  const [gameState, setGameState] = useState<'idle' | 'playing' | 'completed'>('idle')
+  const [gameState, setGameState] = useState<'idle' | 'resuming' | 'playing' | 'completed'>('idle')
   const [currentQIndex, setCurrentQIndex] = useState(0)
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null)
   const [isAnswered, setIsAnswered] = useState(false)
   const [score, setScore] = useState(0)
+  const [answers, setAnswers] = useState<Record<number, string>>({})
   const [loadingQuestions, setLoadingQuestions] = useState(false)
+  const [savedSession, setSavedSession] = useState<SavedSession | null>(null)
+  const abandonTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    if (student?.id) {
-      getBrainGymStreak(student.id).then(data => {
-        setStreakData(data)
-        const today = new Date().toISOString().split('T')[0]
-        if (data?.last_played_date === today) {
-          setGameState('completed')
+    if (!student?.id) return
+    getBrainGymStreak(student.id).then(data => {
+      setStreakData(data)
+      const today = new Date().toISOString().split('T')[0]
+      if (data?.last_played_date === today) {
+        setGameState('completed')
+        clearSession()
+      } else {
+        const saved = loadSession()
+        if (saved && saved.studentId === student.id && saved.questions?.length > 0) {
+          setSavedSession(saved)
+          setGameState('resuming')
         }
-        setLoading(false)
-      })
-    }
+      }
+      setLoading(false)
+    })
   }, [student?.id])
 
+  useEffect(() => {
+    if (gameState !== 'playing' || !student?.id || questions.length === 0) return
+    const session: SavedSession = { questions, currentQIndex, score, answers, startedAt: Date.now(), studentId: student.id }
+    saveSession(session)
+  }, [currentQIndex, score, answers, gameState, questions, student?.id])
+
+  const scheduleAbandonReminder = useCallback(() => {
+    if (abandonTimerRef.current) clearTimeout(abandonTimerRef.current)
+    abandonTimerRef.current = setTimeout(async () => {
+      toast('Your Brain Gym session is waiting! Come back and finish your workout to keep your streak alive! ??', {
+        duration: 8000, icon: '??',
+      })
+      if (student?.id) {
+        try {
+          await sendPushNotification([student.id], {
+            title: '?? Your Brain Gym session is waiting!',
+            body: 'You left your daily workout halfway. Come back and keep your streak alive!',
+            href: '/student/brain-gym',
+            tag: 'brain-gym-abandon',
+          })
+        } catch {}
+      }
+    }, ABANDON_TIMEOUT_MS)
+  }, [student?.id])
+
+  const cancelAbandonReminder = useCallback(() => {
+    if (abandonTimerRef.current) clearTimeout(abandonTimerRef.current)
+  }, [])
+
+  useEffect(() => {
+    if (gameState === 'playing') {
+      scheduleAbandonReminder()
+    } else {
+      cancelAbandonReminder()
+    }
+    return () => { cancelAbandonReminder() }
+  }, [gameState, scheduleAbandonReminder, cancelAbandonReminder])
+
+  useEffect(() => {
+    if (gameState !== 'playing') return
+    const onVisibility = () => {
+      if (document.hidden) { scheduleAbandonReminder() }
+      else { cancelAbandonReminder() }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [gameState, scheduleAbandonReminder, cancelAbandonReminder])
+
+  const resetAbandonTimer = useCallback(() => {
+    if (gameState === 'playing') scheduleAbandonReminder()
+  }, [gameState, scheduleAbandonReminder])
+
   const startGame = async () => {
+    clearSession()
+    setSavedSession(null)
     setLoadingQuestions(true)
     try {
       const q = await generateBrainGymQuestions(student?.id)
@@ -51,33 +146,49 @@ export default function DailyBrainGym() {
       setGameState('playing')
       setCurrentQIndex(0)
       setScore(0)
+      setAnswers({})
       setSelectedAnswer(null)
       setIsAnswered(false)
-    } catch (e) {
+    } catch {
       toast.error('Failed to load questions. Please try again.')
     } finally {
       setLoadingQuestions(false)
     }
   }
 
+  const resumeSession = () => {
+    if (!savedSession) return
+    setQuestions(savedSession.questions)
+    setCurrentQIndex(savedSession.currentQIndex)
+    setScore(savedSession.score)
+    setAnswers(savedSession.answers)
+    setSelectedAnswer(null)
+    setIsAnswered(false)
+    setGameState('playing')
+    setSavedSession(null)
+  }
+
+  const discardAndRestart = () => {
+    clearSession()
+    setSavedSession(null)
+    setGameState('idle')
+  }
+
   const handleAnswer = (answer: string) => {
     if (isAnswered) return
+    resetAbandonTimer()
     setSelectedAnswer(answer)
     setIsAnswered(true)
-
+    setAnswers(prev => ({ ...prev, [currentQIndex]: answer }))
     const isCorrect = answer === questions[currentQIndex].correctAnswer
     if (isCorrect) {
       setScore(prev => prev + 1)
-      confetti({
-        particleCount: 50,
-        spread: 60,
-        origin: { y: 0.8 },
-        colors: ['#10B981', '#34D399']
-      })
+      confetti({ particleCount: 50, spread: 60, origin: { y: 0.8 }, colors: ['#10B981', '#34D399'] })
     }
   }
 
   const nextQuestion = () => {
+    resetAbandonTimer()
     if (currentQIndex < questions.length - 1) {
       setCurrentQIndex(prev => prev + 1)
       setSelectedAnswer(null)
@@ -89,28 +200,19 @@ export default function DailyBrainGym() {
 
   const finishGame = async () => {
     if (!student?.id) return
-    
-    // Optimistically show completion
+    cancelAbandonReminder()
+    clearSession()
     setGameState('completed')
-    
     try {
       const result = await submitBrainGymScore(student.id, score)
       setStreakData(prev => ({
         current_streak: result.streak,
         highest_streak: prev ? Math.max(prev.highest_streak, result.streak) : result.streak,
-        last_played_date: new Date().toISOString().split('T')[0]
+        last_played_date: new Date().toISOString().split('T')[0],
       }))
-      
-      confetti({
-        particleCount: 150,
-        spread: 100,
-        origin: { y: 0.5 },
-        colors: ['#F59E0B', '#EF4444', '#3B82F6']
-      })
-      toast.success(`You earned +50 XP and kept your streak alive!`)
-    } catch (e) {
-      console.error(e)
-    }
+      confetti({ particleCount: 200, spread: 120, origin: { y: 0.5 }, colors: ['#F59E0B', '#EF4444', '#3B82F6', '#10B981'] })
+      toast.success(`+50 XP earned! Streak: ${result.streak} days ??`)
+    } catch (e) { console.error(e) }
   }
 
   if (loading) return (
@@ -120,11 +222,10 @@ export default function DailyBrainGym() {
   )
 
   const isTodayCompleted = streakData?.last_played_date === new Date().toISOString().split('T')[0]
-  const totalQuestions = questions.length || 5
+  const totalQuestions = questions.length || 10
 
   return (
     <div className="p-6 md:p-8 max-w-4xl mx-auto pb-32">
-      {/* Header section always visible unless actually playing */}
       {gameState !== 'playing' && (
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-6">
           <div>
@@ -133,135 +234,156 @@ export default function DailyBrainGym() {
               <BrainCircuit className="text-rose-500" size={36} />
             </h1>
             <p className="mt-2 text-lg font-bold" style={{ color: 'var(--text-muted)' }}>
-              A 5-minute daily workout for your mind.
+              10 unique questions every session � earn XP � build streaks
             </p>
           </div>
-
-          <div className="flex gap-4">
-            <Card className="px-6 py-4 flex flex-col items-center bg-orange-500/10 border-orange-500/20 shadow-xl shadow-orange-500/10">
-              <div className="flex items-center gap-2">
-                <Flame className={streakData?.current_streak ? "text-orange-500" : "text-gray-400"} size={24} />
-                <span className={`text-2xl font-black ${streakData?.current_streak ? 'text-orange-500' : 'text-gray-400'}`}>
-                  {streakData?.current_streak || 0}
-                </span>
-              </div>
-              <span className="text-[10px] font-black uppercase tracking-wider text-orange-500/70 mt-1">Day Streak</span>
-            </Card>
-          </div>
+          <Card className="px-6 py-4 flex flex-col items-center bg-orange-500/10 border-orange-500/20 shadow-xl shadow-orange-500/10">
+            <div className="flex items-center gap-2">
+              <Flame className={streakData?.current_streak ? 'text-orange-500' : 'text-gray-400'} size={24} />
+              <span className={`text-2xl font-black ${streakData?.current_streak ? 'text-orange-500' : 'text-gray-400'}`}>
+                {streakData?.current_streak || 0}
+              </span>
+            </div>
+            <span className="text-[10px] font-black uppercase tracking-wider text-orange-500/70 mt-1">Day Streak</span>
+          </Card>
         </div>
       )}
 
-      {/* States */}
       <AnimatePresence mode="wait">
+
         {gameState === 'idle' && !isTodayCompleted && (
-          <motion.div 
-            key="idle"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            className="flex flex-col items-center text-center mt-12"
-          >
+          <motion.div key="idle" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
+            className="flex flex-col items-center text-center mt-12">
             <div className="w-32 h-32 rounded-full bg-gradient-to-br from-orange-400 to-rose-500 flex items-center justify-center mb-8 shadow-2xl shadow-rose-500/20">
               <BrainCircuit className="text-white" size={64} />
             </div>
-            <h2 className="text-2xl font-black mb-4" style={{ color: 'var(--text)' }}>
-              Ready for today's challenge?
-            </h2>
+            <h2 className="text-2xl font-black mb-4" style={{ color: 'var(--text)' }}>Ready for today's challenge?</h2>
             <p className="max-w-md mx-auto mb-8 font-bold" style={{ color: 'var(--text-muted)' }}>
-              Answer 5 questions drawn from your curriculum. Keep your streak alive to earn XP multipliers!
+              Answer 10 unique questions drawn from your curriculum. Every session is freshly generated � keep your streak alive to earn XP multipliers!
             </p>
-            <Button 
-              size="lg" 
+            <Button size="lg"
               className="rounded-3xl px-12 py-6 text-lg shadow-xl shadow-primary/20 bg-gradient-to-r from-orange-500 to-rose-500 border-none hover:scale-105 transition-transform"
-              onClick={startGame}
-              disabled={loadingQuestions}
-            >
+              onClick={startGame} disabled={loadingQuestions}>
               {loadingQuestions ? (
                 <div className="flex items-center gap-2">
                   <div className="w-5 h-5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                  Generating...
+                  Generating unique questions�
                 </div>
               ) : (
-                <div className="flex items-center gap-2">
-                  <Play className="fill-current" /> Let's Go
-                </div>
+                <div className="flex items-center gap-2"><Play className="fill-current" /> Let's Go</div>
               )}
             </Button>
           </motion.div>
         )}
 
+        {gameState === 'resuming' && savedSession && (
+          <motion.div key="resuming" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
+            className="flex flex-col items-center text-center mt-12">
+            <div className="w-24 h-24 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center mb-6 shadow-2xl shadow-orange-500/20">
+              <Zap className="text-white" size={48} />
+            </div>
+            <h2 className="text-2xl font-black mb-2" style={{ color: 'var(--text)' }}>You left a session unfinished!</h2>
+            <p className="max-w-sm mx-auto mb-2 font-bold" style={{ color: 'var(--text-muted)' }}>
+              You were on question {savedSession.currentQIndex + 1} of {savedSession.questions.length} with {savedSession.score} correct.
+            </p>
+            <div className="w-full max-w-xs h-2.5 bg-[var(--input)] rounded-full overflow-hidden mb-8">
+              <div className="h-full bg-gradient-to-r from-amber-400 to-orange-500 rounded-full"
+                style={{ width: `${(savedSession.currentQIndex / savedSession.questions.length) * 100}%` }} />
+            </div>
+            <div className="flex flex-col sm:flex-row gap-3 w-full max-w-sm">
+              <Button size="lg"
+                className="flex-1 rounded-2xl bg-gradient-to-r from-orange-500 to-rose-500 border-none text-white"
+                onClick={resumeSession}>
+                <RotateCcw size={16} className="mr-2" /> Resume Session
+              </Button>
+              <Button size="lg" variant="outline" className="flex-1 rounded-2xl" onClick={discardAndRestart}>
+                Start Fresh
+              </Button>
+            </div>
+          </motion.div>
+        )}
+
         {gameState === 'playing' && questions.length > 0 && (
-          <motion.div
-            key="playing"
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            className="max-w-3xl mx-auto w-full"
-          >
-            {/* Progress bar */}
-            <div className="mb-8">
+          <motion.div key="playing" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
+            className="max-w-3xl mx-auto w-full">
+            <div className="mb-6">
               <div className="flex justify-between text-sm font-black mb-2" style={{ color: 'var(--text-muted)' }}>
-                <span>Question {currentQIndex + 1} of 5</span>
-                <span className="text-emerald-500">{score} / 5</span>
+                <span>Question {currentQIndex + 1} of {totalQuestions}</span>
+                <span className="text-emerald-500">{score} correct</span>
               </div>
               <div className="h-3 w-full bg-[var(--input)] rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-gradient-to-r from-orange-400 to-rose-500 transition-all duration-500"
-                  style={{ width: `${((currentQIndex) / 5) * 100}%` }}
-                />
+                <motion.div className="h-full bg-gradient-to-r from-orange-400 to-rose-500"
+                  animate={{ width: `${(currentQIndex / totalQuestions) * 100}%` }} transition={{ duration: 0.4 }} />
+              </div>
+              <div className="flex gap-1 mt-2 justify-center flex-wrap">
+                {questions.map((q, i) => {
+                  const done = i in answers
+                  const correct = done && answers[i] === q.correctAnswer
+                  return (
+                    <div key={i} className="w-2 h-2 rounded-full transition-all" style={{
+                      background: i === currentQIndex ? '#F97316' : correct ? '#10B981' : done ? '#EF4444' : 'var(--card-border)',
+                      transform: i === currentQIndex ? 'scale(1.5)' : 'scale(1)',
+                    }} />
+                  )
+                })}
               </div>
             </div>
 
             <Card className="p-8 md:p-12 text-center relative overflow-hidden shadow-2xl">
               <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-orange-400 to-rose-500" />
-              
-              <h2 className="text-2xl md:text-3xl font-black mb-10 leading-snug" style={{ color: 'var(--text)' }}>
+              {(questions[currentQIndex].subject || questions[currentQIndex].difficulty) && (
+                <div className="flex items-center justify-center gap-2 mb-4 flex-wrap">
+                  {questions[currentQIndex].subject && (
+                    <span className="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-full"
+                      style={{ background: 'var(--input)', color: 'var(--text-muted)' }}>
+                      {questions[currentQIndex].subject}
+                    </span>
+                  )}
+                  {questions[currentQIndex].difficulty && (
+                    <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-full ${
+                      questions[currentQIndex].difficulty === 'easy' ? 'bg-emerald-500/15 text-emerald-500' :
+                      questions[currentQIndex].difficulty === 'hard' ? 'bg-rose-500/15 text-rose-500' :
+                      'bg-amber-500/15 text-amber-500'}`}>
+                      {questions[currentQIndex].difficulty}
+                    </span>
+                  )}
+                </div>
+              )}
+              <h2 className="text-xl md:text-2xl font-black mb-8 leading-snug" style={{ color: 'var(--text)' }}>
                 {questions[currentQIndex].question}
               </h2>
-
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {questions[currentQIndex].options.map((opt, i) => {
                   const isSelected = selectedAnswer === opt
                   const isCorrectAnswer = questions[currentQIndex].correctAnswer === opt
-                  
-                  let btnStateClass = 'bg-[var(--input)] hover:bg-[var(--card-border)]'
+                  let cls = 'bg-[var(--input)] hover:bg-[var(--card-border)]'
                   if (isAnswered) {
-                    if (isCorrectAnswer) btnStateClass = 'bg-emerald-500/20 border-emerald-500/50 text-emerald-600 dark:text-emerald-400'
-                    else if (isSelected) btnStateClass = 'bg-rose-500/20 border-rose-500/50 text-rose-600 dark:text-rose-400'
-                    else btnStateClass = 'bg-[var(--input)] opacity-50'
-                  } else if (isSelected) {
-                    btnStateClass = 'bg-primary/20 border-primary'
-                  }
-
+                    if (isCorrectAnswer) cls = 'bg-emerald-500/20 border-emerald-500/50 text-emerald-600 dark:text-emerald-400'
+                    else if (isSelected) cls = 'bg-rose-500/20 border-rose-500/50 text-rose-600 dark:text-rose-400'
+                    else cls = 'bg-[var(--input)] opacity-40'
+                  } else if (isSelected) { cls = 'bg-primary/20 border-primary' }
                   return (
-                    <button
-                      key={i}
-                      disabled={isAnswered}
-                      onClick={() => handleAnswer(opt)}
-                      className={`p-6 rounded-2xl border-2 border-transparent text-lg font-bold transition-all text-left flex items-center justify-between group ${btnStateClass}`}
-                      style={{ color: !isAnswered ? 'var(--text)' : undefined }}
-                    >
-                      {opt}
-                      {isAnswered && isCorrectAnswer && <CheckCircle2 className="text-emerald-500" />}
-                      {isAnswered && isSelected && !isCorrectAnswer && <XCircle className="text-rose-500" />}
+                    <button key={i} disabled={isAnswered} onClick={() => handleAnswer(opt)}
+                      className={`p-5 rounded-2xl border-2 border-transparent text-base font-bold transition-all text-left flex items-center justify-between ${cls}`}
+                      style={{ color: !isAnswered ? 'var(--text)' : undefined }}>
+                      <span>{opt}</span>
+                      {isAnswered && isCorrectAnswer && <CheckCircle2 className="text-emerald-500 shrink-0 ml-2" size={20} />}
+                      {isAnswered && isSelected && !isCorrectAnswer && <XCircle className="text-rose-500 shrink-0 ml-2" size={20} />}
                     </button>
                   )
                 })}
               </div>
-
               {isAnswered && (
-                <motion.div 
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="mt-8 p-6 rounded-2xl bg-sky-500/10 border border-sky-500/20 text-left"
-                >
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                  className="mt-6 p-5 rounded-2xl bg-sky-500/10 border border-sky-500/20 text-left">
                   <p className="text-sm font-bold text-sky-600 dark:text-sky-400">
                     <span className="font-black uppercase tracking-wider text-[10px] bg-sky-500 text-white px-2 py-1 rounded-md mr-2">Fact</span>
                     {questions[currentQIndex].explanation}
                   </p>
-                  <div className="mt-6 flex justify-end">
+                  <div className="mt-5 flex justify-end">
                     <Button onClick={nextQuestion} size="lg" className="rounded-2xl px-8 shadow-lg shadow-primary/20">
-                      {currentQIndex < 4 ? 'Next Question' : 'Finish Gym'} <ChevronRight className="ml-2" />
+                      {currentQIndex < questions.length - 1 ? 'Next Question' : 'Finish Gym'}
+                      <ChevronRight className="ml-2" />
                     </Button>
                   </div>
                 </motion.div>
@@ -271,52 +393,49 @@ export default function DailyBrainGym() {
         )}
 
         {(gameState === 'completed' || isTodayCompleted) && (
-          <motion.div 
-            key="completed"
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="flex flex-col items-center text-center mt-12"
-          >
+          <motion.div key="completed" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
+            className="flex flex-col items-center text-center mt-12">
             <div className="w-32 h-32 rounded-full bg-emerald-500/20 flex items-center justify-center mb-6 border-4 border-emerald-500 relative">
-              <div className="absolute -top-2 -right-2 bg-rose-500 text-white text-xs font-black px-3 py-1 rounded-full animate-bounce">
-                +50 XP
-              </div>
+              <div className="absolute -top-2 -right-2 bg-rose-500 text-white text-xs font-black px-3 py-1 rounded-full animate-bounce">+50 XP</div>
               <Trophy className="text-emerald-500" size={56} />
             </div>
-            
-            <motion.h2
-              initial={{ scale: 0.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
+            <motion.h2 initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
               transition={{ type: 'spring', stiffness: 200, damping: 12 }}
-              className="text-3xl font-black mb-2 text-emerald-500"
-            >
-              Gym Completed! 🎉
+              className="text-3xl font-black mb-2 text-emerald-500">
+              Gym Completed! ??
             </motion.h2>
             {score === totalQuestions ? (
-              <p className="text-lg font-bold text-amber-500 mb-2">Perfect score! You're on fire! 🔥</p>
-            ) : score >= totalQuestions * 0.6 ? (
-              <p className="text-lg font-bold text-emerald-500 mb-2">Great job! Keep it up! 💪</p>
+              <p className="text-lg font-bold text-amber-500 mb-2">Perfect score! You're on fire! ??</p>
+            ) : score >= Math.ceil(totalQuestions * 0.7) ? (
+              <p className="text-lg font-bold text-emerald-500 mb-2">Excellent! Outstanding performance! ??</p>
+            ) : score >= Math.ceil(totalQuestions * 0.5) ? (
+              <p className="text-lg font-bold text-blue-500 mb-2">Good job! Keep pushing! ??</p>
             ) : (
-              <p className="text-lg font-bold text-blue-500 mb-2">Good try! Practice makes perfect! 📚</p>
+              <p className="text-lg font-bold text-orange-500 mb-2">Great effort! Practice makes perfect! ??</p>
             )}
             <p className="text-sm font-bold mb-8" style={{ color: 'var(--text-muted)' }}>
-              You've completed your daily brain workout. Come back tomorrow!
+              Daily workout done. Come back tomorrow for a brand-new set of questions!
             </p>
-
-            <div className="grid grid-cols-2 gap-4 w-full max-w-sm">
+            <div className="grid grid-cols-3 gap-4 w-full max-w-sm">
               <div className="bg-[var(--card)] p-4 rounded-2xl border border-[var(--card-border)] flex flex-col items-center">
-                <Flame className="text-orange-500 mb-2" size={24} />
+                <Flame className="text-orange-500 mb-2" size={22} />
                 <span className="text-xl font-black" style={{ color: 'var(--text)' }}>{streakData?.current_streak || 1}</span>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Current Streak</span>
+                <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Streak</span>
               </div>
               <div className="bg-[var(--card)] p-4 rounded-2xl border border-[var(--card-border)] flex flex-col items-center">
-                <Star className="text-amber-500 mb-2 fill-current" size={24} />
-                <span className="text-xl font-black" style={{ color: 'var(--text)' }}>{score} / {totalQuestions}</span>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">{Math.round((score / totalQuestions) * 100)}%</span>
+                <Star className="text-amber-500 mb-2 fill-current" size={22} />
+                <span className="text-xl font-black" style={{ color: 'var(--text)' }}>{score}/{totalQuestions}</span>
+                <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Score</span>
+              </div>
+              <div className="bg-[var(--card)] p-4 rounded-2xl border border-[var(--card-border)] flex flex-col items-center">
+                <Trophy className="text-emerald-500 mb-2" size={22} />
+                <span className="text-xl font-black" style={{ color: 'var(--text)' }}>{totalQuestions > 0 ? Math.round((score / totalQuestions) * 100) : 0}%</span>
+                <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Accuracy</span>
               </div>
             </div>
           </motion.div>
         )}
+
       </AnimatePresence>
     </div>
   )
