@@ -1,14 +1,14 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
-import { callGroqChat, hasGroqToken } from '@/lib/groq-chat'
-import { callGeminiChat, hasGeminiToken } from '@/lib/gemini-chat'
-import { callHuggingFaceChat, hasHuggingFaceToken } from '@/lib/huggingface-chat'
-import { callGitHubModelsChat, hasGitHubModelsToken } from '@/lib/github-models-chat'
-import { sanitizeQuestions, filterToRegisteredSubjects, getFallbackQuestions, normaliseText, questionFingerprint } from '@/lib/brainGymUtils'
-import type { BrainGymQuestion } from '@/lib/brainGymUtils'
-import { getBrainGymAdaptiveProfile, pickBrainGymDifficultyMix } from '@/lib/brainGym/adaptiveProfile'
-import { getCbcLanguagePrompt, getLanguageSetBookPrompt } from '@/lib/brainGym/setBooks'
+import { createClient } from '../../lib/supabase/server'
+import { callGroqChat, hasGroqToken } from '../../lib/groq-chat'
+import { callGeminiChat, hasGeminiToken } from '../../lib/gemini-chat'
+import { callHuggingFaceChat, hasHuggingFaceToken } from '../../lib/huggingface-chat'
+import { callGitHubModelsChat, hasGitHubModelsToken } from '../../lib/github-models-chat'
+import { sanitizeQuestions, filterToRegisteredSubjects, getFallbackQuestions, normaliseText, questionFingerprint } from '../../lib/brainGymUtils'
+import type { BrainGymQuestion } from '../../lib/brainGymUtils'
+import { getBrainGymAdaptiveProfile, pickBrainGymDifficultyMix } from '../../lib/brainGym/adaptiveProfile'
+import { getCbcLanguagePrompt, getLanguageSetBookPrompt } from '../../lib/brainGym/setBooks'
 
 type CurriculumType = 'kcse' | 'kjsea' | 'kpsea' | 'unknown'
 type QuestionStyle =
@@ -1191,12 +1191,12 @@ export async function generateBrainGymQuestions(
 
         const excludeSet = new Set(excludeFingerprints || [])
         const deduped = excludeSet.size > 0
-          ? filtered.filter(q => !q.fingerprint || !excludeSet.has(q.fingerprint))
+          ? filtered.filter((q: BrainGymQuestion) => !q.fingerprint || !excludeSet.has(q.fingerprint))
           : filtered
 
-        const qualityFiltered = deduped.filter(q => scoreQuestionQuality(q) >= adaptiveProfile.minimumQualityScore)
+        const qualityFiltered = deduped.filter((q: BrainGymQuestion) => scoreQuestionQuality(q) >= adaptiveProfile.minimumQualityScore)
         const strictPool = qualityFiltered.length >= 5 ? qualityFiltered : deduped
-        const broadPool = sanitized.filter(q => !q.fingerprint || !excludeSet.has(q.fingerprint))
+        const broadPool = sanitized.filter((q: BrainGymQuestion) => !q.fingerprint || !excludeSet.has(q.fingerprint))
         const usable = isExplicitFilter ? strictPool : (strictPool.length >= 5 ? strictPool : broadPool)
         const improved = improveQuestionOrder(usable)
 
@@ -1214,14 +1214,14 @@ export async function generateBrainGymQuestions(
     const isExplicitFilter = !!(subjects && subjects.length > 0)
     const adaptiveProfile = getBrainGymAdaptiveProfile(className, classLevel)
     const excludeSet = new Set(excludeFingerprints || [])
-    const rawFallback = getFallbackQuestions().map(q => ({
+    const rawFallback = getFallbackQuestions().map((q: BrainGymQuestion) => ({
       ...q,
       fingerprint: questionFingerprint(q.question),
     }))
     const fallback = filterToRegisteredSubjects(rawFallback, registeredSubjects, isExplicitFilter)
-      .filter(q => !excludeSet.has(q.fingerprint || ''))
+      .filter((q: BrainGymQuestion) => !excludeSet.has(q.fingerprint || ''))
     if (fallback.length >= 5) return applyAdaptiveProfile(fallback.slice(0, 10), adaptiveProfile)
-    return applyAdaptiveProfile(isExplicitFilter ? fallback : rawFallback.filter(q => !excludeSet.has(q.fingerprint || '')), adaptiveProfile)
+    return applyAdaptiveProfile(isExplicitFilter ? fallback : rawFallback.filter((q: BrainGymQuestion) => !excludeSet.has(q.fingerprint || '')), adaptiveProfile)
   }
 }
 
