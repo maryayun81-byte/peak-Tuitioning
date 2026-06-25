@@ -7,6 +7,8 @@ import { callHuggingFaceChat, hasHuggingFaceToken } from '@/lib/huggingface-chat
 import { callGitHubModelsChat, hasGitHubModelsToken } from '@/lib/github-models-chat'
 import { sanitizeQuestions, filterToRegisteredSubjects, getFallbackQuestions, normaliseText, questionFingerprint } from '@/lib/brainGymUtils'
 import type { BrainGymQuestion } from '@/lib/brainGymUtils'
+import { getBrainGymAdaptiveProfile, pickBrainGymDifficultyMix } from '@/lib/brainGym/adaptiveProfile'
+import { getCbcLanguagePrompt, getLanguageSetBookPrompt } from '@/lib/brainGym/setBooks'
 
 type CurriculumType = 'kcse' | 'kjsea' | 'kpsea' | 'unknown'
 type QuestionStyle =
@@ -20,6 +22,9 @@ type QuestionStyle =
   | 'prediction'
   | 'reason_giving'
   | 'exam_style_recall'
+  | 'excerpt_analysis'
+  | 'essay_response'
+  | 'functional_writing'
 
 function cleanJsonResponse(text: string) {
   const match = text.match(/\{[\s\S]*\}/)
@@ -96,10 +101,17 @@ const QUESTION_STYLES: QuestionStyle[] = [
   'prediction',
   'reason_giving',
   'exam_style_recall',
+  'excerpt_analysis',
+  'essay_response',
+  'functional_writing',
 ]
 
 const KCSE_PRIORITY_TOPICS: Record<string, string[]> = {
   Chemistry: [
+    'Atomic Structure',
+    'Chemical Bonding and Structure',
+    'Structure and Bonding',
+    'Formulae and Equations',
     'Mole Concept',
     'Electrochemistry',
     'Reaction Rates',
@@ -109,19 +121,30 @@ const KCSE_PRIORITY_TOPICS: Record<string, string[]> = {
     'Extraction of Metals',
     'Industrial Chemistry',
     'Salts',
+    'Acids, Bases and Indicators',
+    'Carbon and its Compounds',
     'Periodic Table',
   ],
   Mathematics: [
+    'Indices',
+    'Logarithms',
+    'Quadratic Expressions and Equations',
+    'Linear Inequalities',
+    'Simultaneous Equations',
     'Trigonometry',
     'Matrices',
     'Vectors',
     'Calculus',
+    'Differentiation',
+    'Nature of Turning Points',
+    'Area Under a Curve',
     'Probability',
     'Statistics',
     'Commercial Arithmetic',
     'Transformations',
     'Circle Theorems',
     'Linear Programming',
+    'Longitudes and Latitudes',
     'Graphs',
   ],
   Biology: [
@@ -153,7 +176,14 @@ const KCSE_PRIORITY_TOPICS: Record<string, string[]> = {
     'Comprehension',
     'Summary',
     'Poetry',
+    'Poetry Analysis',
+    'Oral Poetry',
     'Set Texts',
+    'Fathers of Nations',
+    'The Samaritan',
+    'A Silent Song and Other Stories',
+    'Artist of the Floating World',
+    'A Parliament of Owls',
     'Oral Skills',
   ],
   Kiswahili: [
@@ -161,8 +191,13 @@ const KCSE_PRIORITY_TOPICS: Record<string, string[]> = {
     'Ufahamu',
     'Muhtasari',
     'Insha',
+    'Ushairi',
+    'Uchanganuzi wa Ushairi',
     'Fasihi Simulizi',
     'Fasihi Andishi',
+    'Nguu za Jadi',
+    'Bembea',
+    'Mapambazuko ya Machweo na Hadithi Nyingine',
     'Methali na Semi',
   ],
   Geography: [
@@ -171,6 +206,7 @@ const KCSE_PRIORITY_TOPICS: Record<string, string[]> = {
     'Vegetation',
     'Soil Formation',
     'Internal Landforming Processes',
+    'Altitude and Relief',
     'Glaciation',
     'Population',
     'Urbanisation',
@@ -245,16 +281,16 @@ const SUBJECT_TOPICS: Record<string, string> = {
   Chemistry: `
 KCSE Chemistry mastery scope:
 Form 1: lab safety, apparatus, mixtures, separation, air, water, burning, elements and compounds.
-Form 2: atomic structure, periodic table, bonding, formulae, equations, mole basics, salts, acids and bases, carbon.
+Form 2: atomic structure, isotopes, electron arrangement, periodic table trends, chemical bonding and structure, ionic/covalent/metallic bonding, formulae, equations, mole basics, salts, acids, bases, indicators, carbon and its compounds.
 Form 3: electrochemistry, electrode products, half equations, electrochemical series, Faraday's laws, reaction rates, halogens, nitrogen, sulphur.
 Form 4: organic chemistry, enthalpy, Hess's law, calorimetry, extraction of metals, Haber, Contact, Solvay, environmental chemistry.
-Question angles: experiments, observations, equations, calculations, graph interpretation, industrial conditions, prediction and explanation.
+Question angles: experiments, observations, bonding diagrams described in text, equations, calculations, graph interpretation, industrial conditions, prediction and explanation.
 `,
 
   Mathematics: `
 KCSE Mathematics mastery scope:
 Form 1: numbers, algebra, equations, geometry, measurements, statistics.
-Form 2: quadratics, inequalities, simultaneous equations, commercial arithmetic, scale drawing, loci, transformations.
+Form 2: indices and laws of indices, logarithms, quadratics, inequalities, simultaneous equations, commercial arithmetic, scale drawing, loci, transformations, similarity and enlargement.
 Form 3: matrices, vectors, trigonometry, bearings, 3D geometry, sequences, statistics, probability.
 Form 4: calculus, area under curve, rates of change, vectors, circle theorems, longitude and latitude, linear programming, advanced graphs.
 Question angles: multi-step calculations, proof, table completion, graph drawing, interpretation, word problems, optimisation, exact KCSE-style reasoning.
@@ -482,6 +518,127 @@ const COMMON_MISCONCEPTIONS: Record<string, string[]> = {
   ],
 }
 
+const KCSE_CLASS_TOPIC_COVERAGE: Record<string, Record<number, string[]>> = {
+  Mathematics: {
+    1: [
+      'Natural numbers, factors, multiples, GCD, LCM',
+      'Integers, fractions, decimals, squares and square roots',
+      'Algebraic expressions, linear equations and inequalities',
+      'Angles, geometric constructions, scale drawing',
+      'Area, volume, mass, density, time, money',
+      'Statistics: data collection, frequency tables, mean, mode, median',
+    ],
+    2: [
+      'Indices and laws of indices',
+      'Logarithms and use of log laws',
+      'Quadratic expressions and equations',
+      'Linear inequalities and simultaneous equations',
+      'Commercial arithmetic: profit, loss, discount, commission, compound interest',
+      'Scale drawing, bearing, loci, similarity, enlargement and transformations',
+    ],
+    3: [
+      'Matrices and transformations',
+      'Vectors, magnitude, direction and position vectors',
+      'Trigonometry, sine rule, cosine rule, bearings and 3D geometry',
+      'Sequences and series',
+      'Statistics: quartiles, cumulative frequency, histograms and probability',
+      'Surds and further logarithms where applicable',
+    ],
+    4: [
+      'Differentiation from first principles and rules of differentiation',
+      'Gradient functions, tangents, normals and rates of change',
+      'Nature of turning points using first and second derivative tests',
+      'Area under a curve and integration-style approximation',
+      'Circle theorems and cyclic quadrilaterals',
+      'Longitudes and latitudes, time differences and great/small circles',
+      'Linear programming, inequalities and optimisation',
+      'Advanced graphs, variation and cumulative KCSE problem solving',
+    ],
+  },
+  Chemistry: {
+    1: [
+      'Laboratory safety, apparatus and measurement',
+      'Mixtures and separation techniques',
+      'Air, burning, oxygen, water and hydrogen',
+      'Elements, compounds, symbols and simple formulae',
+      'Acids, bases and indicators at introductory level',
+    ],
+    2: [
+      'Atomic structure, isotopes and electron arrangement',
+      'Periodic table trends and valency',
+      'Chemical bonding and structure: ionic, covalent, metallic and giant structures',
+      'Formulae, equations, relative atomic mass and mole basics',
+      'Acids, bases, salts and salt preparation',
+      'Carbon and its compounds at introductory level',
+    ],
+    3: [
+      'Electrochemistry, electrolysis products and half equations',
+      'Electrochemical series and displacement reactions',
+      'Faraday law calculations at KCSE level',
+      'Reaction rates, collision theory, catalysts and rate graphs',
+      'Halogens, nitrogen, sulphur and their compounds',
+      'Quantitative chemistry linked to equations',
+    ],
+    4: [
+      'Organic chemistry: alkanes, alkenes, alcohols, acids, polymers and reactions',
+      'Energy changes: enthalpy, Hess law and calorimetry',
+      'Extraction of metals and environmental impact',
+      'Industrial processes: Haber, Contact, Solvay and conditions/yield',
+      'Chemical equilibrium and Le Chatelier principle',
+      'Cumulative practical analysis, observations and equations',
+    ],
+  },
+  Geography: {
+    1: [
+      'Earth, solar system, weather, climate and field work',
+      'Map work: scale, direction, bearing, grid references, relief and altitude',
+      'Rocks, minerals, soil formation and vegetation',
+    ],
+    2: [
+      'Internal landforming processes: folding, faulting, vulcanicity and earthquakes',
+      'Denudation: weathering, mass wasting, rivers, lakes and oceans',
+      'Glaciation, arid and semi-arid landforms',
+      'Map interpretation, altitude, contours, cross-sections and drainage patterns',
+    ],
+    3: [
+      'Population, settlement, land use and agriculture',
+      'Industry, transport, trade, energy and tourism',
+      'Statistical methods, photograph interpretation and fieldwork analysis',
+    ],
+    4: [
+      'Wildlife, forestry, fishing, mining and environmental management',
+      'Urbanisation, world trade, GIS and remote sensing',
+      'Case studies, comparative geography and advanced map interpretation',
+    ],
+  },
+}
+
+function getKcseClassCoverage(subjects: string[], className: string) {
+  const form = getFormNumber(className)
+  if (!form) return ''
+
+  const blocks: string[] = []
+  for (const subject of subjects) {
+    const key = Object.keys(KCSE_CLASS_TOPIC_COVERAGE).find(k => {
+      const a = normaliseText(k)
+      const b = normaliseText(subject)
+      return a === b || a.includes(b) || b.includes(a)
+    })
+
+    if (!key) continue
+    const levels = KCSE_CLASS_TOPIC_COVERAGE[key]
+    const lines: string[] = []
+    for (let f = 1; f <= Math.min(form, 4); f++) {
+      if (levels[f]) lines.push(`Form ${f}: ${levels[f].join('; ')}`)
+    }
+    if (lines.length) blocks.push(`${subject} cumulative scope for ${className}:\n${lines.join('\n')}`)
+  }
+
+  return blocks.length
+    ? `STRICT CLASS-BY-CLASS KCSE COVERAGE:\n${blocks.join('\n\n')}\nDo not test topics above the learner's form. For Form 3, use Form 1-3 only. For Form 4, use Form 1-4 cumulatively.`
+    : ''
+}
+
 function getSubjectTopics(registeredSubjects: string[]) {
   if (!registeredSubjects.length) return ''
 
@@ -542,6 +699,40 @@ function getMisconceptions(registeredSubjects: string[]) {
     : ''
 }
 
+function getLanguageLiteratureCoverage(registeredSubjects: string[], className: string) {
+  const normalized = registeredSubjects.map(subject => normaliseText(subject))
+  const form = getFormNumber(className)
+  const needsEnglish = normalized.some(subject => subject.includes('english') || subject.includes('literature'))
+  const needsKiswahili = normalized.some(subject => subject.includes('kiswahili'))
+
+  if (!needsEnglish && !needsKiswahili) return ''
+
+  const level = form >= 3
+    ? 'Form 3-4 KCSE literature level'
+    : form > 0
+      ? `Form ${form} language foundation level`
+      : 'Kenyan language assessment level'
+
+  const english = needsEnglish ? `
+ENGLISH LITERATURE AND POETRY COVERAGE (${level}):
+- Set books for 2022-2026 KCSE: Fathers of Nations, The Samaritan, A Silent Song and Other Stories.
+- Approved optional texts where configured: Artist of the Floating World, A Parliament of Owls.
+- Test chapter/scene context, character relationships, themes, conflict, style, tone, irony, symbolism, setting and quotation significance.
+- Poetry: persona, tone, mood, theme, imagery, rhyme, rhythm, repetition, alliteration, metaphor, simile, diction, structure and message.
+- Include KCSE essay prompts that demand argument, evidence and organised paragraphs.
+` : ''
+
+  const kiswahili = needsKiswahili ? `
+KISWAHILI FASIHI NA USHAIRI COVERAGE (${level}):
+- Vitabu teule vya KCSE 2022-2026: Nguu za Jadi, Bembea, Mapambazuko ya Machweo na Hadithi Nyingine.
+- Jaribu dondoo, muktadha, msemaji, anayesemewa, maudhui, wahusika, mbinu za uandishi, tamathali za semi, mandhari, muundo na mtindo.
+- Ushairi: nafsi neni, bahari, vina, mizani, urari, takriri, tashbihi, sitiari, taswira, toni, dhamira, ujumbe na uhuru wa kishairi.
+- Insha: hoja zenye mpangilio, msamiati mwafaka, mtiririko, sarufi na hitimisho.
+` : ''
+
+  return `${english}${kiswahili}`
+}
+
 function getExamBlueprint(type: CurriculumType, className: string) {
   const form = getFormNumber(className)
   const grade = getGradeNumber(className)
@@ -564,6 +755,7 @@ The questions must feel like real Kenyan KCSE preparation:
 - For Mathematics, questions must require working.
 - For Chemistry/Physics/Biology, questions must test explanation, prediction, process, calculation, observation or experimental skill.
 - For English/Kiswahili, test grammar, comprehension, tone, register, literature, functional writing and language use.
+- For English/Kiswahili Form 3-4, include set-book/excerpt/essay practice when appropriate.
 `
   }
 
@@ -574,8 +766,9 @@ Grade detected: ${grade || className || 'Grade 7–9'}.
 - Test Grade 7–9 competencies only.
 - Use practical Kenyan scenarios.
 - Questions must assess what the learner can DO with knowledge.
-- Include interpretation, application, community situations, simple data, tables, environmental awareness and problem solving.
+- Include interpretation, application, community situations, simple data, tables, environmental awareness, communication and problem solving.
 - Avoid senior KCSE-only content.
+- For English/Kiswahili, train KJSEA language competencies using short extracts, oral/language tasks, functional writing and inferencing.
 `
   }
 
@@ -587,6 +780,7 @@ Grade detected: ${grade || className || 'Grade 4–6'}.
 - Use home, school, market, farm and community examples.
 - Avoid secondary-school abstract content.
 - Questions must test practical understanding and everyday application.
+- For English/Kiswahili/literacy, train KPSEA comprehension, grammar in context, vocabulary, oral skills and simple functional writing.
 `
   }
 
@@ -663,6 +857,8 @@ function buildUserPrompt(params: {
   registeredSubjects: string[]
   sessionSeed: string
   difficultyMix: string
+  adaptiveProfile: ReturnType<typeof getBrainGymAdaptiveProfile>
+  explicitSubjectFilter?: boolean
   excludeFingerprints?: string[]
 }) {
   const {
@@ -673,12 +869,17 @@ function buildUserPrompt(params: {
     registeredSubjects,
     sessionSeed,
     difficultyMix,
+    adaptiveProfile,
+    explicitSubjectFilter,
   } = params
 
   const { excludeFingerprints } = params
 
   const subjectConstraint = registeredSubjects.length
-    ? `REGISTERED SUBJECTS — STRICTLY generate questions from these only:\n${registeredSubjects.join(', ')}`
+    ? `${explicitSubjectFilter ? 'SELECTED SUBJECT FILTER' : 'REGISTERED SUBJECTS'} - STRICTLY generate questions from these only:
+${registeredSubjects.join(', ')}
+Every returned question.subject MUST be one of: ${registeredSubjects.join(', ')}.
+Do not include any other subject, even if it is related.`
     : `No registered subjects found. Generate balanced Kenyan curriculum questions for ${curriculumContext}.`
 
   const excludeBlock = excludeFingerprints && excludeFingerprints.length > 0
@@ -700,11 +901,27 @@ ${sessionSeed}
 DIFFICULTY MIX:
 ${difficultyMix}
 
+ADAPTIVE BRAIN GYM PROFILE:
+${adaptiveProfile.label}
+- Visual style: ${adaptiveProfile.visualStyle}
+- Language tone: ${adaptiveProfile.languageTone}
+- Question demand: ${adaptiveProfile.questionDemand}
+- Reward tone: ${adaptiveProfile.rewardTone}
+- Minimum quality bar: every question should meet at least ${adaptiveProfile.minimumQualityScore} quality signals.
+
 ${subjectConstraint}
 
 ${getExamBlueprint(curriculumType, className)}
 
 ${getSubjectTopics(registeredSubjects)}
+
+${getKcseClassCoverage(registeredSubjects, className)}
+
+${getLanguageSetBookPrompt(registeredSubjects, className)}
+
+${getCbcLanguagePrompt(registeredSubjects, className)}
+
+${getLanguageLiteratureCoverage(registeredSubjects, className)}
 
 ${getPriorityTopics(registeredSubjects)}
 
@@ -719,11 +936,20 @@ ${QUESTION_STYLES.join(', ')}${excludeBlock}
 SPECIAL INSTRUCTIONS:
 - Do not generate 10 questions of the same style.
 - At least 3 questions must be application/scenario/data/experiment/graph/calculation based.
-- If Mathematics is included, include at least one multi-step KCSE-style calculation.
-- If Science is included, include at least one experiment, observation, graph/table, equation or process-based question.
+- If Mathematics is included, include at least one multi-step KCSE-style calculation. For Form 2, include indices/logarithms/quadratics where appropriate. For Form 3-4, make the calculation KCSE B/A standard.
+- If Chemistry is included, include structure and bonding, mole/equation skill, electrochemistry, rates, organic or energy changes as the class level allows. For Form 2, explicitly include chemical bonding and structure.
+- If Science is included, include at least one experiment, observation, graph/table, equation, diagram description or process-based question.
 - If English/Kiswahili is included, include grammar or language-in-context, not only literature recall.
-- If CBC is detected, use competency-based practical situations.
+- If English/Kiswahili Form 3-4 is included, include at least 2 set-book/literature/excerpt questions across the 10 questions unless the selected topic is purely grammar.
+- If context is duel, prefer MCQ excerpt/poetry/set-book questions over essays because duels need fast scoring.
+- For language excerpts, write a short original extract of 60-120 words or a paraphrased situation. Do not copy long passages from set books.
+- For English poem questions, the excerpt must be a complete original poem of 3-4 stanzas with 3-4 lines per stanza, not a two-line snippet.
+- For Kiswahili ushairi questions, the excerpt must be a complete original shairi of 3-4 beti, preferably 4 mishororo per ubeti where suitable, not a two-line snippet.
+- For CBC poem/song/oral literature tasks, use a complete age-appropriate original piece: 2-3 stanzas for KPSEA, 3-4 stanzas for KJSEA.
+- If essay_response is included, include answerMode "essay", essayPrompt, markingRubric and maxMarks. Use at most 1 essay_response in a 10-question session.
+- If CBC is detected, use competency-based practical situations that prepare Grade 6 for KPSEA and Grade 7-9 for KJSEA.
 - Do not exceed the learner's class level.
+- For Form 3 and Form 4, avoid easy recall. Most questions must be hard, challenging, examiner-style and require careful reasoning.
 - Use realistic Kenyan names, places, schools, farms, shops, labs, counties or daily life contexts.
 
 OUTPUT RULES:
@@ -743,6 +969,12 @@ Format:
       "difficulty": "hard",
       "examStandard": "kcse_a",
       "questionStyle": "calculation",
+      "answerMode": "mcq",
+      "excerpt": "optional short original extract for language/literature questions",
+      "sourceText": "optional set book or text label",
+      "essayPrompt": "optional essay prompt when answerMode is essay",
+      "markingRubric": ["optional marking point 1", "optional marking point 2"],
+      "maxMarks": 20,
       "question": "...",
       "options": ["...","...","...","..."],
       "correctAnswer": "exact option text",
@@ -762,6 +994,8 @@ function scoreQuestionQuality(q: BrainGymQuestion): number {
   if (q.explanation.length >= 80) score += 1
   if (q.subtopic && q.subtopic.length > 2) score += 1
   if (q.questionStyle && q.questionStyle !== 'exam_style_recall') score += 1
+  if (q.difficulty === 'hard') score += 1
+  if (q.examStandard === 'kcse_a' || q.examStandard === 'kcse_b') score += 1
   if (/(calculate|determine|find|work out|solve|mass|volume|ratio|gradient|angle|probability|mean|moles|voltage|current)/i.test(q.question)) score += 1
   if (/(experiment|observed|apparatus|graph|table|diagram|data|sample|student|learner|farmer|trader|school|laboratory)/i.test(q.question)) score += 1
   if (/(because|therefore|this shows|this means|hence|since|ratio|equation|formula)/i.test(q.explanation)) score += 1
@@ -777,7 +1011,9 @@ function improveQuestionOrder(questions: BrainGymQuestion[]) {
     .map((q, index) => ({ ...q, id: `q${index + 1}` }))
 }
 
-function getDifficultyMix() {
+function getDifficultyMix(profile?: ReturnType<typeof getBrainGymAdaptiveProfile>) {
+  if (profile) return pickBrainGymDifficultyMix(profile)
+
   const mixes = [
     '3 easy, 4 medium, 3 hard',
     '2 easy, 5 medium, 3 hard',
@@ -788,6 +1024,21 @@ function getDifficultyMix() {
   return mixes[Math.floor(Math.random() * mixes.length)]
 }
 
+function applyAdaptiveProfile(questions: BrainGymQuestion[], profile: ReturnType<typeof getBrainGymAdaptiveProfile>) {
+  return questions.map(q => ({
+    ...q,
+    adaptive: {
+      profileLabel: profile.label,
+      visualStyle: profile.visualStyle,
+      languageTone: profile.languageTone,
+      questionDemand: profile.questionDemand,
+      rewardTone: profile.rewardTone,
+      accentColor: profile.accentColor,
+      cardClassName: profile.cardClassName,
+    },
+  }))
+}
+
 export async function generateBrainGymQuestions(
   studentId?: string,
   context?: 'brain_gym' | 'duel',
@@ -796,6 +1047,7 @@ export async function generateBrainGymQuestions(
 ): Promise<BrainGymQuestion[]> {
   let curriculumName = 'Kenyan CBC / 8-4-4'
   let className = ''
+  let classLevel: number | null = null
   let curriculumContext = 'Kenyan CBC / 8-4-4'
   let registeredSubjects: string[] = []
 
@@ -823,11 +1075,12 @@ export async function generateBrainGymQuestions(
         if (student.class_id) {
           const { data: cls } = await supabase
             .from('classes')
-            .select('name')
+            .select('name, level')
             .eq('id', student.class_id)
             .single()
 
           if (cls?.name) className = cls.name
+          if (typeof cls?.level === 'number') classLevel = cls.level
         }
 
         curriculumContext = `${className || 'Unknown class'} under ${curriculumName}`
@@ -850,10 +1103,11 @@ export async function generateBrainGymQuestions(
     }
 
     const curriculumType = detectCurriculumType(curriculumName, className)
+    const adaptiveProfile = getBrainGymAdaptiveProfile(className, classLevel)
     const sessionSeed = `${Date.now()}-${Math.floor(Math.random() * 999983)}`
     const difficultyMix = context === 'duel'
       ? '2 easy, 4 medium, 4 hard'
-      : getDifficultyMix()
+      : getDifficultyMix(adaptiveProfile)
 
     const systemPrompt = buildSystemPrompt(curriculumType, className, curriculumName)
 
@@ -865,6 +1119,8 @@ export async function generateBrainGymQuestions(
       registeredSubjects,
       sessionSeed,
       difficultyMix,
+      adaptiveProfile,
+      explicitSubjectFilter: !!(subjects && subjects.length > 0),
       excludeFingerprints,
     })
 
@@ -938,11 +1194,14 @@ export async function generateBrainGymQuestions(
           ? filtered.filter(q => !q.fingerprint || !excludeSet.has(q.fingerprint))
           : filtered
 
-        const usable = isExplicitFilter ? deduped : (deduped.length >= 5 ? deduped : sanitized.filter(q => !q.fingerprint || !excludeSet.has(q.fingerprint)))
+        const qualityFiltered = deduped.filter(q => scoreQuestionQuality(q) >= adaptiveProfile.minimumQualityScore)
+        const strictPool = qualityFiltered.length >= 5 ? qualityFiltered : deduped
+        const broadPool = sanitized.filter(q => !q.fingerprint || !excludeSet.has(q.fingerprint))
+        const usable = isExplicitFilter ? strictPool : (strictPool.length >= 5 ? strictPool : broadPool)
         const improved = improveQuestionOrder(usable)
 
-        if (improved.length >= 10) return improved.slice(0, 10)
-        if (improved.length >= 5) return improved
+        if (improved.length >= 10) return applyAdaptiveProfile(improved.slice(0, 10), adaptiveProfile)
+        if (improved.length >= 5) return applyAdaptiveProfile(improved, adaptiveProfile)
       } catch (error: any) {
         console.error(`[BrainGym] ${provider.name} failed:`, error.message)
       }
@@ -953,6 +1212,7 @@ export async function generateBrainGymQuestions(
     console.error('generateBrainGymQuestions error:', error)
 
     const isExplicitFilter = !!(subjects && subjects.length > 0)
+    const adaptiveProfile = getBrainGymAdaptiveProfile(className, classLevel)
     const excludeSet = new Set(excludeFingerprints || [])
     const rawFallback = getFallbackQuestions().map(q => ({
       ...q,
@@ -960,13 +1220,15 @@ export async function generateBrainGymQuestions(
     }))
     const fallback = filterToRegisteredSubjects(rawFallback, registeredSubjects, isExplicitFilter)
       .filter(q => !excludeSet.has(q.fingerprint || ''))
-    if (fallback.length >= 5) return fallback.slice(0, 10)
-    return isExplicitFilter ? fallback : rawFallback.filter(q => !excludeSet.has(q.fingerprint || ''))
+    if (fallback.length >= 5) return applyAdaptiveProfile(fallback.slice(0, 10), adaptiveProfile)
+    return applyAdaptiveProfile(isExplicitFilter ? fallback : rawFallback.filter(q => !excludeSet.has(q.fingerprint || '')), adaptiveProfile)
   }
 }
 
-export async function submitBrainGymScore(studentId: string, score: number) {
+export async function submitBrainGymScore(studentId: string, score: number, totalQuestions = 10) {
   const supabase = await createClient()
+  const accuracy = totalQuestions > 0 ? score / totalQuestions : 0
+  const territoryPoints = accuracy >= 0.5 ? Math.max(3, Math.round(accuracy * 10)) : 0
 
   const { data: streakData } = await supabase
     .from('brain_gym_streaks')
@@ -997,7 +1259,12 @@ export async function submitBrainGymScore(studentId: string, score: number) {
         .eq('id', studentId)
     }
 
-    return { streak: 1, isNewHighest: true }
+    if (territoryPoints > 0) {
+      const { processDuelForHouses } = await import('./houses')
+      await processDuelForHouses(studentId, territoryPoints)
+    }
+
+    return { streak: 1, isNewHighest: true, territoryPoints }
   }
 
   const yesterday = new Date(Date.now() - 86400000)
@@ -1030,9 +1297,88 @@ export async function submitBrainGymScore(studentId: string, score: number) {
       .eq('id', studentId)
   }
 
+  if (territoryPoints > 0) {
+    const { processDuelForHouses } = await import('./houses')
+    await processDuelForHouses(studentId, territoryPoints)
+  }
+
   return {
     streak: newStreak,
     isNewHighest: newStreak > streakData.highest_streak,
+    territoryPoints,
+  }
+}
+
+export async function markBrainGymEssay(input: {
+  question: string
+  essay: string
+  subject?: string
+  rubric?: string[]
+  maxMarks?: number
+}) {
+  const essay = input.essay.trim()
+  const maxMarks = input.maxMarks || 20
+  const wordCount = essay.split(/\s+/).filter(Boolean).length
+  const sentences = essay.split(/[.!?]+/).filter(s => s.trim().length > 0).length
+  const paragraphs = essay.split(/\n\s*\n/).filter(p => p.trim().length > 0).length
+  const rubric = input.rubric?.length ? input.rubric : [
+    'Addresses the question directly',
+    'Uses relevant textual/contextual evidence',
+    'Organises ideas logically',
+    'Uses accurate language and expression',
+  ]
+
+  let raw = 0
+  if (wordCount >= 80) raw += 4
+  else if (wordCount >= 50) raw += 3
+  else if (wordCount >= 30) raw += 2
+  else raw += 1
+
+  if (sentences >= 6) raw += 4
+  else if (sentences >= 4) raw += 3
+  else if (sentences >= 2) raw += 2
+  else raw += 1
+
+  if (paragraphs >= 3) raw += 3
+  else if (paragraphs >= 2) raw += 2
+  else raw += 1
+
+  const lower = essay.toLowerCase()
+  const hasEvidence = /(for example|kwa mfano|this shows|hii inaonyesha|because|kwa sababu|therefore|hivyo|quote|dondoo|character|mhusika|theme|dhamira)/i.test(lower)
+  const hasConclusion = /(in conclusion|kwa kumalizia|therefore|hivyo basi|overall|kwa jumla)/i.test(lower)
+  const hasPromptLanguage = input.question
+    .toLowerCase()
+    .split(/\W+/)
+    .filter(word => word.length > 5)
+    .slice(0, 8)
+    .some(word => lower.includes(word))
+
+  if (hasEvidence) raw += 4
+  if (hasConclusion) raw += 2
+  if (hasPromptLanguage) raw += 3
+
+  const marks = Math.min(maxMarks, Math.round((raw / 20) * maxMarks))
+  const percentage = Math.round((marks / maxMarks) * 100)
+  const grade = percentage >= 80 ? 'A' : percentage >= 70 ? 'B' : percentage >= 60 ? 'C' : percentage >= 50 ? 'D' : 'E'
+  const strengths = [
+    wordCount >= 80 ? 'Your response has enough development for marking.' : 'You attempted the task clearly.',
+    hasEvidence ? 'You included evidence or explanation linked to the task.' : 'Your ideas are understandable.',
+  ]
+  const improvements = [
+    wordCount < 80 ? 'Develop the essay further with more points and examples.' : 'Tighten topic sentences so each paragraph carries one main idea.',
+    !hasEvidence ? 'Add textual evidence, examples, or dondoo-based support.' : 'Explain how each example proves the point.',
+    !hasConclusion ? 'End with a brief conclusion that answers the question directly.' : 'Make the conclusion sharper and less repetitive.',
+  ].slice(0, 3)
+
+  return {
+    marks,
+    maxMarks,
+    percentage,
+    grade,
+    rubric,
+    strengths,
+    improvements,
+    feedback: `${marks}/${maxMarks} (${grade}). ${strengths[0]} ${improvements[0]}`,
   }
 }
 

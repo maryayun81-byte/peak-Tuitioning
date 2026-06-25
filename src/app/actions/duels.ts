@@ -4,6 +4,8 @@ import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { generateBrainGymQuestions } from './brainGym'
 import { revalidatePath } from 'next/cache'
 import { sendPushNotification } from './push'
+import { adaptDuelQuestions, getAdaptiveDuelProfile, getAdaptivePowerUps, getAdaptiveTime } from '@/lib/duels/adaptiveProfile'
+import { attachDuelEngagement, getCurrentDuelSeason, getTerritoryPointAward, getXpWithTerritoryBonus } from '@/lib/duels/engagement'
 import type {
   Duel, DuelType, DuelParticipantWithStudent, Difficulty, CoachDifficulty,
   DuelResultRow, DuelLeaderboardEntry, DuelStats, DuelBoss, DuelAchievement,
@@ -31,6 +33,10 @@ function getQuestionCountForType(type: DuelType, difficulty?: string): number {
   return 10
 }
 
+function isInstantDuel(type: DuelType) {
+  return type === 'coach' || type === 'boss' || type === 'daily' || type === 'weekly'
+}
+
 function getTimeForDifficulty(difficulty?: string): number {
   switch (difficulty) {
     case 'easy': return 20
@@ -46,36 +52,57 @@ async function getStudentId() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Not authenticated')
-  const { data } = await supabase.from('students').select('id').eq('user_id', user.id).single()
+  const { data } = await supabase
+    .from('students')
+    .select('id, class:classes(level, name)')
+    .eq('user_id', user.id)
+    .single()
   if (!data) throw new Error('Student not found')
-  return { studentId: data.id, userId: user.id, supabase }
+  return {
+    studentId: data.id,
+    userId: user.id,
+    supabase,
+    classLevel: (data.class as any)?.level as number | null | undefined,
+    className: (data.class as any)?.name as string | null | undefined,
+  }
 }
 
 // ── 1. CREATE DUEL ────────────────────────────────────────────────
 export async function createDuel(input: CreateDuelInput) {
-  const { studentId, userId, supabase } = await getStudentId()
+  const { studentId, userId, supabase, classLevel, className } = await getStudentId()
+  const adaptiveProfile = getAdaptiveDuelProfile(classLevel, className)
   const count = getQuestionCountForType(input.duel_type, input.difficulty)
-  const timePerQ = input.time_per_question || getTimeForDifficulty(input.difficulty)
+  const timePerQ = input.time_per_question || getAdaptiveTime(getTimeForDifficulty(input.difficulty), adaptiveProfile)
 
   let questions: any[]
   if (input.duel_type === 'boss' && input.boss_id) {
-    const { data: boss } = await supabase.from('duel_bosses').select('questions').eq('id', input.boss_id).single()
-    questions = (boss?.questions && Array.isArray(boss.questions) && boss.questions.length > 0)
+    const { data: boss } = await supabase.from('duel_bosses').select('questions, topic').eq('id', input.boss_id).single()
+    questions = (boss?.questions && Array.isArray(boss.questions) && boss.questions.length >= count)
       ? boss.questions
       : await generateBrainGymQuestions(studentId, 'duel')
+    if (boss?.topic && Array.isArray(questions)) {
+      questions = questions.map(q => ({ ...q, topic: q.topic || boss.topic }))
+    }
   } else if (input.duel_type === 'coach') {
     questions = await generateBrainGymQuestions(studentId, 'duel')
   } else {
     questions = await generateBrainGymQuestions(studentId, 'duel')
   }
 
-  questions = shuffle(questions).slice(0, count)
+  questions = attachDuelEngagement(
+    adaptDuelQuestions(shuffle(questions).slice(0, count), adaptiveProfile),
+    { duelType: input.duel_type, classLevel, className }
+  )
+
+  const basePowerUps: PowerUp[] = input.duel_type === 'boss' || input.duel_type === 'tournament'
+    ? ['fifty_fifty', 'hint', 'time_freeze']
+    : ['fifty_fifty', 'time_freeze', 'double_xp', 'shield', 'hint', 'revive', 'skip']
 
   const { data: duel, error } = await supabase
     .from('classroom_duels')
     .insert({
       class_id: input.class_id || null,
-      status: input.duel_type === 'coach' || input.duel_type === 'boss' ? 'active' : 'waiting',
+      status: isInstantDuel(input.duel_type) ? 'active' : 'waiting',
       questions,
       current_question_index: 0,
       duel_type: input.duel_type,
@@ -83,11 +110,12 @@ export async function createDuel(input: CreateDuelInput) {
       subject_id: input.subject_id || null,
       topic: input.topic || null,
       time_per_question: timePerQ,
-      max_participants: input.duel_type === 'team' ? 10 : 2,
+      max_participants: isInstantDuel(input.duel_type) ? 1 : input.duel_type === 'team' ? 10 : input.duel_type === 'tournament' ? 32 : 2,
+      started_at: isInstantDuel(input.duel_type) ? new Date().toISOString() : null,
       created_by: studentId,
       coach_difficulty: input.coach_difficulty || null,
       boss_id: input.boss_id || null,
-      allowed_power_ups: input.duel_type === 'boss' || input.duel_type === 'tournament' ? ['fifty_fifty', 'hint', 'time_freeze'] : ['fifty_fifty', 'time_freeze', 'double_xp', 'shield', 'hint', 'revive', 'skip'],
+      allowed_power_ups: getAdaptivePowerUps(basePowerUps, adaptiveProfile),
     })
     .select()
     .single()
@@ -208,37 +236,37 @@ export async function submitDuelAnswer(
   const powerUps = powerUpsUsed || []
   if (powerUps.includes('double_xp')) score *= 2
 
-  if (isCorrect) {
-    const { data: participant } = await supabase
+  const { data: participant } = await supabase
+    .from('duel_participants')
+    .select('score, max_streak, answer_history, power_ups_used, total_time_spent')
+    .eq('duel_id', duelId)
+    .eq('student_id', studentId)
+    .single()
+
+  if (participant) {
+    const newStreak = isCorrect ? Math.max(streakAtTime, participant.max_streak || 0) : participant.max_streak || 0
+    const existingHistory = participant.answer_history || []
+    const withoutDuplicate = existingHistory.filter((answer: any) => answer.question_index !== questionIndex)
+    const history = [...withoutDuplicate, {
+      question_index: questionIndex,
+      selected_answer: selectedAnswer,
+      is_correct: isCorrect,
+      time_spent: timeSpent,
+      streak_at_time: streakAtTime,
+    }].sort((a, b) => a.question_index - b.question_index)
+    const puUsed = [...new Set([...(participant.power_ups_used || []), ...powerUps])]
+
+    await supabase
       .from('duel_participants')
-      .select('score, max_streak, answer_history, power_ups_used')
+      .update({
+        score: (participant.score || 0) + (isCorrect ? score : 0),
+        max_streak: newStreak,
+        answer_history: history,
+        power_ups_used: puUsed,
+        total_time_spent: ((participant as any).total_time_spent || 0) + timeSpent,
+      } as any)
       .eq('duel_id', duelId)
       .eq('student_id', studentId)
-      .single()
-
-    if (participant) {
-      const newStreak = Math.max(streakAtTime, participant.max_streak || 0)
-      const history = [...(participant.answer_history || []), {
-        question_index: questionIndex,
-        selected_answer: selectedAnswer,
-        is_correct: true,
-        time_spent: timeSpent,
-        streak_at_time: streakAtTime,
-      }]
-      const puUsed = [...new Set([...(participant.power_ups_used || []), ...powerUps])]
-
-      await supabase
-        .from('duel_participants')
-        .update({
-          score: (participant.score || 0) + score,
-          max_streak: newStreak,
-          answer_history: history,
-          power_ups_used: puUsed,
-          total_time_spent: ((participant as any).total_time_spent || 0) + timeSpent,
-        } as any)
-        .eq('duel_id', duelId)
-        .eq('student_id', studentId)
-    }
   }
 
   return { isCorrect, score, speedBonus, streakBonus, total: isCorrect ? score : 0 }
@@ -277,7 +305,7 @@ export async function advanceDuelQuestion(duelId: string, currentIndex: number) 
 // ── 5. RECORD RESULTS ────────────────────────────────────────────
 async function recordDuelResults(duelId: string) {
   const admin = await createAdminClient()
-  const { data: duel } = await admin.from('classroom_duels').select('duel_type, difficulty').eq('id', duelId).single()
+  const { data: duel } = await admin.from('classroom_duels').select('duel_type, difficulty, questions').eq('id', duelId).single()
   if (!duel) return
 
   const { data: participants } = await admin
@@ -298,7 +326,7 @@ async function recordDuelResults(duelId: string) {
     const baseXp = duel.difficulty === 'legendary' ? 200 : duel.difficulty === 'hard' ? 120 : 80
     const accuracyBonus = Math.round(baseXp * accuracy)
     const streakBonus = Math.min((solo.max_streak || 0) * 5, 50)
-    const xp = baseXp + accuracyBonus + streakBonus
+    const xp = getXpWithTerritoryBonus(baseXp + accuracyBonus + streakBonus, duel.questions as any)
 
     await admin.from('duel_results').upsert({
       duel_id: duelId,
@@ -325,6 +353,11 @@ async function recordDuelResults(duelId: string) {
       })
     }
 
+    if (correctCount >= total * 0.5) {
+      const { processDuelForHouses } = await import('./houses')
+      await processDuelForHouses(solo.student_id, getTerritoryPointAward(10, duel.questions as any))
+    }
+
     await admin.from('classroom_duels').update({ completed_at: new Date().toISOString() }).eq('id', duelId)
     return
   }
@@ -339,8 +372,8 @@ async function recordDuelResults(duelId: string) {
   const xpDraw = Math.floor(xpWin / 2)
   const xpLoss = Math.floor(xpWin / 3)
 
-  const p1Xp = p1Result === 'win' ? xpWin : p1Result === 'draw' ? xpDraw : xpLoss
-  const p2Xp = p2Result === 'win' ? xpWin : p2Result === 'draw' ? xpDraw : xpLoss
+  const p1Xp = getXpWithTerritoryBonus(p1Result === 'win' ? xpWin : p1Result === 'draw' ? xpDraw : xpLoss, duel.questions as any)
+  const p2Xp = getXpWithTerritoryBonus(p2Result === 'win' ? xpWin : p2Result === 'draw' ? xpDraw : xpLoss, duel.questions as any)
 
   const p1EloBefore = p1.student?.duel_rating || 1000
   const p2EloBefore = p2.student?.duel_rating || 1000
@@ -413,7 +446,7 @@ async function recordDuelResults(duelId: string) {
   // Territory wars: award points to winner's house
   if (winnerId) {
     const { processDuelForHouses } = await import('./houses')
-    await processDuelForHouses(winnerId)
+    await processDuelForHouses(winnerId, getTerritoryPointAward(10, duel.questions as any))
   }
 
   // Update streaks for all participants
@@ -1021,7 +1054,7 @@ export async function createTeacherChallenge(input: {
 
 // ── 23. GENERATE DAILY DUELS ─────────────────────────────────────
 export async function generateDailyDuels(classId?: string) {
-  const { studentId, supabase } = await getStudentId()
+  const { studentId, supabase, classLevel, className } = await getStudentId()
   const today = new Date().toISOString().slice(0, 10)
 
   const { data: existing } = await supabase
@@ -1034,19 +1067,24 @@ export async function generateDailyDuels(classId?: string) {
     return getDuelById(existing[0].id)
   }
 
-  const questions = await generateBrainGymQuestions(studentId)
+  const adaptiveProfile = getAdaptiveDuelProfile(classLevel, className)
+  const questions = attachDuelEngagement(
+    adaptDuelQuestions(((await generateBrainGymQuestions(studentId, 'duel')).slice(0, 5) as any), adaptiveProfile),
+    { duelType: 'daily', classLevel, className }
+  )
   const { data: duel } = await supabase
     .from('classroom_duels')
     .insert({
       class_id: classId || null,
       status: 'active',
-      questions: questions.slice(0, 5),
+      questions,
       duel_type: 'daily',
       difficulty: 'medium',
-      time_per_question: 20,
+      time_per_question: getAdaptiveTime(20, adaptiveProfile),
       is_daily: true,
       created_by: studentId,
       max_participants: 1,
+      started_at: new Date().toISOString(),
     })
     .select()
     .single()
@@ -1103,14 +1141,30 @@ export async function cancelDuel(duelId: string) {
 // ── 26. GET WEEKL Y CHAMPIONSHIP ──────────────────────────────────
 export async function getActiveWeeklyChampionship() {
   const supabase = await createClient()
-  const { data } = await supabase
-    .from('weekly_championships')
-    .select('*')
-    .eq('status', 'active')
-    .limit(1)
-    .maybeSingle()
+  try {
+    const { data, error } = await supabase
+      .from('weekly_championships')
+      .select('*')
+      .eq('status', 'active')
+      .limit(1)
+      .maybeSingle()
 
-  return data as any
+    if (error) throw error
+    if (data) return data as any
+  } catch (err: any) {
+    console.error('[WeeklyChampionship] fallback season:', err?.message)
+  }
+
+  const season = getCurrentDuelSeason()
+  return {
+    id: season.id,
+    week_start: season.weekStart,
+    week_end: season.weekEnd,
+    status: 'active',
+    title: season.title,
+    rewards: season.rewards,
+    titles: season.titles,
+  }
 }
 
 // ── 27. TOURNAMENT: CREATE ───────────────────────────────────────

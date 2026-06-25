@@ -17,6 +17,23 @@ export function PushNotificationSetup() {
   const [dismissed, setDismissed] = useState(false)
   const [registering, setRegistering] = useState(false)
 
+  const saveSubscription = useCallback(async (subscription: PushSubscription) => {
+    const json = subscription.toJSON()
+    const response = await fetch('/api/push/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        endpoint: subscription.endpoint,
+        keys: { p256dh: json.keys?.p256dh || '', auth: json.keys?.auth || '' },
+        userAgent: navigator.userAgent,
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to save push subscription')
+    }
+  }, [])
+
   const subscribe = useCallback(async (registration?: ServiceWorkerRegistration) => {
     const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
     if (!publicKey || !registration) return
@@ -25,28 +42,20 @@ export function PushNotificationSetup() {
       const permission = await Notification.requestPermission()
       if (permission !== 'granted') { setStatus('denied'); setRegistering(false); return }
 
-      const subscription = await registration.pushManager.subscribe({
+      const existing = await registration.pushManager.getSubscription()
+      const subscription = existing || await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(publicKey),
       })
 
-      const json = subscription.toJSON()
-      await fetch('/api/push/subscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          endpoint: subscription.endpoint,
-          keys: { p256dh: json.keys?.p256dh || '', auth: json.keys?.auth || '' },
-          userAgent: navigator.userAgent,
-        }),
-      })
+      await saveSubscription(subscription)
       setStatus('granted')
     } catch {
-      setStatus('denied')
+      setStatus(Notification.permission === 'denied' ? 'denied' : 'prompt')
     } finally {
       setRegistering(false)
     }
-  }, [])
+  }, [saveSubscription])
 
   useEffect(() => {
     if (!profile?.id) return
@@ -56,22 +65,22 @@ export function PushNotificationSetup() {
       return
     }
 
-    navigator.serviceWorker.register('/peak-push-sw.js', { scope: '/' }).then(registration => {
-      registration.pushManager.getSubscription().then(existing => {
-        if (existing) {
-          setStatus('granted')
-        } else if (Notification.permission === 'granted') {
-          subscribe(registration)
-        } else if (Notification.permission === 'denied') {
-          setStatus('denied')
-        } else {
-          setStatus('prompt')
-        }
-      })
+    navigator.serviceWorker.register('/peak-push-sw.js', { scope: '/' }).then(async registration => {
+      const existing = await registration.pushManager.getSubscription()
+      if (existing) {
+        await saveSubscription(existing)
+        setStatus('granted')
+      } else if (Notification.permission === 'granted') {
+        subscribe(registration)
+      } else if (Notification.permission === 'denied') {
+        setStatus('denied')
+      } else {
+        setStatus('prompt')
+      }
     }).catch(() => {
-      setStatus('denied')
+      setStatus(Notification.permission === 'denied' ? 'denied' : 'prompt')
     })
-  }, [profile?.id, subscribe])
+  }, [profile?.id, subscribe, saveSubscription])
 
   const clickPromptedRef = useRef(false)
 

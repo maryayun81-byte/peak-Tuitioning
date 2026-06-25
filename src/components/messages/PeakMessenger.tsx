@@ -419,7 +419,7 @@ function ConversationRail(props: any) {
   )
 }
 
-function ClassmatesStrip({ classmates, conversations, onStartPeer }: any) {
+function ClassmatesStrip({ classmates, conversations, onStartPeer, openingStudentId }: any) {
   return (
     <div className="mt-4">
       <div className="flex items-center gap-2 mb-3 px-1">
@@ -430,9 +430,15 @@ function ClassmatesStrip({ classmates, conversations, onStartPeer }: any) {
       <div className="flex gap-2.5 overflow-x-auto pb-2 scrollbar-none">
         {classmates.map((cm: any) => {
           const conversation = conversations.find((c: any) => c.student_id === cm.id)
+          const isLoading = openingStudentId === cm.id
           return (
-            <button key={cm.id} onClick={() => onStartPeer?.(cm.id)} className="w-[56px] shrink-0 text-center group">
-              <div className={`mx-auto ${conversation ? 'ring-2 ring-emerald-400 rounded-2xl p-[2px]' : ''}`}>
+            <button
+              key={cm.id}
+              onClick={() => onStartPeer?.(cm.id)}
+              disabled={!!openingStudentId}
+              className="w-[56px] shrink-0 text-center group cursor-pointer disabled:opacity-50"
+            >
+              <div className={`mx-auto transition-transform group-hover:scale-105 group-active:scale-95 ${conversation ? 'ring-2 ring-emerald-400 rounded-2xl p-[2px]' : ''}`}>
                 <Avatar
                   url={cm.profile?.avatar_url}
                   metadata={cm.profile?.avatar_metadata}
@@ -441,7 +447,9 @@ function ClassmatesStrip({ classmates, conversations, onStartPeer }: any) {
                   className="!w-12 !h-12 !rounded-2xl mx-auto"
                 />
               </div>
-              <p className="mt-1.5 text-[8px] font-bold truncate text-[var(--text-muted)]">{cm.full_name?.split(' ')[0]}</p>
+              <p className="mt-1.5 text-[8px] font-bold truncate text-[var(--text-muted)] group-hover:text-[var(--text)] transition-colors">
+                {isLoading ? 'Opening...' : cm.full_name?.split(' ')[0]}
+              </p>
             </button>
           )
         })}
@@ -608,7 +616,20 @@ function PushNotificationButton() {
     if (!('serviceWorker' in navigator)) return
     navigator.serviceWorker.getRegistration('/')
       .then((registration) => registration?.pushManager.getSubscription())
-      .then((subscription) => setEnabled(Boolean(subscription)))
+      .then(async (subscription) => {
+        if (!subscription) {
+          setEnabled(false)
+          return
+        }
+
+        const json = subscription.toJSON()
+        const result = await savePeakPushSubscription({
+          endpoint: subscription.endpoint,
+          keys: { p256dh: json.keys?.p256dh || '', auth: json.keys?.auth || '' },
+          userAgent: navigator.userAgent,
+        })
+        setEnabled(result.ok)
+      })
       .catch(() => null)
   }, [])
 

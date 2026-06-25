@@ -2,10 +2,12 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Check, X, Clock, Zap, Trophy, Flame } from 'lucide-react'
-import type { Duel, DuelParticipantWithStudent, PowerUp, Question, EmojiReaction, AnswerRecord } from '@/types/duels'
+import { Check, X, Clock, Zap, Flame, Shield, MapPinned } from 'lucide-react'
+import type { Duel, DuelParticipantWithStudent, PowerUp, Question } from '@/types/duels'
 import { PowerUpBar } from './PowerUpBar'
 import { ReactionBar } from './ReactionBar'
+import { getProfileFromQuestion } from '@/lib/duels/adaptiveProfile'
+import { getEngagementFromQuestion } from '@/lib/duels/engagement'
 
 interface Props {
   duel: Duel
@@ -38,7 +40,8 @@ export function DuelGame({
 
   const currentIndex = duel.current_question_index
   const currentQ: Question | undefined = duel.questions[currentIndex]
-  const isLastQuestion = currentIndex >= duel.questions.length - 1
+  const adaptiveProfile = getProfileFromQuestion(currentQ)
+  const engagement = getEngagementFromQuestion(currentQ)
   const me = participants.find(p => p.student_id === myStudentId)
   const opponent = participants.find(p => p.student_id !== myStudentId)
 
@@ -91,6 +94,11 @@ export function DuelGame({
 
   const timePercent = (timeLeft / duel.time_per_question) * 100
   const timeColor = timePercent > 50 ? '#10B981' : timePercent > 25 ? '#F59E0B' : '#EF4444'
+  const adaptiveCue = streak >= 3
+    ? adaptiveProfile.grade >= 8 ? 'Multi-step reasoning unlocked' : 'You are on a roll'
+    : streak === 0 && currentIndex > 0
+      ? adaptiveProfile.grade >= 8 ? 'Read the evidence carefully' : 'Look for the clue first'
+      : adaptiveProfile.grade >= 8 ? 'Precision round' : 'Focus round'
 
   if (!currentQ) return null
 
@@ -106,7 +114,7 @@ export function DuelGame({
         <div className="flex flex-col items-center gap-1">
           <div className="flex items-center gap-2">
             <Flame size={14} className={streak >= 3 ? 'text-orange-500' : 'text-slate-400'} />
-            <span className="text-xs font-black" style={{ color: 'var(--text)' }}>Streak {streak}</span>
+            <span className="text-xs font-black" style={{ color: 'var(--text)' }}>{adaptiveCue}</span>
           </div>
           <div className="text-[10px] font-black" style={{ color: 'var(--text-muted)' }}>
             Q{currentIndex + 1}/{duel.questions.length}
@@ -148,6 +156,37 @@ export function DuelGame({
           <span className="text-xs font-black w-6 text-right" style={{ color: timeColor }}>{timeLeft}s</span>
         </div>
 
+        {(engagement?.bossPhase || engagement?.cbcHook || engagement?.territoryBonus) && (
+          <div className="grid gap-2 md:grid-cols-3">
+            {engagement?.bossPhase && (
+              <div className="rounded-xl border p-3" style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}>
+                <div className="mb-1 flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider" style={{ color: '#F59E0B' }}>
+                  <Shield size={13} /> Boss Phase {engagement.bossPhase.phase}
+                </div>
+                <div className="text-xs font-black" style={{ color: 'var(--text)' }}>{engagement.bossPhase.name}</div>
+                <div className="mt-1 text-[9px]" style={{ color: 'var(--text-muted)' }}>HP {engagement.bossPhase.hpFrom}-{engagement.bossPhase.hpTo}</div>
+              </div>
+            )}
+            {engagement?.cbcHook && (
+              <div className="rounded-xl border p-3 md:col-span-1" style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}>
+                <div className="mb-1 flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider" style={{ color: '#10B981' }}>
+                  <Zap size={13} /> Mission
+                </div>
+                <div className="text-xs font-semibold leading-snug" style={{ color: 'var(--text)' }}>{engagement.cbcHook}</div>
+              </div>
+            )}
+            {engagement?.territoryBonus && (
+              <div className="rounded-xl border p-3" style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}>
+                <div className="mb-1 flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider" style={{ color: '#38BDF8' }}>
+                  <MapPinned size={13} /> Realm Bonus
+                </div>
+                <div className="text-xs font-black" style={{ color: 'var(--text)' }}>{engagement.territoryBonus.realmName}</div>
+                <div className="mt-1 text-[9px]" style={{ color: 'var(--text-muted)' }}>{engagement.territoryBonus.label}</div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Question */}
         <AnimatePresence mode="wait">
           <motion.div
@@ -155,17 +194,35 @@ export function DuelGame({
             initial={{ opacity: 0, x: 50 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -50 }}
-            className="p-5 rounded-2xl border"
-            style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}
+            className={`p-5 rounded-2xl border ${adaptiveProfile.cardClassName}`}
+            style={{ borderColor: adaptiveProfile.accentColor }}
           >
             <div className="flex items-start gap-2 mb-1">
               <span className="text-xs font-black uppercase tracking-wider shrink-0 px-2 py-0.5 rounded-lg"
-                style={{ background: 'var(--primary-dim)', color: 'var(--primary)' }}>
+                style={{ background: `${adaptiveProfile.accentColor}22`, color: adaptiveProfile.accentColor }}>
                 {currentQ.subject}
               </span>
-              <span className="text-[10px] font-medium opacity-50" style={{ color: 'var(--text-muted)' }}>{currentQ.topic}</span>
+              <span className="text-[10px] font-black uppercase tracking-wider opacity-70" style={{ color: adaptiveProfile.grade === 9 ? '#cbd5e1' : 'var(--text-muted)' }}>
+                {adaptiveProfile.label}
+              </span>
             </div>
-            <p className="text-sm font-bold leading-relaxed" style={{ color: 'var(--text)' }}>{currentQ.question}</p>
+            <p className="text-sm font-bold leading-relaxed" style={{ color: adaptiveProfile.grade === 9 ? '#f8fafc' : 'var(--text)' }}>{currentQ.question}</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {[currentQ.adaptive?.recommendedFormat, currentQ.adaptive?.cognitiveLoad, currentQ.adaptive?.diagramSuggestions?.[0]]
+                .filter(Boolean)
+                .map(item => (
+                  <span
+                    key={item}
+                    className="rounded-lg px-2 py-1 text-[9px] font-black uppercase tracking-wider"
+                    style={{
+                      background: adaptiveProfile.grade === 9 ? 'rgba(255,255,255,0.08)' : `${adaptiveProfile.accentColor}18`,
+                      color: adaptiveProfile.grade === 9 ? '#e2e8f0' : adaptiveProfile.accentColor,
+                    }}
+                  >
+                    {item}
+                  </span>
+                ))}
+            </div>
           </motion.div>
         </AnimatePresence>
 
@@ -219,7 +276,7 @@ export function DuelGame({
           >
             <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-black"
               style={{ background: 'rgba(245,158,11,0.15)', color: '#F59E0B' }}>
-              <Zap size={12} /> {comboCount + 2}x Combo! +{comboCount * 5} bonus
+              <Zap size={12} /> {adaptiveProfile.shouldCelebrate ? `${comboCount + 2}x Combo!` : `${comboCount + 2}x Mastery Streak`} +{comboCount * 5} bonus
             </span>
           </motion.div>
         )}

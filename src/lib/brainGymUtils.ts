@@ -10,6 +10,9 @@ type QuestionStyle =
   | 'prediction'
   | 'reason_giving'
   | 'exam_style_recall'
+  | 'excerpt_analysis'
+  | 'essay_response'
+  | 'functional_writing'
 
 /** Fingerprint a question by its normalized text for dedup. */
 export function questionFingerprint(question: string): string {
@@ -24,11 +27,26 @@ export type BrainGymQuestion = {
   difficulty: QuestionDifficulty
   examStandard?: 'foundation' | 'exam_standard' | 'kcse_b' | 'kcse_a' | 'cbc_standard'
   questionStyle?: QuestionStyle
+  answerMode?: 'mcq' | 'essay'
+  excerpt?: string
+  sourceText?: string
+  essayPrompt?: string
+  markingRubric?: string[]
+  maxMarks?: number
   question: string
   options: string[]
   correctAnswer: string
   explanation: string
   fingerprint?: string
+  adaptive?: {
+    profileLabel: string
+    visualStyle: string
+    languageTone: string
+    questionDemand: string
+    rewardTone: string
+    accentColor: string
+    cardClassName: string
+  }
 }
 
 export function normaliseText(value: string) {
@@ -43,6 +61,7 @@ export function sanitizeQuestions(questions: any[]): BrainGymQuestion[] {
       const question = String(q.question || '').trim()
       const explanation = String(q.explanation || '').trim()
 
+      const answerMode = q.answerMode === 'essay' || q.questionStyle === 'essay_response' ? 'essay' : 'mcq'
       let options = Array.isArray(q.options)
         ? q.options.map((o: any) => String(o).trim()).filter(Boolean)
         : []
@@ -51,29 +70,30 @@ export function sanitizeQuestions(questions: any[]): BrainGymQuestion[] {
 
       let correctAnswer = String(q.correctAnswer || '').trim()
 
-      if (!question || !explanation || !correctAnswer) return null
-      if (options.length !== 4) return null
-      if (options.every((o: string) => /^[A-D]$/i.test(o))) return null
+      if (!question || !explanation) return null
+      if (answerMode === 'mcq' && !correctAnswer) return null
+      if (answerMode === 'mcq' && options.length !== 4) return null
+      if (answerMode === 'mcq' && options.every((o: string) => /^[A-D]$/i.test(o))) return null
 
-      if (/^[A-D]$/i.test(correctAnswer)) {
+      if (answerMode === 'mcq' && /^[A-D]$/i.test(correctAnswer)) {
         const letterIndex = correctAnswer.toUpperCase().charCodeAt(0) - 65
         correctAnswer = options[letterIndex]
       }
 
-      const looseMatch = options.find(
+      const looseMatch = answerMode === 'mcq' ? options.find(
         (o: string) => o.toLowerCase() === correctAnswer.toLowerCase()
-      )
+      ) : undefined
 
-      if (!options.includes(correctAnswer) && looseMatch) {
+      if (answerMode === 'mcq' && !options.includes(correctAnswer) && looseMatch) {
         correctAnswer = looseMatch
       }
 
-      if (!options.includes(correctAnswer)) return null
+      if (answerMode === 'mcq' && !options.includes(correctAnswer)) return null
       if (question.length < 35) return null
       if (explanation.length < 45) return null
 
-      if (/all of the above/i.test(options.join(' '))) return null
-      if (/none of the above/i.test(options.join(' '))) return null
+      if (answerMode === 'mcq' && /all of the above/i.test(options.join(' '))) return null
+      if (answerMode === 'mcq' && /none of the above/i.test(options.join(' '))) return null
 
       return {
         id: q.id || `q${index + 1}`,
@@ -85,9 +105,15 @@ export function sanitizeQuestions(questions: any[]): BrainGymQuestion[] {
           : 'medium',
         examStandard: q.examStandard || 'exam_standard',
         questionStyle: q.questionStyle || 'application_scenario',
+        answerMode,
+        excerpt: String(q.excerpt || '').trim() || undefined,
+        sourceText: String(q.sourceText || '').trim() || undefined,
+        essayPrompt: String(q.essayPrompt || '').trim() || undefined,
+        markingRubric: Array.isArray(q.markingRubric) ? q.markingRubric.map((item: any) => String(item).trim()).filter(Boolean) : undefined,
+        maxMarks: Number(q.maxMarks || 20) || 20,
         question,
         options,
-        correctAnswer,
+        correctAnswer: answerMode === 'essay' ? (correctAnswer || 'Essay response') : correctAnswer,
         explanation,
         fingerprint: questionFingerprint(question),
       } as BrainGymQuestion
@@ -121,10 +147,12 @@ const SUBJECT_ALIASES: Record<string, string[]> = {
 
 function subjectMatches(qSubject: string, registeredNormalised: string): boolean {
   if (qSubject === registeredNormalised) return true
+  if (qSubject.includes(registeredNormalised) || registeredNormalised.includes(qSubject)) return true
   const aliases = SUBJECT_ALIASES[registeredNormalised]
   if (aliases && aliases.includes(qSubject)) return true
   for (const [canonical, aliasList] of Object.entries(SUBJECT_ALIASES)) {
     if (canonical === qSubject && aliasList.includes(registeredNormalised)) return true
+    if (canonical === registeredNormalised && aliasList.some(alias => qSubject.includes(alias))) return true
   }
   return false
 }
@@ -181,6 +209,58 @@ export function getFallbackQuestions(): BrainGymQuestion[] {
       explanation: 'Profit = 12.5% of 48,000 = 6,000. Selling price = buying price + profit = 48,000 + 6,000 = Ksh 54,000.',
     },
     {
+      id: 'q2a',
+      subject: 'Mathematics',
+      topic: 'Indices',
+      subtopic: 'Laws of indices',
+      difficulty: 'hard',
+      examStandard: 'kcse_b',
+      questionStyle: 'calculation',
+      question: 'Simplify the expression (8x^6y^-3)^(2/3) ÷ (4x^2y^-2), where x and y are positive. Which answer is correct?',
+      options: ['x^2', 'x^2y^0', 'x^2/y', '2x^2'],
+      correctAnswer: 'x^2',
+      explanation: '(8x^6y^-3)^(2/3) gives 4x^4y^-2. Dividing by 4x^2y^-2 leaves x^(4-2)y^(-2+2), which simplifies to x^2.',
+    },
+    {
+      id: 'q2b',
+      subject: 'Mathematics',
+      topic: 'Logarithms',
+      subtopic: 'Using log laws',
+      difficulty: 'hard',
+      examStandard: 'kcse_b',
+      questionStyle: 'calculation',
+      question: 'Given that log 2 = 0.3010 and log 3 = 0.4771, find log 72 without using a calculator.',
+      options: ['1.8572', '1.3801', '2.1582', '0.7781'],
+      correctAnswer: '1.8572',
+      explanation: '72 = 2^3 × 3^2. Therefore log 72 = 3log2 + 2log3 = 3(0.3010) + 2(0.4771) = 0.9030 + 0.9542 = 1.8572.',
+    },
+    {
+      id: 'q2c',
+      subject: 'Mathematics',
+      topic: 'Quadratic Expressions and Equations',
+      subtopic: 'Forming and solving equations',
+      difficulty: 'hard',
+      examStandard: 'kcse_b',
+      questionStyle: 'application_scenario',
+      question: 'The length of a rectangular plot is 5 m more than its width. Its area is 84 m². Which equation correctly gives the width w?',
+      options: ['w² + 5w - 84 = 0', 'w² - 5w - 84 = 0', '2w + 5 = 84', 'w² + 84w + 5 = 0'],
+      correctAnswer: 'w² + 5w - 84 = 0',
+      explanation: 'If width is w, length is w + 5. Area = w(w + 5) = 84, so w² + 5w = 84 and hence w² + 5w - 84 = 0.',
+    },
+    {
+      id: 'q2d',
+      subject: 'Mathematics',
+      topic: 'Simultaneous Equations',
+      subtopic: 'Elimination method',
+      difficulty: 'hard',
+      examStandard: 'kcse_b',
+      questionStyle: 'calculation',
+      question: 'A school bought 4 rulers and 3 compasses for Ksh 470. Another set of 2 rulers and 5 compasses cost Ksh 550. What is the cost of one compass?',
+      options: ['Ksh 90', 'Ksh 70', 'Ksh 80', 'Ksh 100'],
+      correctAnswer: 'Ksh 90',
+      explanation: 'Let ruler be r and compass be c. 4r + 3c = 470 and 2r + 5c = 550. Doubling the second gives 4r + 10c = 1100. Subtracting the first gives 7c = 630, so c = 90.',
+    },
+    {
       id: 'q3',
       subject: 'Biology',
       topic: 'Photosynthesis',
@@ -197,6 +277,73 @@ export function getFallbackQuestions(): BrainGymQuestion[] {
       ],
       correctAnswer: 'Light is necessary for photosynthesis',
       explanation: 'Only the part exposed to light produced starch, shown by the blue-black iodine colour. The covered part received no light, so photosynthesis did not occur there.',
+    },
+    {
+      id: 'q3a',
+      subject: 'Chemistry',
+      topic: 'Chemical Bonding and Structure',
+      subtopic: 'Ionic bonding',
+      difficulty: 'hard',
+      examStandard: 'kcse_b',
+      questionStyle: 'concept_comparison',
+      question: 'Element X has electron arrangement 2.8.1 and element Y has 2.6. Which statement best explains the bonding in the compound formed by X and Y?',
+      options: [
+        'X transfers one electron to Y, forming ions held by electrostatic attraction',
+        'Y transfers two electrons to X, forming a covalent molecule',
+        'X and Y share one pair of electrons equally',
+        'Both atoms donate electrons to a sea of mobile electrons',
+      ],
+      correctAnswer: 'X transfers one electron to Y, forming ions held by electrostatic attraction',
+      explanation: 'X is a Group I metal and loses one electron to form X+. Y needs two electrons, so two X atoms each transfer one electron to Y, forming an ionic compound with electrostatic attraction between ions.',
+    },
+    {
+      id: 'q3b',
+      subject: 'Chemistry',
+      topic: 'Structure and Bonding',
+      subtopic: 'Giant covalent structures',
+      difficulty: 'hard',
+      examStandard: 'kcse_b',
+      questionStyle: 'reason_giving',
+      question: 'Diamond has a very high melting point and does not conduct electricity. Which explanation accounts for both properties?',
+      options: [
+        'It has a giant covalent structure with strong bonds and no mobile charged particles',
+        'It has weak molecular forces and free ions',
+        'It has metallic bonding but no delocalised electrons',
+        'It dissolves in water to form ions only when heated',
+      ],
+      correctAnswer: 'It has a giant covalent structure with strong bonds and no mobile charged particles',
+      explanation: 'Diamond consists of carbon atoms joined by strong covalent bonds in a giant lattice, requiring much heat to break. It lacks mobile ions or delocalised electrons, so it cannot conduct electricity.',
+    },
+    {
+      id: 'q3c',
+      subject: 'Chemistry',
+      topic: 'Formulae and Equations',
+      subtopic: 'Balancing equations',
+      difficulty: 'hard',
+      examStandard: 'kcse_b',
+      questionStyle: 'common_mistake_correction',
+      question: 'Which balanced equation correctly represents the reaction between aluminium and oxygen to form aluminium oxide?',
+      options: ['4Al + 3O₂ → 2Al₂O₃', '2Al + O₂ → Al₂O₃', 'Al + O₂ → AlO₂', '2Al + 3O₂ → Al₂O₃'],
+      correctAnswer: '4Al + 3O₂ → 2Al₂O₃',
+      explanation: 'Aluminium oxide is Al₂O₃. Balancing aluminium and oxygen atoms gives 4Al + 3O₂ → 2Al₂O₃, with 4 aluminium atoms and 6 oxygen atoms on each side.',
+    },
+    {
+      id: 'q3d',
+      subject: 'Chemistry',
+      topic: 'Acids, Bases and Indicators',
+      subtopic: 'Salt preparation',
+      difficulty: 'hard',
+      examStandard: 'kcse_b',
+      questionStyle: 'experiment_based',
+      question: 'A student wants to prepare dry crystals of copper(II) sulphate from copper(II) oxide and dilute sulphuric acid. Which step is essential after warming and adding excess oxide?',
+      options: [
+        'Filter off the excess copper(II) oxide before evaporating the filtrate',
+        'Add sodium hydroxide until a precipitate forms',
+        'Distil the mixture to collect copper(II) sulphate vapour',
+        'Add more acid until all the black solid dissolves completely',
+      ],
+      correctAnswer: 'Filter off the excess copper(II) oxide before evaporating the filtrate',
+      explanation: 'Copper(II) oxide is an insoluble base. Excess oxide ensures all acid reacts, then filtration removes unreacted solid. The filtrate is evaporated and cooled to form copper(II) sulphate crystals.',
     },
     {
       id: 'q4',

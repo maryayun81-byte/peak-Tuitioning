@@ -247,12 +247,12 @@ export async function getStreakLeaderboard() {
 
 // ── SCORE HOOK INTO DUEL RESULT ────────────────────────────────
 
-export async function processDuelForHouses(winnerStudentId: string) {
+export async function processDuelForHouses(winnerStudentId: string, points = 10) {
   if (!winnerStudentId || winnerStudentId === '00000000-0000-0000-0000-000000000000') return
 
   const supabase = await createClient()
   const { data: house } = await supabase.from('student_houses').select('house_id').eq('student_id', winnerStudentId).maybeSingle()
   if (!house) return
 
-  await awardTerritoryPoints(house.house_id as HouseId, 10)
+  await awardTerritoryPoints(house.house_id as HouseId, points)
 }

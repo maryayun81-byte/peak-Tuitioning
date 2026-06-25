@@ -32,6 +32,7 @@ import { HouseStandings } from '@/components/duels/HouseStandings'
 import { StreakDisplay } from '@/components/duels/StreakDisplay'
 import { HouseSelectModal } from '@/components/duels/HouseSelectModal'
 import { DuelAudio } from '@/components/duels/DuelAudio'
+import { DuelCampaignPanel } from '@/components/duels/DuelCampaignPanel'
 import { getMyHouse } from '@/app/actions/houses'
 
 type View = 'lobby' | 'type_selector' | 'matchmaking' | 'waiting' | 'duel' | 'result'
@@ -200,14 +201,40 @@ export default function DuelsPage() {
         getActiveDuels().then(setDuels)
       }
     } else if (type === 'boss') {
-      setSearching(false)
-      toast('Select a boss to battle!')
-      return
+      try {
+        const selectedBoss = bosses[0]
+        const duel = await createDuel({
+          duel_type: 'boss',
+          boss_id: selectedBoss?.id,
+          difficulty: selectedBoss?.difficulty || 'challenge',
+        })
+        const full = await getDuelById(duel.id)
+        setActiveDuel(full)
+        setParticipants(full.participants || [])
+        setView('duel')
+        toast.success(selectedBoss ? `Boss battle: ${selectedBoss.name}` : 'Boss battle started')
+      } catch (e: any) {
+        toast.error(e.message || 'Failed to start boss battle')
+      }
+    } else if (type === 'weekly') {
+      try {
+        const duel = await createDuel({
+          duel_type: 'weekly',
+          difficulty: 'hard',
+        })
+        const full = await getDuelById(duel.id)
+        setActiveDuel(full)
+        setParticipants(full.participants || [])
+        setView('duel')
+        toast.success('Weekly championship started')
+      } catch (e: any) {
+        toast.error(e.message || 'Failed to start weekly championship')
+      }
     } else {
       try {
         const duel = await createDuel({
           duel_type: type,
-          difficulty: 'medium',
+          difficulty: type === 'classwar' || type === 'tournament' || type === 'teacher' ? 'hard' : 'medium',
         })
         setActiveDuel(duel)
         setParticipants(duel.participants || [])
@@ -215,7 +242,15 @@ export default function DuelsPage() {
           setView('duel')
         } else {
           setView('waiting')
-          setOpponentName('Waiting for opponent...')
+          setOpponentName(type === 'friend'
+            ? 'Friend challenge created in Open Duels'
+            : type === 'team'
+              ? 'Team room created in Open Duels'
+              : type === 'classwar'
+                ? 'Class war room created in Open Duels'
+                : type === 'tournament'
+                  ? 'Tournament bracket room created'
+                  : 'Waiting for opponent...')
         }
       } catch (e: any) {
         toast.error(e.message)
@@ -265,6 +300,7 @@ export default function DuelsPage() {
     if (!activeDuel || !studentId) return
     const current = activeDuel.current_question_index
     setIsAdvancing(true)
+    await submitDuelAnswer(activeDuel.id, current, '__TIME_UP__', activeDuel.time_per_question, 0)
     await advanceDuelQuestion(activeDuel.id, current)
     setIsAdvancing(false)
     await refreshDuel()
@@ -536,6 +572,8 @@ export default function DuelsPage() {
             {/* Lobby */}
             {view === 'lobby' && tab === 'duels' && (
               <div className="p-4 space-y-4">
+                <DuelCampaignPanel onStartMode={handleSelectType} />
+
                 {/* Boss battles */}
                 {bosses.length > 0 && (
                   <div>

@@ -16,6 +16,64 @@ export interface Question {
   options: string[]
   correctAnswer: string
   explanation: string
+  adaptive?: {
+    grade: 6 | 7 | 8 | 9
+    visualStyle: string
+    languageTone: string
+    diagramStyle: string
+    rewardStyle: string
+    questionFormats: string[]
+    recommendedFormat: string
+    diagramSuggestions: string[]
+    cognitiveLoad: 'supported' | 'reasoning' | 'analysis' | 'case-study'
+  }
+  duelEngagement?: {
+    audience: 'cbc' | 'junior' | 'senior'
+    season: {
+      id: string
+      title: string
+      weekStart: string
+      weekEnd: string
+      resetLabel: string
+      titles: string[]
+      rewards: string[]
+    }
+    mode: {
+      type: DuelType
+      start: 'instant' | 'matchmaking' | 'waiting-room'
+      title: string
+      promise: string
+      recommendedDifficulty: Difficulty
+      rewardHook: string
+      powerUps: PowerUp[]
+    }
+    bossPhase?: {
+      phase: number
+      name: string
+      hpFrom: number
+      hpTo: number
+      difficulty: Difficulty
+      instruction: string
+    }
+    territoryBonus?: {
+      territoryId: string
+      realmName: string
+      subject: string
+      xpMultiplier: number
+      pointBonus: number
+      label: string
+    }
+    quests: {
+      id: string
+      title: string
+      description: string
+      duelType: DuelType
+      target: number
+      rewardXp: number
+      rewardTitle: string
+    }[]
+    cbcHook?: string
+  }
 }
 
 export interface Duel {

@@ -6,7 +6,7 @@ import { BrainCircuit, Flame, Trophy, Play, CheckCircle2, XCircle, ChevronRight,
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { useAuthStore } from '@/stores/authStore'
-import { generateBrainGymQuestions, submitBrainGymScore, getBrainGymStreak, getStudentRegisteredSubjects } from '@/app/actions/brainGym'
+import { generateBrainGymQuestions, submitBrainGymScore, getBrainGymStreak, getStudentRegisteredSubjects, markBrainGymEssay } from '@/app/actions/brainGym'
 import { sendPushNotification } from '@/app/actions/push'
 import toast from 'react-hot-toast'
 import confetti from 'canvas-confetti'
@@ -36,6 +36,21 @@ type Question = {
   subject?: string
   topic?: string
   difficulty?: string
+  answerMode?: 'mcq' | 'essay'
+  excerpt?: string
+  sourceText?: string
+  essayPrompt?: string
+  markingRubric?: string[]
+  maxMarks?: number
+  adaptive?: {
+    profileLabel: string
+    visualStyle: string
+    languageTone: string
+    questionDemand: string
+    rewardTone: string
+    accentColor: string
+    cardClassName: string
+  }
 }
 
 type SavedSession = {
@@ -74,6 +89,9 @@ export default function DailyBrainGym() {
   const [isAnswered, setIsAnswered] = useState(false)
   const [score, setScore] = useState(0)
   const [answers, setAnswers] = useState<Record<number, string>>({})
+  const [essayDraft, setEssayDraft] = useState('')
+  const [essayFeedback, setEssayFeedback] = useState<any>(null)
+  const [markingEssay, setMarkingEssay] = useState(false)
   const [loadingQuestions, setLoadingQuestions] = useState(false)
   const [savedSession, setSavedSession] = useState<SavedSession | null>(null)
   const [allSubjects, setAllSubjects] = useState<string[]>([])
@@ -88,7 +106,7 @@ export default function DailyBrainGym() {
     ]).then(([streak, subjects]) => {
       setStreakData(streak)
       setAllSubjects(subjects)
-      setSelectedSubjects(subjects)
+      setSelectedSubjects(subjects.slice(0, 1))
       const saved = loadSession()
       if (saved && saved.studentId === student.id && saved.questions?.length > 0) {
         setSavedSession(saved)
@@ -176,6 +194,12 @@ export default function DailyBrainGym() {
     }
   }
 
+  const currentQuestion = questions[currentQIndex]
+  const adaptive = currentQuestion?.adaptive
+  const selectedSubjectLabel = selectedSubjects.length === allSubjects.length
+    ? 'Mixed session'
+    : selectedSubjects.join(', ')
+
   const resumeSession = () => {
     if (!savedSession) return
     setQuestions(savedSession.questions)
@@ -184,6 +208,8 @@ export default function DailyBrainGym() {
     setAnswers(savedSession.answers)
     setSelectedAnswer(null)
     setIsAnswered(false)
+    setEssayDraft('')
+    setEssayFeedback(null)
     setGameState('playing')
     setSavedSession(null)
   }
@@ -213,6 +239,8 @@ export default function DailyBrainGym() {
       setCurrentQIndex(prev => prev + 1)
       setSelectedAnswer(null)
       setIsAnswered(false)
+      setEssayDraft('')
+      setEssayFeedback(null)
     } else {
       finishGame()
     }
@@ -224,15 +252,43 @@ export default function DailyBrainGym() {
     clearSession()
     setGameState('completed')
     try {
-      const result = await submitBrainGymScore(student.id, score)
+      const result = await submitBrainGymScore(student.id, score, totalQuestions)
       setStreakData(prev => ({
         current_streak: result.streak,
         highest_streak: prev ? Math.max(prev.highest_streak, result.streak) : result.streak,
         last_played_date: new Date().toISOString().split('T')[0],
       }))
       confetti({ particleCount: 200, spread: 120, origin: { y: 0.5 }, colors: ['#F59E0B', '#EF4444', '#3B82F6', '#10B981'] })
-      toast.success(`+50 XP earned! Streak: ${result.streak} days ??`)
+      toast.success(`+50 XP earned! Streak: ${result.streak} days${result.territoryPoints ? ` · +${result.territoryPoints} territory points` : ''}`)
     } catch (e) { console.error(e) }
+  }
+
+  const submitEssay = async () => {
+    if (!currentQuestion || markingEssay || isAnswered) return
+    if (essayDraft.trim().split(/\s+/).filter(Boolean).length < 25) {
+      toast.error('Write a fuller answer before submitting.')
+      return
+    }
+    setMarkingEssay(true)
+    try {
+      const feedback = await markBrainGymEssay({
+        question: currentQuestion.essayPrompt || currentQuestion.question,
+        essay: essayDraft,
+        subject: currentQuestion.subject,
+        rubric: currentQuestion.markingRubric,
+        maxMarks: currentQuestion.maxMarks,
+      })
+      setEssayFeedback(feedback)
+      setAnswers(prev => ({ ...prev, [currentQIndex]: essayDraft }))
+      setIsAnswered(true)
+      const passed = feedback.percentage >= 50
+      if (passed) setScore(prev => prev + 1)
+      toast.success(`Essay marked: ${feedback.marks}/${feedback.maxMarks} (${feedback.grade})`)
+    } catch {
+      toast.error('Failed to mark essay. Try again.')
+    } finally {
+      setMarkingEssay(false)
+    }
   }
 
   if (loading) return (
@@ -278,27 +334,31 @@ export default function DailyBrainGym() {
             </div>
             <h2 className="text-2xl font-black mb-4" style={{ color: 'var(--text)' }}>Brain Gym</h2>
             <p className="max-w-md mx-auto mb-6 font-bold" style={{ color: 'var(--text-muted)' }}>
-              Train anytime with questions from your curriculum. Pick subjects to focus on or leave all selected for a mixed session.
+              Train anytime with questions from your curriculum. Choose one subject for focused KCSE/CBC drills or use a mixed session.
             </p>
 
             {allSubjects.length > 0 && (
               <div className="w-full max-w-md mb-8">
                 <div className="text-xs font-black text-left mb-3 flex items-center gap-1" style={{ color: 'var(--text)' }}>
-                  <BookOpen size={14} /> Subjects
+                  <BookOpen size={14} /> Subject focus
                 </div>
                 <div className="flex flex-wrap gap-2 justify-center">
+                  <button
+                    onClick={() => setSelectedSubjects(allSubjects)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
+                      selectedSubjects.length === allSubjects.length
+                        ? 'border-orange-500 bg-orange-500/15 text-orange-500'
+                        : 'border-transparent bg-[var(--input)] text-[var(--text-muted)]'
+                    }`}
+                  >
+                    Mixed session
+                  </button>
                   {allSubjects.map(subject => {
-                    const isSelected = selectedSubjects.includes(subject)
+                    const isSelected = selectedSubjects.length === 1 && selectedSubjects[0] === subject
                     return (
                       <button
                         key={subject}
-                        onClick={() => {
-                          setSelectedSubjects(prev =>
-                            prev.includes(subject)
-                              ? prev.filter(s => s !== subject)
-                              : [...prev, subject]
-                          )
-                        }}
+                        onClick={() => setSelectedSubjects([subject])}
                         className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
                           isSelected
                             ? 'border-orange-500 bg-orange-500/15 text-orange-500'
@@ -319,7 +379,7 @@ export default function DailyBrainGym() {
               {loadingQuestions ? (
                 <div className="flex items-center gap-2">
                   <div className="w-5 h-5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                  Generating unique questions...
+                  Generating {selectedSubjectLabel} questions...
                 </div>
               ) : (
                 <div className="flex items-center gap-2"><Play className="fill-current" /> Start Session</div>
@@ -381,56 +441,140 @@ export default function DailyBrainGym() {
               </div>
             </div>
 
-            <Card className="p-8 md:p-12 text-center relative overflow-hidden shadow-2xl">
-              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-orange-400 to-rose-500" />
-              {(questions[currentQIndex].subject || questions[currentQIndex].difficulty) && (
+            <Card className={`p-8 md:p-12 text-center relative overflow-hidden shadow-2xl ${adaptive?.cardClassName || ''}`}>
+              <div className="absolute top-0 left-0 w-full h-1" style={{ background: adaptive?.accentColor || '#f97316' }} />
+              {adaptive && (
+                <div className="mb-3 text-[10px] font-black uppercase tracking-widest" style={{ color: adaptive.accentColor }}>
+                  {adaptive.profileLabel}
+                </div>
+              )}
+              {(currentQuestion.subject || currentQuestion.difficulty) && (
                 <div className="flex items-center justify-center gap-2 mb-4 flex-wrap">
-                  {questions[currentQIndex].subject && (
+                  {currentQuestion.subject && (
                     <span className="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-full"
-                      style={{ background: 'var(--input)', color: 'var(--text-muted)' }}>
-                      {questions[currentQIndex].subject}
+                      style={{ background: adaptive ? `${adaptive.accentColor}18` : 'var(--input)', color: adaptive?.accentColor || 'var(--text-muted)' }}>
+                      {currentQuestion.subject}
                     </span>
                   )}
-                  {questions[currentQIndex].difficulty && (
+                  {currentQuestion.topic && (
+                    <span className="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-full"
+                      style={{ background: adaptive ? `${adaptive.accentColor}18` : 'var(--input)', color: adaptive?.accentColor || 'var(--text-muted)' }}>
+                      {currentQuestion.topic}
+                    </span>
+                  )}
+                  {currentQuestion.difficulty && (
                     <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-full ${
-                      questions[currentQIndex].difficulty === 'easy' ? 'bg-emerald-500/15 text-emerald-500' :
-                      questions[currentQIndex].difficulty === 'hard' ? 'bg-rose-500/15 text-rose-500' :
+                      currentQuestion.difficulty === 'easy' ? 'bg-emerald-500/15 text-emerald-500' :
+                      currentQuestion.difficulty === 'hard' ? 'bg-rose-500/15 text-rose-500' :
                       'bg-amber-500/15 text-amber-500'}`}>
-                      {questions[currentQIndex].difficulty}
+                      {currentQuestion.difficulty}
                     </span>
                   )}
                 </div>
               )}
-              <h2 className="text-xl md:text-2xl font-black mb-8 leading-snug" style={{ color: 'var(--text)' }}>
-                {questions[currentQIndex].question}
+              <h2 className="text-xl md:text-2xl font-black mb-8 leading-snug" style={{ color: adaptive?.cardClassName?.includes('slate-950') ? '#f8fafc' : 'var(--text)' }}>
+                {currentQuestion.question}
               </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {questions[currentQIndex].options.map((opt, i) => {
-                  const isSelected = selectedAnswer === opt
-                  const isCorrectAnswer = questions[currentQIndex].correctAnswer === opt
-                  let cls = 'bg-[var(--input)] hover:bg-[var(--card-border)]'
-                  if (isAnswered) {
-                    if (isCorrectAnswer) cls = 'bg-emerald-500/20 border-emerald-500/50 text-emerald-600 dark:text-emerald-400'
-                    else if (isSelected) cls = 'bg-rose-500/20 border-rose-500/50 text-rose-600 dark:text-rose-400'
-                    else cls = 'bg-[var(--input)] opacity-40'
-                  } else if (isSelected) { cls = 'bg-primary/20 border-primary' }
-                  return (
-                    <button key={i} disabled={isAnswered} onClick={() => handleAnswer(opt)}
-                      className={`p-5 rounded-2xl border-2 border-transparent text-base font-bold transition-all text-left flex items-center justify-between ${cls}`}
-                      style={{ color: !isAnswered ? 'var(--text)' : undefined }}>
-                      <span>{opt}</span>
-                      {isAnswered && isCorrectAnswer && <CheckCircle2 className="text-emerald-500 shrink-0 ml-2" size={20} />}
-                      {isAnswered && isSelected && !isCorrectAnswer && <XCircle className="text-rose-500 shrink-0 ml-2" size={20} />}
-                    </button>
-                  )
-                })}
-              </div>
+              {(currentQuestion.excerpt || currentQuestion.sourceText) && (
+                <div className="mb-6 rounded-2xl border p-5 text-left" style={{ background: 'var(--input)', borderColor: 'var(--card-border)' }}>
+                  {currentQuestion.sourceText && (
+                    <div className="mb-2 text-[10px] font-black uppercase tracking-widest" style={{ color: adaptive?.accentColor || '#f97316' }}>
+                      {currentQuestion.sourceText}
+                    </div>
+                  )}
+                  {currentQuestion.excerpt && (
+                    <p className="whitespace-pre-line text-sm font-semibold leading-relaxed" style={{ color: 'var(--text)' }}>
+                      {currentQuestion.excerpt}
+                    </p>
+                  )}
+                </div>
+              )}
+              {currentQuestion.answerMode === 'essay' ? (
+                <div className="space-y-4 text-left">
+                  {currentQuestion.essayPrompt && (
+                    <div className="rounded-2xl border p-4" style={{ background: 'var(--input)', borderColor: 'var(--card-border)' }}>
+                      <div className="mb-1 text-[10px] font-black uppercase tracking-widest" style={{ color: adaptive?.accentColor || '#f97316' }}>
+                        Essay Prompt
+                      </div>
+                      <p className="text-sm font-bold" style={{ color: 'var(--text)' }}>{currentQuestion.essayPrompt}</p>
+                      {currentQuestion.maxMarks && (
+                        <p className="mt-2 text-[10px] font-black uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+                          {currentQuestion.maxMarks} marks
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  <textarea
+                    value={essayDraft}
+                    onChange={event => setEssayDraft(event.target.value)}
+                    disabled={isAnswered || markingEssay}
+                    rows={9}
+                    className="w-full resize-none rounded-2xl border-2 p-4 text-sm font-semibold outline-none transition-all focus:border-orange-500"
+                    style={{ background: 'var(--input)', borderColor: 'var(--card-border)', color: 'var(--text)' }}
+                    placeholder="Write your answer here..."
+                  />
+                  {!isAnswered && (
+                    <div className="flex justify-end">
+                      <Button onClick={submitEssay} disabled={markingEssay} size="lg" className="rounded-2xl px-8">
+                        {markingEssay ? 'Marking...' : 'Submit Essay'}
+                      </Button>
+                    </div>
+                  )}
+                  {essayFeedback && (
+                    <div className="rounded-2xl border p-5" style={{ background: 'rgba(16,185,129,0.1)', borderColor: 'rgba(16,185,129,0.3)' }}>
+                      <div className="text-lg font-black text-emerald-500">{essayFeedback.marks}/{essayFeedback.maxMarks} · Grade {essayFeedback.grade}</div>
+                      <p className="mt-2 text-sm font-bold" style={{ color: 'var(--text)' }}>{essayFeedback.feedback}</p>
+                      <div className="mt-4 grid gap-3 md:grid-cols-2">
+                        <div>
+                          <div className="mb-1 text-[10px] font-black uppercase tracking-wider text-emerald-500">Strengths</div>
+                          <ul className="space-y-1 text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>
+                            {essayFeedback.strengths?.map((item: string) => <li key={item}>{item}</li>)}
+                          </ul>
+                        </div>
+                        <div>
+                          <div className="mb-1 text-[10px] font-black uppercase tracking-wider text-orange-500">Improve</div>
+                          <ul className="space-y-1 text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>
+                            {essayFeedback.improvements?.map((item: string) => <li key={item}>{item}</li>)}
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {currentQuestion.options.map((opt, i) => {
+                    const isSelected = selectedAnswer === opt
+                    const isCorrectAnswer = currentQuestion.correctAnswer === opt
+                    let cls = 'bg-[var(--input)] hover:bg-[var(--card-border)]'
+                    if (isAnswered) {
+                      if (isCorrectAnswer) cls = 'bg-emerald-500/20 border-emerald-500/50 text-emerald-600 dark:text-emerald-400'
+                      else if (isSelected) cls = 'bg-rose-500/20 border-rose-500/50 text-rose-600 dark:text-rose-400'
+                      else cls = 'bg-[var(--input)] opacity-40'
+                    } else if (isSelected) { cls = 'bg-primary/20 border-primary' }
+                    return (
+                      <button key={i} disabled={isAnswered} onClick={() => handleAnswer(opt)}
+                        className={`p-5 rounded-2xl border-2 border-transparent text-base font-bold transition-all text-left flex items-center justify-between ${cls}`}
+                        style={{ color: !isAnswered ? 'var(--text)' : undefined }}>
+                        <span>{opt}</span>
+                        {isAnswered && isCorrectAnswer && <CheckCircle2 className="text-emerald-500 shrink-0 ml-2" size={20} />}
+                        {isAnswered && isSelected && !isCorrectAnswer && <XCircle className="text-rose-500 shrink-0 ml-2" size={20} />}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
               {isAnswered && (
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                   className="mt-6 p-5 rounded-2xl bg-sky-500/10 border border-sky-500/20 text-left">
                   <p className="text-sm font-bold text-sky-600 dark:text-sky-400">
                     <span className="font-black uppercase tracking-wider text-[10px] bg-sky-500 text-white px-2 py-1 rounded-md mr-2">Fact</span>
-                    {questions[currentQIndex].explanation}
+                    {currentQuestion.explanation}
+                    {adaptive && (
+                      <span className="block mt-3 text-[10px] font-black uppercase tracking-wider" style={{ color: adaptive.accentColor }}>
+                        {adaptive.rewardTone}
+                      </span>
+                    )}
                   </p>
                   <div className="mt-5 flex justify-end">
                     <Button onClick={nextQuestion} size="lg" className="rounded-2xl px-8 shadow-lg shadow-primary/20">
