@@ -7,6 +7,7 @@ import type { HFChatProvider } from '@/lib/huggingface-chat'
 import { callGroqChat, hasGroqToken } from '@/lib/groq-chat'
 import { callGeminiChat, hasGeminiToken } from '@/lib/gemini-chat'
 import { callNvidiaChat, hasNvidiaToken } from '@/lib/nvidia-chat'
+import { callGitHubModelsChat, hasGitHubModelsToken } from '@/lib/github-models-chat'
 import { generateHuggingFaceLessonImage, hasHuggingFaceImageToken } from '@/lib/huggingface-image'
 import { isAcademicRequest, shouldGenerateLessonImage, buildLessonImagePrompt } from '@/lib/ai-utils'
 
@@ -497,6 +498,16 @@ export async function chatWithPeakAI(messages: Message[], context: ChatContext =
     providers.push({
       name: 'NVIDIA',
       call: () => callNvidiaChat(
+        [{ role: 'system', content: systemContent }, ...messages],
+        { temperature: 0.35, maxTokens: 1600 },
+      ),
+    })
+  }
+
+  if (hasGitHubModelsToken()) {
+    providers.push({
+      name: 'GitHub Models',
+      call: () => callGitHubModelsChat(
         [{ role: 'system', content: systemContent }, ...messages],
         { temperature: 0.35, maxTokens: 1600 },
       ),

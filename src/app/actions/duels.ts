@@ -62,9 +62,9 @@ export async function createDuel(input: CreateDuelInput) {
     const { data: boss } = await supabase.from('duel_bosses').select('questions').eq('id', input.boss_id).single()
     questions = boss?.questions || []
   } else if (input.duel_type === 'coach') {
-    questions = await generateBrainGymQuestions(studentId)
+    questions = await generateBrainGymQuestions(studentId, 'duel')
   } else {
-    questions = await generateBrainGymQuestions(studentId)
+    questions = await generateBrainGymQuestions(studentId, 'duel')
   }
 
   questions = shuffle(questions).slice(0, count)
@@ -95,14 +95,7 @@ export async function createDuel(input: CreateDuelInput) {
   // Join creator
   await supabase.from('duel_participants').insert({ duel_id: duel.id, student_id: studentId })
 
-  // Boss duel: insert AI opponent
-  if (input.duel_type === 'boss' && input.boss_id) {
-    await supabase.from('duel_participants').insert({
-      duel_id: duel.id,
-      student_id: '00000000-0000-0000-0000-000000000000',
-      score: 0,
-    })
-  }
+  // Boss duel: solo activity (no AI opponent inserted — FK constraint requires real student)
 
   // Friend challenge: notify
   if (input.duel_type === 'friend' && input.opponent_student_id) {
@@ -239,7 +232,7 @@ export async function submitDuelAnswer(
           max_streak: newStreak,
           answer_history: history,
           power_ups_used: puUsed,
-          total_time_spent: supabase.rpc('coalesce_int', { a: participant.total_time_spent, b: 0 }) as any + timeSpent,
+          total_time_spent: ((participant as any).total_time_spent || 0) + timeSpent,
         } as any)
         .eq('duel_id', duelId)
         .eq('student_id', studentId)
@@ -291,7 +284,48 @@ async function recordDuelResults(duelId: string) {
     .eq('duel_id', duelId)
     .order('joined_at')
 
-  if (!participants || participants.length < 2) return
+  if (!participants || participants.length === 0) return
+
+  // Coach / solo duels — award XP based on performance
+  if (participants.length < 2) {
+    const solo = participants[0] as any
+    const answers = solo.answer_history || []
+    const correctCount = answers.filter((a: any) => a.is_correct).length
+    const total = answers.length || 1
+    const accuracy = correctCount / total
+    const baseXp = duel.difficulty === 'legendary' ? 200 : duel.difficulty === 'hard' ? 120 : 80
+    const accuracyBonus = Math.round(baseXp * accuracy)
+    const streakBonus = Math.min((solo.max_streak || 0) * 5, 50)
+    const xp = baseXp + accuracyBonus + streakBonus
+
+    await admin.from('duel_results').upsert({
+      duel_id: duelId,
+      student_id: solo.student_id,
+      opponent_student_id: null,
+      result: correctCount >= total * 0.5 ? 'win' : 'loss',
+      score: solo.score || 0,
+      opponent_score: null,
+      xp_awarded: xp,
+    }, { onConflict: 'duel_id,student_id' })
+
+    await admin.from('students').update({
+      xp: admin.rpc('increment', { amount: xp }) as any,
+    } as any).eq('id', solo.student_id)
+
+    const { data: student } = await admin.from('students').select('user_id').eq('id', solo.student_id).single()
+    if (student) {
+      await admin.from('notifications').insert({
+        user_id: student.user_id,
+        title: '🏋️ Coach Session Complete',
+        body: `You earned +${xp} XP!`,
+        type: 'duel_result',
+        data: { duel_id: duelId, result: 'coach', xp, href: '/student/duels' },
+      })
+    }
+
+    await admin.from('classroom_duels').update({ completed_at: new Date().toISOString() }).eq('id', duelId)
+    return
+  }
 
   const p1 = participants[0] as any
   const p2 = participants[1] as any
@@ -344,7 +378,7 @@ async function recordDuelResults(duelId: string) {
       duel_wins: admin.rpc('increment_if', { condition: result === 'win', field: 'duel_wins' }) as any,
       duel_losses: admin.rpc('increment_if', { condition: result === 'loss', field: 'duel_losses' }) as any,
       duel_draws: admin.rpc('increment_if', { condition: result === 'draw', field: 'duel_draws' }) as any,
-      duel_rating: eloBefore + eloChange,
+      duel_rating: Math.round(eloBefore + eloChange), // integer — avoids round(double precision, int) PG error
       duel_win_streak: admin.rpc('update_streak', { result, current_streak: 0 }) as any,
       xp: admin.rpc('increment', { amount: xp }) as any,
     } as any).eq('id', p.student_id)
@@ -367,10 +401,24 @@ async function recordDuelResults(duelId: string) {
     }
   }
 
+  const winnerId = p1Result === 'win' ? p1.student_id : p2Result === 'win' ? p2.student_id : null
+
   await admin.from('classroom_duels').update({
-    winner_id: p1Result === 'win' ? p1.student_id : p2Result === 'win' ? p2.student_id : null,
+    winner_id: winnerId,
     completed_at: new Date().toISOString(),
   }).eq('id', duelId)
+
+  // Territory wars: award points to winner's house
+  if (winnerId) {
+    const { processDuelForHouses } = await import('./houses')
+    await processDuelForHouses(winnerId)
+  }
+
+  // Update streaks for all participants
+  for (const p of [p1, p2]) {
+    const { updateStreak } = await import('./houses')
+    await updateStreak(p.student_id)
+  }
 }
 
 // ── 6. CHECK ACHIEVEMENTS ────────────────────────────────────────
@@ -446,37 +494,177 @@ export async function joinMatchmaking(input: {
 
   const { data: student } = await supabase
     .from('students')
+    .select('duel_rating, full_name')
+    .eq('id', studentId)
+    .single()
+
+  const baseRating = student?.duel_rating || 1000
+
+  // Clear any stale (non-searching) entries for this student first to avoid
+  // unique-constraint violations from old found/cancelled rows
+  await supabase
+    .from('duel_matchmaking_queue')
+    .delete()
+    .eq('student_id', studentId)
+    .neq('status', 'searching')
+
+  const { data: entry, error: insertError } = await supabase
+    .from('duel_matchmaking_queue')
+    .upsert(
+      {
+        student_id: studentId,
+        duel_type: input.duel_type || 'quick',
+        subject_id: input.subject_id || null,
+        difficulty: input.difficulty || 'medium',
+        rating: baseRating,
+        status: 'searching',
+      },
+      { onConflict: 'student_id' }
+    )
+    .select()
+    .single()
+
+  if (insertError || !entry) {
+    console.error('[Matchmaking] Queue upsert failed:', insertError?.message)
+    return { error: 'Failed to join queue', matched: false }
+  }
+
+  // Progressive range expansion — start tight, widen over retries
+  const ranges = [100, 200, 400, 800]
+  let match: any = null
+
+  for (const range of ranges) {
+    // Priority 1: Same duel_type + same subject + rating range
+    const { data: sameSubject } = await supabase
+      .from('duel_matchmaking_queue')
+      .select('*, student:students(id, full_name, avatar_url, duel_rating)')
+      .eq('status', 'searching')
+      .eq('duel_type', input.duel_type || 'quick')
+      .eq('subject_id', input.subject_id || null)
+      .neq('student_id', studentId)
+      .gte('rating', baseRating - range)
+      .lte('rating', baseRating + range)
+      .limit(1)
+
+    if (sameSubject && sameSubject.length > 0) { match = sameSubject[0] as any; break }
+
+    // Priority 2: Same duel_type only + rating range
+    const { data: sameType } = await supabase
+      .from('duel_matchmaking_queue')
+      .select('*, student:students(id, full_name, avatar_url, duel_rating)')
+      .eq('status', 'searching')
+      .eq('duel_type', input.duel_type || 'quick')
+      .neq('student_id', studentId)
+      .gte('rating', baseRating - range)
+      .lte('rating', baseRating + range)
+      .limit(1)
+
+    if (sameType && sameType.length > 0) { match = sameType[0] as any; break }
+
+    // Priority 3: Any duel_type + rating range
+    const { data: anyType } = await supabase
+      .from('duel_matchmaking_queue')
+      .select('*, student:students(id, full_name, avatar_url, duel_rating)')
+      .eq('status', 'searching')
+      .neq('student_id', studentId)
+      .gte('rating', baseRating - range)
+      .lte('rating', baseRating + range)
+      .limit(1)
+
+    if (anyType && anyType.length > 0) { match = anyType[0] as any; break }
+  }
+
+  if (match) {
+    try {
+      const duel = await createDuel({
+        duel_type: input.duel_type || 'quick',
+        difficulty: input.difficulty || 'medium',
+        subject_id: input.subject_id,
+      })
+
+      await joinDuel(duel.id)
+
+      // Update both queue entries separately (can't match two different IDs with one filter)
+      await supabase.from('duel_matchmaking_queue')
+        .update({ status: 'found', matched_at: new Date().toISOString() })
+        .eq('id', entry.id)
+
+      await supabase.from('duel_matchmaking_queue')
+        .update({ status: 'found', matched_at: new Date().toISOString() })
+        .eq('id', match.id)
+
+      return { matched: true, duel, opponent: match.student }
+    } catch (err: any) {
+      console.error('[Matchmaking] createDuel failed:', err?.message)
+      // Stay in queue, let polling retry
+      return { matched: false, inQueue: true, estimatedRange: 400 }
+    }
+  }
+
+  return { matched: false, inQueue: true, estimatedRange: ranges[ranges.length - 1] }
+}
+
+export async function checkMatchmakingStatus() {
+  const { studentId, supabase } = await getStudentId()
+  const { data: entry } = await supabase
+    .from('duel_matchmaking_queue')
+    .select('id, status, matched_at')
+    .eq('student_id', studentId)
+    .eq('status', 'searching')
+    .maybeSingle()
+
+  if (!entry) return { inQueue: false }
+
+  return { inQueue: true, queueId: entry.id }
+}
+
+export async function leaveMatchmaking() {
+  const { studentId, supabase } = await getStudentId()
+  await supabase.from('duel_matchmaking_queue').update({ status: 'cancelled' }).eq('student_id', studentId).eq('status', 'searching')
+}
+
+export async function retryMatchmaking(input: {
+  duel_type?: DuelType
+  subject_id?: string
+  difficulty?: Difficulty
+}) {
+  const { studentId, supabase } = await getStudentId()
+
+  const { data: student } = await supabase
+    .from('students')
     .select('duel_rating')
     .eq('id', studentId)
     .single()
 
+  const baseRating = student?.duel_rating || 1000
+
   const { data: entry } = await supabase
     .from('duel_matchmaking_queue')
-    .insert({
-      student_id: studentId,
-      duel_type: input.duel_type || 'quick',
-      subject_id: input.subject_id || null,
-      difficulty: input.difficulty || 'medium',
-      rating: student?.duel_rating || 1000,
-    })
-    .select()
-    .single()
-
-  if (!entry) return { error: 'Failed to join queue', matched: false }
-
-  // Try to find match
-  const range = 200
-  const { data: candidates } = await supabase
-    .from('duel_matchmaking_queue')
-    .select('*, student:students(id, full_name, avatar_url, duel_rating)')
+    .select('id')
+    .eq('student_id', studentId)
     .eq('status', 'searching')
-    .neq('student_id', studentId)
-    .gte('rating', (student?.duel_rating || 1000) - range)
-    .lte('rating', (student?.duel_rating || 1000) + range)
-    .limit(1)
+    .maybeSingle()
 
-  if (candidates && candidates.length > 0) {
-    const match = candidates[0] as any
+  if (!entry) return { matched: false, inQueue: false }
+
+  // Progressive search with wider ranges
+  const ranges = [200, 400, 800]
+  let match: any = null
+
+  for (const range of ranges) {
+    const { data: candidates } = await supabase
+      .from('duel_matchmaking_queue')
+      .select('*, student:students(id, full_name, avatar_url, duel_rating)')
+      .eq('status', 'searching')
+      .neq('student_id', studentId)
+      .gte('rating', baseRating - range)
+      .lte('rating', baseRating + range)
+      .limit(1)
+
+    if (candidates && candidates.length > 0) { match = candidates[0] as any; break }
+  }
+
+  if (match) {
     const duel = await createDuel({
       duel_type: input.duel_type || 'quick',
       difficulty: input.difficulty || 'medium',
@@ -485,20 +673,19 @@ export async function joinMatchmaking(input: {
 
     await joinDuel(duel.id)
 
-    await supabase.from('duel_matchmaking_queue').update({
-      status: 'found',
-      matched_at: new Date().toISOString(),
-    }).eq('id', entry.id).eq('id', match.id)
+    // Update both queue entries separately
+    await supabase.from('duel_matchmaking_queue')
+      .update({ status: 'found', matched_at: new Date().toISOString() })
+      .eq('id', entry.id)
+
+    await supabase.from('duel_matchmaking_queue')
+      .update({ status: 'found', matched_at: new Date().toISOString() })
+      .eq('id', match.id)
 
     return { matched: true, duel, opponent: match.student }
   }
 
-  return { matched: false, inQueue: true }
-}
-
-export async function leaveMatchmaking() {
-  const { studentId, supabase } = await getStudentId()
-  await supabase.from('duel_matchmaking_queue').update({ status: 'cancelled' }).eq('student_id', studentId).eq('status', 'searching')
+  return { matched: false, inQueue: true, estimatedRange: ranges[ranges.length - 1] }
 }
 
 // ── 8. GET ACTIVE DUELS ──────────────────────────────────────────
@@ -553,11 +740,38 @@ export async function getDuelHistory(studentId?: string) {
 // ── 11. GET LEADERBOARD ──────────────────────────────────────────
 export async function getDuelLeaderboard(limit = 50, offset = 0) {
   const supabase = await createClient()
-  const { data, error } = await supabase
-    .rpc('get_duel_leaderboard', { p_limit: limit, p_offset: offset })
-
-  if (error) throw error
-  return data as DuelLeaderboardEntry[]
+  try {
+    const { data, error } = await supabase
+      .rpc('get_duel_leaderboard', { p_limit: limit, p_offset: offset })
+    if (error) throw error
+    return data as DuelLeaderboardEntry[]
+  } catch (err: any) {
+    console.error('[Leaderboard] RPC error:', err?.message)
+    // Fallback: return top students by duel_rating directly
+    const { data } = await supabase
+      .from('students')
+      .select('id, full_name, avatar_url, admission_number, duel_rating, duel_wins, duel_losses, duel_draws')
+      .order('duel_rating', { ascending: false })
+      .limit(limit)
+    return (data || []).map((s: any, i: number) => {
+      const wins = s.duel_wins || 0
+      const losses = s.duel_losses || 0
+      const draws = s.duel_draws || 0
+      const total_duels = wins + losses + draws
+      return {
+        student_id: s.id,
+        full_name: s.full_name,
+        avatar_url: s.avatar_url,
+        admission_number: s.admission_number,
+        duel_rating: Math.round(s.duel_rating || 1000),
+        duel_wins: wins,
+        duel_losses: losses,
+        duel_draws: draws,
+        total_duels,
+        win_rate: total_duels > 0 ? Math.round((wins / total_duels) * 100) : 0,
+      }
+    }) as DuelLeaderboardEntry[]
+  }
 }
 
 // ── 12. GET STUDENT DUEL STATS ───────────────────────────────────
@@ -569,11 +783,42 @@ export async function getStudentDuelStats(studentId?: string) {
     sid = s.studentId
   }
 
-  const { data, error } = await supabase
-    .rpc('get_student_duel_stats', { p_student_id: sid })
-
-  if (error) throw error
-  return (data?.[0] || null) as DuelStats | null
+  try {
+    const { data, error } = await supabase
+      .rpc('get_student_duel_stats', { p_student_id: sid })
+    if (error) throw error
+    return (data?.[0] || null) as DuelStats | null
+  } catch (err: any) {
+    console.error('[DuelStats] RPC error:', err?.message)
+    // Fallback: compute stats directly from tables
+    const { data: student } = await supabase
+      .from('students')
+      .select('duel_rating, duel_wins, duel_losses, duel_draws, duel_win_streak')
+      .eq('id', sid)
+      .single()
+    const { data: results } = await supabase
+      .from('duel_results')
+      .select('result, xp_awarded, created_at')
+      .eq('student_id', sid)
+      .order('created_at', { ascending: false })
+      .limit(100)
+    const wins = student?.duel_wins || 0
+    const losses = student?.duel_losses || 0
+    const draws = student?.duel_draws || 0
+    const total = wins + losses + draws
+    const scores = (results || []).map(r => (r as any).score || 0)
+    return {
+      student_id: sid,
+      rating: Math.round(student?.duel_rating || 1000),
+      wins, losses, draws,
+      total_duels: total,
+      win_rate: total > 0 ? Math.round((wins / total) * 100) : 0,
+      win_streak: student?.duel_win_streak || 0,
+      avg_score: scores.length > 0 ? Math.round(scores.reduce((a: number, b: number) => a + b, 0) / scores.length) : 0,
+      best_score: scores.length > 0 ? Math.max(...scores) : 0,
+      total_xp: (results || []).reduce((s, r) => s + ((r as any).xp_awarded || 0), 0),
+    } as DuelStats
+  }
 }
 
 // ── 13. GET BOSSES ────────────────────────────────────────────────
@@ -774,7 +1019,7 @@ export async function createTeacherChallenge(input: {
 
 // ── 23. GENERATE DAILY DUELS ─────────────────────────────────────
 export async function generateDailyDuels(classId?: string) {
-  const supabase = await createClient()
+  const { studentId, supabase } = await getStudentId()
   const today = new Date().toISOString().slice(0, 10)
 
   const { data: existing } = await supabase
@@ -783,26 +1028,34 @@ export async function generateDailyDuels(classId?: string) {
     .eq('date', today)
     .limit(1)
 
-  if (existing && existing.length > 0) return
+  if (existing && existing.length > 0) {
+    return getDuelById(existing[0].id)
+  }
 
-  const questions = await generateBrainGymQuestions()
+  const questions = await generateBrainGymQuestions(studentId)
   const { data: duel } = await supabase
     .from('classroom_duels')
     .insert({
       class_id: classId || null,
-      status: 'waiting',
+      status: 'active',
       questions: questions.slice(0, 5),
       duel_type: 'daily',
       difficulty: 'medium',
       time_per_question: 20,
       is_daily: true,
+      created_by: studentId,
+      max_participants: 1,
     })
     .select()
     .single()
 
   if (duel) {
+    await supabase.from('duel_participants').insert({ duel_id: duel.id, student_id: studentId })
     await supabase.from('daily_duels').insert({ duel_id: duel.id, date: today })
+    return getDuelById(duel.id)
   }
+
+  return null
 }
 
 // ── 24. GET DUEL STATISTICS ──────────────────────────────────────

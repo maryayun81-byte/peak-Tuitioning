@@ -69,31 +69,30 @@ function freedraw(x: number, y: number, points: number[][], overrides: any = {})
 
 export function createReactionArrow(x: number, y: number, length = 150): ExcalidrawElement[] {
   return [
-    arrow(`arr-${x}-${y}-1`, x, y, [[0, 0], [length, 0]], { strokeWidth: 3, strokeColor: '#333333' }),
-    text(`arr-${x}-${y}-label`, x + length / 2 - 30, y - 30, 60, 18, '→', 16, { strokeColor: '#333333' }),
+    arrow(x, y, [[0, 0], [length, 0]], { strokeWidth: 3, strokeColor: '#333333' }),
+    text(x + length / 2 - 30, y - 30, 60, 18, '→', 16, { strokeColor: '#333333' }),
   ]
 }
 
 export function createEquilibriumArrow(x: number, y: number, length = 120): ExcalidrawElement[] {
   return [
-    arrow(`eq-${x}-${y}-1`, x, y, [[0, 0], [length, 0]], { strokeWidth: 3, strokeColor: '#333333' }),
-    arrow(`eq-${x}-${y}-2`, x + length, y, [[0, 0], [-length, 0]], { strokeWidth: 2, strokeColor: '#666666' }),
-    text(`eq-${x}-${y}-label`, x + length / 2 - 20, y - 30, 40, 18, '⇌', 16, { strokeColor: '#666666' }),
+    arrow(x, y, [[0, 0], [length, 0]], { strokeWidth: 3, strokeColor: '#333333' }),
+    arrow(x + length, y, [[0, 0], [-length, 0]], { strokeWidth: 2, strokeColor: '#666666' }),
+    text(x + length / 2 - 20, y - 30, 40, 18, '⇌', 16, { strokeColor: '#666666' }),
   ]
 }
 
 export function createCurvedArrow(x: number, y: number): ExcalidrawElement[] {
-  const midX = x + 60
   return [
-    line(`ca-${x}-${y}`, x, y, [[0, 0], [40, -30], [80, 0]], { strokeWidth: 3, strokeColor: '#333333', roughness: 0 }),
-    arrow(`ca-${x}-${y}-head`, x + 80, y, [[0, 0], [0, 0]], { strokeWidth: 3, strokeColor: '#333333' }),
+    line(x, y, [[0, 0], [40, -30], [80, 0]], { strokeWidth: 3, strokeColor: '#333333', roughness: 0 }),
+    arrow(x + 80, y, [[0, 0], [0, 0]], { strokeWidth: 3, strokeColor: '#333333' }),
   ]
 }
 
 export function createDoubleArrow(x: number, y: number, length = 100): ExcalidrawElement[] {
   return [
-    arrow(`da-${x}-${y}-1`, x, y - 6, [[0, 0], [length, 0]], { strokeWidth: 3, strokeColor: '#333333' }),
-    arrow(`da-${x}-${y}-2`, x, y + 6, [[0, 0], [length, 0]], { strokeWidth: 3, strokeColor: '#333333' }),
+    arrow(x, y - 6, [[0, 0], [length, 0]], { strokeWidth: 3, strokeColor: '#333333' }),
+    arrow(x, y + 6, [[0, 0], [length, 0]], { strokeWidth: 3, strokeColor: '#333333' }),
   ]
 }
 
@@ -106,7 +105,7 @@ export function createCalloutBox(x: number, y: number, text_: string, color = '#
   return [
     rect(x, y, w, h, { strokeColor: color, backgroundColor: `${color}10`, strokeWidth: 2, roundness: { type: 3 } }),
     text(x + 10, y + 8, w - 20, h - 16, text_, 12, { strokeColor: color, textAlign: 'left' }),
-    arrow(`cb-${x}-${y}-arr`, x, y + h / 2, [[0, 0], [-40, 0]], { strokeColor: color, strokeWidth: 2 }),
+    arrow(x, y + h / 2, [[0, 0], [-40, 0]], { strokeColor: color, strokeWidth: 2 }),
   ]
 }
 

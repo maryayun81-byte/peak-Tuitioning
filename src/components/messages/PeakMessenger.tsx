@@ -802,7 +802,7 @@ function ConversationWorkspace({ role, currentUserId, conversation, messages, lo
               // Resolve the replied-to message locally from the messages array (like WhatsApp)
               let resolvedReply = message.reply
               if (!resolvedReply && message.reply_to_id) {
-                const original = messages.find(m => m.id === message.reply_to_id)
+                const original = messages.find((m: any) => m.id === message.reply_to_id)
                 if (original) {
                   resolvedReply = { id: original.id, body: original.body, sender_id: original.sender_id }
                 }

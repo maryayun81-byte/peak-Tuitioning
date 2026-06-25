@@ -391,6 +391,7 @@ export function AnnotationCanvas({
         setZoom(newZoom)
       })
 
+
       let isPanning = false
       let isErasing = false
       let isDrawingShape = false
@@ -403,8 +404,8 @@ export function AnnotationCanvas({
          const activeTool = (fabricRef.current as any).activeTool
          if (activeTool === 'eraser') {
              isErasing = true
-             const obj = canvas.findTarget(opt.e, true)
-             if (obj && !obj.data?.background) {
+             const obj = canvas.findTarget(opt.e)
+             if (obj && !(obj as any).data?.background) {
                 canvas.remove(obj)
                 canvas.requestRenderAll()
              }
@@ -441,9 +442,9 @@ export function AnnotationCanvas({
          const activeTool = (fabricRef.current as any).activeTool
          const pointer = canvas.getScenePoint(opt.e)
 
-         if (isErasing && activeTool === 'eraser') {
-            const obj = canvas.findTarget(opt.e, true)
-            if (obj && !obj.data?.background) {
+          if (isErasing && activeTool === 'eraser') {
+             const obj = canvas.findTarget(opt.e)
+             if (obj && !(obj as any).data?.background) {
                canvas.remove(obj)
                canvas.requestRenderAll()
             }

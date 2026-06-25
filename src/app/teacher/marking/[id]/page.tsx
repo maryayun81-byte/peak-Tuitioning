@@ -1125,9 +1125,5 @@ function DocScoringPanel({
         />
       </div>
     </div>
-  );
-
-  return workspaceMode && typeof window !== 'undefined'
-    ? createPortal(markingPage, document.body)
-    : markingPage
+  )
 }

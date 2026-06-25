@@ -23,6 +23,9 @@ import { getApprovedCreatorReel } from '@/app/actions/flashcards'
 import { calculateLevel } from '@/lib/gamification'
 import confetti from 'canvas-confetti'
 import Link from 'next/link'
+import { SeasonalBackground } from '@/components/seasonal/SeasonalBackground'
+import { MotivationMessage } from '@/components/seasonal/MotivationMessage'
+import { useSeason, getSeasonTheme, getCurrentSeason, getSeasonOverride, setSeasonOverride, getReducedMotion, setReducedMotion } from '@/lib/seasonal-theme'
 
 // ── DAILY INSIGHTS COMPONENT ───────────────────────────────────────────────
 function DailyInsightsCard({ insight, isCBC }: { insight: any, isCBC: boolean }) {
@@ -811,6 +814,7 @@ function getLocalDailyInsight(isCBC: boolean) {
 }
 
 function PremiumStudentHome({ student, profile, data, isCBC }: { student: any, profile: any, data: any, isCBC: boolean }) {
+  const theme = getSeasonTheme(getSeasonOverride() || getCurrentSeason())
   const currentXP = student?.xp || 0
   const { level, progressPercent, nextMilestone } = calculateLevel(currentXP)
   const firstName = profile?.full_name?.split(' ')[0] || (isCBC ? 'Learner' : 'Scholar')
@@ -867,7 +871,21 @@ function PremiumStudentHome({ student, profile, data, isCBC }: { student: any, p
       ]
 
   return (
-    <div className="min-h-screen overflow-x-hidden pb-32" style={{ background: 'var(--bg)' }}>
+    <div
+      className="min-h-screen overflow-x-hidden pb-32"
+      data-seasonal
+      style={{ background: 'transparent' }}
+    >
+      <style>{`
+        [data-seasonal] {
+          --card: ${theme.cardBg};
+          --card-border: ${theme.cardBorder};
+        }
+        [data-seasonal] .card-glass {
+          backdrop-filter: ${theme.season === 'winter' ? 'blur(12px)' : 'blur(8px)'};
+          -webkit-backdrop-filter: ${theme.season === 'winter' ? 'blur(12px)' : 'blur(8px)'};
+        }
+      `}</style>
       <TeacherVideoReel videos={data.resourceReel || []} />
 
       {/* ── Floating Streak Banner ─────────────────────────── */}
@@ -896,7 +914,13 @@ function PremiumStudentHome({ student, profile, data, isCBC }: { student: any, p
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ type: 'spring', stiffness: 100, damping: 15 }}
-          className="relative overflow-hidden rounded-3xl border border-[var(--card-border)] bg-[var(--card)] p-5 md:p-7 shadow-2xl shadow-black/10"
+          className="relative overflow-hidden rounded-3xl border p-5 md:p-7 shadow-2xl shadow-black/10 transition-all duration-500"
+          style={{
+            background: theme.cardBg,
+            borderColor: theme.cardBorder,
+            backdropFilter: theme.season === 'winter' ? 'blur(12px)' : 'blur(8px)',
+            WebkitBackdropFilter: theme.season === 'winter' ? 'blur(12px)' : 'blur(8px)',
+          }}
         >
           <div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full opacity-[0.06]" style={{ background: 'var(--primary)' }} />
           <div className="pointer-events-none absolute -left-8 bottom-0 h-32 w-32 rounded-full opacity-[0.04]" style={{ background: 'var(--primary)' }} />
@@ -928,6 +952,17 @@ function PremiumStudentHome({ student, profile, data, isCBC }: { student: any, p
                 </h1>
                 <p className="mt-0.5 text-sm font-bold text-muted">{displayTitle}</p>
               </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => { const v = !getReducedMotion(); setReducedMotion(v); window.location.reload() }}
+                className="text-[9px] px-2 py-1 rounded-lg font-medium transition-all hover:opacity-70"
+                style={{ background: theme.accentDim, color: theme.accentText }}
+                title="Toggle seasonal animations"
+              >
+                {getReducedMotion() ? '❄️ Static' : theme.emoji + ' Live'}
+              </button>
             </div>
 
             <div className="flex gap-2 sm:gap-3">
@@ -976,6 +1011,11 @@ function PremiumStudentHome({ student, profile, data, isCBC }: { student: any, p
             </div>
           </div>
         </motion.div>
+
+        {/* ── Seasonal Motivation ──────────────────────────── */}
+        <div className="mt-4">
+          <MotivationMessage theme={theme} />
+        </div>
 
         {/* ── National Exam Countdown ─────────────────────────── */}
         <div className="mt-4">
@@ -2069,10 +2109,20 @@ export default function StudentHomepageRouter() {
   }
 
   // Route based on curriculum
-  if (curriculumName.includes('8-4')) {
-    return <PremiumStudentHome student={student} profile={profile} data={data} isCBC={false} />
-  }
+  const season = getSeasonOverride() || getCurrentSeason()
+  const theme = getSeasonTheme(season)
+  const reducedMotion = getReducedMotion()
 
-  // Default to CBC/Primary theme
-  return <PremiumStudentHome student={student} profile={profile} data={data} isCBC={true} />
+  const dashboard = curriculumName.includes('8-4')
+    ? <PremiumStudentHome student={student} profile={profile} data={data} isCBC={false} />
+    : <PremiumStudentHome student={student} profile={profile} data={data} isCBC={true} />
+
+  return (
+    <div className="relative min-h-screen transition-colors duration-700" style={{ background: theme.bgGradient }}>
+      <SeasonalBackground season={season} particleCount={theme.particleCount} particleColor={theme.particleColor} reducedMotion={reducedMotion} />
+      <div className="relative z-10">
+        {dashboard}
+      </div>
+    </div>
+  )
 }

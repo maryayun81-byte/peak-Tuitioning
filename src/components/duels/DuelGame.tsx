@@ -34,6 +34,7 @@ export function DuelGame({
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const startTimeRef = useRef(Date.now())
   const questionStartRef = useRef(Date.now())
+  const timeUpFiredRef = useRef(false)
 
   const currentIndex = duel.current_question_index
   const currentQ: Question | undefined = duel.questions[currentIndex]
@@ -42,6 +43,7 @@ export function DuelGame({
   const opponent = participants.find(p => p.student_id !== myStudentId)
 
   useEffect(() => {
+    timeUpFiredRef.current = false
     setSelectedAnswer(null)
     setShowResult(false)
     setTimeLeft(duel.time_per_question)
@@ -52,7 +54,6 @@ export function DuelGame({
       setTimeLeft(prev => {
         if (prev <= 1) {
           clearInterval(timerRef.current!)
-          onTimeUp()
           return 0
         }
         return prev - 1
@@ -61,6 +62,13 @@ export function DuelGame({
 
     return () => { if (timerRef.current) clearInterval(timerRef.current) }
   }, [currentIndex])
+
+  useEffect(() => {
+    if (timeLeft <= 0 && !timeUpFiredRef.current && !showResult) {
+      timeUpFiredRef.current = true
+      onTimeUp()
+    }
+  }, [timeLeft, showResult, onTimeUp])
 
   const handleAnswer = useCallback((index: number) => {
     if (selectedAnswer !== null || showResult || isAdvancing) return

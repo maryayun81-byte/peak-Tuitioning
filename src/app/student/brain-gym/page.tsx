@@ -2,11 +2,11 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { BrainCircuit, Flame, Trophy, Play, CheckCircle2, XCircle, ChevronRight, Star, RotateCcw, Zap } from 'lucide-react'
+import { BrainCircuit, Flame, Trophy, Play, CheckCircle2, XCircle, ChevronRight, Star, RotateCcw, Zap, BookOpen } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { useAuthStore } from '@/stores/authStore'
-import { generateBrainGymQuestions, submitBrainGymScore, getBrainGymStreak } from '@/app/actions/brainGym'
+import { generateBrainGymQuestions, submitBrainGymScore, getBrainGymStreak, getStudentRegisteredSubjects } from '@/app/actions/brainGym'
 import { sendPushNotification } from '@/app/actions/push'
 import toast from 'react-hot-toast'
 import confetti from 'canvas-confetti'
@@ -63,22 +63,23 @@ export default function DailyBrainGym() {
   const [answers, setAnswers] = useState<Record<number, string>>({})
   const [loadingQuestions, setLoadingQuestions] = useState(false)
   const [savedSession, setSavedSession] = useState<SavedSession | null>(null)
+  const [allSubjects, setAllSubjects] = useState<string[]>([])
+  const [selectedSubjects, setSelectedSubjects] = useState<string[]>([])
   const abandonTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     if (!student?.id) return
-    getBrainGymStreak(student.id).then(data => {
-      setStreakData(data)
-      const today = new Date().toISOString().split('T')[0]
-      if (data?.last_played_date === today) {
-        setGameState('completed')
-        clearSession()
-      } else {
-        const saved = loadSession()
-        if (saved && saved.studentId === student.id && saved.questions?.length > 0) {
-          setSavedSession(saved)
-          setGameState('resuming')
-        }
+    Promise.all([
+      getBrainGymStreak(student.id),
+      getStudentRegisteredSubjects(student.id)
+    ]).then(([streak, subjects]) => {
+      setStreakData(streak)
+      setAllSubjects(subjects)
+      setSelectedSubjects(subjects)
+      const saved = loadSession()
+      if (saved && saved.studentId === student.id && saved.questions?.length > 0) {
+        setSavedSession(saved)
+        setGameState('resuming')
       }
       setLoading(false)
     })
@@ -136,12 +137,12 @@ export default function DailyBrainGym() {
     if (gameState === 'playing') scheduleAbandonReminder()
   }, [gameState, scheduleAbandonReminder])
 
-  const startGame = async () => {
+  const startGame = async (subjects?: string[]) => {
     clearSession()
     setSavedSession(null)
     setLoadingQuestions(true)
     try {
-      const q = await generateBrainGymQuestions(student?.id)
+      const q = await generateBrainGymQuestions(student?.id, 'brain_gym', subjects)
       setQuestions(q)
       setGameState('playing')
       setCurrentQIndex(0)
@@ -221,7 +222,6 @@ export default function DailyBrainGym() {
     </div>
   )
 
-  const isTodayCompleted = streakData?.last_played_date === new Date().toISOString().split('T')[0]
   const totalQuestions = questions.length || 10
 
   return (
@@ -251,26 +251,59 @@ export default function DailyBrainGym() {
 
       <AnimatePresence mode="wait">
 
-        {gameState === 'idle' && !isTodayCompleted && (
+        {gameState === 'idle' && (
           <motion.div key="idle" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
             className="flex flex-col items-center text-center mt-12">
             <div className="w-32 h-32 rounded-full bg-gradient-to-br from-orange-400 to-rose-500 flex items-center justify-center mb-8 shadow-2xl shadow-rose-500/20">
               <BrainCircuit className="text-white" size={64} />
             </div>
-            <h2 className="text-2xl font-black mb-4" style={{ color: 'var(--text)' }}>Ready for today's challenge?</h2>
-            <p className="max-w-md mx-auto mb-8 font-bold" style={{ color: 'var(--text-muted)' }}>
-              Answer 10 unique questions drawn from your curriculum. Every session is freshly generated � keep your streak alive to earn XP multipliers!
+            <h2 className="text-2xl font-black mb-4" style={{ color: 'var(--text)' }}>Brain Gym</h2>
+            <p className="max-w-md mx-auto mb-6 font-bold" style={{ color: 'var(--text-muted)' }}>
+              Train anytime with questions from your curriculum. Pick subjects to focus on or leave all selected for a mixed session.
             </p>
+
+            {allSubjects.length > 0 && (
+              <div className="w-full max-w-md mb-8">
+                <div className="text-xs font-black text-left mb-3 flex items-center gap-1" style={{ color: 'var(--text)' }}>
+                  <BookOpen size={14} /> Subjects
+                </div>
+                <div className="flex flex-wrap gap-2 justify-center">
+                  {allSubjects.map(subject => {
+                    const isSelected = selectedSubjects.includes(subject)
+                    return (
+                      <button
+                        key={subject}
+                        onClick={() => {
+                          setSelectedSubjects(prev =>
+                            prev.includes(subject)
+                              ? prev.filter(s => s !== subject)
+                              : [...prev, subject]
+                          )
+                        }}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
+                          isSelected
+                            ? 'border-orange-500 bg-orange-500/15 text-orange-500'
+                            : 'border-transparent bg-[var(--input)] text-[var(--text-muted)]'
+                        }`}
+                      >
+                        {subject}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
             <Button size="lg"
               className="rounded-3xl px-12 py-6 text-lg shadow-xl shadow-primary/20 bg-gradient-to-r from-orange-500 to-rose-500 border-none hover:scale-105 transition-transform"
-              onClick={startGame} disabled={loadingQuestions}>
+              onClick={() => startGame(selectedSubjects)} disabled={loadingQuestions || selectedSubjects.length === 0}>
               {loadingQuestions ? (
                 <div className="flex items-center gap-2">
                   <div className="w-5 h-5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                  Generating unique questions�
+                  Generating unique questions...
                 </div>
               ) : (
-                <div className="flex items-center gap-2"><Play className="fill-current" /> Let's Go</div>
+                <div className="flex items-center gap-2"><Play className="fill-current" /> Start Session</div>
               )}
             </Button>
           </motion.div>
@@ -392,7 +425,7 @@ export default function DailyBrainGym() {
           </motion.div>
         )}
 
-        {(gameState === 'completed' || isTodayCompleted) && (
+        {gameState === 'completed' && (
           <motion.div key="completed" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
             className="flex flex-col items-center text-center mt-12">
             <div className="w-32 h-32 rounded-full bg-emerald-500/20 flex items-center justify-center mb-6 border-4 border-emerald-500 relative">
@@ -402,21 +435,21 @@ export default function DailyBrainGym() {
             <motion.h2 initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
               transition={{ type: 'spring', stiffness: 200, damping: 12 }}
               className="text-3xl font-black mb-2 text-emerald-500">
-              Gym Completed! ??
+              Session Complete!
             </motion.h2>
             {score === totalQuestions ? (
-              <p className="text-lg font-bold text-amber-500 mb-2">Perfect score! You're on fire! ??</p>
+              <p className="text-lg font-bold text-amber-500 mb-2">Perfect score! You're on fire!</p>
             ) : score >= Math.ceil(totalQuestions * 0.7) ? (
-              <p className="text-lg font-bold text-emerald-500 mb-2">Excellent! Outstanding performance! ??</p>
+              <p className="text-lg font-bold text-emerald-500 mb-2">Excellent! Outstanding performance!</p>
             ) : score >= Math.ceil(totalQuestions * 0.5) ? (
-              <p className="text-lg font-bold text-blue-500 mb-2">Good job! Keep pushing! ??</p>
+              <p className="text-lg font-bold text-blue-500 mb-2">Good job! Keep pushing!</p>
             ) : (
-              <p className="text-lg font-bold text-orange-500 mb-2">Great effort! Practice makes perfect! ??</p>
+              <p className="text-lg font-bold text-orange-500 mb-2">Great effort! Practice makes perfect!</p>
             )}
             <p className="text-sm font-bold mb-8" style={{ color: 'var(--text-muted)' }}>
-              Daily workout done. Come back tomorrow for a brand-new set of questions!
+              You earned +50 XP! Train again anytime to keep improving.
             </p>
-            <div className="grid grid-cols-3 gap-4 w-full max-w-sm">
+            <div className="grid grid-cols-3 gap-4 w-full max-w-sm mb-8">
               <div className="bg-[var(--card)] p-4 rounded-2xl border border-[var(--card-border)] flex flex-col items-center">
                 <Flame className="text-orange-500 mb-2" size={22} />
                 <span className="text-xl font-black" style={{ color: 'var(--text)' }}>{streakData?.current_streak || 1}</span>
@@ -433,6 +466,10 @@ export default function DailyBrainGym() {
                 <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Accuracy</span>
               </div>
             </div>
+            <Button size="lg" variant="outline" onClick={() => setGameState('idle')}
+              className="rounded-2xl">
+              <RotateCcw size={16} className="mr-2" /> Train Again
+            </Button>
           </motion.div>
         )}
 

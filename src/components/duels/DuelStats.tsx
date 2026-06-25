@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { TrendingUp, BarChart3, Target, Clock, Zap, Award } from 'lucide-react'
+import { TrendingUp, BarChart3, Target, Clock, Zap, Award, Trophy } from 'lucide-react'
 import { getDuelAnalytics } from '@/app/actions/duels'
 
 export function DuelStats() {

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Swords, Trophy, Medal, TrendingUp, Zap, UserPlus, Users, Clock, Award, BarChart3, Star } from 'lucide-react'
+import { Swords, Trophy, Medal, TrendingUp, Zap, UserPlus, Users, Clock, Award, BarChart3, Star, Shield, Map } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/authStore'
 import toast from 'react-hot-toast'
@@ -10,7 +10,7 @@ import type { Duel, DuelParticipantWithStudent, DuelType, PowerUp, EmojiReaction
 import { DUEL_TYPE_LABELS, getRank, getRankColor, POWER_UP_LABELS, EMOJIS } from '@/types/duels'
 import {
   getActiveDuels, getDuelById, getStudentDuelStats, getActiveBosses,
-  joinMatchmaking, leaveMatchmaking, getDuelReactions, sendDuelReaction,
+  joinMatchmaking, leaveMatchmaking, retryMatchmaking, getDuelReactions, sendDuelReaction,
   getPowerUpInventory, usePowerUp, buyPowerUp,
   getDuelLeaderboard, getStudentRank, getDuelHistory, getDuelAnalytics,
   getDuelAchievements, getHallOfFame, getActiveWeeklyChampionship,
@@ -27,9 +27,15 @@ import { DuelHistory } from '@/components/duels/DuelHistory'
 import { DuelAchievements } from '@/components/duels/DuelAchievements'
 import { HallOfFame } from '@/components/duels/HallOfFame'
 import { DuelStats as DuelStatsComponent } from '@/components/duels/DuelStats'
+import { TerritoryMap } from '@/components/duels/TerritoryMap'
+import { HouseStandings } from '@/components/duels/HouseStandings'
+import { StreakDisplay } from '@/components/duels/StreakDisplay'
+import { HouseSelectModal } from '@/components/duels/HouseSelectModal'
+import { DuelAudio } from '@/components/duels/DuelAudio'
+import { getMyHouse } from '@/app/actions/houses'
 
 type View = 'lobby' | 'type_selector' | 'matchmaking' | 'waiting' | 'duel' | 'result'
-type Tab = 'duels' | 'leaderboard' | 'history' | 'achievements' | 'halloffame' | 'stats'
+type Tab = 'duels' | 'territory' | 'leaderboard' | 'history' | 'achievements' | 'halloffame' | 'stats'
 
 export default function DuelsPage() {
   const supabase = getSupabaseBrowserClient()
@@ -51,6 +57,56 @@ export default function DuelsPage() {
   const [opponentName, setOpponentName] = useState('')
   const [rankInfo, setRankInfo] = useState<any>(null)
   const [bosses, setBosses] = useState<any[]>([])
+  const [showHouseSelect, setShowHouseSelect] = useState(false)
+  const questionStartRef = useRef(Date.now())
+  const [timeRemaining, setTimeRemaining] = useState<number | undefined>(undefined)
+  const [duelResult, setDuelResult] = useState<'victory' | 'defeat' | 'draw' | null>(null)
+  const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Track question start time when question index changes
+  useEffect(() => {
+    questionStartRef.current = Date.now()
+  }, [activeDuel?.current_question_index])
+
+  // Total duel countdown timer
+  useEffect(() => {
+    if (view !== 'duel' || !activeDuel || activeDuel.status !== 'active') {
+      if (timerIntervalRef.current) { clearInterval(timerIntervalRef.current); timerIntervalRef.current = null }
+      setTimeRemaining(undefined)
+      return
+    }
+    const totalSeconds = activeDuel.time_per_question * activeDuel.questions.length
+    const start = activeDuel.started_at ? new Date(activeDuel.started_at).getTime() : Date.now()
+
+    const tick = () => {
+      const elapsed = Math.floor((Date.now() - start) / 1000)
+      const remaining = Math.max(0, totalSeconds - elapsed)
+      setTimeRemaining(remaining)
+    }
+
+    tick()
+    timerIntervalRef.current = setInterval(tick, 1000)
+    return () => { if (timerIntervalRef.current) { clearInterval(timerIntervalRef.current); timerIntervalRef.current = null } }
+  }, [view, activeDuel?.id, activeDuel?.status])
+
+  // Derive result when duel completes
+  useEffect(() => {
+    if (view !== 'result' || !activeDuel) { setDuelResult(null); return }
+    const me = participants.find(p => p.student_id === studentId)
+    const opponent = participants.find(p => p.student_id !== studentId)
+    if (!opponent || !me) { setDuelResult(null); return }
+    if (me.score > opponent.score) setDuelResult('victory')
+    else if (me.score < opponent.score) setDuelResult('defeat')
+    else setDuelResult('draw')
+  }, [view, activeDuel?.id, participants, studentId])
+
+  // Check if user has joined a house
+  useEffect(() => {
+    if (!studentId) return
+    getMyHouse().then(house => {
+      if (!house) setShowHouseSelect(true)
+    })
+  }, [studentId])
 
   // Load initial data
   useEffect(() => {
@@ -130,12 +186,19 @@ export default function DuelsPage() {
         setView('duel')
         setSearching(false)
         toast.success('Match found!')
+      } else {
+        startPolling()
       }
-      // Still searching — modal stays visible
     } else if (type === 'daily') {
-      await generateDailyDuels()
-      toast.success('Daily duel ready!')
-      getActiveDuels().then(setDuels)
+      const duel = await generateDailyDuels()
+      if (duel) {
+        setActiveDuel(duel)
+        setParticipants(duel.participants || [])
+        setView('duel')
+      } else {
+        toast.success('Daily duel ready!')
+        getActiveDuels().then(setDuels)
+      }
     } else if (type === 'boss') {
       setSearching(false)
       toast('Select a boss to battle!')
@@ -183,7 +246,7 @@ export default function DuelsPage() {
     if (!currentQ) return
 
     const selectedAnswer = currentQ.options[answerIndex]
-    const timeSpent = Math.min(activeDuel.time_per_question, Math.round((Date.now() - Date.now()) / 1000) + 1)
+    const timeSpent = Math.min(activeDuel.time_per_question, Math.round((Date.now() - questionStartRef.current) / 1000) + 1)
 
     try {
       await submitDuelAnswer(activeDuel.id, activeDuel.current_question_index, selectedAnswer, timeSpent, 0)
@@ -228,10 +291,46 @@ export default function DuelsPage() {
 
   // ── CANCEL MATCHMAKING ───────────────────────────────
   const cancelledRef = useRef(false)
+  const matchmakingPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [searchTime, setSearchTime] = useState(0)
+
+  const startPolling = () => {
+    if (matchmakingPollRef.current) clearInterval(matchmakingPollRef.current)
+    let elapsed = 0
+    setSearchTime(0)
+    matchmakingPollRef.current = setInterval(async () => {
+      elapsed += 5
+      setSearchTime(elapsed)
+      if (cancelledRef.current) return
+      if (!studentId) return
+      const result = await retryMatchmaking({ duel_type: 'quick' })
+      if (cancelledRef.current) return
+      if (result.matched && result.duel) {
+        if (matchmakingPollRef.current) clearInterval(matchmakingPollRef.current)
+        matchmakingPollRef.current = null
+        setActiveDuel(result.duel)
+        setParticipants(result.duel.participants || [])
+        setOpponentName(result.opponent?.full_name || 'Opponent')
+        setView('duel')
+        setSearching(false)
+        toast.success('Match found!')
+      }
+    }, 5000)
+  }
+
+  const stopPolling = () => {
+    if (matchmakingPollRef.current) {
+      clearInterval(matchmakingPollRef.current)
+      matchmakingPollRef.current = null
+    }
+  }
+
   const handleCancelSearch = async () => {
     cancelledRef.current = true
+    stopPolling()
     await leaveMatchmaking()
     setSearching(false)
+    setSearchTime(0)
     setView('lobby')
   }
 
@@ -268,6 +367,7 @@ export default function DuelsPage() {
         <div className="flex gap-1 overflow-x-auto no-scrollbar">
           {[
             { id: 'duels' as Tab, label: 'Duels', icon: <Swords size={12} /> },
+            { id: 'territory' as Tab, label: 'Territory', icon: <Shield size={12} /> },
             { id: 'leaderboard' as Tab, label: 'Rankings', icon: <Medal size={12} /> },
             { id: 'history' as Tab, label: 'History', icon: <Clock size={12} /> },
             { id: 'achievements' as Tab, label: 'Awards', icon: <Award size={12} /> },
@@ -314,6 +414,28 @@ export default function DuelsPage() {
           </motion.div>
         )}
 
+        {tab === 'territory' && (
+          <motion.div key="terr" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+            <div className="p-4 space-y-4">
+              <div>
+                <h3 className="text-xs font-black mb-1 flex items-center gap-1.5" style={{ color: 'var(--text)' }}>
+                  <Map size={14} style={{ color: '#8B5CF6' }} /> Territory Map
+                </h3>
+                <p className="text-[9px] mb-3" style={{ color: 'var(--text-muted)' }}>
+                  Each duel win earns territory points for your house. Capture enemy territories by accumulating points.
+                </p>
+                <TerritoryMap />
+              </div>
+              <div>
+                <h3 className="text-xs font-black mb-2 flex items-center gap-1.5" style={{ color: 'var(--text)' }}>
+                  <Shield size={14} style={{ color: '#F59E0B' }} /> House Standings
+                </h3>
+                <HouseStandings />
+              </div>
+            </div>
+          </motion.div>
+        )}
+
         {tab === 'duels' && (
           <motion.div key="duels" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             {/* Stats row */}
@@ -332,6 +454,11 @@ export default function DuelsPage() {
                 ))}
               </div>
             )}
+
+            {/* Streak & House */}
+            <div className="px-4 pt-3">
+              <StreakDisplay />
+            </div>
 
             {/* Game view */}
             {view === 'duel' && activeDuel && (
@@ -421,10 +548,19 @@ export default function DuelsPage() {
                           key={boss.id}
                           whileHover={{ scale: 1.02 }}
                           onClick={async () => {
-                            const duel = await createDuel({ duel_type: 'boss', boss_id: boss.id, difficulty: boss.difficulty })
-                            setActiveDuel(duel)
-                            setParticipants(duel.participants || [])
-                            setView('duel')
+                            try {
+                              const duel = await createDuel({ duel_type: 'boss', boss_id: boss.id, difficulty: boss.difficulty })
+                              if (!duel.questions || duel.questions.length === 0) {
+                                toast.error('This boss has no questions configured yet')
+                                return
+                              }
+                              const full = await getDuelById(duel.id)
+                              setActiveDuel(full)
+                              setParticipants(full.participants || [])
+                              setView('duel')
+                            } catch (e: any) {
+                              toast.error(e.message || 'Failed to start boss battle')
+                            }
                           }}
                           className="p-3 rounded-xl border-2 text-left transition-all hover:border-purple-500"
                           style={{ background: 'var(--input)', borderColor: 'var(--card-border)' }}
@@ -443,14 +579,14 @@ export default function DuelsPage() {
                   <h3 className="text-xs font-black mb-2 flex items-center gap-1" style={{ color: 'var(--text)' }}>
                     <Zap size={14} style={{ color: '#10B981' }} /> Open Duels
                   </h3>
-                  {duels.filter(d => d.status === 'waiting').length === 0 ? (
+                  {duels.filter(d => d.status === 'waiting' && !d.is_daily).length === 0 ? (
                     <div className="p-6 rounded-xl text-center" style={{ background: 'var(--input)' }}>
                       <Swords size={32} className="mx-auto mb-2 opacity-30" style={{ color: 'var(--text-muted)' }} />
                       <p className="text-xs" style={{ color: 'var(--text-muted)' }}>No open duels right now. Start one!</p>
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      {duels.filter(d => d.status === 'waiting').map(duel => {
+                      {duels.filter(d => d.status === 'waiting' && !d.is_daily).map(duel => {
                         const host = duel.participants?.[0]
                         return (
                           <motion.div
@@ -543,7 +679,9 @@ export default function DuelsPage() {
       {showTypeSelector && (
         <DuelTypeSelector onSelect={handleSelectType} onClose={() => setShowTypeSelector(false)} />
       )}
-      <MatchmakingModal searching={searching} onCancel={handleCancelSearch} />
+      <MatchmakingModal searching={searching} onCancel={handleCancelSearch} searchTime={searchTime} />
+      <HouseSelectModal open={showHouseSelect} onComplete={() => setShowHouseSelect(false)} onClose={() => setShowHouseSelect(false)} />
+      <DuelAudio mode={view === 'duel' || view === 'result' ? 'battle' : view === 'lobby' ? 'lobby' : 'matchmaking'} timeRemaining={timeRemaining} result={duelResult} />
     </div>
   )
 }

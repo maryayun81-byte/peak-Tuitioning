@@ -515,7 +515,7 @@ function FlashcardStudioContent() {
     setAiLoading(true)
     try {
       const response = await chatWithPeakAI([{ role: 'user', content: prompt }])
-      const text = response.content || response.text || 'No response'
+      const text = response.content || 'No response'
       // Add the AI response as a text element on the current face
       addElement('text', text.slice(0, 200))
     } catch (e) {

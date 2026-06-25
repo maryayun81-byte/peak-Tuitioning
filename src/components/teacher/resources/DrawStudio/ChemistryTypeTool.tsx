@@ -106,9 +106,10 @@ const TEXT_STYLES = [
 interface ChemistryTypeToolProps {
   excalidrawRef: React.MutableRefObject<any>
   onNotify?: (msg: string) => void
+  isCanvasReady: boolean
 }
 
-export default function ChemistryTypeTool({ excalidrawRef, onNotify }: ChemistryTypeToolProps) {
+export default function ChemistryTypeTool({ excalidrawRef, onNotify, isCanvasReady }: ChemistryTypeToolProps) {
   const [input, setInput] = useState('')
   const [activeStyle, setActiveStyle] = useState('label')
   const [customColor, setCustomColor] = useState('#334155')

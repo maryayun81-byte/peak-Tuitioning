@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
-import { getToken } from 'next-auth/jwt'
 
 export async function POST(req: Request) {
   const supabase = await createAdminClient()

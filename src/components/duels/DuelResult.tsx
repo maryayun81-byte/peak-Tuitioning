@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Trophy, Medal, Frown, TrendingUp, Target, Clock, Zap } from 'lucide-react'
+import { Trophy, Medal, Frown, BrainCircuit, Target, Clock, Zap } from 'lucide-react'
 import type { Duel, DuelParticipantWithStudent } from '@/types/duels'
 import { getRankColor, getRank } from '@/types/duels'
 
@@ -18,10 +18,11 @@ export function DuelResult({ duel, participants, myStudentId, onReturn, onRematc
   const me = participants.find(p => p.student_id === myStudentId)
   const opponent = participants.find(p => p.student_id !== myStudentId)
 
-  if (!me || !opponent) return null
+  if (!me) return null
 
-  const isWin = me.score > opponent.score
-  const isDraw = me.score === opponent.score
+  const isCoach = !opponent
+  const isWin = opponent ? me.score > opponent.score : false
+  const isDraw = opponent ? me.score === opponent.score : false
   const accuracy = me.answer_history?.length
     ? Math.round((me.answer_history.filter(a => a.is_correct).length / me.answer_history.length) * 100)
     : 0
@@ -42,7 +43,9 @@ export function DuelResult({ duel, participants, myStudentId, onReturn, onRematc
         animate={{ scale: 1, rotate: 0 }}
         transition={{ type: 'spring', stiffness: 200 }}
       >
-        {isWin ? (
+        {isCoach ? (
+          <BrainCircuit size={80} style={{ color: '#8B5CF6' }} />
+        ) : isWin ? (
           <Trophy size={80} style={{ color: '#F59E0B' }} />
         ) : isDraw ? (
           <Medal size={80} style={{ color: '#94A3B8' }} />
@@ -58,11 +61,11 @@ export function DuelResult({ duel, participants, myStudentId, onReturn, onRematc
         transition={{ delay: 0.3 }}
         className="text-center"
       >
-        <h2 className="text-2xl font-black mb-1" style={{ color: isWin ? '#10B981' : isDraw ? '#F59E0B' : '#EF4444' }}>
-          {isWin ? 'Victory!' : isDraw ? 'Draw!' : 'Defeat'}
+        <h2 className="text-2xl font-black mb-1" style={{ color: isCoach ? '#8B5CF6' : isWin ? '#10B981' : isDraw ? '#F59E0B' : '#EF4444' }}>
+          {isCoach ? 'Practice Complete!' : isWin ? 'Victory!' : isDraw ? 'Draw!' : 'Defeat'}
         </h2>
         <p style={{ color: 'var(--text-muted)' }} className="text-sm">
-          {isWin ? 'Excellent performance!' : isDraw ? 'A hard-fought battle!' : 'Keep practicing!'}
+          {isCoach ? 'Great work with Peak Coach!' : isWin ? 'Excellent performance!' : isDraw ? 'A hard-fought battle!' : 'Keep practicing!'}
         </p>
       </motion.div>
 
@@ -75,20 +78,24 @@ export function DuelResult({ duel, participants, myStudentId, onReturn, onRematc
         style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}
       >
         <div className="text-center">
-          <div className="w-12 h-12 rounded-full flex items-center justify-center mb-1" style={{ background: 'rgba(16,185,129,0.15)' }}>
-            <span className="text-lg font-black text-emerald-500">{me.score}</span>
+          <div className="w-14 h-14 rounded-full flex items-center justify-center mb-1" style={{ background: isCoach ? 'rgba(139,92,246,0.15)' : 'rgba(16,185,129,0.15)' }}>
+            <span className="text-lg font-black" style={{ color: isCoach ? '#8B5CF6' : '#10B981' }}>{me.score}</span>
           </div>
           <div className="text-[10px] font-black uppercase" style={{ color: 'var(--text-muted)' }}>You</div>
         </div>
-        <div className="text-2xl font-black opacity-30" style={{ color: 'var(--text-muted)' }}>VS</div>
-        <div className="text-center">
-          <div className="w-12 h-12 rounded-full flex items-center justify-center mb-1" style={{ background: 'rgba(239,68,68,0.15)' }}>
-            <span className="text-lg font-black text-red-500">{opponent.score}</span>
-          </div>
-          <div className="text-[10px] font-black uppercase truncate max-w-[80px]" style={{ color: 'var(--text-muted)' }}>
-            {opponent.student?.full_name?.split(' ')[0] || 'AI'}
-          </div>
-        </div>
+        {opponent && (
+          <>
+            <div className="text-2xl font-black opacity-30" style={{ color: 'var(--text-muted)' }}>VS</div>
+            <div className="text-center">
+              <div className="w-14 h-14 rounded-full flex items-center justify-center mb-1" style={{ background: 'rgba(239,68,68,0.15)' }}>
+                <span className="text-lg font-black text-red-500">{opponent.score}</span>
+              </div>
+              <div className="text-[10px] font-black uppercase truncate max-w-[80px]" style={{ color: 'var(--text-muted)' }}>
+                {opponent.student?.full_name?.split(' ')[0] || 'Opponent'}
+              </div>
+            </div>
+          </>
+        )}
       </motion.div>
 
       {/* Stats grid */}
@@ -128,7 +135,7 @@ export function DuelResult({ duel, participants, myStudentId, onReturn, onRematc
             className="flex-1 py-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all"
             style={{ background: 'var(--primary)', color: 'white' }}
           >
-            <Zap size={14} className="inline mr-1" /> Rematch
+            <Zap size={14} className="inline mr-1" /> {isCoach ? 'Practice Again' : 'Rematch'}
           </button>
         )}
         <button
