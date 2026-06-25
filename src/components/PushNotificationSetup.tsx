@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useAuthStore } from '@/stores/authStore'
 import { Bell, X } from 'lucide-react'
 
@@ -16,31 +16,6 @@ export function PushNotificationSetup() {
   const [status, setStatus] = useState<'loading' | 'granted' | 'denied' | 'prompt'>('loading')
   const [dismissed, setDismissed] = useState(false)
   const [registering, setRegistering] = useState(false)
-
-  useEffect(() => {
-    if (!profile?.id) return
-    const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
-    if (!publicKey || !('serviceWorker' in navigator) || !('PushManager' in window)) {
-      setStatus('denied')
-      return
-    }
-
-    navigator.serviceWorker.register('/peak-push-sw.js', { scope: '/' }).then(registration => {
-      registration.pushManager.getSubscription().then(existing => {
-        if (existing) {
-          setStatus('granted')
-        } else if (Notification.permission === 'granted') {
-          subscribe(registration)
-        } else if (Notification.permission === 'denied') {
-          setStatus('denied')
-        } else {
-          setStatus('prompt')
-        }
-      })
-    }).catch(() => {
-      setStatus('denied')
-    })
-  }, [profile?.id])
 
   const subscribe = useCallback(async (registration?: ServiceWorkerRegistration) => {
     const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
@@ -73,6 +48,52 @@ export function PushNotificationSetup() {
     }
   }, [])
 
+  useEffect(() => {
+    if (!profile?.id) return
+    const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+    if (!publicKey || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+      setStatus('denied')
+      return
+    }
+
+    navigator.serviceWorker.register('/peak-push-sw.js', { scope: '/' }).then(registration => {
+      registration.pushManager.getSubscription().then(existing => {
+        if (existing) {
+          setStatus('granted')
+        } else if (Notification.permission === 'granted') {
+          subscribe(registration)
+        } else if (Notification.permission === 'denied') {
+          setStatus('denied')
+        } else {
+          setStatus('prompt')
+        }
+      })
+    }).catch(() => {
+      setStatus('denied')
+    })
+  }, [profile?.id, subscribe])
+
+  const clickPromptedRef = useRef(false)
+
+  useEffect(() => {
+    if (status !== 'prompt' || clickPromptedRef.current) return
+    clickPromptedRef.current = true
+    const handler = () => {
+      if (Notification.permission === 'default') {
+        Notification.requestPermission().then(result => {
+          if (result === 'granted') {
+            navigator.serviceWorker.getRegistration('/peak-push-sw.js').then(reg => {
+              if (reg) subscribe(reg)
+            })
+          }
+        })
+      }
+      document.removeEventListener('click', handler, true)
+    }
+    document.addEventListener('click', handler, { once: true, capture: true })
+    return () => document.removeEventListener('click', handler, true)
+  }, [status, subscribe])
+
   const handleEnable = useCallback(async () => {
     const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
     if (!publicKey) return
@@ -89,7 +110,7 @@ export function PushNotificationSetup() {
   if (status !== 'prompt' || dismissed) return null
 
   return (
-    <div className="fixed bottom-20 right-4 z-50 max-w-xs animate-in slide-in-from-bottom-4 fade-in duration-300">
+    <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[60] max-w-sm w-[calc(100%-2rem)] animate-in slide-in-from-top-4 fade-in duration-300">
       <div className="rounded-2xl shadow-2xl border p-4 backdrop-blur-xl"
         style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}>
         <button

@@ -26,6 +26,9 @@ import {
   deletePeakPushSubscription,
   startPeakConversation,
   startTeacherPeakConversation,
+  startPeerPeakConversation,
+  getPeerPeakMessages,
+  sendPeerPeakMessage,
   togglePeakReaction,
   togglePeakMessagePin,
 } from '@/app/actions/messages'
@@ -103,6 +106,9 @@ export function PeakMessenger({ role }: PeakMessengerProps) {
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [openingStudentId, setOpeningStudentId] = useState<string | null>(null)
   const [showDirectory, setShowDirectory] = useState(role === 'student')
+  const [selectedPeerId, setSelectedPeerId] = useState<string | null>(null)
+  const [peerMessages, setPeerMessages] = useState<any[]>([])
+  const [loadingPeer, setLoadingPeer] = useState(false)
 
   const loadBootstrap = async () => {
     try {
@@ -173,8 +179,15 @@ export function PeakMessenger({ role }: PeakMessengerProps) {
       })
       .subscribe()
 
+    // Polling fallback for when Realtime is unavailable
+    const pollInterval = setInterval(() => {
+      getPeakMessages(selectedId, actorUserId).then((result) => active && setMessages(result.messages)).catch(() => null)
+      loadBootstrap()
+    }, 8000)
+
     return () => {
       active = false
+      clearInterval(pollInterval)
       supabase.removeChannel(channel)
     }
   }, [selectedId])
@@ -232,6 +245,28 @@ export function PeakMessenger({ role }: PeakMessengerProps) {
     }
   }
 
+  const startPeerConversation = async (classmateStudentId: string) => {
+    if (openingStudentId) return
+    setOpeningStudentId(classmateStudentId)
+    try {
+      const result = await startPeerPeakConversation(classmateStudentId, actorUserId)
+      if (!result.ok) { toast.error(result.error); return }
+      setSelectedPeerId(result.conversation.id)
+      setSelectedId(null)
+      const msgResult = await getPeerPeakMessages(result.conversation.id, actorUserId)
+      if (msgResult.ok) setPeerMessages(msgResult.messages)
+    } catch (error: any) {
+      toast.error(error.message || 'Could not open chat')
+    } finally {
+      setOpeningStudentId(null)
+    }
+  }
+
+  const closePeerConversation = () => {
+    setSelectedPeerId(null)
+    setPeerMessages([])
+  }
+
   if (!bootstrap) return <MessengerSkeleton />
 
   return (
@@ -246,16 +281,18 @@ export function PeakMessenger({ role }: PeakMessengerProps) {
           setSearch={setSearch}
           onSelect={(id: string) => {
             setSelectedId(id)
+            setSelectedPeerId(null)
             setShowDirectory(false)
           }}
           onStart={startConversation}
           onStartStudent={startStudentConversation}
+          onStartPeer={startPeerConversation}
           openingStudentId={openingStudentId}
           showDirectory={showDirectory}
           setShowDirectory={setShowDirectory}
         />
 
-        <section className={`${selected || (role === 'teacher' && showDirectory) ? 'flex' : 'hidden md:flex'} flex-1 min-w-0 flex-col relative overflow-hidden`}>
+        <section className={`${selected || selectedPeerId || (role === 'teacher' && showDirectory) ? 'flex' : 'hidden md:flex'} flex-1 min-w-0 flex-col relative overflow-hidden`}>
           {role === 'teacher' && showDirectory ? (
             <StudentDiscoveryCanvas
               students={bootstrap.contacts}
@@ -267,6 +304,20 @@ export function PeakMessenger({ role }: PeakMessengerProps) {
               onStart={startStudentConversation}
               openingStudentId={openingStudentId}
               onBack={() => setShowDirectory(false)}
+            />
+          ) : selectedPeerId ? (
+            <PeerConversationPanel
+              conversationId={selectedPeerId}
+              messages={peerMessages}
+              loading={loadingPeer}
+              actorUserId={bootstrap.currentUserId}
+              currentStudentId={bootstrap.currentProfile?.id}
+              classmates={bootstrap.classmates}
+              onBack={closePeerConversation}
+              onMessageSent={(msg: any) => {
+                if (!msg) return
+                setPeerMessages((prev) => [...prev, msg])
+              }}
             />
           ) : selected ? (
             <ConversationWorkspace
@@ -298,7 +349,7 @@ export function PeakMessenger({ role }: PeakMessengerProps) {
 }
 
 function ConversationRail(props: any) {
-  const { role, bootstrap, conversations, selectedId, search, setSearch, onSelect, onStart, onStartStudent, openingStudentId, showDirectory, setShowDirectory } = props
+  const { role, bootstrap, conversations, selectedId, search, setSearch, onSelect, onStart, onStartStudent, onStartPeer, openingStudentId, showDirectory, setShowDirectory } = props
   return (
     <aside className={`${selectedId || (role === 'teacher' && showDirectory) ? 'hidden md:flex' : 'flex'} w-full md:w-[360px] xl:w-[410px] shrink-0 border-r border-[var(--card-border)] flex-col bg-[var(--card)]`}>
       <div className="p-5 md:p-6 border-b border-[var(--card-border)]">
@@ -321,7 +372,7 @@ function ConversationRail(props: any) {
           <TeacherStories contacts={bootstrap.contacts} conversations={conversations} onStart={onStart} />
         )}
         {role === 'student' && bootstrap.classmates?.length > 0 && (
-          <ClassmatesStrip classmates={bootstrap.classmates} conversations={conversations} />
+          <ClassmatesStrip classmates={bootstrap.classmates} conversations={conversations} onStartPeer={onStartPeer} />
         )}
 
         <div className="mt-5 flex gap-2">
@@ -368,7 +419,7 @@ function ConversationRail(props: any) {
   )
 }
 
-function ClassmatesStrip({ classmates, conversations }: any) {
+function ClassmatesStrip({ classmates, conversations, onStartPeer }: any) {
   return (
     <div className="mt-4">
       <div className="flex items-center gap-2 mb-3 px-1">
@@ -380,7 +431,7 @@ function ClassmatesStrip({ classmates, conversations }: any) {
         {classmates.map((cm: any) => {
           const conversation = conversations.find((c: any) => c.student_id === cm.id)
           return (
-            <div key={cm.id} className="w-[56px] shrink-0 text-center group">
+            <button key={cm.id} onClick={() => onStartPeer?.(cm.id)} className="w-[56px] shrink-0 text-center group">
               <div className={`mx-auto ${conversation ? 'ring-2 ring-emerald-400 rounded-2xl p-[2px]' : ''}`}>
                 <Avatar
                   url={cm.profile?.avatar_url}
@@ -391,9 +442,131 @@ function ClassmatesStrip({ classmates, conversations }: any) {
                 />
               </div>
               <p className="mt-1.5 text-[8px] font-bold truncate text-[var(--text-muted)]">{cm.full_name?.split(' ')[0]}</p>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function PeerConversationPanel({ conversationId, messages, loading, actorUserId, currentStudentId, classmates, onBack, onMessageSent }: any) {
+  const [body, setBody] = useState('')
+  const [sending, setSending] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
+  }, [messages.length])
+
+  useEffect(() => {
+    const supabase = getSupabaseBrowserClient()
+    const channel = supabase
+      .channel(`peer-messages-${conversationId}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'peak_peer_messages',
+        filter: `conversation_id=eq.${conversationId}`,
+      }, (payload) => {
+        const msg = payload.new as any
+        if (msg.sender_id !== currentStudentId) {
+          onMessageSent(msg)
+        }
+      })
+      .subscribe()
+    const pollInterval = setInterval(async () => {
+      const result = await getPeerPeakMessages(conversationId, actorUserId)
+      if (result.ok && result.messages.length > messages.length) {
+        result.messages.slice(messages.length).forEach((msg: any) => onMessageSent(msg))
+      }
+    }, 8000)
+    return () => {
+      clearInterval(pollInterval)
+      supabase.removeChannel(channel)
+    }
+  }, [conversationId, currentStudentId, onMessageSent, messages.length])
+
+  const handleSend = async () => {
+    const trimmed = body.trim()
+    if (!trimmed || sending) return
+    setSending(true)
+    try {
+      const result = await sendPeerPeakMessage(conversationId, trimmed, actorUserId)
+      if (result.ok) {
+        onMessageSent(result.message)
+        setBody('')
+      } else {
+        toast.error(result.error || 'Could not send message')
+      }
+    } catch {
+      toast.error('Could not send message')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  const handleKey = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
+  }
+
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden">
+      <header className="h-[68px] md:h-[78px] px-3 md:px-6 border-b border-[var(--card-border)] flex items-center gap-3 shrink-0 bg-[var(--card)]/95 backdrop-blur-xl z-10">
+        <button onClick={onBack} aria-label="Back" className="md:hidden w-9 h-9 rounded-xl bg-[var(--input)] flex items-center justify-center"><ArrowLeft size={17} /></button>
+        <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center shrink-0 font-black text-primary">
+          <Users size={18} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <h2 className="font-black text-[var(--text)] truncate">Classmate Chat</h2>
+          <p className="text-[10px] text-[var(--text-muted)]">Peer learning conversation</p>
+        </div>
+      </header>
+
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-6 space-y-3">
+        {loading && <div className="text-center py-8"><Loader2 size={20} className="mx-auto animate-spin text-[var(--text-muted)]" /></div>}
+        {!loading && messages.length === 0 && (
+          <div className="py-16 text-center">
+            <MessageCircle size={34} className="mx-auto text-[var(--text-muted)] opacity-30" />
+            <p className="mt-3 text-sm font-bold text-[var(--text)]">Send a message to your classmate</p>
+            <p className="mt-1 text-xs text-[var(--text-muted)]">Discuss assignments, share study tips, or collaborate.</p>
+          </div>
+        )}
+        {messages.map((msg: any) => {
+          const isMe = msg.sender_id === currentStudentId
+          return (
+            <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-[80%] p-3 rounded-2xl text-sm leading-relaxed ${isMe ? 'bg-primary text-white rounded-br-md' : 'bg-[var(--input)] text-[var(--text)] rounded-bl-md'}`}>
+                <p>{msg.body}</p>
+                <p className={`text-[9px] mt-1 ${isMe ? 'text-white/60' : 'text-[var(--text-muted)]'}`}>
+                  {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </p>
+              </div>
             </div>
           )
         })}
+      </div>
+
+      <div className="p-3 md:p-4 border-t border-[var(--card-border)] shrink-0">
+        <div className="flex gap-2">
+          <input
+            ref={inputRef}
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            onKeyDown={handleKey}
+            placeholder="Type a message..."
+            maxLength={4000}
+            className="flex-1 h-12 px-4 rounded-2xl bg-[var(--input)] border border-[var(--card-border)] text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] outline-none"
+          />
+          <button
+            onClick={handleSend}
+            disabled={!body.trim() || sending}
+            className="w-12 h-12 rounded-2xl bg-primary flex items-center justify-center text-white disabled:opacity-40"
+          >
+            {sending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -673,6 +846,7 @@ function ConversationWorkspace({ role, currentUserId, conversation, messages, lo
   const [showSafetyNotice, setShowSafetyNotice] = useState(true)
   const [showConversationMenu, setShowConversationMenu] = useState(false)
   const [showSummary, setShowSummary] = useState(false)
+  const [showIntelligence, setShowIntelligence] = useState(true)
   const [paused, setPaused] = useState(role === 'student' ? conversation.is_archived_by_student : conversation.is_archived_by_teacher)
   const scrollRef = useRef<HTMLDivElement>(null)
   const otherTypingTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -736,6 +910,15 @@ function ConversationWorkspace({ role, currentUserId, conversation, messages, lo
         <div className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/10 text-emerald-600 text-[9px] font-black uppercase tracking-widest">
           <ShieldCheck size={14} /> Safeguarded
         </div>
+        {role === 'teacher' && (
+          <button
+            onClick={() => setShowIntelligence((v) => !v)}
+            aria-label={showIntelligence ? 'Hide Peak Intelligence' : 'Show Peak Intelligence'}
+            className={`hidden xl:flex w-10 h-10 rounded-xl items-center justify-center transition-colors ${showIntelligence ? 'bg-primary/10 text-primary' : 'bg-[var(--input)] text-[var(--text-muted)]'}`}
+          >
+            <Bot size={17} />
+          </button>
+        )}
         <div className="relative">
           <button onClick={() => setShowConversationMenu((value) => !value)} aria-label="Conversation options" className="w-10 h-10 rounded-xl hover:bg-[var(--input)] flex items-center justify-center text-[var(--text-muted)]"><MoreHorizontal size={19} /></button>
           {showConversationMenu && (
@@ -870,7 +1053,7 @@ function ConversationWorkspace({ role, currentUserId, conversation, messages, lo
             }}
           />
         </div>
-        {role === 'teacher' && <TeacherIntelligencePanel safety={safety} messages={messages} conversationId={conversation.id} />}
+        {role === 'teacher' && showIntelligence && <TeacherIntelligencePanel safety={safety} messages={messages} conversationId={conversation.id} />}
       </div>
       <AnimatePresence>
         {showSummary && <ConversationSummaryDialog conversationId={conversation.id} onClose={() => setShowSummary(false)} />}

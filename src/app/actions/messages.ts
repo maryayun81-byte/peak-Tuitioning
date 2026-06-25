@@ -5,6 +5,7 @@ import { createAdminClient, createClient } from '@/lib/supabase/server'
 import { callGroqChat, hasGroqToken } from '@/lib/groq-chat'
 import { callGeminiChat, hasGeminiToken } from '@/lib/gemini-chat'
 import { callHuggingFaceChat, hasHuggingFaceToken } from '@/lib/huggingface-chat'
+import { callGitHubModelsChat, hasGitHubModelsToken } from '@/lib/github-models-chat'
 import { sendPushNotification } from './push'
 
 export type MessageSafetyResult = {
@@ -69,6 +70,13 @@ async function callMessagingAI(messages: any[], options: any) {
     })
   }
 
+  if (hasGitHubModelsToken()) {
+    providers.push({
+      name: 'GitHub Models',
+      call: () => callGitHubModelsChat(messages, { temperature: options?.temperature, maxTokens: options?.maxTokens }),
+    })
+  }
+
   if (providers.length === 0) {
     throw new Error('No AI providers configured')
   }
@@ -103,7 +111,7 @@ function ruleBasedSafety(body: string): MessageSafetyResult {
 
 async function classifyMessage(body: string, context: string[]): Promise<MessageSafetyResult> {
   const rules = ruleBasedSafety(body)
-  if (!hasGroqToken() && !hasGeminiToken() && !hasHuggingFaceToken()) return rules
+  if (!hasGroqToken() && !hasGeminiToken() && !hasHuggingFaceToken() && !hasGitHubModelsToken()) return rules
 
   try {
     const result = await callMessagingAI([
@@ -579,7 +587,7 @@ export async function generatePeakConversationSummary(conversationId: string) {
   let summary = 'The conversation contains a learning discussion. Review the recent messages for the full context.'
   let actionItems: string[] = []
   let provider = 'peak-core'
-  if (hasGroqToken() || hasGeminiToken() || hasHuggingFaceToken()) {
+  if (hasGroqToken() || hasGeminiToken() || hasHuggingFaceToken() || hasGitHubModelsToken()) {
     try {
       const result = await callMessagingAI([
         { role: 'system', content: 'Summarize this student-teacher learning conversation. Return strict JSON: {"summary":"2-4 concise sentences","actionItems":["clear next step"]}. Preserve safeguarding boundaries and do not invent facts.' },
@@ -749,6 +757,142 @@ export async function sendPeakMessage(input: {
   }
 }
 
+export async function startPeerPeakConversation(recipientStudentId: string, expectedUserId?: string) {
+  try {
+    const actor = await getActor(expectedUserId)
+    if (actor.role !== 'student') throw new Error('Only students can start a peer conversation')
+    const student = actor.student!
+    const a = student.id
+    const b = recipientStudentId
+    if (a === b) throw new Error('You cannot start a conversation with yourself')
+    const studentA = a < b ? a : b
+    const studentB = a < b ? b : a
+
+    const { data: recipient } = await actor.admin
+      .from('students')
+      .select('id, class_id, full_name')
+      .eq('id', recipientStudentId)
+      .single()
+    if (!recipient) throw new Error('Student not found')
+    if (recipient.class_id !== student.class_id) throw new Error('You can only message classmates')
+
+    const { data, error } = await actor.admin
+      .from('peak_peer_conversations')
+      .upsert({
+        student_a_id: studentA,
+        student_b_id: studentB,
+        class_id: student.class_id,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'student_a_id,student_b_id' })
+      .select('*')
+      .single()
+    if (error) throw new Error(error.message)
+    return { ok: true as const, conversation: data }
+  } catch (error) {
+    console.error('[PeakMessaging] Peer conversation start failed', { recipientStudentId, error })
+    const message = error instanceof Error && !error.message.includes('Server Components render')
+      ? error.message
+      : 'Could not start this conversation'
+    return { ok: false as const, error: message }
+  }
+}
+
+export async function getPeerPeakMessages(conversationId: string, expectedUserId?: string) {
+  try {
+    const actor = await getActor(expectedUserId)
+    if (actor.role !== 'student') throw new Error('Only students can access peer conversations')
+    const { data: conversation, error: convError } = await actor.admin
+      .from('peak_peer_conversations')
+      .select('*')
+      .eq('id', conversationId)
+      .single()
+    if (convError || !conversation) throw new Error('Conversation not found')
+    const sid = actor.student!.id
+    if (conversation.student_a_id !== sid && conversation.student_b_id !== sid) {
+      throw new Error('You do not have access to this conversation')
+    }
+    const { data, error } = await actor.admin
+      .from('peak_peer_messages')
+      .select('*')
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: true })
+      .limit(300)
+    if (error) throw new Error(error.message)
+    return { ok: true as const, messages: data || [] }
+  } catch (error) {
+    console.error('[PeakMessaging] Get peer messages failed', { conversationId, error })
+    const message = error instanceof Error && !error.message.includes('Server Components render')
+      ? error.message
+      : 'Messages could not be loaded'
+    return { ok: false as const, error: message, messages: [] }
+  }
+}
+
+export async function sendPeerPeakMessage(conversationId: string, body: string, expectedUserId?: string) {
+  try {
+    const bodyTrimmed = body.trim()
+    if (!bodyTrimmed || bodyTrimmed.length > 4000) throw new Error('Message must be between 1 and 4000 characters')
+    const actor = await getActor(expectedUserId)
+    if (actor.role !== 'student') throw new Error('Only students can send peer messages')
+    const { data: conversation, error: convError } = await actor.admin
+      .from('peak_peer_conversations')
+      .select('*')
+      .eq('id', conversationId)
+      .single()
+    if (convError || !conversation) throw new Error('Conversation not found')
+    const sid = actor.student!.id
+    if (conversation.student_a_id !== sid && conversation.student_b_id !== sid) {
+      throw new Error('You do not have access to this conversation')
+    }
+
+    const { data, error } = await actor.admin
+      .from('peak_peer_messages')
+      .insert({
+        conversation_id: conversationId,
+        sender_id: sid,
+        body: bodyTrimmed,
+      })
+      .select('*')
+      .single()
+    if (error) throw new Error(error.message)
+
+    await actor.admin
+      .from('peak_peer_conversations')
+      .update({
+        last_message_preview: bodyTrimmed.slice(0, 120),
+        last_message_at: data.created_at,
+        updated_at: data.created_at,
+      })
+      .eq('id', conversationId)
+
+    // Push notification to the other student
+    const recipientStudentId = conversation.student_a_id === sid
+      ? conversation.student_b_id
+      : conversation.student_a_id
+    const { data: recipient } = await actor.admin
+      .from('students')
+      .select('user_id')
+      .eq('id', recipientStudentId)
+      .single()
+    if (recipient?.user_id) {
+      sendPushNotification([recipient.user_id], {
+        title: actor.student!.full_name || 'Classmate',
+        body: bodyTrimmed.slice(0, 120),
+        icon: '/logo.png',
+        href: '/student/messages',
+      }).catch(() => null)
+    }
+
+    return { ok: true as const, message: data }
+  } catch (error) {
+    console.error('[PeakMessaging] Send peer message failed', { conversationId, error })
+    const message = error instanceof Error && !error.message.includes('Server Components render')
+      ? error.message
+      : 'Your message could not be sent'
+    return { ok: false as const, error: message }
+  }
+}
+
 export async function editPeakMessage(messageId: string, bodyInput: string, confirmed = false) {
   const body = bodyInput.trim()
   if (!body || body.length > 4000) throw new Error('Message must be between 1 and 4000 characters')
@@ -851,7 +995,7 @@ export async function generatePeakReply(conversationId: string) {
     .limit(10)
 
   const fallback = 'Thanks for explaining that. Tell me which part feels most difficult, and we will work through it step by step.'
-  if (!hasGroqToken() && !hasGeminiToken() && !hasHuggingFaceToken()) return { reply: fallback, provider: 'peak-core' }
+  if (!hasGroqToken() && !hasGeminiToken() && !hasHuggingFaceToken() && !hasGitHubModelsToken()) return { reply: fallback, provider: 'peak-core' }
 
   try {
     const transcript = (messages || []).reverse().map((item) => `${item.sender_id === actor.user.id ? 'Teacher' : 'Student'}: ${item.body}`).join('\n')
