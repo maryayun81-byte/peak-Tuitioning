@@ -122,17 +122,22 @@ export function useRealtimeNotifications() {
             }
           })
 
-          if (newNotif.type === 'message' && document.visibilityState !== 'visible' && 'Notification' in window && Notification.permission === 'granted') {
-            const browserNotification = new Notification(newNotif.title, {
-              body: newNotif.body,
-              icon: '/logo.png',
-              badge: '/logo.png',
-              tag: `peak-message-${newNotif.data?.conversation_id || newNotif.id}`,
-            })
-            browserNotification.onclick = () => {
-              window.focus()
-              if (newNotif.data?.href) window.location.href = newNotif.data.href
-              browserNotification.close()
+          if ('Notification' in window && Notification.permission === 'granted') {
+            const tag = newNotif.type === 'message'
+              ? `peak-message-${newNotif.data?.conversation_id || newNotif.id}`
+              : `peak-${newNotif.type}-${newNotif.id}`
+            if (document.visibilityState !== 'visible') {
+              const bn = new Notification(newNotif.title, {
+                body: newNotif.body,
+                icon: '/logo.png',
+                badge: '/logo.png',
+                tag,
+              })
+              bn.onclick = () => {
+                window.focus()
+                if (newNotif.data?.href) window.location.href = newNotif.data.href
+                bn.close()
+              }
             }
           }
 

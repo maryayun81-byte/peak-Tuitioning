@@ -12,7 +12,20 @@ import toast from 'react-hot-toast'
 import confetti from 'canvas-confetti'
 
 const SESSION_KEY = 'brain_gym_session'
+const SEEN_KEY = 'brain_gym_seen_fingerprints'
+const MAX_SEEN = 200
 const ABANDON_TIMEOUT_MS = 10 * 60 * 1000
+
+function loadSeenFingerprints(): string[] {
+  try {
+    const raw = localStorage.getItem(SEEN_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch { return [] }
+}
+
+function saveSeenFingerprints(fps: string[]) {
+  try { localStorage.setItem(SEEN_KEY, JSON.stringify(fps.slice(-MAX_SEEN))) } catch {}
+}
 
 type Question = {
   id: string
@@ -142,8 +155,14 @@ export default function DailyBrainGym() {
     setSavedSession(null)
     setLoadingQuestions(true)
     try {
-      const q = await generateBrainGymQuestions(student?.id, 'brain_gym', subjects)
+      const seen = loadSeenFingerprints()
+      const q = await generateBrainGymQuestions(student?.id, 'brain_gym', subjects, seen)
       setQuestions(q)
+      const newFps = q.map(qq => {
+        const text = (qq as any).question || ''
+        return text.toLowerCase().replace(/\s+/g, '').slice(0, 120)
+      }).filter(Boolean)
+      saveSeenFingerprints([...seen, ...newFps])
       setGameState('playing')
       setCurrentQIndex(0)
       setScore(0)

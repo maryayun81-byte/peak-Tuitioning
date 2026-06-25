@@ -60,7 +60,9 @@ export async function createDuel(input: CreateDuelInput) {
   let questions: any[]
   if (input.duel_type === 'boss' && input.boss_id) {
     const { data: boss } = await supabase.from('duel_bosses').select('questions').eq('id', input.boss_id).single()
-    questions = boss?.questions || []
+    questions = (boss?.questions && Array.isArray(boss.questions) && boss.questions.length > 0)
+      ? boss.questions
+      : await generateBrainGymQuestions(studentId, 'duel')
   } else if (input.duel_type === 'coach') {
     questions = await generateBrainGymQuestions(studentId, 'duel')
   } else {

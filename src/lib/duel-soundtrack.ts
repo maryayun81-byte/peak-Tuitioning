@@ -12,6 +12,12 @@
 // ── Types ────────────────────────────────────────────────────
 export type AudioNodeRef = { stop: () => void }
 
+/** Optional master gain — if set, all killswitches connect through it instead of ctx.destination. */
+let _masterDestination: GainNode | null = null
+export function setMasterDestination(node: GainNode | null) {
+  _masterDestination = node
+}
+
 interface TrackFile { path: string }
 
 const TRACKS: Record<string, TrackFile> = {
@@ -108,7 +114,7 @@ function buildReverb(ctx: AudioContext, wet = 0.25) {
 // Every procedural track routes through this so stop() can
 // silence instantly without hunting for every oscillator.
 function makeKillswitch(ctx: AudioContext, vol: number): GainNode {
-  const g = ctx.createGain(); g.gain.value = vol; g.connect(ctx.destination)
+  const g = ctx.createGain(); g.gain.value = vol; g.connect(_masterDestination ?? ctx.destination)
   return g
 }
 

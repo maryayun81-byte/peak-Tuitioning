@@ -11,6 +11,7 @@ import {
   playDefeat,
   playDraw,
   stopAll,
+  setMasterDestination,
   type AudioNodeRef,
 } from '@/lib/duel-soundtrack'
 
@@ -41,12 +42,13 @@ function getCtx(): AudioContext {
   return _ctx
 }
 
-function ensureMaster(volume: number): GainNode {
+ function ensureMaster(volume: number): GainNode {
   const ctx = getCtx()
   if (!_master || _master.context !== ctx) {
     _master = ctx.createGain()
     _master.gain.value = volume
     _master.connect(ctx.destination)
+    setMasterDestination(_master)
   }
   return _master
 }
@@ -62,6 +64,7 @@ function destroyEngine() {
   _generation++           // invalidates any in-flight startMusic promises
   stopSources()
   _activeMode = null
+  setMasterDestination(null)
   if (_ctx && _ctx.state !== 'closed') {
     _ctx.close().catch(() => {})
   }

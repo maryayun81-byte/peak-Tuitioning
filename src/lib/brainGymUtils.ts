@@ -11,6 +11,11 @@ type QuestionStyle =
   | 'reason_giving'
   | 'exam_style_recall'
 
+/** Fingerprint a question by its normalized text for dedup. */
+export function questionFingerprint(question: string): string {
+  return question.toLowerCase().replace(/\s+/g, '').slice(0, 120)
+}
+
 export type BrainGymQuestion = {
   id: string
   subject: string
@@ -23,6 +28,7 @@ export type BrainGymQuestion = {
   options: string[]
   correctAnswer: string
   explanation: string
+  fingerprint?: string
 }
 
 export function normaliseText(value: string) {
@@ -83,9 +89,44 @@ export function sanitizeQuestions(questions: any[]): BrainGymQuestion[] {
         options,
         correctAnswer,
         explanation,
+        fingerprint: questionFingerprint(question),
       } as BrainGymQuestion
     })
     .filter((q): q is BrainGymQuestion => q !== null)
+}
+
+const SUBJECT_ALIASES: Record<string, string[]> = {
+  mathematics: ['math', 'maths', 'mathematicscbc'],
+  mathematicscbc: ['math', 'maths', 'mathematics'],
+  english: ['literature', 'englisch'],
+  literature: ['english'],
+  kiswahili: [],
+  chemistry: [],
+  biology: [],
+  physics: [],
+  geography: [],
+  historygovernment: ['history', 'government'],
+  history: ['historygovernment'],
+  government: ['historygovernment'],
+  businessstudies: ['business', 'entrepreneurship'],
+  business: ['businessstudies'],
+  cre: ['christianreligiouseducation', 'christianreligion'],
+  ire: ['islamicreligiouseducation', 'islamicreligion'],
+  agriculture: ['farming', 'agribusiness'],
+  computerstudies: ['computing', 'ict', 'informationtechnology', 'computerscience'],
+  integratedscience: [],
+  scienceandtechnology: [],
+  socialstudies: [],
+}
+
+function subjectMatches(qSubject: string, registeredNormalised: string): boolean {
+  if (qSubject === registeredNormalised) return true
+  const aliases = SUBJECT_ALIASES[registeredNormalised]
+  if (aliases && aliases.includes(qSubject)) return true
+  for (const [canonical, aliasList] of Object.entries(SUBJECT_ALIASES)) {
+    if (canonical === qSubject && aliasList.includes(registeredNormalised)) return true
+  }
+  return false
 }
 
 export function filterToRegisteredSubjects(
@@ -101,27 +142,7 @@ export function filterToRegisteredSubjects(
     if (!q.subject) return !strict
 
     const qSubject = normaliseText(q.subject)
-
-    return normalisedSubjects.some(s =>
-      s.includes(qSubject) ||
-      qSubject.includes(s) ||
-      (qSubject === 'integratedscience' && (s.includes('science') || s.includes('integrated'))) ||
-      (qSubject === 'science' && s.includes('integrated')) ||
-      (qSubject === 'mathematicscbc' && s.includes('math')) ||
-      (qSubject === 'math' && s.includes('mathematics')) ||
-      (qSubject === 'mathematics' && s.includes('math')) ||
-      (qSubject === 'scienceandtechnology' && s.includes('science')) ||
-      (qSubject === 'historygovernment' && (s.includes('history') || s.includes('government'))) ||
-      (qSubject === 'history' && s.includes('government')) ||
-      (qSubject === 'government' && s.includes('history')) ||
-      (qSubject === 'businessstudies' && s.includes('business')) ||
-      (qSubject === 'business' && s.includes('businessstudies')) ||
-      (qSubject === 'english' && s.includes('literature')) ||
-      (qSubject === 'literature' && s.includes('english')) ||
-      (qSubject === 'chemistry' && s.includes('science')) ||
-      (qSubject === 'physics' && s.includes('science')) ||
-      (qSubject === 'biology' && s.includes('science'))
-    )
+    return normalisedSubjects.some(s => subjectMatches(qSubject, s))
   })
 }
 

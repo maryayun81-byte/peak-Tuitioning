@@ -5,7 +5,7 @@ import { callGroqChat, hasGroqToken } from '@/lib/groq-chat'
 import { callGeminiChat, hasGeminiToken } from '@/lib/gemini-chat'
 import { callHuggingFaceChat, hasHuggingFaceToken } from '@/lib/huggingface-chat'
 import { callGitHubModelsChat, hasGitHubModelsToken } from '@/lib/github-models-chat'
-import { sanitizeQuestions, filterToRegisteredSubjects, getFallbackQuestions, normaliseText } from '@/lib/brainGymUtils'
+import { sanitizeQuestions, filterToRegisteredSubjects, getFallbackQuestions, normaliseText, questionFingerprint } from '@/lib/brainGymUtils'
 import type { BrainGymQuestion } from '@/lib/brainGymUtils'
 
 type CurriculumType = 'kcse' | 'kjsea' | 'kpsea' | 'unknown'
@@ -663,6 +663,7 @@ function buildUserPrompt(params: {
   registeredSubjects: string[]
   sessionSeed: string
   difficultyMix: string
+  excludeFingerprints?: string[]
 }) {
   const {
     curriculumType,
@@ -674,9 +675,15 @@ function buildUserPrompt(params: {
     difficultyMix,
   } = params
 
+  const { excludeFingerprints } = params
+
   const subjectConstraint = registeredSubjects.length
     ? `REGISTERED SUBJECTS — STRICTLY generate questions from these only:\n${registeredSubjects.join(', ')}`
     : `No registered subjects found. Generate balanced Kenyan curriculum questions for ${curriculumContext}.`
+
+  const excludeBlock = excludeFingerprints && excludeFingerprints.length > 0
+    ? `\nDO NOT generate these questions — the student has already seen them:\n${excludeFingerprints.join('\n')}\nEvery question MUST be completely different from the above.\n`
+    : ''
 
   return `
 Generate exactly 10 strong Peak Coach Brain Gym questions.
@@ -707,7 +714,7 @@ ${getQuestionQualityRules()}
 
 QUESTION STYLE ROTATION:
 Use a strong mix from:
-${QUESTION_STYLES.join(', ')}
+${QUESTION_STYLES.join(', ')}${excludeBlock}
 
 SPECIAL INSTRUCTIONS:
 - Do not generate 10 questions of the same style.
@@ -784,7 +791,8 @@ function getDifficultyMix() {
 export async function generateBrainGymQuestions(
   studentId?: string,
   context?: 'brain_gym' | 'duel',
-  subjects?: string[]
+  subjects?: string[],
+  excludeFingerprints?: string[]
 ): Promise<BrainGymQuestion[]> {
   let curriculumName = 'Kenyan CBC / 8-4-4'
   let className = ''
@@ -857,6 +865,7 @@ export async function generateBrainGymQuestions(
       registeredSubjects,
       sessionSeed,
       difficultyMix,
+      excludeFingerprints,
     })
 
     const messages = [
@@ -924,7 +933,12 @@ export async function generateBrainGymQuestions(
         const isExplicitFilter = !!(subjects && subjects.length > 0)
         const filtered = filterToRegisteredSubjects(sanitized, registeredSubjects, isExplicitFilter)
 
-        const usable = isExplicitFilter ? filtered : (filtered.length >= 5 ? filtered : sanitized)
+        const excludeSet = new Set(excludeFingerprints || [])
+        const deduped = excludeSet.size > 0
+          ? filtered.filter(q => !q.fingerprint || !excludeSet.has(q.fingerprint))
+          : filtered
+
+        const usable = isExplicitFilter ? deduped : (deduped.length >= 5 ? deduped : sanitized.filter(q => !q.fingerprint || !excludeSet.has(q.fingerprint)))
         const improved = improveQuestionOrder(usable)
 
         if (improved.length >= 10) return improved.slice(0, 10)
@@ -939,9 +953,15 @@ export async function generateBrainGymQuestions(
     console.error('generateBrainGymQuestions error:', error)
 
     const isExplicitFilter = !!(subjects && subjects.length > 0)
-    const fallback = filterToRegisteredSubjects(getFallbackQuestions(), registeredSubjects, isExplicitFilter)
+    const excludeSet = new Set(excludeFingerprints || [])
+    const rawFallback = getFallbackQuestions().map(q => ({
+      ...q,
+      fingerprint: questionFingerprint(q.question),
+    }))
+    const fallback = filterToRegisteredSubjects(rawFallback, registeredSubjects, isExplicitFilter)
+      .filter(q => !excludeSet.has(q.fingerprint || ''))
     if (fallback.length >= 5) return fallback.slice(0, 10)
-    return isExplicitFilter ? fallback : getFallbackQuestions()
+    return isExplicitFilter ? fallback : rawFallback.filter(q => !excludeSet.has(q.fingerprint || ''))
   }
 }
 

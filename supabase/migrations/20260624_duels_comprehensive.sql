@@ -359,9 +359,9 @@ BEGIN
     s.duel_wins, s.duel_losses, s.duel_draws,
     s.duel_win_streak, s.duel_rating,
     CASE WHEN (s.duel_wins + s.duel_losses + s.duel_draws) > 0
-      THEN round(s.duel_wins::REAL / (s.duel_wins + s.duel_losses + s.duel_draws) * 100, 1)
+      THEN round((s.duel_wins::NUMERIC / (s.duel_wins + s.duel_losses + s.duel_draws) * 100), 1)
       ELSE 0.0 END,
-    COALESCE((SELECT round(avg(score)::REAL, 1) FROM duel_results WHERE student_id = p_student_id), 0),
+    COALESCE((SELECT round(avg(score)::NUMERIC, 1) FROM duel_results WHERE student_id = p_student_id), 0),
     COALESCE((SELECT max(score) FROM duel_results WHERE student_id = p_student_id), 0),
     COALESCE((SELECT sum(xp_awarded)::INTEGER FROM duel_results WHERE student_id = p_student_id), 0)
   FROM students s WHERE s.id = p_student_id;
