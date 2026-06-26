@@ -2,11 +2,12 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { BrainCircuit, Flame, Trophy, Play, CheckCircle2, XCircle, ChevronRight, Star, RotateCcw, Zap, BookOpen } from 'lucide-react'
+import { BrainCircuit, Flame, Trophy, Play, CheckCircle2, XCircle, ChevronRight, Star, RotateCcw, Zap, BookOpen, TimerOff, PenLine } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { useAuthStore } from '@/stores/authStore'
 import { generateBrainGymQuestions, submitBrainGymScore, getBrainGymStreak, getStudentRegisteredSubjects, markBrainGymEssay } from '@/app/actions/brainGym'
+import { KCSE_844_SET_BOOKS } from '@/lib/brainGym/setBooks'
 import { sendPushNotification } from '@/app/actions/push'
 import toast from 'react-hot-toast'
 import confetti from 'canvas-confetti'
@@ -35,13 +36,25 @@ type Question = {
   explanation: string
   subject?: string
   topic?: string
+  subtopic?: string
   difficulty?: string
+  examStandard?: string
   answerMode?: 'mcq' | 'essay'
   excerpt?: string
   sourceText?: string
   essayPrompt?: string
   markingRubric?: string[]
   maxMarks?: number
+  visualScene?: {
+    sceneType?: string
+    background?: string
+    style?: string
+    objects?: string[]
+    diagram?: string
+    interactionType?: string
+    workingTools?: string[]
+    visualPrompt?: string
+  }
   adaptive?: {
     profileLabel: string
     visualStyle: string
@@ -53,6 +66,8 @@ type Question = {
   }
 }
 
+type VisualScene = NonNullable<Question['visualScene']>
+
 type SavedSession = {
   questions: Question[]
   currentQIndex: number
@@ -60,10 +75,409 @@ type SavedSession = {
   answers: Record<number, string>
   startedAt: number
   studentId: string
+  sessionKey?: string
+}
+
+type TrainingMode =
+  | 'mixed'
+  | 'setbook'
+  | 'excerpt'
+  | 'essay'
+  | 'poetry'
+  | 'ushairi'
+  | 'biology_essay'
+  | 'structured'
+  | 'character_analysis'
+  | 'theme_analysis'
+  | 'style_analysis'
+  | 'context_questions'
+  | 'character_relationships'
+  | 'plot_revision'
+  | 'timed_mock'
+  | 'kcse_prediction'
+  | 'random_challenge'
+
+const TRAINING_MODES: { id: TrainingMode; label: string; subjects?: RegExp; description: string }[] = [
+  { id: 'mixed', label: 'Master Mix', description: 'Balanced mastery workout' },
+  { id: 'structured', label: 'Structured Answers', description: 'Explain, calculate and reason' },
+  { id: 'setbook', label: 'Set Books', subjects: /english|kiswahili|literature/i, description: 'KCSE text mastery' },
+  { id: 'excerpt', label: 'Excerpts', subjects: /english|kiswahili|literature/i, description: 'Context and evidence' },
+  { id: 'essay', label: 'Essays', subjects: /english|kiswahili|literature/i, description: 'Write and get marked' },
+  { id: 'poetry', label: 'Poems', subjects: /english|literature/i, description: 'Poetry close reading' },
+  { id: 'ushairi', label: 'Ushairi', subjects: /kiswahili/i, description: 'Shairi analysis' },
+  { id: 'biology_essay', label: 'Biology Essays', subjects: /biology/i, description: 'KCSE structured essays' },
+  { id: 'character_analysis', label: 'Characters', subjects: /english|kiswahili|literature/i, description: 'Traits and growth' },
+  { id: 'theme_analysis', label: 'Themes', subjects: /english|kiswahili|literature/i, description: 'Themes with evidence' },
+  { id: 'style_analysis', label: 'Style', subjects: /english|kiswahili|literature/i, description: 'Devices and effect' },
+  { id: 'context_questions', label: 'Context', subjects: /english|kiswahili|literature/i, description: 'Before and after' },
+  { id: 'character_relationships', label: 'Relationships', subjects: /english|kiswahili|literature/i, description: 'Conflict and ties' },
+  { id: 'plot_revision', label: 'Plot', subjects: /english|kiswahili|literature/i, description: 'Sequence and meaning' },
+  { id: 'timed_mock', label: 'Timed Mock', subjects: /english|kiswahili|literature/i, description: 'KCSE paper feel' },
+  { id: 'kcse_prediction', label: 'Prediction', subjects: /english|kiswahili|literature/i, description: 'Likely examiner angles' },
+  { id: 'random_challenge', label: 'Challenge', subjects: /english|kiswahili|literature/i, description: 'Mixed examiner test' },
+]
+
+function subjectIsCbcLike(value: string) {
+  return /cbc|kpsea|kjsea|integrated science|science\s*&\s*technology|pre-technical|agriculture\s*&\s*nutrition|social studies|grade\s*[6-9]/i.test(value)
+}
+
+function visualSceneFitsQuestion(question: Question, scene?: VisualScene) {
+  if (!scene) return false
+  const subject = `${question.subject || ''}`.toLowerCase()
+  const sceneText = `${scene.sceneType || ''} ${scene.background || ''} ${scene.diagram || ''} ${(scene.objects || []).join(' ')} ${scene.visualPrompt || ''}`.toLowerCase()
+  const questionText = `${question.topic || ''} ${question.subtopic || ''} ${question.question || ''} ${question.excerpt || ''}`.toLowerCase()
+
+  if (/math/.test(subject) && /(physics|laboratory|lab|beaker|microscope|circuit|chemistry|biology)/.test(sceneText)) return false
+  if (/(science|chemistry|biology|physics)/.test(subject) && /(library|storybook|fasihi|darasa|map room|workshop)/.test(sceneText)) return false
+  if (/kiswahili/.test(subject) && /(physics|laboratory|graph paper|calculator|science)/.test(sceneText)) return false
+  if (/english/.test(subject) && /(physics|laboratory|calculator|circuit)/.test(sceneText)) return false
+  if (/social/.test(subject) && /(physics|laboratory|calculator|circuit|microscope)/.test(sceneText)) return false
+
+  if (/circle|radius|diameter|chord|circumference/.test(questionText) && /speed|velocity|acceleration|car|motion/.test(sceneText)) return false
+  if (/speed|velocity|acceleration|distance|time/.test(questionText) && /circle|radius|diameter|chord/.test(sceneText)) return false
+
+  return true
+}
+
+function extractGroupedTable(text: string) {
+  const matches = [...text.matchAll(/(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s*:\s*(\d+)/g)]
+  if (matches.length < 3) return null
+  return matches.map(match => ({
+    interval: `${match[1]}-${match[2]}`,
+    frequency: match[3],
+    midpoint: ((Number(match[1]) + Number(match[2])) / 2).toFixed(1).replace(/\.0$/, ''),
+  }))
+}
+
+function buildWorkoutSteps(explanation: string) {
+  const clean = explanation.replace(/\s+/g, ' ').trim()
+  if (!clean) return []
+  const parts = clean
+    .split(/(?<=[.!?])\s+(?=[A-Z0-9])/)
+    .map(part => part.trim())
+    .filter(Boolean)
+
+  if (parts.length <= 1) {
+    return clean
+      .split(/\s*(?:;|,\s*(?=(?:then|therefore|hence|so|which)\b))/i)
+      .map(part => part.trim())
+      .filter(Boolean)
+  }
+
+  return parts.slice(0, 5)
+}
+
+function getClientVisualEnvironment(question: Question, selectedContext: string): VisualScene {
+  const subject = `${question.subject || ''} ${selectedContext}`.toLowerCase()
+  const topic = `${question.topic || ''} ${question.subtopic || ''}`.toLowerCase()
+  const gradeStyle = /grade\s*6/i.test(selectedContext)
+    ? 'Grade 6 colourful guided illustration with big friendly icons'
+    : /grade\s*7/i.test(selectedContext)
+      ? 'Grade 7 educational textbook style with clear labelled visuals'
+      : /grade\s*9/i.test(selectedContext)
+        ? 'Grade 9 professional clean academy style, not childish'
+        : 'Grade 8 semi-realistic modern classroom style'
+
+  if (/math/.test(subject)) {
+    const qText = topic + question.question.toLowerCase()
+    const isCircle = /circle|radius|diameter|chord|circumference/.test(qText)
+    const isGraph = /graph|statistics|data|histogram|bar|line|coordinate|transformation|geometry|angle|triangle|measurement|speed|distance|area|circle/.test(qText)
+    return {
+      sceneType: 'Mathematics Smart Classroom',
+      background: isGraph ? 'Interactive graph paper beside a clean blackboard' : 'Clean blackboard with a working area',
+      style: gradeStyle,
+      objects: isCircle ? ['graph paper', 'compass', 'ruler', 'protractor', 'formula card'] : isGraph ? ['coordinate grid', 'ruler', 'protractor', 'calculator', 'chalk arrows'] : ['blackboard', 'mathematical notebook', 'calculator', 'chalk', 'formula card'],
+      diagram: isCircle ? 'circle diagram with radius, chord and diameter labels' : isGraph ? 'coordinate grid, graph paper or labelled measurement sketch' : 'formula board and step-by-step working space',
+      interactionType: question.answerMode === 'essay' ? 'short-working' : 'mcq',
+      workingTools: ['formula helper', 'working area', 'answer box', 'unit reminder'],
+      visualPrompt: `On the board, display the ${question.topic || 'Mathematics'} challenge with clear labels, values and a working area.\n\n${question.excerpt || question.question}`,
+    }
+  }
+
+  if (/integrated science|science|technology|chemistry|biology|physics/.test(subject)) {
+    return {
+      sceneType: 'Integrated Science Laboratory',
+      background: 'Laboratory bench with an investigation board',
+      style: gradeStyle,
+      objects: ['microscope', 'plant specimen', 'circuit board', 'beaker', 'safety goggles'],
+      diagram: /circuit|current|voltage/.test(topic + question.question.toLowerCase()) ? 'labelled circuit diagram' : 'apparatus sketch or investigation table',
+      interactionType: 'mcq',
+      workingTools: ['observation table', 'formula helper', 'safety clue', 'answer box'],
+      visualPrompt: `Set up a CBC science scene. Show the apparatus/data clearly, then let the learner answer from evidence.\n\n${question.excerpt || question.question}`,
+    }
+  }
+
+  if (/social studies/.test(subject)) {
+    return {
+      sceneType: 'Kenya Map Room',
+      background: 'Kenya map wall with chart board',
+      style: gradeStyle,
+      objects: ['Kenya map', 'globe', 'timeline strip', 'weather chart', 'population graph'],
+      diagram: 'map, timeline or data chart',
+      interactionType: 'mcq',
+      workingTools: ['map key', 'evidence notes', 'answer box'],
+      visualPrompt: `Display the Social Studies question as a map/chart evidence task with labels and a key.\n\n${question.excerpt || question.question}`,
+    }
+  }
+
+  if (/kiswahili/.test(subject)) {
+    return {
+      sceneType: 'Darasa la Kiswahili',
+      background: 'Ubao wa fasihi na msamiati',
+      style: gradeStyle,
+      objects: ['ubao', 'daftari', 'kadi za msamiati', 'shairi board', 'wahusika cards'],
+      diagram: 'matini, mazungumzo au shairi kwenye ubao',
+      interactionType: question.answerMode === 'essay' ? 'short-working' : 'mcq',
+      workingTools: ['kidokezo cha msamiati', 'ushahidi wa matini', 'nafasi ya jibu'],
+      visualPrompt: `Onyesha swali hili kwenye ubao wa darasa la Kiswahili likiwa na vidokezo vya matini na nafasi ya jibu.\n\n${question.excerpt || question.question}`,
+    }
+  }
+
+  if (/english|literacy/.test(subject)) {
+    return {
+      sceneType: 'Library Reading Corner',
+      background: 'Reading table with a notice board',
+      style: gradeStyle,
+      objects: ['storybook', 'newspaper', 'school magazine', 'dictionary', 'notice board'],
+      diagram: 'reading extract board',
+      interactionType: question.answerMode === 'essay' ? 'short-working' : 'mcq',
+      workingTools: ['vocabulary clue', 'evidence notes', 'answer box'],
+      visualPrompt: `Display the English task as a reading-corner board with the text evidence and answer area.\n\n${question.excerpt || question.question}`,
+    }
+  }
+
+  if (/pre-technical|technical/.test(subject)) {
+    return {
+      sceneType: 'Pre-Technical Workshop',
+      background: 'Workshop bench and engineering drawing board',
+      style: gradeStyle,
+      objects: ['measuring tape', 'ruler', 'spanner', 'safety sign', 'drawing board'],
+      diagram: 'tool sketch, safety layout or measurement drawing',
+      interactionType: 'mcq',
+      workingTools: ['measurement helper', 'safety clue', 'answer box'],
+      visualPrompt: `Render this as a workshop challenge with labelled tools, safety clues and an answer box.\n\n${question.excerpt || question.question}`,
+    }
+  }
+
+  return {
+    sceneType: 'CBC Interactive Learning Studio',
+    background: 'Smart classroom board with labelled visual clues',
+    style: gradeStyle,
+    objects: ['smart board', 'notebook', 'label cards', 'teacher pointer'],
+    diagram: 'labelled learning scene',
+    interactionType: question.answerMode === 'essay' ? 'short-working' : 'mcq',
+    workingTools: ['thinking clue', 'working area', 'answer box'],
+    visualPrompt: `Turn this CBC question into a practical scene with labelled clues and a visible answer area.\n\n${question.excerpt || question.question}`,
+  }
 }
 
 function saveSession(data: SavedSession) {
   try { localStorage.setItem(SESSION_KEY, JSON.stringify(data)) } catch {}
+}
+
+function SceneIllustration({ scene, accentColor }: { scene: VisualScene; accentColor: string }) {
+  const text = `${scene.sceneType || ''} ${scene.background || ''} ${scene.diagram || ''} ${scene.visualPrompt || ''}`.toLowerCase()
+  const isMath = /math|graph|coordinate|measurement|speed|velocity|acceleration|geometry|circle|radius|diameter|chord|circumference/.test(text)
+  const isCircle = /circle|radius|diameter|chord|circumference/.test(text)
+  const isMotion = /speed|velocity|acceleration|car|motion/.test(text)
+  const isStats = /statistics|histogram|bar graph|data handling|frequency|table/.test(text)
+  const isScience = /science|laboratory|lab|circuit|microscope|apparatus|beaker/.test(text)
+  const isMap = /map|kenya|globe|social|weather|population|timeline/.test(text)
+  const isLanguage = /library|reading|english|kiswahili|darasa|ubao|fasihi|shairi|storybook/.test(text)
+  const isWorkshop = /workshop|technical|tool|safety|drawing board|engineering/.test(text)
+  const boardBg = /grade 6/i.test(scene.style || '')
+    ? 'linear-gradient(135deg, #0f766e, #0369a1)'
+    : 'linear-gradient(135deg, #0f172a, #1e293b)'
+
+  return (
+    <div className="relative min-h-[230px] overflow-hidden rounded-2xl border" style={{ borderColor: `${accentColor}66`, background: 'linear-gradient(135deg, rgba(226,232,240,0.92), rgba(248,250,252,0.98))' }}>
+      <div className="absolute inset-x-0 bottom-0 h-16" style={{ background: 'linear-gradient(180deg, rgba(148,163,184,0.18), rgba(100,116,139,0.35))' }} />
+      <div className="absolute left-4 top-4 right-4 bottom-10 rounded-xl border-4 shadow-2xl" style={{ borderColor: '#7c2d12', background: boardBg }}>
+        <div className="absolute inset-3 rounded-lg border border-white/10" />
+        <div className="absolute left-4 top-3 text-[10px] font-black uppercase tracking-widest text-slate-200">{scene.background || scene.sceneType}</div>
+
+        {isMath && (
+          <div className="absolute inset-8 top-9 rounded-lg bg-white/95 p-3 shadow-inner">
+            <div className="absolute inset-3 opacity-50" style={{ backgroundImage: 'linear-gradient(#cbd5e1 1px, transparent 1px), linear-gradient(90deg, #cbd5e1 1px, transparent 1px)', backgroundSize: '18px 18px' }} />
+            {isCircle ? (
+              <>
+                <div className="absolute left-1/2 top-1/2 h-32 w-32 -translate-x-1/2 -translate-y-1/2 rounded-full border-4" style={{ borderColor: accentColor }} />
+                <div className="absolute left-1/2 top-1/2 h-0.5 w-16 origin-left" style={{ background: accentColor }} />
+                <div className="absolute left-[calc(50%-50px)] top-[calc(50%+30px)] h-0.5 w-24 -rotate-12 bg-rose-500" />
+                <div className="absolute left-[calc(50%+12px)] top-[calc(50%-13px)] text-[10px] font-black text-slate-700">r = 6 cm</div>
+                <div className="absolute left-[calc(50%-62px)] top-[calc(50%+45px)] text-[10px] font-black text-rose-600">chord = 8 cm</div>
+                <div className="absolute bottom-3 left-8 text-[10px] font-black text-slate-700">diameter = 2 x radius</div>
+              </>
+            ) : isStats ? (
+              <>
+                <div className="absolute bottom-8 left-8 right-8 h-0.5 bg-slate-800" />
+                <div className="absolute bottom-8 left-8 top-8 w-0.5 bg-slate-800" />
+                {[44, 82, 120, 158].map((left, index) => (
+                  <div key={left} className="absolute bottom-8 w-8 rounded-t" style={{ left, height: 34 + index * 18, background: index % 2 ? accentColor : '#38bdf8' }} />
+                ))}
+                <div className="absolute bottom-3 left-9 text-[10px] font-black text-slate-700">data categories</div>
+              </>
+            ) : (
+              <>
+                <div className="absolute bottom-8 left-8 right-8 h-0.5 bg-slate-800" />
+                <div className="absolute bottom-8 left-8 top-8 w-0.5 bg-slate-800" />
+                <div className="absolute bottom-8 left-8 h-24 w-44 border-l-0 border-b-0" style={{ clipPath: isMotion ? 'polygon(0 100%, 100% 10%, 100% 18%, 0 100%)' : 'polygon(0 70%, 35% 25%, 70% 72%, 100% 36%, 100% 43%, 70% 80%, 35% 33%, 0 78%)', background: accentColor }} />
+                <div className="absolute bottom-3 left-9 text-[10px] font-black text-slate-700">{isMotion ? 'time' : 'x-axis'}</div>
+                <div className="absolute left-2 top-8 rotate-[-90deg] text-[10px] font-black text-slate-700">{isMotion ? 'velocity' : 'y-axis'}</div>
+                {isMotion && (
+                  <div className="absolute bottom-9 left-10 h-4 w-8 rounded-sm bg-rose-500 shadow-md">
+                    <div className="absolute -top-2 left-1 h-2 w-5 rounded-t bg-rose-300" />
+                    <div className="absolute -bottom-1 left-1 h-2 w-2 rounded-full bg-slate-800" />
+                    <div className="absolute -bottom-1 right-1 h-2 w-2 rounded-full bg-slate-800" />
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {isScience && !isMath && (
+          <div className="absolute inset-x-8 bottom-8 top-12">
+            <div className="absolute bottom-0 left-0 right-0 h-10 rounded bg-amber-800" />
+            <div className="absolute bottom-10 left-7 h-20 w-14 rounded-b-xl border-4 border-cyan-200 bg-cyan-300/40" />
+            <div className="absolute bottom-10 left-28 h-20 w-28 rounded-xl border border-white/30 bg-slate-900">
+              <div className="absolute left-4 top-8 h-1 w-20 bg-yellow-300" />
+              <div className="absolute left-4 top-8 h-8 w-1 bg-yellow-300" />
+              <div className="absolute right-4 top-8 h-8 w-1 bg-yellow-300" />
+            </div>
+            <div className="absolute bottom-10 right-10 h-24 w-16 rounded-t-full border-4 border-slate-200">
+              <div className="mx-auto mt-5 h-10 w-5 rounded bg-slate-200" />
+            </div>
+          </div>
+        )}
+
+        {isMap && !isMath && !isScience && (
+          <div className="absolute inset-8 top-11 rounded-lg bg-emerald-50 p-4">
+            <div className="absolute left-12 top-8 h-28 w-24 rotate-12 rounded-[45%] border-4 border-emerald-600 bg-emerald-200" />
+            <div className="absolute left-28 top-16 h-16 w-12 rounded-[45%] border-4 border-emerald-600 bg-emerald-200" />
+            <div className="absolute right-8 top-8 h-20 w-28 rounded-lg bg-white shadow">
+              <div className="m-3 h-3 w-20 rounded bg-sky-400" />
+              <div className="mx-3 h-3 w-14 rounded bg-amber-400" />
+              <div className="mx-3 mt-2 h-3 w-24 rounded bg-rose-400" />
+            </div>
+          </div>
+        )}
+
+        {isLanguage && !isMath && !isScience && !isMap && (
+          <div className="absolute inset-8 top-11 grid grid-cols-[1fr_120px] gap-4">
+            <div className="rounded-lg bg-amber-50 p-4 shadow-inner">
+              <div className="mb-2 h-2 w-3/4 rounded bg-slate-500" />
+              <div className="mb-2 h-2 w-5/6 rounded bg-slate-400" />
+              <div className="mb-2 h-2 w-2/3 rounded bg-slate-400" />
+              <div className="h-2 w-4/5 rounded bg-slate-400" />
+            </div>
+            <div className="relative rounded-lg bg-orange-100 shadow">
+              <div className="absolute left-7 top-8 h-24 w-14 rounded bg-orange-500" />
+              <div className="absolute left-10 top-6 h-24 w-14 rounded bg-sky-500" />
+              <div className="absolute left-4 top-12 h-24 w-14 rounded bg-emerald-500" />
+            </div>
+          </div>
+        )}
+
+        {isWorkshop && !isMath && !isScience && !isMap && !isLanguage && (
+          <div className="absolute inset-8 top-11 rounded-lg bg-stone-100 p-4">
+            <div className="absolute left-8 top-10 h-24 w-36 rounded border-2 border-slate-500 bg-white">
+              <div className="absolute left-4 top-5 h-14 w-20 rotate-12 border-2 border-blue-500" />
+              <div className="absolute left-8 bottom-5 h-1 w-24 bg-blue-500" />
+            </div>
+            <div className="absolute right-8 top-14 h-4 w-28 rotate-45 rounded bg-slate-700" />
+            <div className="absolute right-16 bottom-12 h-12 w-12 rounded-full border-8 border-amber-500" />
+          </div>
+        )}
+      </div>
+      <div className="absolute bottom-4 left-1/2 h-2 w-48 -translate-x-1/2 rounded bg-amber-900" />
+    </div>
+  )
+}
+
+function VisualSceneCard({ scene, accentColor }: { scene: VisualScene; accentColor?: string }) {
+  const accent = accentColor || '#2563eb'
+  const groupedTable = extractGroupedTable(scene.visualPrompt || '')
+  const toolChips = (scene.workingTools || []).slice(0, 3).filter(Boolean)
+
+  return (
+    <div className="mb-5 overflow-hidden rounded-2xl border text-left" style={{ borderColor: `${accent}55`, background: 'var(--card)' }}>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3" style={{ borderColor: 'var(--card-border)', background: `${accent}12` }}>
+        <div>
+          <div className="text-[10px] font-black uppercase tracking-widest" style={{ color: accent }}>
+            Learning scene
+          </div>
+          <div className="text-sm font-black" style={{ color: 'var(--text)' }}>
+            {scene.sceneType || 'CBC Visual Classroom'}
+          </div>
+        </div>
+        {scene.style && (
+          <span className="rounded-full px-2 py-1 text-[9px] font-black uppercase tracking-widest" style={{ background: `${accent}18`, color: accent }}>
+            {scene.style}
+          </span>
+        )}
+      </div>
+      <div className="p-4 pb-0">
+        <SceneIllustration scene={scene} accentColor={accent} />
+      </div>
+      {groupedTable && (
+        <div className="m-4 overflow-hidden rounded-xl border" style={{ borderColor: 'var(--card-border)' }}>
+          <div className="grid grid-cols-3 px-3 py-2 text-[10px] font-black uppercase tracking-widest" style={{ background: `${accent}18`, color: accent }}>
+            <span>Class interval</span>
+            <span>Frequency</span>
+            <span>Midpoint</span>
+          </div>
+          {groupedTable.map(row => (
+            <div key={row.interval} className="grid grid-cols-3 px-3 py-2 text-xs font-bold" style={{ borderTop: '1px solid var(--card-border)', color: 'var(--text)' }}>
+              <span>{row.interval}</span>
+              <span>{row.frequency}</span>
+              <span>{row.midpoint}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {toolChips.length > 0 && (
+        <div className="flex flex-wrap gap-2 px-4 pb-4">
+          {toolChips.map(chip => (
+            <span key={chip} className="rounded-lg px-2 py-1 text-[9px] font-black uppercase tracking-wider" style={{ background: `${accent}14`, color: accent }}>
+              {chip}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function CoachWorkout({ explanation, correct, accentColor }: { explanation: string; correct: boolean; accentColor?: string }) {
+  const accent = accentColor || '#0ea5e9'
+  const steps = buildWorkoutSteps(explanation)
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+      className="mt-6 overflow-hidden rounded-2xl border text-left" style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}>
+      <div className="border-b px-5 py-4" style={{ borderColor: 'var(--card-border)', background: correct ? 'rgba(16,185,129,0.10)' : 'rgba(249,115,22,0.10)' }}>
+        <div className="text-[10px] font-black uppercase tracking-widest" style={{ color: correct ? '#10B981' : '#f97316' }}>
+          {correct ? 'Mastery workout' : 'Fix-it workout'}
+        </div>
+        <div className="mt-1 text-sm font-black" style={{ color: 'var(--text)' }}>
+          {correct ? 'Strong answer. Here is the method to lock it in.' : 'This is how to rebuild the idea step by step.'}
+        </div>
+      </div>
+      <div className="space-y-3 px-5 py-4">
+        {steps.length > 0 ? steps.map((step, index) => (
+          <div key={`${index}-${step}`} className="flex gap-3 rounded-xl border p-3" style={{ borderColor: 'var(--card-border)', background: 'var(--input)' }}>
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-black text-white" style={{ background: accent }}>
+              {index + 1}
+            </div>
+            <p className="text-sm font-semibold leading-relaxed" style={{ color: 'var(--text)' }}>{step}</p>
+          </div>
+        )) : (
+          <p className="text-sm font-semibold leading-relaxed" style={{ color: 'var(--text)' }}>{explanation}</p>
+        )}
+      </div>
+    </motion.div>
+  )
 }
 
 function loadSession(): SavedSession | null {
@@ -76,6 +490,15 @@ function loadSession(): SavedSession | null {
 
 function clearSession() {
   try { localStorage.removeItem(SESSION_KEY) } catch {}
+}
+
+function buildSessionKey(studentId: string | undefined, subjects: string[], mode: TrainingMode, setBook: string) {
+  return [
+    studentId || 'guest',
+    subjects.slice().sort().join('|') || 'none',
+    mode,
+    setBook || 'none',
+  ].join('::')
 }
 
 export default function DailyBrainGym() {
@@ -96,6 +519,8 @@ export default function DailyBrainGym() {
   const [savedSession, setSavedSession] = useState<SavedSession | null>(null)
   const [allSubjects, setAllSubjects] = useState<string[]>([])
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([])
+  const [trainingMode, setTrainingMode] = useState<TrainingMode>('mixed')
+  const [selectedSetBook, setSelectedSetBook] = useState('')
   const abandonTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -108,9 +533,12 @@ export default function DailyBrainGym() {
       setAllSubjects(subjects)
       setSelectedSubjects(subjects.slice(0, 1))
       const saved = loadSession()
-      if (saved && saved.studentId === student.id && saved.questions?.length > 0) {
+      const defaultSessionKey = buildSessionKey(student.id, subjects.slice(0, 1), 'mixed', '')
+      if (saved && saved.studentId === student.id && saved.sessionKey === defaultSessionKey && saved.questions?.length > 0) {
         setSavedSession(saved)
         setGameState('resuming')
+      } else if (saved && (!saved.sessionKey || saved.studentId !== student.id || saved.sessionKey !== defaultSessionKey)) {
+        clearSession()
       }
       setLoading(false)
     })
@@ -118,9 +546,38 @@ export default function DailyBrainGym() {
 
   useEffect(() => {
     if (gameState !== 'playing' || !student?.id || questions.length === 0) return
-    const session: SavedSession = { questions, currentQIndex, score, answers, startedAt: Date.now(), studentId: student.id }
+    const session: SavedSession = {
+      questions,
+      currentQIndex,
+      score,
+      answers,
+      startedAt: Date.now(),
+      studentId: student.id,
+      sessionKey: buildSessionKey(student.id, selectedSubjects, trainingMode, selectedSetBook),
+    }
     saveSession(session)
-  }, [currentQIndex, score, answers, gameState, questions, student?.id])
+  }, [currentQIndex, score, answers, gameState, questions, student?.id, selectedSubjects, trainingMode, selectedSetBook])
+
+  useEffect(() => {
+    const isAvailable = TRAINING_MODES.some(mode => {
+      if (mode.id !== trainingMode) return false
+      if (!mode.subjects || selectedSubjects.length === 0) return true
+      return selectedSubjects.some(subject => mode.subjects!.test(subject))
+    })
+    if (!isAvailable) setTrainingMode('mixed')
+  }, [selectedSubjects, trainingMode])
+
+  useEffect(() => {
+    if (!selectedSetBook) return
+    const subjectText = selectedSubjects.map(subject => subject.toLowerCase()).join(' ')
+    const stillAvailable = KCSE_844_SET_BOOKS.some(book => {
+      if (book.title !== selectedSetBook) return false
+      if (book.subject === 'English') return /english|literature/.test(subjectText)
+      if (book.subject === 'Kiswahili') return /kiswahili/.test(subjectText)
+      return false
+    })
+    if (!stillAvailable) setSelectedSetBook('')
+  }, [selectedSubjects, selectedSetBook])
 
   const scheduleAbandonReminder = useCallback(() => {
     if (abandonTimerRef.current) clearTimeout(abandonTimerRef.current)
@@ -172,9 +629,20 @@ export default function DailyBrainGym() {
     clearSession()
     setSavedSession(null)
     setLoadingQuestions(true)
+    setQuestions([])
+    setCurrentQIndex(0)
+    setScore(0)
+    setAnswers({})
+    setSelectedAnswer(null)
+    setIsAnswered(false)
+    setEssayDraft('')
+    setEssayFeedback(null)
     try {
       const seen = loadSeenFingerprints()
-      const q = await generateBrainGymQuestions(student?.id, 'brain_gym', subjects, seen)
+      const q = await generateBrainGymQuestions(student?.id, 'brain_gym', subjects, seen, {
+        trainingMode,
+        selectedSetBook: getSelectedSetBookForRequest(),
+      })
       setQuestions(q)
       const newFps = q.map(qq => {
         const text = (qq as any).question || ''
@@ -187,6 +655,8 @@ export default function DailyBrainGym() {
       setAnswers({})
       setSelectedAnswer(null)
       setIsAnswered(false)
+      setEssayDraft('')
+      setEssayFeedback(null)
     } catch {
       toast.error('Failed to load questions. Please try again.')
     } finally {
@@ -196,9 +666,133 @@ export default function DailyBrainGym() {
 
   const currentQuestion = questions[currentQIndex]
   const adaptive = currentQuestion?.adaptive
+  const isEssayQuestion = currentQuestion?.answerMode === 'essay'
+  const currentIsCorrect = Boolean(currentQuestion && answers[currentQIndex] === currentQuestion.correctAnswer)
+  const writingPromptLabel = currentQuestion?.subject === 'Kiswahili'
+    ? 'Maswali'
+    : /poetry|poem/i.test(`${currentQuestion?.topic || ''} ${currentQuestion?.subtopic || ''}`)
+      ? 'Questions'
+      : 'Writing Task'
+  const rubricLabel = currentQuestion?.subject === 'Kiswahili'
+    ? 'Mgawanyo wa Alama'
+    : 'KCSE Marking Criteria'
+  const essayWordCount = essayDraft.trim().split(/\s+/).filter(Boolean).length
+  const essayMinWords = currentQuestion?.maxMarks && currentQuestion.maxMarks >= 20 ? 120 : 60
   const selectedSubjectLabel = selectedSubjects.length === allSubjects.length
     ? 'Mixed session'
     : selectedSubjects.join(', ')
+  const selectedSubjectText = selectedSubjects.join(' ')
+  const allSubjectText = allSubjects.join(' ')
+  const isCbcSelection = /cbc|kpsea|kjsea|grade\s*[1-9]|integrated science|science & technology|pre-technical|agriculture & nutrition|social studies/i.test(selectedSubjectText || allSubjectText)
+  const currentIsCbcLike = Boolean(currentQuestion) && (
+    isCbcSelection ||
+    currentQuestion.examStandard === 'cbc_standard' ||
+    subjectIsCbcLike(`${currentQuestion.subject || ''} ${currentQuestion.topic || ''}`)
+  )
+  const currentVisualScene = currentQuestion
+    ? (visualSceneFitsQuestion(currentQuestion, currentQuestion.visualScene)
+        ? currentQuestion.visualScene
+        : (currentIsCbcLike ? getClientVisualEnvironment(currentQuestion, `${selectedSubjectText} ${allSubjectText} ${adaptive?.profileLabel || ''}`) : undefined))
+    : undefined
+  const hasKcseLanguageSelection = /^(?=.*(?:english|kiswahili|literature))(?!.*cbc).*/i.test(selectedSubjectText)
+  const languageLaneIds: TrainingMode[] = [
+    'setbook',
+    'excerpt',
+    'essay',
+    'poetry',
+    'ushairi',
+    'character_analysis',
+    'theme_analysis',
+    'style_analysis',
+    'context_questions',
+    'character_relationships',
+    'plot_revision',
+    'timed_mock',
+    'kcse_prediction',
+    'random_challenge',
+  ]
+  const availableTrainingModes = TRAINING_MODES.filter(mode => {
+    if (languageLaneIds.includes(mode.id)) return true
+    if (!mode.subjects || selectedSubjects.length === 0) return true
+    return selectedSubjects.some(subject => mode.subjects!.test(subject))
+  })
+  const coreTrainingModes = TRAINING_MODES.filter(mode =>
+    ['mixed', 'structured'].includes(mode.id) ||
+    (mode.id === 'biology_essay' && !isCbcSelection && /biology/i.test(selectedSubjectText))
+  )
+  const poetryStudios = TRAINING_MODES.filter(mode =>
+    !isCbcSelection && ['poetry', 'ushairi'].includes(mode.id)
+  )
+  const setBookPracticeModes = TRAINING_MODES.filter(mode =>
+    ['excerpt', 'essay', 'character_analysis', 'theme_analysis', 'style_analysis', 'context_questions', 'character_relationships', 'plot_revision', 'timed_mock'].includes(mode.id)
+  )
+  const setBookSubjects = selectedSubjects.map(subject => subject.toLowerCase()).join(' ')
+  const availableSetBooks = KCSE_844_SET_BOOKS.filter(book => {
+    if (isCbcSelection || !hasKcseLanguageSelection) return false
+    if (!/english|kiswahili|literature/.test(setBookSubjects)) return true
+    if (book.subject === 'English') return /english|literature/.test(setBookSubjects)
+    if (book.subject === 'Kiswahili') return /kiswahili/.test(setBookSubjects)
+    return false
+  })
+  const selectedBook = KCSE_844_SET_BOOKS.find(item => item.title === selectedSetBook)
+  const usesSetBookLane = Boolean(selectedSetBook) && setBookPracticeModes.some(mode => mode.id === trainingMode)
+
+  const pickSubjectForBook = (bookSubject: string) => {
+    const existing = allSubjects.find(subject => new RegExp(bookSubject, 'i').test(subject))
+    return existing || bookSubject
+  }
+
+  const activateLanguageLane = (mode: TrainingMode) => {
+    if (gameState !== 'playing') {
+      clearSession()
+      setSavedSession(null)
+    }
+    setTrainingMode(mode)
+    if (mode === 'ushairi') {
+      setSelectedSetBook('')
+      setSelectedSubjects([pickSubjectForBook('Kiswahili')])
+    } else if (mode === 'poetry') {
+      setSelectedSetBook('')
+      setSelectedSubjects([pickSubjectForBook('English')])
+    } else if (!/english|kiswahili|literature/i.test(selectedSubjects.join(' '))) {
+      setSelectedSubjects([pickSubjectForBook('English')])
+    }
+  }
+
+  const selectSetBook = (title: string, subject: string) => {
+    if (gameState !== 'playing') {
+      clearSession()
+      setSavedSession(null)
+    }
+    setSelectedSetBook(title)
+    setTrainingMode('excerpt')
+    setSelectedSubjects([pickSubjectForBook(subject)])
+  }
+
+  const activateCoreLane = (mode: TrainingMode) => {
+    if (gameState !== 'playing') {
+      clearSession()
+      setSavedSession(null)
+    }
+    setSelectedSetBook('')
+    setTrainingMode(mode)
+  }
+
+  const getSessionSubjects = () => {
+    if (usesSetBookLane && selectedSetBook) {
+      const book = KCSE_844_SET_BOOKS.find(item => item.title === selectedSetBook)
+      if (book) return [pickSubjectForBook(book.subject)]
+    }
+
+    if (languageLaneIds.includes(trainingMode) && !/english|kiswahili|literature/i.test(selectedSubjects.join(' '))) {
+      if (trainingMode === 'ushairi') return [pickSubjectForBook('Kiswahili')]
+      return [pickSubjectForBook('English')]
+    }
+
+    return selectedSubjects
+  }
+
+  const getSelectedSetBookForRequest = () => usesSetBookLane ? selectedSetBook : undefined
 
   const resumeSession = () => {
     if (!savedSession) return
@@ -252,7 +846,21 @@ export default function DailyBrainGym() {
     clearSession()
     setGameState('completed')
     try {
-      const result = await submitBrainGymScore(student.id, score, totalQuestions)
+      const masterySignals = questions.map((question, index) => {
+        const chosen = answers[index]
+        const isCorrect = chosen === question.correctAnswer
+        const marksAvailable = Math.max(1, question.answerMode === 'essay' ? Math.round((question.maxMarks || 20) / 10) : 1)
+        return {
+          curriculum: question.examStandard?.includes('cbc') ? 'CBC' : '8-4-4/KCSE',
+          subject: question.subject,
+          topic: question.topic,
+          subtopic: question.subtopic || question.sourceText,
+          syllabusOutcome: [question.topic, question.subtopic || question.sourceText].filter(Boolean).join(': '),
+          marksAvailable,
+          marksEarned: isCorrect ? marksAvailable : 0,
+        }
+      })
+      const result = await submitBrainGymScore(student.id, score, totalQuestions, masterySignals)
       setStreakData(prev => ({
         current_streak: result.streak,
         highest_streak: prev ? Math.max(prev.highest_streak, result.streak) : result.streak,
@@ -265,8 +873,8 @@ export default function DailyBrainGym() {
 
   const submitEssay = async () => {
     if (!currentQuestion || markingEssay || isAnswered) return
-    if (essayDraft.trim().split(/\s+/).filter(Boolean).length < 25) {
-      toast.error('Write a fuller answer before submitting.')
+    if (essayWordCount < essayMinWords) {
+      toast.error(`Write at least ${essayMinWords} words before submitting.`)
       return
     }
     setMarkingEssay(true)
@@ -279,9 +887,9 @@ export default function DailyBrainGym() {
         maxMarks: currentQuestion.maxMarks,
       })
       setEssayFeedback(feedback)
-      setAnswers(prev => ({ ...prev, [currentQIndex]: essayDraft }))
       setIsAnswered(true)
       const passed = feedback.percentage >= 50
+      setAnswers(prev => ({ ...prev, [currentQIndex]: passed ? currentQuestion.correctAnswer : essayDraft }))
       if (passed) setScore(prev => prev + 1)
       toast.success(`Essay marked: ${feedback.marks}/${feedback.maxMarks} (${feedback.grade})`)
     } catch {
@@ -373,9 +981,153 @@ export default function DailyBrainGym() {
               </div>
             )}
 
+            <div className="w-full max-w-4xl mb-8 space-y-5 text-left">
+              <div>
+                <div className="text-xs font-black mb-3 flex items-center gap-1" style={{ color: 'var(--text)' }}>
+                  <PenLine size={14} /> Core workout
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                  {coreTrainingModes.map(mode => {
+                    const isSelected = trainingMode === mode.id && !selectedSetBook
+                    return (
+                      <button
+                        key={mode.id}
+                        onClick={() => activateCoreLane(mode.id)}
+                        className={`min-h-[72px] rounded-2xl border p-3 text-left transition-all ${
+                          isSelected
+                            ? 'border-orange-500 bg-orange-500/15 text-orange-500'
+                            : 'border-[var(--card-border)] bg-[var(--card)] text-[var(--text)]'
+                        }`}
+                      >
+                        <div className="text-xs font-black">{mode.label}</div>
+                        <div className="mt-1 text-[10px] font-semibold" style={{ color: isSelected ? '#f97316' : 'var(--text-muted)' }}>
+                          {mode.description}
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {isCbcSelection && (
+                <div className="rounded-2xl border p-4" style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}>
+                  <div className="text-xs font-black mb-2 flex items-center gap-1" style={{ color: 'var(--text)' }}>
+                    <Zap size={14} /> CBC visual gym
+                  </div>
+                  <p className="text-xs font-semibold leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                    This session uses KPSEA/KJSEA-style blackboard sketches, tables, maps, diagrams, practical scenarios and short reasoning from the registered CBC subjects.
+                  </p>
+                  <div className="mt-3 grid gap-2 md:grid-cols-3">
+                    {['Blackboard working', 'Diagrams and tables', 'Competency reasoning'].map(item => (
+                      <div key={item} className="rounded-xl px-3 py-2 text-[10px] font-black uppercase tracking-wider" style={{ background: 'var(--input)', color: 'var(--text-muted)' }}>
+                        {item}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {poetryStudios.length > 0 && (
+              <div>
+                <div className="text-xs font-black mb-3 flex items-center gap-1" style={{ color: 'var(--text)' }}>
+                  <BookOpen size={14} /> Poetry labs
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {poetryStudios.map(mode => {
+                    const isSelected = trainingMode === mode.id
+                    return (
+                      <button
+                        key={mode.id}
+                        onClick={() => activateLanguageLane(mode.id)}
+                        className={`min-h-[78px] rounded-2xl border p-3 text-left transition-all ${
+                          isSelected
+                            ? 'border-orange-500 bg-orange-500/15 text-orange-500'
+                            : 'border-[var(--card-border)] bg-[var(--card)] text-[var(--text)]'
+                        }`}
+                      >
+                        <div className="text-xs font-black">{mode.label}</div>
+                        <div className="mt-1 text-[10px] font-semibold" style={{ color: isSelected ? '#f97316' : 'var(--text-muted)' }}>
+                          {mode.id === 'poetry'
+                            ? 'Original 3-4 stanza English poem, then KCSE Paper 2 questions'
+                            : 'Original 3-4 beti shairi, then vina, mizani, dhamira and mbinu questions'}
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+              )}
+
+              {availableSetBooks.length > 0 && (
+                <div>
+                  <div className="text-xs font-black mb-3 flex items-center gap-1" style={{ color: 'var(--text)' }}>
+                    <BookOpen size={14} /> Set book shelf
+                  </div>
+                  <p className="mb-3 text-xs" style={{ color: 'var(--text-muted)' }}>
+                    Pick one book first. Then choose the exact drill: excerpt, essay, characters, themes, style, context or mock.
+                  </p>
+                  <div className="grid gap-2 md:grid-cols-4">
+                  {availableSetBooks.map(book => {
+                    const isSelected = selectedSetBook === book.title
+                    return (
+                      <button
+                        key={book.title}
+                        onClick={() => selectSetBook(book.title, book.subject)}
+                        className={`min-h-[82px] rounded-2xl border p-3 text-left transition-all ${
+                          isSelected
+                            ? 'border-orange-500 bg-orange-500/15 text-orange-500'
+                            : 'border-[var(--card-border)] bg-[var(--card)] text-[var(--text)]'
+                        }`}
+                      >
+                        <div className="text-xs font-black">{book.title}</div>
+                        <div className="mt-1 text-[10px] font-semibold" style={{ color: isSelected ? '#f97316' : 'var(--text-muted)' }}>
+                          {book.author ? `${book.author} · ` : ''}{book.genre.replace('_', ' ')}
+                        </div>
+                      </button>
+                    )
+                  })}
+                  </div>
+
+                  {selectedBook && (
+                    <div className="mt-4 rounded-2xl border p-4" style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}>
+                      <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <div className="text-sm font-black" style={{ color: 'var(--text)' }}>{selectedBook.title}</div>
+                          <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+                            {selectedBook.subject} set book studio
+                          </div>
+                        </div>
+                        <div className="text-[10px] font-bold" style={{ color: 'var(--text-muted)' }}>
+                          Active drill: {TRAINING_MODES.find(mode => mode.id === trainingMode)?.label || 'Excerpt'}
+                        </div>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
+                        {setBookPracticeModes.map(mode => {
+                          const isSelected = trainingMode === mode.id
+                          return (
+                            <button
+                              key={mode.id}
+                              onClick={() => setTrainingMode(mode.id)}
+                              className={`rounded-xl border px-3 py-2 text-left text-[10px] font-black transition-all ${
+                                isSelected
+                                  ? 'border-orange-500 bg-orange-500/15 text-orange-500'
+                                  : 'border-[var(--card-border)] bg-[var(--input)] text-[var(--text-muted)]'
+                              }`}
+                            >
+                              {mode.label}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             <Button size="lg"
               className="rounded-3xl px-12 py-6 text-lg shadow-xl shadow-primary/20 bg-gradient-to-r from-orange-500 to-rose-500 border-none hover:scale-105 transition-transform"
-              onClick={() => startGame(selectedSubjects)} disabled={loadingQuestions || selectedSubjects.length === 0}>
+              onClick={() => startGame(getSessionSubjects())} disabled={loadingQuestions || getSessionSubjects().length === 0}>
               {loadingQuestions ? (
                 <div className="flex items-center gap-2">
                   <div className="w-5 h-5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
@@ -441,7 +1193,7 @@ export default function DailyBrainGym() {
               </div>
             </div>
 
-            <Card className={`p-8 md:p-12 text-center relative overflow-hidden shadow-2xl ${adaptive?.cardClassName || ''}`}>
+            <Card className={`p-5 md:p-8 relative overflow-hidden shadow-2xl ${isEssayQuestion ? 'text-left' : 'text-center'} ${adaptive?.cardClassName || ''}`}>
               <div className="absolute top-0 left-0 w-full h-1" style={{ background: adaptive?.accentColor || '#f97316' }} />
               {adaptive && (
                 <div className="mb-3 text-[10px] font-black uppercase tracking-widest" style={{ color: adaptive.accentColor }}>
@@ -472,7 +1224,23 @@ export default function DailyBrainGym() {
                   )}
                 </div>
               )}
-              <h2 className="text-xl md:text-2xl font-black mb-8 leading-snug" style={{ color: adaptive?.cardClassName?.includes('slate-950') ? '#f8fafc' : 'var(--text)' }}>
+              {isEssayQuestion && (
+                <div className="mb-4 flex flex-wrap items-center gap-2 rounded-2xl border p-3" style={{ background: 'rgba(249,115,22,0.1)', borderColor: 'rgba(249,115,22,0.25)' }}>
+                  <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-orange-500">
+                    <PenLine size={14} /> Writing practice
+                  </span>
+                  <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+                    <TimerOff size={14} /> No speed timer
+                  </span>
+                  <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+                    {currentQuestion.maxMarks || 20} marks
+                  </span>
+                </div>
+              )}
+              {currentVisualScene && (
+                <VisualSceneCard scene={currentVisualScene} accentColor={adaptive?.accentColor} />
+              )}
+              <h2 className={`${isEssayQuestion ? 'text-lg md:text-xl mb-5' : 'text-xl md:text-2xl mb-8 text-center'} font-black leading-snug`} style={{ color: adaptive?.cardClassName?.includes('slate-950') ? '#f8fafc' : 'var(--text)' }}>
                 {currentQuestion.question}
               </h2>
               {(currentQuestion.excerpt || currentQuestion.sourceText) && (
@@ -494,7 +1262,7 @@ export default function DailyBrainGym() {
                   {currentQuestion.essayPrompt && (
                     <div className="rounded-2xl border p-4" style={{ background: 'var(--input)', borderColor: 'var(--card-border)' }}>
                       <div className="mb-1 text-[10px] font-black uppercase tracking-widest" style={{ color: adaptive?.accentColor || '#f97316' }}>
-                        Essay Prompt
+                        {writingPromptLabel}
                       </div>
                       <p className="text-sm font-bold" style={{ color: 'var(--text)' }}>{currentQuestion.essayPrompt}</p>
                       {currentQuestion.maxMarks && (
@@ -504,18 +1272,36 @@ export default function DailyBrainGym() {
                       )}
                     </div>
                   )}
+                  {currentQuestion.markingRubric && currentQuestion.markingRubric.length > 0 && (
+                    <div className="rounded-2xl border p-4" style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}>
+                      <div className="mb-2 text-[10px] font-black uppercase tracking-widest" style={{ color: adaptive?.accentColor || '#f97316' }}>
+                        {rubricLabel}
+                      </div>
+                      <div className="grid gap-2 md:grid-cols-2">
+                        {currentQuestion.markingRubric.slice(0, 6).map(item => (
+                          <div key={item} className="flex items-start gap-2 text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>
+                            <CheckCircle2 size={14} className="mt-0.5 shrink-0 text-emerald-500" />
+                            <span>{item}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <textarea
                     value={essayDraft}
                     onChange={event => setEssayDraft(event.target.value)}
                     disabled={isAnswered || markingEssay}
-                    rows={9}
-                    className="w-full resize-none rounded-2xl border-2 p-4 text-sm font-semibold outline-none transition-all focus:border-orange-500"
+                    rows={16}
+                    className="w-full min-h-[320px] resize-y rounded-2xl border-2 p-5 text-base font-semibold leading-relaxed outline-none transition-all focus:border-orange-500"
                     style={{ background: 'var(--input)', borderColor: 'var(--card-border)', color: 'var(--text)' }}
-                    placeholder="Write your answer here..."
+                    placeholder="Write your full response here. Use paragraphs, evidence and clear explanation..."
                   />
                   {!isAnswered && (
-                    <div className="flex justify-end">
-                      <Button onClick={submitEssay} disabled={markingEssay} size="lg" className="rounded-2xl px-8">
+                    <div className="sticky bottom-4 z-10 flex flex-col gap-3 rounded-2xl border p-3 backdrop-blur md:flex-row md:items-center md:justify-between" style={{ background: 'color-mix(in srgb, var(--card) 92%, transparent)', borderColor: 'var(--card-border)' }}>
+                      <div className="text-xs font-black" style={{ color: essayWordCount >= essayMinWords ? '#10B981' : 'var(--text-muted)' }}>
+                        {essayWordCount} words written · minimum {essayMinWords}
+                      </div>
+                      <Button onClick={submitEssay} disabled={markingEssay || essayWordCount < essayMinWords} size="lg" className="rounded-2xl px-8">
                         {markingEssay ? 'Marking...' : 'Submit Essay'}
                       </Button>
                     </div>
@@ -538,6 +1324,57 @@ export default function DailyBrainGym() {
                           </ul>
                         </div>
                       </div>
+                      {(essayFeedback.corrections?.length > 0 || essayFeedback.modelPoints?.length > 0) && (
+                        <div className="mt-5 grid gap-3 md:grid-cols-2">
+                          {essayFeedback.corrections?.length > 0 && (
+                            <div className="rounded-2xl border p-4" style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}>
+                              <div className="mb-2 text-[10px] font-black uppercase tracking-wider text-rose-500">Corrections</div>
+                              <ul className="space-y-1 text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>
+                                {essayFeedback.corrections.map((item: string) => <li key={item}>{item}</li>)}
+                              </ul>
+                            </div>
+                          )}
+                          {essayFeedback.modelPoints?.length > 0 && (
+                            <div className="rounded-2xl border p-4" style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}>
+                              <div className="mb-2 text-[10px] font-black uppercase tracking-wider text-sky-500">Model Points</div>
+                              <ul className="space-y-1 text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>
+                                {essayFeedback.modelPoints.map((item: string) => <li key={item}>{item}</li>)}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {essayFeedback.examinerReport?.length > 0 && (
+                        <div className="mt-5 rounded-2xl border p-4" style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}>
+                          <div className="mb-3 text-[10px] font-black uppercase tracking-wider text-emerald-500">KCSE Examiner&apos;s Report</div>
+                          <div className="space-y-2">
+                            {essayFeedback.examinerReport.map((item: any, index: number) => (
+                              <div key={`${item.questionPart}-${index}`} className="rounded-xl p-3 text-xs font-semibold" style={{ background: 'var(--input)', color: 'var(--text-muted)' }}>
+                                <div className="mb-1 flex items-center justify-between gap-2">
+                                  <span className="font-black" style={{ color: 'var(--text)' }}>{item.questionPart || `Part ${index + 1}`}</span>
+                                  {Number(item.maxMarks) > 0 && (
+                                    <span className="font-black text-emerald-500">{item.marksAwarded}/{item.maxMarks}</span>
+                                  )}
+                                </div>
+                                {item.comment}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {essayFeedback.modelAnswer && (
+                        <div className="mt-5 rounded-2xl border p-4" style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}>
+                          <div className="mb-2 text-[10px] font-black uppercase tracking-wider text-sky-500">Model KCSE Answer</div>
+                          <p className="whitespace-pre-line text-xs font-semibold leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                            {essayFeedback.modelAnswer}
+                          </p>
+                        </div>
+                      )}
+                      {essayFeedback.nextDrill && (
+                        <div className="mt-4 rounded-2xl border p-4 text-xs font-black" style={{ background: 'rgba(249,115,22,0.12)', borderColor: 'rgba(249,115,22,0.28)', color: '#f97316' }}>
+                          Next drill: {essayFeedback.nextDrill}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -556,7 +1393,10 @@ export default function DailyBrainGym() {
                       <button key={i} disabled={isAnswered} onClick={() => handleAnswer(opt)}
                         className={`p-5 rounded-2xl border-2 border-transparent text-base font-bold transition-all text-left flex items-center justify-between ${cls}`}
                         style={{ color: !isAnswered ? 'var(--text)' : undefined }}>
-                        <span>{opt}</span>
+                        <span className="mr-3 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-xs font-black" style={{ background: 'var(--card-border)', color: 'var(--text-muted)' }}>
+                          {String.fromCharCode(65 + i)}
+                        </span>
+                        <span className="flex-1">{opt}</span>
                         {isAnswered && isCorrectAnswer && <CheckCircle2 className="text-emerald-500 shrink-0 ml-2" size={20} />}
                         {isAnswered && isSelected && !isCorrectAnswer && <XCircle className="text-rose-500 shrink-0 ml-2" size={20} />}
                       </button>
@@ -565,24 +1405,15 @@ export default function DailyBrainGym() {
                 </div>
               )}
               {isAnswered && (
-                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-                  className="mt-6 p-5 rounded-2xl bg-sky-500/10 border border-sky-500/20 text-left">
-                  <p className="text-sm font-bold text-sky-600 dark:text-sky-400">
-                    <span className="font-black uppercase tracking-wider text-[10px] bg-sky-500 text-white px-2 py-1 rounded-md mr-2">Fact</span>
-                    {currentQuestion.explanation}
-                    {adaptive && (
-                      <span className="block mt-3 text-[10px] font-black uppercase tracking-wider" style={{ color: adaptive.accentColor }}>
-                        {adaptive.rewardTone}
-                      </span>
-                    )}
-                  </p>
+                <>
+                  <CoachWorkout explanation={currentQuestion.explanation} correct={currentIsCorrect} accentColor={adaptive?.accentColor} />
                   <div className="mt-5 flex justify-end">
                     <Button onClick={nextQuestion} size="lg" className="rounded-2xl px-8 shadow-lg shadow-primary/20">
                       {currentQIndex < questions.length - 1 ? 'Next Question' : 'Finish Gym'}
                       <ChevronRight className="ml-2" />
                     </Button>
                   </div>
-                </motion.div>
+                </>
               )}
             </Card>
           </motion.div>

@@ -11,6 +11,8 @@ type HFChatOptions = {
   temperature?: number
   maxTokens?: number
   responseFormat?: { type: 'json_object' }
+  retries?: number
+  timeoutMs?: number
 }
 
 type HFChatResult = {
@@ -31,15 +33,15 @@ const MODEL_CHAIN: { provider: HFChatProvider; model: string }[] = [
   },
   {
     provider: 'qwen',
-    model: process.env.HF_QWEN_MODEL || 'Qwen/Qwen2.5-72B-Instruct',
+    model: process.env.HF_QWEN_MODEL || 'Qwen/Qwen2.5-7B-Instruct',
   },
   {
     provider: 'reasoning',
-    model: process.env.HF_REASONING_MODEL || 'Qwen/Qwen3-32B',
+    model: process.env.HF_REASONING_MODEL || 'Qwen/Qwen2.5-14B-Instruct',
   },
   {
     provider: 'deepseek',
-    model: process.env.HF_DEEPSEEK_MODEL || 'deepseek-ai/DeepSeek-V3-0324',
+    model: process.env.HF_DEEPSEEK_MODEL || 'mistralai/Mistral-7B-Instruct-v0.3',
   },
 ]
 
@@ -61,6 +63,8 @@ export async function callHuggingFaceChat(
     try {
       const response = await fetchWithRetry(HUGGING_FACE_ENDPOINT, {
         method: 'POST',
+        retries: options.retries ?? 1,
+        timeoutMs: options.timeoutMs,
         headers: {
           Authorization: `Bearer ${HUGGING_FACE_TOKEN}`,
           'Content-Type': 'application/json',

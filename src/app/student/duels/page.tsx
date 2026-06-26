@@ -14,7 +14,7 @@ import {
   getPowerUpInventory, usePowerUp, buyPowerUp,
   getDuelLeaderboard, getStudentRank, getDuelHistory, getDuelAnalytics,
   getDuelAchievements, getHallOfFame, getActiveWeeklyChampionship,
-  createTournament, generateDailyDuels, cancelDuel
+  createTournament, generateDailyDuels, cancelDuel, startWeeklyHouseWarSeason
 } from '@/app/actions/duels'
 import { createDuel, joinDuel, submitDuelAnswer, advanceDuelQuestion } from '@/app/actions/duels'
 import { DuelTypeSelector } from '@/components/duels/DuelTypeSelector'
@@ -51,6 +51,7 @@ export default function DuelsPage() {
   const [myStats, setMyStats] = useState<DuelStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [searching, setSearching] = useState(false)
+  const [startingMode, setStartingMode] = useState<DuelType | null>(null)
   const [reactions, setReactions] = useState<any[]>([])
   const [availablePowerUps, setAvailablePowerUps] = useState<PowerUp[]>([])
   const [isAdvancing, setIsAdvancing] = useState(false)
@@ -63,6 +64,7 @@ export default function DuelsPage() {
   const [timeRemaining, setTimeRemaining] = useState<number | undefined>(undefined)
   const [duelResult, setDuelResult] = useState<'victory' | 'defeat' | 'draw' | null>(null)
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const duelActionRef = useRef(0)
 
   // Track question start time when question index changes
   useEffect(() => {
@@ -166,78 +168,113 @@ export default function DuelsPage() {
   // ── DUEL TYPE SELECTION ───────────────────────────────
   const handleSelectType = async (type: DuelType) => {
     if (!studentId) return
+    const actionId = ++duelActionRef.current
+    cancelledRef.current = type === 'quick' ? false : true
+    stopPolling()
+    if (type !== 'quick') {
+      void leaveMatchmaking().catch(() => {})
+      setSearching(false)
+      setSearchTime(0)
+    }
     setShowTypeSelector(false)
-    cancelledRef.current = false
+    setStartingMode(type)
 
     if (type === 'quick') {
+      cancelledRef.current = false
       setSearching(true)
       setView('matchmaking')
       const result = await joinMatchmaking({ duel_type: 'quick' })
-      if (cancelledRef.current) return
+      if (actionId !== duelActionRef.current || cancelledRef.current) return
       if ('error' in result && result.error) {
         toast.error(result.error)
         setSearching(false)
         setView('lobby')
+        setStartingMode(null)
         return
       }
       if (result.matched && result.duel) {
+        if (actionId !== duelActionRef.current || cancelledRef.current) return
         setActiveDuel(result.duel)
         setParticipants(result.duel.participants || [])
         setOpponentName(result.opponent?.full_name || 'Opponent')
         setView('duel')
         setSearching(false)
+        setStartingMode(null)
         toast.success('Match found!')
       } else {
-        startPolling()
+        startPolling(actionId)
       }
     } else if (type === 'daily') {
       const duel = await generateDailyDuels()
+      if (actionId !== duelActionRef.current) return
       if (duel) {
         setActiveDuel(duel)
         setParticipants(duel.participants || [])
         setView('duel')
+        setStartingMode(null)
       } else {
         toast.success('Daily duel ready!')
         getActiveDuels().then(setDuels)
+        setStartingMode(null)
       }
     } else if (type === 'boss') {
       try {
+        setView('waiting')
+        setOpponentName('Preparing boss battle...')
         const selectedBoss = bosses[0]
         const duel = await createDuel({
           duel_type: 'boss',
-          boss_id: selectedBoss?.id,
+          boss_id: selectedBoss?.is_virtual ? undefined : selectedBoss?.id,
+          topic: selectedBoss?.topic,
           difficulty: selectedBoss?.difficulty || 'challenge',
         })
         const full = await getDuelById(duel.id)
+        if (actionId !== duelActionRef.current) return
         setActiveDuel(full)
         setParticipants(full.participants || [])
         setView('duel')
+        setStartingMode(null)
         toast.success(selectedBoss ? `Boss battle: ${selectedBoss.name}` : 'Boss battle started')
       } catch (e: any) {
+        if (actionId !== duelActionRef.current) return
+        setView('lobby')
+        setStartingMode(null)
         toast.error(e.message || 'Failed to start boss battle')
       }
     } else if (type === 'weekly') {
       try {
+        setView('waiting')
+        setOpponentName('Preparing weekly championship...')
+        await startWeeklyHouseWarSeason()
         const duel = await createDuel({
           duel_type: 'weekly',
           difficulty: 'hard',
         })
         const full = await getDuelById(duel.id)
+        if (actionId !== duelActionRef.current) return
         setActiveDuel(full)
         setParticipants(full.participants || [])
         setView('duel')
+        setStartingMode(null)
         toast.success('Weekly championship started')
       } catch (e: any) {
+        if (actionId !== duelActionRef.current) return
+        setView('lobby')
+        setStartingMode(null)
         toast.error(e.message || 'Failed to start weekly championship')
       }
     } else {
       try {
+        setView('waiting')
+        setOpponentName(type === 'coach' ? 'Preparing Peak Coach...' : 'Creating duel room...')
         const duel = await createDuel({
           duel_type: type,
           difficulty: type === 'classwar' || type === 'tournament' || type === 'teacher' ? 'hard' : 'medium',
         })
+        if (actionId !== duelActionRef.current) return
         setActiveDuel(duel)
         setParticipants(duel.participants || [])
+        setStartingMode(null)
         if (type === 'coach') {
           setView('duel')
         } else {
@@ -253,6 +290,9 @@ export default function DuelsPage() {
                   : 'Waiting for opponent...')
         }
       } catch (e: any) {
+        if (actionId !== duelActionRef.current) return
+        setView('lobby')
+        setStartingMode(null)
         toast.error(e.message)
       }
     }
@@ -330,17 +370,17 @@ export default function DuelsPage() {
   const matchmakingPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [searchTime, setSearchTime] = useState(0)
 
-  const startPolling = () => {
+  const startPolling = (actionId: number) => {
     if (matchmakingPollRef.current) clearInterval(matchmakingPollRef.current)
     let elapsed = 0
     setSearchTime(0)
     matchmakingPollRef.current = setInterval(async () => {
       elapsed += 5
       setSearchTime(elapsed)
-      if (cancelledRef.current) return
+      if (actionId !== duelActionRef.current || cancelledRef.current) return
       if (!studentId) return
       const result = await retryMatchmaking({ duel_type: 'quick' })
-      if (cancelledRef.current) return
+      if (actionId !== duelActionRef.current || cancelledRef.current) return
       if (result.matched && result.duel) {
         if (matchmakingPollRef.current) clearInterval(matchmakingPollRef.current)
         matchmakingPollRef.current = null
@@ -349,6 +389,7 @@ export default function DuelsPage() {
         setOpponentName(result.opponent?.full_name || 'Opponent')
         setView('duel')
         setSearching(false)
+        setStartingMode(null)
         toast.success('Match found!')
       }
     }, 5000)
@@ -362,18 +403,24 @@ export default function DuelsPage() {
   }
 
   const handleCancelSearch = async () => {
+    duelActionRef.current += 1
     cancelledRef.current = true
     stopPolling()
-    await leaveMatchmaking()
     setSearching(false)
+    setStartingMode(null)
     setSearchTime(0)
     setView('lobby')
+    void leaveMatchmaking().catch(() => {})
   }
 
   // ── RETURN TO LOBBY ──────────────────────────────────
   const handleReturn = () => {
+    duelActionRef.current += 1
+    cancelledRef.current = true
+    stopPolling()
     setActiveDuel(null)
     setParticipants([])
+    setStartingMode(null)
     setView('lobby')
     getActiveDuels().then(setDuels)
     if (studentId) getStudentDuelStats(studentId).then(setMyStats)
@@ -545,7 +592,17 @@ export default function DuelsPage() {
                   <Users size={48} style={{ color: 'var(--primary)' }} />
                 </motion.div>
                 <div className="text-center">
-                  <h3 className="text-sm font-black" style={{ color: 'var(--text)' }}>Waiting for Opponent...</h3>
+                  <h3 className="text-sm font-black" style={{ color: 'var(--text)' }}>
+                    {startingMode && !activeDuel
+                      ? startingMode === 'coach'
+                        ? 'Preparing Peak Coach...'
+                        : startingMode === 'boss'
+                          ? 'Preparing Boss Battle...'
+                          : startingMode === 'weekly'
+                            ? 'Preparing Weekly Duel...'
+                            : 'Creating Duel...'
+                      : 'Waiting for Opponent...'}
+                  </h3>
                   <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>{opponentName}</p>
                 </div>
                 <motion.div className="flex gap-1">
@@ -560,11 +617,14 @@ export default function DuelsPage() {
                   ))}
                 </motion.div>
                 <button
-                  onClick={async () => { await cancelDuel(activeDuel?.id || ''); handleReturn() }}
+                  onClick={() => {
+                    if (activeDuel?.id) void cancelDuel(activeDuel.id).catch(() => {})
+                    handleReturn()
+                  }}
                   className="text-xs font-black uppercase tracking-wider hover:opacity-70"
                   style={{ color: 'var(--text-muted)' }}
                 >
-                  Cancel
+                  {startingMode && !activeDuel ? 'Back' : 'Cancel'}
                 </button>
               </div>
             )}
@@ -587,7 +647,12 @@ export default function DuelsPage() {
                           whileHover={{ scale: 1.02 }}
                           onClick={async () => {
                             try {
-                              const duel = await createDuel({ duel_type: 'boss', boss_id: boss.id, difficulty: boss.difficulty })
+                              const duel = await createDuel({
+                                duel_type: 'boss',
+                                boss_id: boss.is_virtual ? undefined : boss.id,
+                                topic: boss.topic,
+                                difficulty: boss.difficulty,
+                              })
                               if (!duel.questions || duel.questions.length === 0) {
                                 toast.error('This boss has no questions configured yet')
                                 return

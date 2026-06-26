@@ -1,14 +1,16 @@
 export async function fetchWithRetry(
   url: string,
-  options: RequestInit & { retries?: number },
+  options: RequestInit & { retries?: number; timeoutMs?: number },
 ): Promise<Response> {
   const maxRetries = options.retries ?? 2
+  const timeoutMs = options.timeoutMs ?? Number(process.env.AI_PROVIDER_FETCH_TIMEOUT_MS || 15000)
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 30000)
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
     try {
+      const { retries: _retries, timeoutMs: _timeoutMs, ...fetchOptions } = options
       const response = await fetch(url, {
-        ...options,
+        ...fetchOptions,
         signal: controller.signal,
       })
       clearTimeout(timeoutId)

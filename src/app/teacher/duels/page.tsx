@@ -7,25 +7,42 @@ import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/authStore'
 import toast from 'react-hot-toast'
 import type { Duel, DuelLeaderboardEntry, WeeklyChampionship } from '@/types/duels'
-import { getDuelLeaderboard, getActiveDuels, createTeacherChallenge, getActiveWeeklyChampionship } from '@/app/actions/duels'
+import { getDuelLeaderboard, getActiveDuels, createTeacherChallenge, getActiveWeeklyChampionship, startWeeklyHouseWarSeason } from '@/app/actions/duels'
 
 export default function TeacherDuelsPage() {
   const supabase = getSupabaseBrowserClient()
   const { teacher, profile } = useAuthStore()
   const [duels, setDuels] = useState<Duel[]>([])
   const [leaderboard, setLeaderboard] = useState<DuelLeaderboardEntry[]>([])
+  const [weekly, setWeekly] = useState<WeeklyChampionship | null>(null)
   const [loading, setLoading] = useState(true)
+  const [startingSeason, setStartingSeason] = useState(false)
   const [tab, setTab] = useState<'overview' | 'challenges' | 'spectate'>('overview')
 
   useEffect(() => {
     Promise.all([
       getActiveDuels(),
       getDuelLeaderboard(20),
-    ]).then(([d, l]) => {
+      getActiveWeeklyChampionship(),
+    ]).then(([d, l, w]) => {
       setDuels(d)
       setLeaderboard(l)
+      setWeekly(w)
     }).catch(() => {}).finally(() => setLoading(false))
   }, [])
+
+  const handleStartSeason = async () => {
+    setStartingSeason(true)
+    try {
+      const season = await startWeeklyHouseWarSeason()
+      setWeekly(season)
+      toast.success(`${season.title || 'Weekly House War'} is active`)
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to start season')
+    } finally {
+      setStartingSeason(false)
+    }
+  }
 
   return (
     <div className="p-4 space-y-6 max-w-4xl mx-auto">
@@ -58,6 +75,28 @@ export default function TeacherDuelsPage() {
 
       {tab === 'overview' && (
         <>
+          <div className="p-4 rounded-2xl border flex flex-col gap-3 md:flex-row md:items-center md:justify-between" style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}>
+            <div>
+              <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest" style={{ color: '#F59E0B' }}>
+                <Crown size={14} /> Weekly House War Season
+              </div>
+              <h2 className="text-base font-black mt-1" style={{ color: 'var(--text)' }}>
+                {weekly?.id ? (weekly as any).title || `House War ${weekly.id}` : 'No active season loaded'}
+              </h2>
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                {weekly?.week_start && weekly?.week_end ? `${weekly.week_start} to ${weekly.week_end}` : 'Start this week to activate house rankings and weekly duel rewards.'}
+              </p>
+            </div>
+            <button
+              onClick={handleStartSeason}
+              disabled={startingSeason}
+              className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-xs font-black uppercase tracking-wider"
+              style={{ background: 'var(--primary)', color: 'white', opacity: startingSeason ? 0.65 : 1 }}
+            >
+              <Trophy size={14} /> {startingSeason ? 'Starting...' : 'Start Season'}
+            </button>
+          </div>
+
           {/* Stats cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {[

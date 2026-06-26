@@ -1,7 +1,8 @@
 'use server'
 
 import { createClient, createAdminClient } from '@/lib/supabase/server'
-import { generateBrainGymQuestions } from './brainGym'
+import { generateBrainGymQuestions, recordPeakCoachMasterySignals } from './brainGym'
+import { getFallbackQuestions, questionFingerprint } from '@/lib/brainGymUtils'
 import { revalidatePath } from 'next/cache'
 import { sendPushNotification } from './push'
 import { adaptDuelQuestions, getAdaptiveDuelProfile, getAdaptivePowerUps, getAdaptiveTime } from '@/lib/duels/adaptiveProfile'
@@ -39,13 +40,243 @@ function isInstantDuel(type: DuelType) {
 
 function getTimeForDifficulty(difficulty?: string): number {
   switch (difficulty) {
-    case 'easy': return 20
-    case 'medium': return 15
-    case 'hard': return 12
-    case 'challenge': return 10
-    case 'legendary': return 8
-    default: return 15
+    case 'easy': return 30
+    case 'medium': return 25
+    case 'hard': return 25
+    case 'challenge': return 30
+    case 'legendary': return 35
+    default: return 25
   }
+}
+
+function isDuelMcqQuestion(question: any) {
+  if (!question || question.answerMode === 'essay') return false
+  if (question.questionStyle === 'essay_response' || question.questionStyle === 'functional_writing') return false
+  if (!Array.isArray(question.options) || question.options.length !== 4) return false
+  if (!question.correctAnswer || !question.options.includes(question.correctAnswer)) return false
+  return true
+}
+
+function normaliseSubject(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+function subjectLooksCbc(subject: string) {
+  return /cbc|kpsea|kjsea|integrated science|science\s*&\s*technology|pre-technical|agriculture\s*&\s*nutrition|social studies/i.test(subject)
+}
+
+function subjectMatchesRegistered(qSubject: string, subjects: string[]) {
+  if (!subjects.length) return true
+  const q = normaliseSubject(qSubject)
+  return subjects.some(subject => {
+    const s = normaliseSubject(subject)
+    return q === s || q.includes(s) || s.includes(q) ||
+      (s.includes('mathematics') && q.includes('mathematics')) ||
+      (s.includes('english') && q.includes('english')) ||
+      (s.includes('kiswahili') && q.includes('kiswahili')) ||
+      (s.includes('integratedscience') && q.includes('integratedscience')) ||
+      (s.includes('scienceandtechnology') && q.includes('scienceandtechnology')) ||
+      (s.includes('socialstudies') && q.includes('socialstudies')) ||
+      (s.includes('pretechnical') && q.includes('pretechnical')) ||
+      (s.includes('agriculture') && q.includes('agriculture'))
+  })
+}
+
+function getDuelVisualScene(question: any) {
+  const subject = String(question.subject || '')
+  const normalized = normaliseSubject(subject)
+  const common = {
+    interactionType: 'mcq',
+    visualPrompt: `Display this CBC duel challenge on the board with all labels and clues: ${question.excerpt || question.question}`,
+  }
+
+  if (normalized.includes('math')) {
+    return {
+      ...common,
+      sceneType: 'Mathematics Smart Blackboard',
+      background: 'Blackboard with graph paper side panel',
+      style: 'CBC visual duel scene',
+      objects: ['ruler', 'calculator', 'chalk', 'coordinate grid'],
+      diagram: 'calculation board or geometry sketch',
+      workingTools: ['formula helper', 'working area', 'answer box'],
+    }
+  }
+
+  if (normalized.includes('science')) {
+    return {
+      ...common,
+      sceneType: 'Integrated Science Laboratory',
+      background: 'Laboratory bench and investigation board',
+      style: 'CBC visual duel scene',
+      objects: ['beaker', 'circuit board', 'microscope', 'safety goggles'],
+      diagram: 'apparatus sketch or investigation data',
+      workingTools: ['observation clue', 'unit reminder', 'answer box'],
+    }
+  }
+
+  if (normalized.includes('social')) {
+    return {
+      ...common,
+      sceneType: 'Kenya Map Room',
+      background: 'Map wall and evidence chart',
+      style: 'CBC visual duel scene',
+      objects: ['Kenya map', 'globe', 'timeline', 'weather chart'],
+      diagram: 'map or chart evidence',
+      workingTools: ['map key', 'evidence clue', 'answer box'],
+    }
+  }
+
+  if (normalized.includes('kiswahili')) {
+    return {
+      ...common,
+      sceneType: 'Darasa la Kiswahili',
+      background: 'Ubao wa fasihi',
+      style: 'CBC visual duel scene',
+      objects: ['ubao', 'daftari', 'msamiati cards', 'shairi board'],
+      diagram: 'matini au mazungumzo kwenye ubao',
+      workingTools: ['kidokezo', 'ushahidi wa matini', 'jibu'],
+    }
+  }
+
+  if (normalized.includes('english')) {
+    return {
+      ...common,
+      sceneType: 'Library Reading Corner',
+      background: 'Notice board and reading table',
+      style: 'CBC visual duel scene',
+      objects: ['storybook', 'newspaper', 'dictionary', 'notice board'],
+      diagram: 'reading extract board',
+      workingTools: ['vocabulary clue', 'evidence note', 'answer box'],
+    }
+  }
+
+  return {
+    ...common,
+    sceneType: 'CBC Learning Studio',
+    background: 'Smart classroom board',
+    style: 'CBC visual duel scene',
+    objects: ['blackboard', 'notebook', 'label cards'],
+    diagram: 'labelled learning scene',
+    workingTools: ['thinking clue', 'answer box'],
+  }
+}
+
+async function getDuelLearnerContext(studentId: string) {
+  const supabase = await createClient()
+  let subjects: string[] = []
+  let className = ''
+  let curriculumName = ''
+
+  try {
+    const { data: subjectRows } = await supabase
+      .from('student_subjects')
+      .select('subject:subjects(name)')
+      .eq('student_id', studentId)
+
+    subjects = (subjectRows || [])
+      .map((row: any) => row?.subject?.name)
+      .filter(Boolean)
+  } catch {}
+
+  try {
+    const { data: student } = await supabase
+      .from('students')
+      .select('class:classes(name, level), curriculum:curriculums(name)')
+      .eq('id', studentId)
+      .single()
+
+    className = (student as any)?.class?.name || ''
+    curriculumName = (student as any)?.curriculum?.name || ''
+  } catch {}
+
+  const combined = `${curriculumName} ${className} ${subjects.join(' ')}`
+  const isCbc = /cbc|kpsea|kjsea|grade\s*[1-9]|junior secondary|primary|jss/i.test(combined) ||
+    subjects.some(subjectLooksCbc)
+
+  if (isCbc && subjects.length === 0) {
+    subjects = /grade\s*[1-6]|kpsea|primary/i.test(combined)
+      ? ['Mathematics-CBC', 'English-CBC', 'Kiswahili-CBC', 'Science & Technology', 'Agriculture & Nutrition', 'Social Studies']
+      : ['Mathematics-CBC', 'English-CBC', 'Kiswahili-CBC', 'Integrated Science', 'Social Studies', 'Pre-Technical Studies', 'Agriculture & Nutrition']
+  }
+
+  return { subjects, isCbc }
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out`)), ms)
+    promise.then(
+      value => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      error => {
+        clearTimeout(timer)
+        reject(error)
+      }
+    )
+  })
+}
+
+function getFallbackDuelQuestions(count: number, subjects: string[] = [], isCbc = false) {
+  let pool = getFallbackQuestions()
+    .filter(isDuelMcqQuestion)
+    .map(q => ({ ...q, fingerprint: q.fingerprint || questionFingerprint(q.question) }))
+
+  if (isCbc) {
+    pool = pool.filter(q => q.examStandard === 'cbc_standard' || subjectLooksCbc(q.subject))
+  } else if (subjects.length > 0) {
+    pool = pool.filter(q => !subjectLooksCbc(q.subject) && subjectMatchesRegistered(q.subject, subjects))
+  }
+
+  if (pool.length < count && isCbc) {
+    pool = getFallbackQuestions()
+      .filter(isDuelMcqQuestion)
+      .map(q => ({ ...q, fingerprint: q.fingerprint || questionFingerprint(q.question) }))
+      .filter(q => q.examStandard === 'cbc_standard' || subjectLooksCbc(q.subject))
+  }
+
+  return pool
+    .map(q => isCbc ? ({ ...q, visualScene: q.visualScene || getDuelVisualScene(q) }) : q)
+    .slice(0, count)
+}
+
+function filterDuelQuestionsForLearner(questions: any[], subjects: string[], isCbc: boolean) {
+  return questions.filter(question => {
+    if (!isDuelMcqQuestion(question)) return false
+    if (isCbc) return question.examStandard === 'cbc_standard' || subjectLooksCbc(question.subject)
+    if (subjectLooksCbc(question.subject) || question.examStandard === 'cbc_standard') return false
+    return subjectMatchesRegistered(question.subject, subjects)
+  })
+}
+
+async function getDuelQuestionSet(studentId: string, count: number) {
+  let questions: any[] = []
+  const learnerContext = await getDuelLearnerContext(studentId)
+  const subjects = learnerContext.subjects.length > 0 ? learnerContext.subjects : undefined
+  const options = learnerContext.isCbc
+    ? { trainingMode: 'cbc_visual_duel' as any }
+    : undefined
+
+  try {
+    const primary = await withTimeout(generateBrainGymQuestions(studentId, 'duel', subjects, undefined, options), 18000, 'Duel question generation')
+    questions = filterDuelQuestionsForLearner(primary, learnerContext.subjects, learnerContext.isCbc)
+  } catch (error: any) {
+    console.error('[Duels] Using fallback questions:', error?.message)
+    questions = getFallbackDuelQuestions(count, learnerContext.subjects, learnerContext.isCbc)
+  }
+
+  if (questions.length < count) {
+    try {
+      const refill = await withTimeout(generateBrainGymQuestions(studentId, 'duel', subjects, undefined, options), 12000, 'Duel refill generation')
+      questions = [...questions, ...filterDuelQuestionsForLearner(refill, learnerContext.subjects, learnerContext.isCbc)]
+    } catch (error: any) {
+      console.error('[Duels] Using fallback refill:', error?.message)
+      questions = [...questions, ...getFallbackDuelQuestions(count, learnerContext.subjects, learnerContext.isCbc)]
+    }
+  }
+
+  return questions.slice(0, count)
 }
 
 async function getStudentId() {
@@ -72,21 +303,22 @@ export async function createDuel(input: CreateDuelInput) {
   const { studentId, userId, supabase, classLevel, className } = await getStudentId()
   const adaptiveProfile = getAdaptiveDuelProfile(classLevel, className)
   const count = getQuestionCountForType(input.duel_type, input.difficulty)
-  const timePerQ = input.time_per_question || getAdaptiveTime(getTimeForDifficulty(input.difficulty), adaptiveProfile)
+  const timePerQ = Math.max(25, input.time_per_question || getAdaptiveTime(getTimeForDifficulty(input.difficulty), adaptiveProfile))
 
   let questions: any[]
   if (input.duel_type === 'boss' && input.boss_id) {
     const { data: boss } = await supabase.from('duel_bosses').select('questions, topic').eq('id', input.boss_id).single()
     questions = (boss?.questions && Array.isArray(boss.questions) && boss.questions.length >= count)
-      ? boss.questions
-      : await generateBrainGymQuestions(studentId, 'duel')
-    if (boss?.topic && Array.isArray(questions)) {
-      questions = questions.map(q => ({ ...q, topic: q.topic || boss.topic }))
+      ? boss.questions.filter(isDuelMcqQuestion)
+      : await getDuelQuestionSet(studentId, count)
+    if (questions.length < count) questions = await getDuelQuestionSet(studentId, count)
+    if ((boss?.topic || input.topic) && Array.isArray(questions)) {
+      questions = questions.map(q => ({ ...q, topic: q.topic || boss?.topic || input.topic }))
     }
   } else if (input.duel_type === 'coach') {
-    questions = await generateBrainGymQuestions(studentId, 'duel')
+    questions = await getDuelQuestionSet(studentId, count)
   } else {
-    questions = await generateBrainGymQuestions(studentId, 'duel')
+    questions = await getDuelQuestionSet(studentId, count)
   }
 
   questions = attachDuelEngagement(
@@ -226,6 +458,16 @@ export async function submitDuelAnswer(
   if (!question) throw new Error('Question not found')
 
   const isCorrect = selectedAnswer === question.correctAnswer
+
+  await recordPeakCoachMasterySignals(studentId, [{
+    curriculum: question.examStandard?.includes('cbc') ? 'CBC' : '8-4-4/KCSE',
+    subject: question.subject,
+    topic: question.topic,
+    subtopic: question.subtopic || question.sourceText,
+    syllabusOutcome: [question.topic, question.subtopic || question.sourceText].filter(Boolean).join(': '),
+    marksAvailable: 1,
+    marksEarned: isCorrect ? 1 : 0,
+  }])
 
   const baseScore = 100
   const difficultyMultiplier = duel.difficulty === 'easy' ? 1 : duel.difficulty === 'medium' ? 1.5 : duel.difficulty === 'hard' ? 2 : duel.difficulty === 'challenge' ? 2.5 : 3
@@ -858,14 +1100,57 @@ export async function getStudentDuelStats(studentId?: string) {
 
 // ── 13. GET BOSSES ────────────────────────────────────────────────
 export async function getActiveBosses() {
-  const supabase = await createClient()
+  const { supabase, classLevel, className } = await getStudentId()
+  const isCbcLearner = /grade|jss|junior|primary|kpsea|kjsea/i.test(className || '') || Boolean(classLevel && classLevel <= 9)
   const { data, error } = await supabase
     .from('duel_bosses')
     .select('*, subject:subject_id(name)')
     .eq('is_active', true)
 
   if (error) throw error
-  return data as any[]
+  const bosses = (data || []) as any[]
+
+  if (!isCbcLearner) return bosses
+
+  const grade = classLevel && classLevel <= 6 ? 6 : classLevel === 7 ? 7 : classLevel === 8 ? 8 : 9
+  return [
+    {
+      id: 'cbc-data-dragon',
+      is_virtual: true,
+      name: grade >= 9 ? 'Data Dragon' : 'Data Guardian',
+      topic: 'Data handling',
+      difficulty: grade >= 8 ? 'hard' : 'medium',
+      health: grade >= 9 ? 160 : 120,
+      subject: { name: 'Mathematics-CBC' },
+    },
+    {
+      id: 'cbc-geometry-golem',
+      is_virtual: true,
+      name: grade >= 9 ? 'Geometry Golem' : 'Shape Guardian',
+      topic: 'Geometry',
+      difficulty: grade >= 8 ? 'hard' : 'medium',
+      health: grade >= 9 ? 150 : 110,
+      subject: { name: 'Mathematics-CBC' },
+    },
+    {
+      id: 'cbc-ratio-ranger',
+      is_virtual: true,
+      name: 'Ratio Ranger',
+      topic: 'Ratios and proportions',
+      difficulty: 'medium',
+      health: 120,
+      subject: { name: 'Mathematics-CBC' },
+    },
+    {
+      id: 'cbc-measurement-mech',
+      is_virtual: true,
+      name: grade >= 9 ? 'Measurement Mech' : 'Measurement Master',
+      topic: 'Measurement',
+      difficulty: grade >= 8 ? 'hard' : 'medium',
+      health: grade >= 9 ? 150 : 110,
+      subject: { name: 'Mathematics-CBC' },
+    },
+  ]
 }
 
 // ── 14. GET ACHIEVEMENTS ─────────────────────────────────────────
@@ -1006,7 +1291,7 @@ export async function createTeacherChallenge(input: {
 
   const questions = input.question_ids?.length
     ? []
-    : await generateBrainGymQuestions(teacherStudentId)
+    : await getDuelQuestionSet(teacherStudentId, 10)
 
   const { data: duel, error } = await supabase
     .from('classroom_duels')
@@ -1018,7 +1303,7 @@ export async function createTeacherChallenge(input: {
       difficulty: 'medium',
       subject_id: input.subject_id || null,
       topic: input.topic || null,
-      time_per_question: input.time_limit,
+      time_per_question: Math.max(25, input.time_limit),
       created_by: teacherStudentId,
     })
     .select()
@@ -1069,7 +1354,7 @@ export async function generateDailyDuels(classId?: string) {
 
   const adaptiveProfile = getAdaptiveDuelProfile(classLevel, className)
   const questions = attachDuelEngagement(
-    adaptDuelQuestions(((await generateBrainGymQuestions(studentId, 'duel')).slice(0, 5) as any), adaptiveProfile),
+    adaptDuelQuestions(((await getDuelQuestionSet(studentId, 5)).slice(0, 5) as any), adaptiveProfile),
     { duelType: 'daily', classLevel, className }
   )
   const { data: duel } = await supabase
@@ -1080,7 +1365,7 @@ export async function generateDailyDuels(classId?: string) {
       questions,
       duel_type: 'daily',
       difficulty: 'medium',
-      time_per_question: getAdaptiveTime(20, adaptiveProfile),
+      time_per_question: Math.max(25, getAdaptiveTime(20, adaptiveProfile)),
       is_daily: true,
       created_by: studentId,
       max_participants: 1,
@@ -1168,6 +1453,43 @@ export async function getActiveWeeklyChampionship() {
 }
 
 // ── 27. TOURNAMENT: CREATE ───────────────────────────────────────
+export async function startWeeklyHouseWarSeason() {
+  const supabase = await createClient()
+  const season = getCurrentDuelSeason()
+  const payload = {
+    id: season.id,
+    week_start: season.weekStart,
+    week_end: season.weekEnd,
+    status: 'active',
+    title: season.title,
+    rewards: season.rewards,
+    titles: season.titles,
+    started_at: new Date().toISOString(),
+  }
+
+  try {
+    await supabase
+      .from('weekly_championships')
+      .update({ status: 'completed' })
+      .eq('status', 'active')
+      .neq('id', season.id)
+
+    const { data, error } = await supabase
+      .from('weekly_championships')
+      .upsert(payload as any, { onConflict: 'id' })
+      .select()
+      .single()
+
+    if (error) throw error
+    revalidatePath('/student/duels')
+    revalidatePath('/teacher/duels')
+    return data as any
+  } catch (err: any) {
+    console.error('[WeeklyChampionship] start fallback:', err?.message)
+    return payload
+  }
+}
+
 export async function createTournament(input: {
   title: string
   class_id: string
@@ -1175,7 +1497,8 @@ export async function createTournament(input: {
   max_participants?: number
 }) {
   const supabase = await createClient()
-  const questions = await generateBrainGymQuestions()
+  const { studentId } = await getStudentId()
+  const questions = await getDuelQuestionSet(studentId, 12)
 
   const rounds = input.max_participants || 32
   const bracket = Array.from({ length: Math.log2(rounds) }, (_, i) => ({

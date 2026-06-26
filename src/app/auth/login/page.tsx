@@ -8,10 +8,10 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import Link from 'next/link'
 import { GraduationCap, Mail, Lock, Eye, EyeOff, Shield, UserCheck, Users, ArrowLeft, DollarSign, LogIn, Sparkles, Hash } from 'lucide-react'
-import { getSupabaseLoginClient } from '@/lib/supabase/client'
+import { getSupabaseLoginClient } from '../../../lib/supabase/client'
 import toast from 'react-hot-toast'
-import { Button } from '@/components/ui/Button'
-import { Input } from '@/components/ui/Input'
+import { Button } from '../../../components/ui/Button'
+import { Input } from '../../../components/ui/Input'
 
 const schema = z.object({
   email: z.string().min(3, 'Required'),

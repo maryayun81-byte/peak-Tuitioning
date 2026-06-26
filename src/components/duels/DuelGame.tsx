@@ -22,6 +22,209 @@ interface Props {
   isAdvancing: boolean
 }
 
+function duelSubjectIsCbcLike(question: Question) {
+  return question.examStandard === 'cbc_standard' ||
+    /cbc|kpsea|kjsea|integrated science|science\s*&\s*technology|pre-technical|agriculture\s*&\s*nutrition|social studies/i.test(`${question.subject} ${question.topic}`)
+}
+
+function composeDuelVisualScene(question: Question, grade: number) {
+  const subject = `${question.subject} ${question.topic}`.toLowerCase()
+  const style = grade <= 6
+    ? 'Grade 6 colourful guided illustration'
+    : grade === 7
+      ? 'Grade 7 educational textbook style'
+      : grade === 9
+        ? 'Grade 9 professional clean academy style'
+        : 'Grade 8 semi-realistic classroom style'
+  const common = {
+    style,
+    interactionType: 'mcq',
+    visualPrompt: `Display this duel as a quick CBC scene with labelled clues, a visible working area and answer choices.\n\n${question.excerpt || question.question}`,
+  }
+
+  if (/math/.test(subject)) {
+    const qText = subject + question.question.toLowerCase()
+    const isCircle = /circle|radius|diameter|chord|circumference/.test(qText)
+    return {
+      ...common,
+      sceneType: 'Mathematics Duel Blackboard',
+      background: 'Blackboard with graph paper and a formula corner',
+      objects: isCircle ? ['compass', 'ruler', 'graph paper', 'formula card'] : ['calculator', 'ruler', 'protractor', 'chalk arrows'],
+      diagram: isCircle ? 'circle diagram with radius, chord and diameter labels' : /graph|coordinate|geometry|angle|measurement|statistics/.test(qText) ? 'grid, graph or geometry sketch' : 'calculation board',
+      workingTools: ['formula helper', 'working area', 'answer box'],
+    }
+  }
+
+  if (/science|technology|biology|chemistry|physics/.test(subject)) {
+    return {
+      ...common,
+      sceneType: 'Science Duel Laboratory',
+      background: 'Lab bench with investigation board',
+      objects: ['beaker', 'circuit board', 'microscope', 'safety goggles'],
+      diagram: 'apparatus sketch or investigation table',
+      workingTools: ['observation clue', 'unit reminder', 'answer box'],
+    }
+  }
+
+  if (/social/.test(subject)) {
+    return {
+      ...common,
+      sceneType: 'Kenya Map Duel Room',
+      background: 'Map wall with chart evidence',
+      objects: ['Kenya map', 'globe', 'timeline', 'weather chart'],
+      diagram: 'map, timeline or data chart',
+      workingTools: ['map key', 'evidence clue', 'answer box'],
+    }
+  }
+
+  if (/kiswahili/.test(subject)) {
+    return {
+      ...common,
+      sceneType: 'Darasa Duel la Kiswahili',
+      background: 'Ubao wa msamiati na fasihi',
+      objects: ['ubao', 'daftari', 'shairi board', 'kadi za msamiati'],
+      diagram: 'matini au mazungumzo kwenye ubao',
+      workingTools: ['kidokezo', 'ushahidi wa matini', 'jibu'],
+    }
+  }
+
+  if (/english|literacy/.test(subject)) {
+    return {
+      ...common,
+      sceneType: 'Reading Duel Corner',
+      background: 'Library board with reading evidence',
+      objects: ['storybook', 'newspaper', 'dictionary', 'notice board'],
+      diagram: 'reading extract board',
+      workingTools: ['vocabulary clue', 'evidence note', 'answer box'],
+    }
+  }
+
+  return {
+    ...common,
+    sceneType: 'CBC Duel Studio',
+    background: 'Smart classroom board',
+    objects: ['blackboard', 'notebook', 'label cards'],
+    diagram: 'labelled learning scene',
+    workingTools: ['thinking clue', 'answer box'],
+  }
+}
+
+function duelVisualSceneFitsQuestion(question: Question, scene?: Question['visualScene']) {
+  if (!scene) return false
+  const subject = `${question.subject || ''}`.toLowerCase()
+  const sceneText = `${scene.sceneType || ''} ${scene.background || ''} ${scene.diagram || ''} ${(scene.objects || []).join(' ')} ${scene.visualPrompt || ''}`.toLowerCase()
+  const questionText = `${question.topic || ''} ${question.question || ''} ${question.excerpt || ''}`.toLowerCase()
+  if (/math/.test(subject) && /(physics|laboratory|lab|beaker|microscope|circuit|chemistry|biology)/.test(sceneText)) return false
+  if (/circle|radius|diameter|chord|circumference/.test(questionText) && /speed|velocity|acceleration|car|motion/.test(sceneText)) return false
+  if (/speed|velocity|acceleration|distance|time/.test(questionText) && /circle|radius|diameter|chord/.test(sceneText)) return false
+  return true
+}
+
+function VisualScenePanel({ question, accentColor, grade }: { question: Question; accentColor: string; grade: number }) {
+  const scene = duelVisualSceneFitsQuestion(question, question.visualScene)
+    ? question.visualScene
+    : (duelSubjectIsCbcLike(question) ? composeDuelVisualScene(question, grade) : undefined)
+  const visualText = scene ? `${scene.sceneType || ''} ${scene.background || ''} ${scene.diagram || ''} ${scene.visualPrompt || ''}`.toLowerCase() : ''
+  const isMath = /math|graph|coordinate|measurement|speed|velocity|acceleration|geometry|circle|radius|diameter|chord/.test(visualText)
+  const isCircle = /circle|radius|diameter|chord|circumference/.test(visualText)
+  const isScience = /science|lab|circuit|microscope|apparatus|beaker/.test(visualText)
+  const isMap = /map|kenya|globe|social|weather|population|timeline/.test(visualText)
+  const isLanguage = /library|reading|english|kiswahili|darasa|ubao|fasihi|shairi|storybook/.test(visualText)
+  const chips = scene ? Array.from(new Set([
+    ...(scene.workingTools || []).slice(0, 3),
+  ].filter(Boolean) as string[])) : []
+
+  if (!scene && !question.excerpt) return null
+
+  return (
+    <div className="mb-4 overflow-hidden rounded-xl border" style={{ borderColor: `${accentColor}66`, background: 'rgba(15,23,42,0.88)' }}>
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2" style={{ background: `${accentColor}1f` }}>
+        <div className="text-[9px] font-black uppercase tracking-widest" style={{ color: accentColor }}>
+          {scene?.sceneType || 'Smart Blackboard'}
+        </div>
+        {(scene?.style || scene?.background) && (
+          <div className="text-[8px] font-black uppercase tracking-widest text-slate-200">
+            {scene.style || scene.background}
+          </div>
+        )}
+      </div>
+      <div className="px-3 py-3">
+        <div className="relative mb-3 h-36 overflow-hidden rounded-lg border border-white/10 bg-slate-950">
+          <div className="absolute inset-3 rounded-md border-2 border-amber-900 bg-gradient-to-br from-slate-900 to-slate-800">
+            <div className="absolute left-3 top-2 text-[8px] font-black uppercase tracking-widest text-slate-300">{scene?.background || 'CBC scene'}</div>
+            {isMath && (
+              <div className="absolute inset-5 top-7 rounded bg-white">
+                <div className="absolute inset-1 opacity-50" style={{ backgroundImage: 'linear-gradient(#cbd5e1 1px, transparent 1px), linear-gradient(90deg, #cbd5e1 1px, transparent 1px)', backgroundSize: '14px 14px' }} />
+                {isCircle ? (
+                  <>
+                    <div className="absolute left-1/2 top-1/2 h-20 w-20 -translate-x-1/2 -translate-y-1/2 rounded-full border-4" style={{ borderColor: accentColor }} />
+                    <div className="absolute left-1/2 top-1/2 h-0.5 w-10 origin-left" style={{ background: accentColor }} />
+                    <div className="absolute left-[calc(50%-34px)] top-[calc(50%+20px)] h-0.5 w-16 -rotate-12 bg-rose-500" />
+                    <div className="absolute bottom-2 left-4 text-[8px] font-black text-slate-700">d = 2r</div>
+                  </>
+                ) : (
+                  <>
+                    <div className="absolute bottom-5 left-5 right-5 h-0.5 bg-slate-800" />
+                    <div className="absolute bottom-5 left-5 top-4 w-0.5 bg-slate-800" />
+                    <div className="absolute bottom-5 left-5 h-16 w-28" style={{ clipPath: 'polygon(0 100%, 100% 18%, 100% 28%, 0 100%)', background: accentColor }} />
+                    <div className="absolute bottom-6 left-6 h-3 w-7 rounded-sm bg-rose-500">
+                      <div className="absolute -bottom-1 left-1 h-2 w-2 rounded-full bg-slate-900" />
+                      <div className="absolute -bottom-1 right-1 h-2 w-2 rounded-full bg-slate-900" />
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+            {isScience && !isMath && (
+              <div className="absolute inset-x-6 bottom-5 top-8">
+                <div className="absolute bottom-0 left-0 right-0 h-6 rounded bg-amber-800" />
+                <div className="absolute bottom-6 left-6 h-14 w-10 rounded-b-lg border-2 border-cyan-200 bg-cyan-300/40" />
+                <div className="absolute bottom-6 left-24 h-14 w-20 rounded border border-white/30 bg-slate-950">
+                  <div className="absolute left-3 top-6 h-1 w-14 bg-yellow-300" />
+                  <div className="absolute left-3 top-6 h-6 w-1 bg-yellow-300" />
+                  <div className="absolute right-3 top-6 h-6 w-1 bg-yellow-300" />
+                </div>
+              </div>
+            )}
+            {isMap && !isMath && !isScience && (
+              <div className="absolute inset-5 top-8 rounded bg-emerald-50">
+                <div className="absolute left-8 top-5 h-20 w-16 rotate-12 rounded-[45%] border-4 border-emerald-600 bg-emerald-200" />
+                <div className="absolute right-7 top-7 h-14 w-20 rounded bg-white shadow">
+                  <div className="m-2 h-2 w-14 rounded bg-sky-400" />
+                  <div className="mx-2 h-2 w-10 rounded bg-amber-400" />
+                  <div className="mx-2 mt-1 h-2 w-16 rounded bg-rose-400" />
+                </div>
+              </div>
+            )}
+            {isLanguage && !isMath && !isScience && !isMap && (
+              <div className="absolute inset-5 top-8 grid grid-cols-[1fr_70px] gap-2">
+                <div className="rounded bg-amber-50 p-3">
+                  <div className="mb-1 h-1.5 w-3/4 rounded bg-slate-500" />
+                  <div className="mb-1 h-1.5 w-5/6 rounded bg-slate-400" />
+                  <div className="h-1.5 w-2/3 rounded bg-slate-400" />
+                </div>
+                <div className="rounded bg-orange-100">
+                  <div className="ml-5 mt-5 h-16 w-8 rounded bg-orange-500" />
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="absolute bottom-2 left-1/2 h-1.5 w-28 -translate-x-1/2 rounded bg-amber-900" />
+        </div>
+      </div>
+      {chips.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 px-3 pb-3">
+          {chips.map((chip, index) => (
+            <span key={`${chip}-${index}`} className="rounded-md px-2 py-1 text-[8px] font-black uppercase tracking-wider" style={{ background: `${accentColor}22`, color: '#e2e8f0' }}>
+              {chip}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function DuelGame({
   duel, participants, myStudentId,
   onAnswer, onTimeUp, onPowerUp, onReact,
@@ -206,13 +409,14 @@ export function DuelGame({
                 {adaptiveProfile.label}
               </span>
             </div>
+            <VisualScenePanel question={currentQ} accentColor={adaptiveProfile.accentColor} grade={adaptiveProfile.grade} />
             <p className="text-sm font-bold leading-relaxed" style={{ color: adaptiveProfile.grade === 9 ? '#f8fafc' : 'var(--text)' }}>{currentQ.question}</p>
             <div className="mt-3 flex flex-wrap gap-2">
-              {[currentQ.adaptive?.recommendedFormat, currentQ.adaptive?.cognitiveLoad, currentQ.adaptive?.diagramSuggestions?.[0]]
-                .filter(Boolean)
-                .map(item => (
+              {Array.from(new Set([currentQ.adaptive?.recommendedFormat, currentQ.adaptive?.cognitiveLoad, currentQ.adaptive?.diagramSuggestions?.[0]]
+                .filter(Boolean) as string[]))
+                .map((item, index) => (
                   <span
-                    key={item}
+                    key={`${item}-${index}`}
                     className="rounded-lg px-2 py-1 text-[9px] font-black uppercase tracking-wider"
                     style={{
                       background: adaptiveProfile.grade === 9 ? 'rgba(255,255,255,0.08)' : `${adaptiveProfile.accentColor}18`,

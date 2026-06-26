@@ -7,15 +7,30 @@ export type EmojiReaction = '🔥' | '👏' | '😲' | '💪' | '😂' | '❤️
 export type DuelResult = 'win' | 'loss' | 'draw'
 export type RankTier = 'bronze' | 'silver' | 'gold' | 'platinum' | 'diamond' | 'master' | 'grandmaster' | 'legend'
 
+export interface VisualQuestionScene {
+  sceneType?: string
+  background?: string
+  style?: string
+  objects?: string[]
+  diagram?: string
+  interactionType?: string
+  workingTools?: string[]
+  visualPrompt?: string
+}
+
 export interface Question {
   id: string
   subject: string
   topic: string
   difficulty: string
+  examStandard?: string
   question: string
   options: string[]
   correctAnswer: string
   explanation: string
+  excerpt?: string
+  sourceText?: string
+  visualScene?: VisualQuestionScene
   adaptive?: {
     grade: 6 | 7 | 8 | 9
     visualStyle: string

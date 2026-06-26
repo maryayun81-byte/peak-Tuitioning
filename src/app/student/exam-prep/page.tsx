@@ -3,11 +3,13 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Calendar, Target, BookOpen, ChevronRight, Play, CheckCircle2, Circle, Flag, X } from 'lucide-react'
+import Link from 'next/link'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { useAuthStore } from '@/stores/authStore'
 import { getStudentPlanners, createExamPlanner, togglePlanDayComplete } from '@/app/actions/planner'
+import { getStudentRegisteredSubjects } from '@/app/actions/brainGym'
 import toast from 'react-hot-toast'
 import confetti from 'canvas-confetti'
 
@@ -23,7 +25,8 @@ export default function ExamPrepPlanner() {
   const [examName, setExamName] = useState('')
   const [examDate, setExamDate] = useState('')
   const [targetScore, setTargetScore] = useState('')
-  const [subjects, setSubjects] = useState<string[]>(['Mathematics', 'English', 'Science', 'Social Studies'])
+  const [subjects, setSubjects] = useState<string[]>([])
+  const [registeredSubjects, setRegisteredSubjects] = useState<string[]>([])
   const [newSubject, setNewSubject] = useState('')
 
   useEffect(() => {
@@ -35,8 +38,13 @@ export default function ExamPrepPlanner() {
   const loadPlanners = async () => {
     if (!student?.id) return
     try {
-      const data = await getStudentPlanners(student.id)
+      const [data, registered] = await Promise.all([
+        getStudentPlanners(student.id),
+        getStudentRegisteredSubjects(student.id),
+      ])
       setPlanners(data)
+      setRegisteredSubjects(registered)
+      if (subjects.length === 0) setSubjects(registered.length ? registered : ['Mathematics', 'English'])
     } catch (e) {
       toast.error('Failed to load study plans')
     } finally {
@@ -207,6 +215,23 @@ export default function ExamPrepPlanner() {
         </Button>
       </div>
 
+      <Card className="p-5 md:p-6 border-sky-500/20" style={{ background: 'linear-gradient(135deg, rgba(14,165,233,0.10), rgba(16,185,129,0.08))' }}>
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-sky-500">Peak Exam Desk</p>
+            <h2 className="mt-1 text-xl font-black" style={{ color: 'var(--text)' }}>Sit a real blueprint-locked paper</h2>
+            <p className="mt-1 max-w-2xl text-sm" style={{ color: 'var(--text-muted)' }}>
+              Generate KCSE, KJSEA or KPSEA-style papers, write full answers, get examiner marking, and update your Peak Coach readiness profile.
+            </p>
+          </div>
+          <Link href="/student/exam-desk">
+            <Button className="rounded-2xl bg-sky-500 text-white border-none">
+              <Play size={16} /> Open Exam Desk
+            </Button>
+          </Link>
+        </div>
+      </Card>
+
       <AnimatePresence>
         {isCreating && (
           <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
@@ -223,8 +248,8 @@ export default function ExamPrepPlanner() {
                   <Input placeholder="e.g. End of Term 3 Finals" value={examName} onChange={e => setExamName(e.target.value)} className="rounded-xl" />
                   <div className="flex gap-2 mt-2 flex-wrap">
                     <button onClick={() => setExamName('KCSE')} className="text-[10px] px-2 py-1 bg-sky-500/10 text-sky-500 rounded-md font-bold hover:bg-sky-500/20">KCSE (8-4-4)</button>
-                    <button onClick={() => setExamName('KPSEA')} className="text-[10px] px-2 py-1 bg-sky-500/10 text-sky-500 rounded-md font-bold hover:bg-sky-500/20">KPSEA (Grade 9)</button>
-                    <button onClick={() => setExamName('KJSEA')} className="text-[10px] px-2 py-1 bg-sky-500/10 text-sky-500 rounded-md font-bold hover:bg-sky-500/20">KJSEA (Grade 6)</button>
+                    <button onClick={() => setExamName('KPSEA')} className="text-[10px] px-2 py-1 bg-sky-500/10 text-sky-500 rounded-md font-bold hover:bg-sky-500/20">KPSEA (Grade 6)</button>
+                    <button onClick={() => setExamName('KJSEA')} className="text-[10px] px-2 py-1 bg-sky-500/10 text-sky-500 rounded-md font-bold hover:bg-sky-500/20">KJSEA (Grade 9)</button>
                   </div>
                 </div>
                 <div>
@@ -239,6 +264,24 @@ export default function ExamPrepPlanner() {
 
               <div className="mb-8">
                 <label className="text-[10px] uppercase font-bold text-muted ml-1 mb-2 block">Subjects to Revise</label>
+                {registeredSubjects.length > 0 && (
+                  <div className="mb-3 rounded-xl p-3" style={{ background: 'var(--input)' }}>
+                    <div className="mb-2 text-[10px] font-black uppercase tracking-widest text-muted">Registered subjects</div>
+                    <div className="flex flex-wrap gap-2">
+                      {registeredSubjects.map(subject => (
+                        <button
+                          key={subject}
+                          type="button"
+                          onClick={() => setSubjects(prev => prev.includes(subject) ? prev : [...prev, subject])}
+                          className="rounded-lg px-2 py-1 text-[10px] font-black"
+                          style={{ background: subjects.includes(subject) ? 'rgba(14,165,233,0.18)' : 'var(--card)', color: subjects.includes(subject) ? '#0EA5E9' : 'var(--text-muted)' }}
+                        >
+                          {subject}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className="flex flex-wrap gap-2 mb-3">
                   {subjects.map(sub => (
                     <div key={sub} className="px-3 py-1.5 bg-[var(--card)] border border-[var(--card-border)] rounded-lg text-sm font-bold flex items-center gap-2">

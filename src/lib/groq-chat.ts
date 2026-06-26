@@ -11,6 +11,8 @@ type GroqOptions = {
   temperature?: number
   maxTokens?: number
   responseFormat?: { type: 'json_object' }
+  retries?: number
+  timeoutMs?: number
 }
 
 type GroqResult = {
@@ -24,8 +26,8 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY
 const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions'
 
 const MODEL_CHAIN: { provider: GroqProvider; model: string }[] = [
-  { provider: 'groq', model: 'llama-3.3-70b-versatile' },
   { provider: 'groq', model: 'llama-3.1-8b-instant' },
+  { provider: 'groq', model: 'llama-3.3-70b-versatile' },
 ]
 
 export function hasGroqToken() {
@@ -46,6 +48,8 @@ export async function callGroqChat(
     try {
       const response = await fetchWithRetry(GROQ_ENDPOINT, {
         method: 'POST',
+        retries: options.retries ?? 1,
+        timeoutMs: options.timeoutMs,
         headers: {
           Authorization: `Bearer ${GROQ_API_KEY}`,
           'Content-Type': 'application/json',

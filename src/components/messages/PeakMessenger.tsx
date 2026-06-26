@@ -119,12 +119,16 @@ export function PeakMessenger({ role }: PeakMessengerProps) {
       }
       const data = result.bootstrap
       setBootstrap(data)
-      setConversations(data.conversations || [])
+      const nextConversations = data.conversations || []
+      setConversations(nextConversations)
       const fromUrl = new URLSearchParams(window.location.search).get('conversation')
-      const initial = fromUrl && data.conversations?.some((item: any) => item.id === fromUrl)
-        ? fromUrl
-        : data.conversations?.[0]?.id
-      if (initial) setSelectedId(initial)
+      setSelectedId((previous) => {
+        if (previous) return previous
+        const initial = fromUrl && nextConversations.some((item: any) => item.id === fromUrl)
+          ? fromUrl
+          : nextConversations[0]?.id
+        return initial || null
+      })
     } catch (error: any) {
       toast.error(error.message || 'Messaging is temporarily unavailable')
     }

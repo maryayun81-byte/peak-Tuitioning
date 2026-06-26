@@ -19,6 +19,17 @@ export function questionFingerprint(question: string): string {
   return question.toLowerCase().replace(/\s+/g, '').slice(0, 120)
 }
 
+export type VisualQuestionScene = {
+  sceneType?: string
+  background?: string
+  style?: string
+  objects?: string[]
+  diagram?: string
+  interactionType?: string
+  workingTools?: string[]
+  visualPrompt?: string
+}
+
 export type BrainGymQuestion = {
   id: string
   subject: string
@@ -33,6 +44,7 @@ export type BrainGymQuestion = {
   essayPrompt?: string
   markingRubric?: string[]
   maxMarks?: number
+  visualScene?: VisualQuestionScene
   question: string
   options: string[]
   correctAnswer: string
@@ -49,8 +61,37 @@ export type BrainGymQuestion = {
   }
 }
 
+function sanitizeStringList(value: any): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const items = value.map((item: any) => String(item).trim()).filter(Boolean).slice(0, 8)
+  return items.length > 0 ? items : undefined
+}
+
+function sanitizeVisualScene(value: any): VisualQuestionScene | undefined {
+  if (!value || typeof value !== 'object') return undefined
+
+  const scene: VisualQuestionScene = {
+    sceneType: String(value.sceneType || '').trim() || undefined,
+    background: String(value.background || '').trim() || undefined,
+    style: String(value.style || '').trim() || undefined,
+    objects: sanitizeStringList(value.objects),
+    diagram: String(value.diagram || '').trim() || undefined,
+    interactionType: String(value.interactionType || '').trim() || undefined,
+    workingTools: sanitizeStringList(value.workingTools),
+    visualPrompt: String(value.visualPrompt || '').trim() || undefined,
+  }
+
+  return Object.values(scene).some(Boolean) ? scene : undefined
+}
+
 export function normaliseText(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+function stripCurriculumSuffix(value: string) {
+  return value
+    .replace(/cbc|kpsea|kjsea|844|kcse|84{0,1}4/g, '')
+    .trim()
 }
 
 export function sanitizeQuestions(questions: any[]): BrainGymQuestion[] {
@@ -111,6 +152,7 @@ export function sanitizeQuestions(questions: any[]): BrainGymQuestion[] {
         essayPrompt: String(q.essayPrompt || '').trim() || undefined,
         markingRubric: Array.isArray(q.markingRubric) ? q.markingRubric.map((item: any) => String(item).trim()).filter(Boolean) : undefined,
         maxMarks: Number(q.maxMarks || 20) || 20,
+        visualScene: sanitizeVisualScene(q.visualScene),
         question,
         options,
         correctAnswer: answerMode === 'essay' ? (correctAnswer || 'Essay response') : correctAnswer,
@@ -122,11 +164,13 @@ export function sanitizeQuestions(questions: any[]): BrainGymQuestion[] {
 }
 
 const SUBJECT_ALIASES: Record<string, string[]> = {
-  mathematics: ['math', 'maths', 'mathematicscbc'],
-  mathematicscbc: ['math', 'maths', 'mathematics'],
+  mathematics: ['math', 'maths'],
+  mathematicscbc: ['mathcbc', 'mathscbc', 'mathematics'],
   english: ['literature', 'englisch'],
+  englishcbc: ['english', 'literacy'],
   literature: ['english'],
-  kiswahili: [],
+  kiswahili: ['kiswahilicbc'],
+  kiswahilicbc: ['kiswahili'],
   chemistry: [],
   biology: [],
   physics: [],
@@ -143,11 +187,14 @@ const SUBJECT_ALIASES: Record<string, string[]> = {
   integratedscience: [],
   scienceandtechnology: [],
   socialstudies: [],
+  pretechnicalstudies: ['pretechnical', 'pretech'],
+  agriculturenutrition: ['agricultureandnutrition', 'agriculturenutritioncbc'],
 }
 
 function subjectMatches(qSubject: string, registeredNormalised: string): boolean {
   if (qSubject === registeredNormalised) return true
   if (qSubject.includes(registeredNormalised) || registeredNormalised.includes(qSubject)) return true
+  if (stripCurriculumSuffix(qSubject) === stripCurriculumSuffix(registeredNormalised)) return true
   const aliases = SUBJECT_ALIASES[registeredNormalised]
   if (aliases && aliases.includes(qSubject)) return true
   for (const [canonical, aliasList] of Object.entries(SUBJECT_ALIASES)) {
@@ -261,6 +308,32 @@ export function getFallbackQuestions(): BrainGymQuestion[] {
       explanation: 'Let ruler be r and compass be c. 4r + 3c = 470 and 2r + 5c = 550. Doubling the second gives 4r + 10c = 1100. Subtracting the first gives 7c = 630, so c = 90.',
     },
     {
+      id: 'q2e',
+      subject: 'Mathematics',
+      topic: 'Statistics',
+      subtopic: 'Grouped data: mean and modal class',
+      difficulty: 'hard',
+      examStandard: 'kcse_b',
+      questionStyle: 'data_response',
+      question: 'The table shows marks scored by 60 students in a KCSE Mathematics trial: 20-29: 4, 30-39: 7, 40-49: 11, 50-59: 18, 60-69: 12, 70-79: 8. Using class midpoints, what is the estimated mean mark?',
+      options: ['53.2', '50.0', '55.5', '48.7'],
+      correctAnswer: '53.2',
+      explanation: 'Use midpoints 24.5, 34.5, 44.5, 54.5, 64.5 and 74.5. Sum fx = 3190 and total frequency = 60. Estimated mean = 3190/60 = 53.17, which rounds to 53.2.',
+    },
+    {
+      id: 'q2f',
+      subject: 'Mathematics',
+      topic: 'Statistics',
+      subtopic: 'Cumulative frequency, quartiles and standard deviation',
+      difficulty: 'hard',
+      examStandard: 'kcse_a',
+      questionStyle: 'data_response',
+      question: 'The weekly profits, in thousand shillings, of 80 market traders were grouped as follows: 0-9: 5, 10-19: 9, 20-29: 16, 30-39: 24, 40-49: 18, 50-59: 8. Using cumulative frequency and class boundaries, which estimate is closest to the interquartile range?',
+      options: ['19.4 thousand shillings', '24.5 thousand shillings', '15.0 thousand shillings', '31.2 thousand shillings'],
+      correctAnswer: '19.4 thousand shillings',
+      explanation: 'Cumulative frequencies are 5, 14, 30, 54, 72, 80. Q1 is the 20th value in 20-29: 19.5 + (20-14)/16 x 10 = 23.25. Q3 is the 60th value in 40-49: 39.5 + (60-54)/18 x 10 = 42.83. IQR = 42.83 - 23.25 = 19.58, closest to 19.4 thousand shillings.',
+    },
+    {
       id: 'q3',
       subject: 'Biology',
       topic: 'Photosynthesis',
@@ -344,6 +417,60 @@ export function getFallbackQuestions(): BrainGymQuestion[] {
       ],
       correctAnswer: 'Filter off the excess copper(II) oxide before evaporating the filtrate',
       explanation: 'Copper(II) oxide is an insoluble base. Excess oxide ensures all acid reacts, then filtration removes unreacted solid. The filtrate is evaporated and cooled to form copper(II) sulphate crystals.',
+    },
+    {
+      id: 'q3e',
+      subject: 'Chemistry',
+      topic: 'Industrial Chemistry',
+      subtopic: 'Haber process',
+      difficulty: 'hard',
+      examStandard: 'kcse_b',
+      questionStyle: 'reason_giving',
+      question: 'In the Haber process, nitrogen and hydrogen react as follows: N2(g) + 3H2(g) ⇌ 2NH3(g). Which set gives the usual KCSE industrial conditions used to obtain ammonia economically?',
+      options: [
+        'Iron catalyst, about 450°C and about 200 atmospheres',
+        'Vanadium(V) oxide catalyst, about 450°C and 1 atmosphere',
+        'Nickel catalyst, room temperature and low pressure',
+        'Manganese(IV) oxide catalyst, high temperature and no pressure control',
+      ],
+      correctAnswer: 'Iron catalyst, about 450°C and about 200 atmospheres',
+      explanation: 'The Haber process uses nitrogen and hydrogen, an iron catalyst, a moderately high temperature of about 450°C and high pressure of about 200 atmospheres. These are compromise conditions balancing rate, yield and cost.',
+    },
+    {
+      id: 'q3f',
+      subject: 'Chemistry',
+      topic: 'Organic Chemistry',
+      subtopic: 'Alkenes',
+      difficulty: 'hard',
+      examStandard: 'kcse_b',
+      questionStyle: 'experiment_based',
+      question: 'Ethene is bubbled through bromine water during an organic chemistry test. Which observation and conclusion are correct?',
+      options: [
+        'Bromine water is decolourised, showing ethene is unsaturated',
+        'Bromine water turns blue, showing ethene is acidic',
+        'A white precipitate forms, showing ethene contains chloride ions',
+        'No change occurs, showing ethene is a saturated hydrocarbon',
+      ],
+      correctAnswer: 'Bromine water is decolourised, showing ethene is unsaturated',
+      explanation: 'Alkenes such as ethene contain a carbon-carbon double bond. They decolourise bromine water by addition across the double bond, so this is a KCSE test for unsaturation.',
+    },
+    {
+      id: 'q3g',
+      subject: 'Chemistry',
+      topic: 'Energy Changes',
+      subtopic: 'Hess law and enthalpy of combustion',
+      difficulty: 'hard',
+      examStandard: 'kcse_b',
+      questionStyle: 'calculation',
+      question: 'The standard enthalpies of combustion of carbon, hydrogen and methane are -394 kJ mol⁻¹, -285 kJ mol⁻¹ and -890 kJ mol⁻¹ respectively. Using Hess law, calculate the enthalpy change for CH4(g) → C(s) + 2H2(g).',
+      options: [
+        '+74 kJ mol⁻¹',
+        '-74 kJ mol⁻¹',
+        '+1570 kJ mol⁻¹',
+        '-1570 kJ mol⁻¹',
+      ],
+      correctAnswer: '+74 kJ mol⁻¹',
+      explanation: 'For formation of methane: C(s) + 2H2(g) → CH4(g), ΔH = [combustion of C + 2(combustion of H2)] - [combustion of CH4] = [-394 + 2(-285)] - [-890] = -964 + 890 = -74 kJ mol⁻¹. The question asks for the reverse reaction, so ΔH = +74 kJ mol⁻¹.',
     },
     {
       id: 'q4',
@@ -567,6 +694,62 @@ export function getFallbackQuestions(): BrainGymQuestion[] {
       options: ['96 m\u00B2', '40 m\u00B2', '48 m\u00B2', '20 m\u00B2'],
       correctAnswer: '96 m\u00B2',
       explanation: 'Area of a rectangle = length \u00D7 width = 12 m \u00D7 8 m = 96 square metres.',
+    },
+    {
+      id: 'q17a',
+      subject: 'Mathematics (CBC)',
+      topic: 'Fractions',
+      subtopic: 'Blackboard fraction model',
+      difficulty: 'medium',
+      examStandard: 'cbc_standard',
+      questionStyle: 'graph_interpretation',
+      excerpt: 'Blackboard sketch:\nA rectangle is divided into 12 equal squares.\n8 squares are shaded.\nThe teacher writes: shaded part = ?',
+      question: 'Which fraction in simplest form represents the shaded part of the blackboard rectangle?',
+      options: ['2/3', '8/12', '3/2', '4/12'],
+      correctAnswer: '2/3',
+      explanation: 'The shaded fraction is 8/12. Dividing numerator and denominator by 4 gives 2/3. The visual helps the learner connect the picture to simplification.',
+    },
+    {
+      id: 'q17b',
+      subject: 'Integrated Science',
+      topic: 'Electricity',
+      subtopic: 'Simple circuit interpretation',
+      difficulty: 'medium',
+      examStandard: 'cbc_standard',
+      questionStyle: 'graph_interpretation',
+      excerpt: 'Blackboard circuit sketch:\n[Cell] ---- [Switch] ---- [Bulb]\nThe switch is open.',
+      question: 'What will happen to the bulb in the circuit shown on the blackboard?',
+      options: ['It will not light because the circuit is incomplete', 'It will light brightly because the cell is present', 'It will burst because the switch is open', 'It will light only if the wire is removed'],
+      correctAnswer: 'It will not light because the circuit is incomplete',
+      explanation: 'An open switch breaks the circuit. Current cannot flow through the bulb until the switch is closed.',
+    },
+    {
+      id: 'q17c',
+      subject: 'Social Studies',
+      topic: 'Map skills',
+      subtopic: 'Direction and landmarks',
+      difficulty: 'medium',
+      examStandard: 'cbc_standard',
+      questionStyle: 'application_scenario',
+      excerpt: 'Simple map board:\nClinic is north of the school.\nMarket is east of the school.\nRiver is south of the school.\nChief camp is west of the school.',
+      question: 'A learner walks from the school to the market. Which direction does the learner take?',
+      options: ['East', 'West', 'North', 'South'],
+      correctAnswer: 'East',
+      explanation: 'The map board states that the market is east of the school, so the learner walks east.',
+    },
+    {
+      id: 'q17d',
+      subject: 'Pre-Technical Studies',
+      topic: 'Engineering sketches',
+      subtopic: 'Orthographic view',
+      difficulty: 'hard',
+      examStandard: 'cbc_standard',
+      questionStyle: 'graph_interpretation',
+      excerpt: 'Blackboard object sketch:\nA block is 6 cm long, 4 cm wide and 3 cm high.\nThe front face shows length and height.',
+      question: 'Which dimensions should appear on the front elevation of the block?',
+      options: ['6 cm by 3 cm', '6 cm by 4 cm', '4 cm by 3 cm', '6 cm by 4 cm by 3 cm'],
+      correctAnswer: '6 cm by 3 cm',
+      explanation: 'A front elevation shows width across the front and height. In this description, the front face shows length and height, so it is 6 cm by 3 cm.',
     },
     // KPSEA-grade primary questions
     {
