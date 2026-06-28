@@ -13,7 +13,16 @@ import { getPublicRegistrationCounts, processPublicRegistration } from '@/app/ac
 type CurriculumOption = { id: string; name: string }
 type ClassOption = { id: string; name: string; curriculum_id: string; level?: number | null }
 type SubjectOption = { id: string; name: string; curriculum_id: string; class_id?: string | null }
-type RegistrationCount = { eventId: string; curriculum: string; classLevel: string; count: number }
+type RegistrationSlot = {
+  eventId: string
+  curriculum: string
+  curriculumId: string
+  classLevel: string
+  classId: string
+  capacity: number
+  registered: number
+  remaining: number
+}
 
 function formatEventCharge(event?: any) {
   if (!event) return 'Select a programme to see charges'
@@ -79,7 +88,7 @@ export default function EventRegistrationPage() {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [selectedClassId, setSelectedClassId] = useState('')
-  const [registrationCounts, setRegistrationCounts] = useState<RegistrationCount[]>([])
+  const [registrationSlots, setRegistrationSlots] = useState<RegistrationSlot[]>([])
   const [form, setForm] = useState({
     student_full_name: '',
     parent_name: '',
@@ -115,7 +124,7 @@ export default function EventRegistrationPage() {
       setCurriculums(configuredCurriculums)
       setClasses(classRes.data || [])
       setSubjects(subjectRes.data || [])
-      setRegistrationCounts(countsRes.success ? countsRes.counts as RegistrationCount[] : [])
+      setRegistrationSlots(countsRes.success ? (countsRes.slots || []) as RegistrationSlot[] : [])
 
       const params = new URLSearchParams(window.location.search)
       const eventId = params.get('eventId')
@@ -166,12 +175,16 @@ export default function EventRegistrationPage() {
   const selectedEvent = useMemo(() => {
     return events.find((event) => event.id === form.event_id)
   }, [events, form.event_id])
-  const selectedRegistrationCounts = useMemo(() => {
-    return registrationCounts
+  const selectedSlotRows = useMemo(() => {
+    return registrationSlots
       .filter((item) => !form.event_id || item.eventId === form.event_id)
-      .sort((a, b) => b.count - a.count)
-  }, [registrationCounts, form.event_id])
-  const selectedRegistrationTotal = selectedRegistrationCounts.reduce((sum, item) => sum + item.count, 0)
+      .sort((a, b) => b.remaining - a.remaining)
+  }, [registrationSlots, form.event_id])
+  const selectedRemainingTotal = selectedSlotRows.reduce((sum, item) => sum + item.remaining, 0)
+  const selectedClassSlot = selectedClassId
+    ? selectedSlotRows.find((item) => item.classId === selectedClassId)
+    : undefined
+  const selectedEventHasSlots = selectedSlotRows.length > 0
 
   const toggleSubject = (subjectName: string) => {
     setSubjectResults((prev) => prev.some((item) => item.subjectName === subjectName)
@@ -187,6 +200,9 @@ export default function EventRegistrationPage() {
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (subjectResults.length === 0) return toast.error('Select at least one subject.')
+    if (selectedClassSlot && selectedClassSlot.remaining <= 0) {
+      return toast.error(`${form.curriculum} ${form.class_level} is full for this programme. Please choose another available class or contact Peak Performance.`)
+    }
     setSubmitting(true)
     const payload = new FormData()
     Object.entries({ ...form, programme_selected: selectedEventName }).forEach(([key, value]) => payload.append(key, value))
@@ -242,31 +258,31 @@ export default function EventRegistrationPage() {
                     <UsersRound size={22} />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/50">Learner momentum</p>
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/50">Available places</p>
                     <div className="mt-1 flex items-end gap-2">
-                      <span className="text-4xl font-black leading-none text-white">{selectedRegistrationTotal}</span>
+                      <span className="text-4xl font-black leading-none text-white">{selectedEventHasSlots ? selectedRemainingTotal : 'Open'}</span>
                       <span className="pb-1 text-xs font-black uppercase tracking-[0.14em] text-[#bff8a7]">
-                        {selectedRegistrationTotal === 1 ? 'learner registered' : 'learners registered'}
+                        {selectedEventHasSlots ? (selectedRemainingTotal === 1 ? 'slot remaining' : 'slots remaining') : 'registration'}
                       </span>
                     </div>
                   </div>
                 </div>
-                {selectedRegistrationCounts.length > 0 ? (
+                {selectedSlotRows.length > 0 ? (
                   <div className="mt-4 grid gap-2">
-                    {selectedRegistrationCounts.slice(0, 8).map((item) => (
+                    {selectedSlotRows.slice(0, 8).map((item) => (
                       <div key={`${item.eventId}-${item.curriculum}-${item.classLevel}`} className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/10 px-3 py-2">
                         <span className="flex min-w-0 items-center gap-2 text-[10px] font-black uppercase tracking-[0.13em] text-white/82">
-                          <span className="h-2 w-2 shrink-0 rounded-full bg-[#7ed957]" />
+                          <span className={`h-2 w-2 shrink-0 rounded-full ${item.remaining > 0 ? 'bg-[#7ed957]' : 'bg-rose-400'}`} />
                           <span className="truncate">{item.curriculum} · {item.classLevel}</span>
                         </span>
-                        <span className="shrink-0 rounded-full bg-white px-2.5 py-1 text-xs font-black text-[#073159]">
-                          {item.count}
+                        <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-black ${item.remaining > 0 ? 'bg-white text-[#073159]' : 'bg-rose-100 text-rose-700'}`}>
+                          {item.remaining > 0 ? `${item.remaining} left` : 'Full'}
                         </span>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <p className="mt-3 text-xs leading-5 text-white/55">Be among the first learners to register for this programme.</p>
+                  <p className="mt-3 text-xs leading-5 text-white/55">Slots are being confirmed. Submit your details and Peak Performance will advise on availability.</p>
                 )}
               </div>
               <div className="mt-5 grid gap-3 text-sm">
@@ -335,13 +351,28 @@ export default function EventRegistrationPage() {
                 setForm({ ...form, class_level: chosen?.name || '' })
               }}>
                 <option value="">{form.curriculum ? 'Class/Form/Grade' : 'Select curriculum first'}</option>
-                {classOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                {classOptions.map((item) => {
+                  const slot = selectedSlotRows.find((slotItem) => slotItem.classId === item.id)
+                  const label = slot
+                    ? `${item.name} - ${slot.remaining > 0 ? `${slot.remaining} slots left` : 'full'}`
+                    : item.name
+                  return <option key={item.id} value={item.id} disabled={Boolean(slot && slot.remaining <= 0)}>{label}</option>
+                })}
               </Select>
               <Select required value={form.overall_grade} onChange={(e) => setForm({ ...form, overall_grade: e.target.value })}>
                 <option value="">Overall grade / performance</option>
                 {grades.map((grade) => <option key={grade} value={grade}>{grade}</option>)}
               </Select>
             </div>
+            {selectedClassId && (
+              <div className={`mt-4 rounded-3xl border p-4 text-sm font-bold ${selectedClassSlot ? (selectedClassSlot.remaining > 0 ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-rose-200 bg-rose-50 text-rose-900') : 'border-[#145da0]/15 bg-[#eaf3f8] text-[#073159]'}`}>
+                {selectedClassSlot
+                  ? selectedClassSlot.remaining > 0
+                    ? `${selectedClassSlot.remaining} ${selectedClassSlot.remaining === 1 ? 'slot remains' : 'slots remain'} for ${form.curriculum} ${form.class_level}.`
+                    : `${form.curriculum} ${form.class_level} is full for this programme. Choose another available class or contact Peak Performance.`
+                  : 'This programme is accepting registrations for the selected class. Peak Performance will confirm the final placement.'}
+              </div>
+            )}
           </section>
 
           <section className="rounded-[2rem] border border-white bg-white/90 p-5 shadow-[0_18px_55px_rgba(7,49,89,0.08)] backdrop-blur md:p-7">
@@ -406,9 +437,9 @@ export default function EventRegistrationPage() {
             </div>
           </section>
 
-          <Button type="submit" disabled={submitting} className="w-full rounded-2xl py-5 text-sm font-black">
+          <Button type="submit" disabled={submitting || Boolean(selectedClassSlot && selectedClassSlot.remaining <= 0)} className="w-full rounded-2xl py-5 text-sm font-black">
             {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            Submit Programme Registration
+            {selectedClassSlot && selectedClassSlot.remaining <= 0 ? 'Selected Class Is Full' : 'Submit Programme Registration'}
           </Button>
         </main>
       </form>

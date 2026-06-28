@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, Trash2, Edit, Calendar, Gift, X, AlertTriangle, ImagePlus, Upload, MessageSquareQuote } from 'lucide-react'
+import { Plus, Trash2, Edit, Calendar, Gift, X, AlertTriangle, ImagePlus, Upload, MessageSquareQuote, UsersRound } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
@@ -40,6 +40,13 @@ interface Holiday {
   type: 'public' | 'custom'
 }
 
+type ClassSlotRow = {
+  event_id: string
+  curriculum_id: string
+  class_id: string
+  capacity: number
+}
+
 const schema = z.object({
   name: z.string().min(2),
   start_date: z.string(),
@@ -68,6 +75,9 @@ export default function AdminTuitionEvents() {
   const [events, setEvents] = useState<TuitionEvent[]>([])
   const [search, setSearch] = useState('')
   const [curriculums, setCurriculums] = useState<any[]>([])
+  const [classes, setClasses] = useState<any[]>([])
+  const [eventSlots, setEventSlots] = useState<ClassSlotRow[]>([])
+  const [classSlots, setClassSlots] = useState<Record<string, number | ''>>({})
   const [loading, setLoading] = useState(true)
   const [addOpen, setAddOpen] = useState(false)
   const [editing, setEditing] = useState<TuitionEvent | null>(null)
@@ -115,12 +125,16 @@ export default function AdminTuitionEvents() {
   const load = async () => {
     setLoading(true)
     try {
-      const [tRes, cRes] = await Promise.all([
+      const [tRes, cRes, classRes, slotRes] = await Promise.all([
         supabase.from('tuition_events').select('*, curriculum:curriculums(name)').order('start_date', { ascending: false }),
         supabase.from('curriculums').select('*').order('name'),
+        supabase.from('classes').select('id, name, curriculum_id, level').order('level').order('name'),
+        supabase.from('tuition_event_class_slots').select('event_id, curriculum_id, class_id, capacity'),
       ])
       setEvents(tRes.data ?? [])
       setCurriculums(cRes.data ?? [])
+      setClasses(classRes.data ?? [])
+      setEventSlots((slotRes.data ?? []) as ClassSlotRow[])
     } catch (e) {
       console.error('Failed to load tuition events:', e)
     } finally {
@@ -174,6 +188,13 @@ export default function AdminTuitionEvents() {
     setValue('attendance_threshold', e.attendance_threshold)
     setValue('status', e.status || 'upcoming')
     setValue('postponed_to', e.postponed_to || '')
+    const nextSlots: Record<string, number> = {}
+    eventSlots
+      .filter((slot) => slot.event_id === e.id)
+      .forEach((slot) => {
+        nextSlots[slot.class_id] = Number(slot.capacity) || 0
+      })
+    setClassSlots(nextSlots)
     setAddOpen(true)
   }
 
@@ -195,12 +216,33 @@ export default function AdminTuitionEvents() {
       await supabase.from('tuition_events').update({ is_active: false, status: 'ended' }).neq('id', editing?.id ?? '')
     }
 
-    const { error } = editing
-      ? await supabase.from('tuition_events').update(data).eq('id', editing.id)
-      : await supabase.from('tuition_events').insert(data)
+    const eventMutation = editing
+      ? await supabase.from('tuition_events').update(data).eq('id', editing.id).select('id').single()
+      : await supabase.from('tuition_events').insert(data).select('id').single()
+    const { data: savedEvent, error } = eventMutation
     if (error) { toast.error(error.message); return }
+
+    const eventId = editing?.id || savedEvent?.id
+    if (eventId) {
+      const slotRows = classes.map((classItem) => ({
+        event_id: eventId,
+        curriculum_id: classItem.curriculum_id,
+        class_id: classItem.id,
+        capacity: Math.max(0, Number(classSlots[classItem.id]) || 0),
+      }))
+      if (slotRows.length > 0) {
+        const { error: slotError } = await supabase
+          .from('tuition_event_class_slots')
+          .upsert(slotRows, { onConflict: 'event_id,class_id' })
+        if (slotError) {
+          toast.error(`Event saved, but slots failed: ${slotError.message}`)
+          return
+        }
+      }
+    }
+
     toast.success(editing ? 'Event updated!' : 'Event created successfully!')
-    reset(); setEditing(null); setAddOpen(false); load()
+    reset(); setClassSlots({}); setEditing(null); setAddOpen(false); load()
   }
 
   const uploadBanner = async (file?: File) => {
@@ -263,7 +305,7 @@ export default function AdminTuitionEvents() {
           <Button variant="secondary" onClick={() => copyShareUrl(`${origin}/#testimonials`)}>
             <MessageSquareQuote size={16} /> Copy Testimonial Link
           </Button>
-          <Button onClick={() => { reset(); setEditing(null); setAddOpen(true) }}><Plus size={16} /> New Event</Button>
+          <Button onClick={() => { reset(); setClassSlots({}); setEditing(null); setAddOpen(true) }}><Plus size={16} /> New Event</Button>
         </div>
       </div>
 
@@ -277,6 +319,8 @@ export default function AdminTuitionEvents() {
             (() => {
               const fullUrl = `${origin}/events/register?eventId=${event.id}`
               const shortUrl = `${origin}/events/register?e=${String(event.id).slice(0, 8)}`
+              const slotsForEvent = eventSlots.filter((slot) => slot.event_id === event.id && Number(slot.capacity) > 0)
+              const totalSlots = slotsForEvent.reduce((sum, slot) => sum + (Number(slot.capacity) || 0), 0)
               return (
             <motion.div key={event.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }}>
               <Card className="overflow-hidden">
@@ -341,6 +385,37 @@ export default function AdminTuitionEvents() {
                   </div>
                 </div>
 
+                <div className="mb-3 rounded-2xl border border-[var(--card-border)] bg-[var(--input)] p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-[10px] font-black uppercase tracking-[0.16em] text-muted">Class Slots</div>
+                      <div className="mt-1 text-sm font-black" style={{ color: 'var(--text)' }}>
+                        {totalSlots > 0 ? `${totalSlots} total places configured` : 'No class slots set'}
+                      </div>
+                    </div>
+                    <div className="grid h-10 w-10 place-items-center rounded-2xl bg-primary/10 text-primary">
+                      <UsersRound size={18} />
+                    </div>
+                  </div>
+                  {slotsForEvent.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {slotsForEvent.slice(0, 6).map((slot) => {
+                        const classItem = classes.find((item) => item.id === slot.class_id)
+                        return (
+                          <span key={slot.class_id} className="rounded-full bg-[var(--card)] px-2.5 py-1 text-[10px] font-black text-muted">
+                            {classItem?.name || 'Class'}: {slot.capacity}
+                          </span>
+                        )
+                      })}
+                      {slotsForEvent.length > 6 && (
+                        <span className="rounded-full bg-[var(--card)] px-2.5 py-1 text-[10px] font-black text-muted">
+                          +{slotsForEvent.length - 6} more
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 <div className="flex items-center justify-between text-sm">
                   <span style={{ color: 'var(--text-muted)' }}>
                     Threshold: <strong style={{ color: 'var(--text)' }}>{event.attendance_threshold}%</strong>
@@ -389,7 +464,7 @@ export default function AdminTuitionEvents() {
       )}
 
       {/* Create/Edit Event Modal */}
-      <Modal isOpen={addOpen} onClose={() => { setAddOpen(false); reset(); setEditing(null) }} title={editing ? 'Edit Tuition Event' : 'New Tuition Event'} size="md">
+      <Modal isOpen={addOpen} onClose={() => { setAddOpen(false); reset(); setClassSlots({}); setEditing(null) }} title={editing ? 'Edit Tuition Event' : 'New Tuition Event'} size="md">
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <Input label="Event Name" placeholder="e.g. April Holiday Tuition" error={errors.name?.message} {...register('name')} />
           <div className="rounded-2xl border border-[var(--card-border)] bg-[var(--input)] p-3">
@@ -452,6 +527,57 @@ export default function AdminTuitionEvents() {
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <Input label="Public Unit Label" placeholder="per week / per 2 hours / full programme" {...register('charge_unit_label')} />
               <Input label="Pricing Note" placeholder="Sibling discount available, deposit required..." {...register('pricing_note')} />
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[var(--card-border)] bg-[var(--input)] p-4">
+            <div className="mb-4 flex items-start gap-3">
+              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary">
+                <UsersRound size={18} />
+              </div>
+              <div>
+                <p className="text-sm font-black" style={{ color: 'var(--text)' }}>Class Slots</p>
+                <p className="text-xs text-muted">Set available places per class. Leave blank or 0 for classes that should not show public slots.</p>
+              </div>
+            </div>
+            <div className="space-y-4">
+              {curriculums.map((curriculum) => {
+                const curriculumClasses = classes.filter((classItem) => classItem.curriculum_id === curriculum.id)
+                if (curriculumClasses.length === 0) return null
+                return (
+                  <div key={curriculum.id} className="rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-3">
+                    <div className="mb-3 text-xs font-black uppercase tracking-[0.16em] text-primary">{curriculum.name}</div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {curriculumClasses.map((classItem) => (
+                        <label key={classItem.id} className="flex items-center justify-between gap-3 rounded-xl bg-[var(--input)] px-3 py-2">
+                          <span className="min-w-0 truncate text-sm font-bold" style={{ color: 'var(--text)' }}>{classItem.name}</span>
+                          <input
+                            type="number"
+                            min={0}
+                            inputMode="numeric"
+                            placeholder="0"
+                            value={classSlots[classItem.id] ?? ''}
+                            onChange={(event) => {
+                              const value = event.target.value
+                              setClassSlots((prev) => ({
+                                ...prev,
+                                [classItem.id]: value === '' ? '' : Math.max(0, Number(value) || 0),
+                              }))
+                            }}
+                            className="h-9 w-24 rounded-lg border border-[var(--card-border)] bg-[var(--card)] px-3 text-right text-sm font-black outline-none focus:border-primary"
+                            style={{ color: 'var(--text)' }}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+              {classes.length === 0 && (
+                <div className="rounded-2xl border border-dashed border-[var(--card-border)] p-4 text-sm font-bold text-muted">
+                  No classes are configured yet. Add classes first, then return here to set event slots.
+                </div>
+              )}
             </div>
           </div>
 
