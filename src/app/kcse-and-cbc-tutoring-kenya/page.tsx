@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import Link from 'next/link'
 import {
   ArrowRight,
@@ -14,6 +15,23 @@ import {
 } from 'lucide-react'
 import { PremiumCarousel } from '@/components/ui/PremiumCarousel'
 import { PublicPortalMenu } from '@/components/ui/PublicPortalMenu'
+
+export const metadata: Metadata = {
+  title: 'KCSE & CBC Tutoring Kenya | Peak Performance Tutoring',
+  description:
+    'KCSE and CBC tutoring in Kenya for Form 3, Form 4 and Grades 6-10. Diagnostic support, small groups, practical CBC tasks and exam-focused KCSE revision.',
+  alternates: {
+    canonical: '/kcse-and-cbc-tutoring-kenya',
+  },
+  openGraph: {
+    title: 'KCSE & CBC Tutoring Kenya | Peak Performance Tutoring',
+    description:
+      'Diagnostic-first tutoring for Kenyan 8-4-4 and CBC learners, with KCSE exam strategy and CBC competency support.',
+    url: 'https://www.peakcampus.co.ke/kcse-and-cbc-tutoring-kenya',
+    siteName: 'Peak Performance Tutoring',
+    images: [{ url: '/logo.png', width: 800, height: 600, alt: 'Peak Performance KCSE and CBC tutoring Kenya' }],
+  },
+}
 
 const cbcGalleryImages = [
   '/cbc-hands-on-01.jpeg',

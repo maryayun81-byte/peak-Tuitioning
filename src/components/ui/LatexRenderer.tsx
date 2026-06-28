@@ -14,7 +14,8 @@ if (typeof window !== 'undefined') {
 }
 
 interface LatexRendererProps {
-  content: string
+  content?: string
+  text?: string
   className?: string
   style?: React.CSSProperties
   block?: boolean
@@ -25,11 +26,12 @@ interface LatexRendererProps {
  * Automatically parses text for $$...$$ and renders them as LaTeX.
  * Supports chemical equations via mhchem (\ce{...}).
  */
-export function LatexRenderer({ content, className, style, block = false }: LatexRendererProps) {
-  if (!content) return null
+export function LatexRenderer({ content, text, className, style, block = false }: LatexRendererProps) {
+  const source = content ?? text ?? ''
+  if (!source) return null
 
   // Split by $$...$$
-  const parts = content.split(/(\$\$[\s\S]*?\$\$)/g)
+  const parts = source.split(/(\$\$[\s\S]*?\$\$)/g)
 
   return (
     <div className={className} style={style}>

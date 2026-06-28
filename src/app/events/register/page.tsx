@@ -1,17 +1,34 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, BookOpenCheck, CheckCircle, GraduationCap, Loader2, Sparkles, Wand2 } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { ArrowLeft, BookOpenCheck, GraduationCap, Loader2, Sparkles, UsersRound, Wand2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { Input, Select, Textarea } from '@/components/ui/Input'
-import { processPublicRegistration } from '@/app/actions/event-registration'
+import { getPublicRegistrationCounts, processPublicRegistration } from '@/app/actions/event-registration'
 
 type CurriculumOption = { id: string; name: string }
 type ClassOption = { id: string; name: string; curriculum_id: string; level?: number | null }
 type SubjectOption = { id: string; name: string; curriculum_id: string; class_id?: string | null }
+type RegistrationCount = { eventId: string; curriculum: string; classLevel: string; count: number }
+
+function formatEventCharge(event?: any) {
+  if (!event) return 'Select a programme to see charges'
+  const amount = Number(event.charge_amount)
+  if (!Number.isFinite(amount) || amount <= 0) return 'Fee breakdown available'
+  const unit = event.charge_unit_label || event.charge_frequency?.replace(/_/g, ' ') || 'per programme'
+  return `${event.charge_currency || 'KES'} ${amount.toLocaleString()} ${unit}`
+}
+
+function formatSessionTime(event?: any) {
+  if (!event?.session_start_time && !event?.session_end_time) return 'Time to be confirmed'
+  const start = String(event.session_start_time || '').slice(0, 5)
+  const end = String(event.session_end_time || '').slice(0, 5)
+  return [start, end].filter(Boolean).join(' - ')
+}
 
 const GRADES: Record<string, string[]> = {
   academic: ['A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D+', 'D', 'D-', 'E', 'Not Yet Graded'],
@@ -53,6 +70,7 @@ function improveStruggle(subject: string, text: string) {
 }
 
 export default function EventRegistrationPage() {
+  const router = useRouter()
   const supabase = getSupabaseBrowserClient()
   const [events, setEvents] = useState<any[]>([])
   const [curriculums, setCurriculums] = useState<CurriculumOption[]>([])
@@ -60,8 +78,8 @@ export default function EventRegistrationPage() {
   const [subjects, setSubjects] = useState<SubjectOption[]>([])
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
-  const [success, setSuccess] = useState<{ message: string; whatsappSummary: string } | null>(null)
   const [selectedClassId, setSelectedClassId] = useState('')
+  const [registrationCounts, setRegistrationCounts] = useState<RegistrationCount[]>([])
   const [form, setForm] = useState({
     student_full_name: '',
     parent_name: '',
@@ -79,15 +97,16 @@ export default function EventRegistrationPage() {
 
   useEffect(() => {
     const load = async () => {
-      const [eventRes, curriculumRes, classRes, subjectRes] = await Promise.all([
+      const [eventRes, curriculumRes, classRes, subjectRes, countsRes] = await Promise.all([
         supabase
           .from('tuition_events')
-          .select('id, name, start_date, end_date, status, is_active')
+          .select('id, name, start_date, end_date, status, is_active, charge_amount, charge_currency, charge_frequency, charge_unit_label, pricing_note, event_location, session_start_time, session_end_time')
           .in('status', ['active', 'upcoming'])
           .order('start_date', { ascending: true }),
         supabase.from('curriculums').select('id, name').order('name'),
         supabase.from('classes').select('id, name, curriculum_id, level').order('level').order('name'),
         supabase.from('subjects').select('id, name, curriculum_id, class_id').order('name'),
+        getPublicRegistrationCounts(),
       ])
 
       const loadedEvents = eventRes.data || []
@@ -96,6 +115,7 @@ export default function EventRegistrationPage() {
       setCurriculums(configuredCurriculums)
       setClasses(classRes.data || [])
       setSubjects(subjectRes.data || [])
+      setRegistrationCounts(countsRes.success ? countsRes.counts as RegistrationCount[] : [])
 
       const params = new URLSearchParams(window.location.search)
       const eventId = params.get('eventId')
@@ -143,6 +163,15 @@ export default function EventRegistrationPage() {
   const selectedEventName = useMemo(() => {
     return events.find((event) => event.id === form.event_id)?.name || form.programme_selected
   }, [events, form.event_id, form.programme_selected])
+  const selectedEvent = useMemo(() => {
+    return events.find((event) => event.id === form.event_id)
+  }, [events, form.event_id])
+  const selectedRegistrationCounts = useMemo(() => {
+    return registrationCounts
+      .filter((item) => !form.event_id || item.eventId === form.event_id)
+      .sort((a, b) => b.count - a.count)
+  }, [registrationCounts, form.event_id])
+  const selectedRegistrationTotal = selectedRegistrationCounts.reduce((sum, item) => sum + item.count, 0)
 
   const toggleSubject = (subjectName: string) => {
     setSubjectResults((prev) => prev.some((item) => item.subjectName === subjectName)
@@ -155,7 +184,7 @@ export default function EventRegistrationPage() {
     setSubjectResults((prev) => prev.map((item) => item.subjectName === subjectName ? { ...item, ...patch } : item))
   }
 
-  const submit = async (event: React.FormEvent) => {
+  const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (subjectResults.length === 0) return toast.error('Select at least one subject.')
     setSubmitting(true)
@@ -166,29 +195,12 @@ export default function EventRegistrationPage() {
     setSubmitting(false)
     if (!result.success) return toast.error(result.error || 'Registration failed')
     const message = result.message || 'Registration received successfully. Peak Performance will review your academic details and contact you with the next steps.'
-    setSuccess({ message, whatsappSummary: result.whatsappSummary || '' })
-    toast.success(message)
+    toast.success(message, { duration: 6000 })
+    router.push('/')
   }
 
   if (loading) {
     return <div className="flex min-h-screen items-center justify-center bg-slate-950 text-white"><Loader2 className="h-8 w-8 animate-spin" /></div>
-  }
-
-  if (success) {
-    return (
-      <div className="min-h-screen bg-slate-950 px-4 py-10 text-white">
-        <div className="mx-auto max-w-3xl rounded-[2rem] border border-white/10 bg-white/10 p-6 shadow-2xl backdrop-blur md:p-10">
-          <CheckCircle className="h-12 w-12 text-emerald-300" />
-          <h1 className="mt-5 text-3xl font-black">Registration received successfully.</h1>
-          <p className="mt-3 text-white/70">Peak Performance will review your academic details and contact you with the next steps.</p>
-          <div className="mt-6 rounded-3xl bg-black/30 p-4">
-            <p className="text-xs font-black uppercase tracking-widest text-emerald-200">WhatsApp-ready admin summary</p>
-            <pre className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-white/85">{success.whatsappSummary}</pre>
-          </div>
-          <Link href="/" className="mt-6 inline-flex rounded-full bg-white px-5 py-3 text-sm font-black text-slate-950">Back to homepage</Link>
-        </div>
-      </div>
-    )
   }
 
   return (
@@ -208,6 +220,54 @@ export default function EventRegistrationPage() {
               <div className="mt-6 rounded-3xl border border-white/10 bg-white/10 p-4 backdrop-blur">
                 <p className="text-xs font-black uppercase tracking-widest text-white/50">Selected programme</p>
                 <p className="mt-1 text-lg font-black">{selectedEventName || 'Choose a programme'}</p>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                  <div className="rounded-2xl bg-white/10 p-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-white/45">Location</p>
+                    <p className="mt-1 font-black">{selectedEvent?.event_location || 'To be confirmed'}</p>
+                  </div>
+                  <div className="rounded-2xl bg-white/10 p-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-white/45">Time</p>
+                    <p className="mt-1 font-black">{formatSessionTime(selectedEvent)}</p>
+                  </div>
+                </div>
+                <div className="mt-3 rounded-2xl bg-[#7ed957]/15 p-3">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-[#bff8a7]">Charges</p>
+                  <p className="mt-1 text-sm font-black">{formatEventCharge(selectedEvent)}</p>
+                  {selectedEvent?.pricing_note && <p className="mt-1 text-xs leading-5 text-white/60">{selectedEvent.pricing_note}</p>}
+                </div>
+              </div>
+              <div className="mt-4 overflow-hidden rounded-3xl border border-white/10 bg-black/20 p-4 backdrop-blur">
+                <div className="flex items-center gap-3">
+                  <div className="grid h-11 w-11 place-items-center rounded-2xl bg-[#7ed957] text-[#073159] shadow-lg shadow-[#7ed957]/20">
+                    <UsersRound size={22} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/50">Learner momentum</p>
+                    <div className="mt-1 flex items-end gap-2">
+                      <span className="text-4xl font-black leading-none text-white">{selectedRegistrationTotal}</span>
+                      <span className="pb-1 text-xs font-black uppercase tracking-[0.14em] text-[#bff8a7]">
+                        {selectedRegistrationTotal === 1 ? 'learner registered' : 'learners registered'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                {selectedRegistrationCounts.length > 0 ? (
+                  <div className="mt-4 grid gap-2">
+                    {selectedRegistrationCounts.slice(0, 8).map((item) => (
+                      <div key={`${item.eventId}-${item.curriculum}-${item.classLevel}`} className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/10 px-3 py-2">
+                        <span className="flex min-w-0 items-center gap-2 text-[10px] font-black uppercase tracking-[0.13em] text-white/82">
+                          <span className="h-2 w-2 shrink-0 rounded-full bg-[#7ed957]" />
+                          <span className="truncate">{item.curriculum} · {item.classLevel}</span>
+                        </span>
+                        <span className="shrink-0 rounded-full bg-white px-2.5 py-1 text-xs font-black text-[#073159]">
+                          {item.count}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-3 text-xs leading-5 text-white/55">Be among the first learners to register for this programme.</p>
+                )}
               </div>
               <div className="mt-5 grid gap-3 text-sm">
                 {[

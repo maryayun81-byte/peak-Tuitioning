@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, Trash2, Edit, Calendar, Gift, X, AlertTriangle, ImagePlus, Upload } from 'lucide-react'
+import { Plus, Trash2, Edit, Calendar, Gift, X, AlertTriangle, ImagePlus, Upload, MessageSquareQuote } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
@@ -18,6 +18,21 @@ import type { TuitionEvent } from '@/types/database'
 
 const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
 
+function formatEventCharge(event: any) {
+  const amount = Number(event.charge_amount)
+  if (!Number.isFinite(amount) || amount <= 0) return 'Charges not set'
+  const currency = event.charge_currency || 'KES'
+  const unit = event.charge_unit_label || event.charge_frequency?.replace(/_/g, ' ') || 'per programme'
+  return `${currency} ${amount.toLocaleString()} ${unit}`
+}
+
+function formatSessionTime(event: any) {
+  if (!event.session_start_time && !event.session_end_time) return 'Time not set'
+  const start = String(event.session_start_time || '').slice(0, 5)
+  const end = String(event.session_end_time || '').slice(0, 5)
+  return [start, end].filter(Boolean).join(' - ')
+}
+
 interface Holiday {
   id: string
   name: string
@@ -30,6 +45,17 @@ const schema = z.object({
   start_date: z.string(),
   end_date: z.string(),
   banner_url: z.string().optional().or(z.literal('')),
+  charge_amount: z.preprocess(
+    (value) => (typeof value === 'number' && Number.isNaN(value)) || value === '' ? null : value,
+    z.number().min(0).nullable().optional()
+  ),
+  charge_currency: z.string().default('KES'),
+  charge_frequency: z.string().optional().or(z.literal('')),
+  charge_unit_label: z.string().optional().or(z.literal('')),
+  pricing_note: z.string().optional().or(z.literal('')),
+  event_location: z.string().optional().or(z.literal('')),
+  session_start_time: z.string().optional().or(z.literal('')),
+  session_end_time: z.string().optional().or(z.literal('')),
   active_days: z.array(z.string()).min(1),
   attendance_threshold: z.number().min(0).max(100).default(80),
   status: z.enum(['upcoming', 'active', 'postponed', 'cancelled', 'ended']).default('upcoming'),
@@ -61,6 +87,14 @@ export default function AdminTuitionEvents() {
       status: 'upcoming',
       postponed_to: '',
       banner_url: '',
+      charge_amount: null,
+      charge_currency: 'KES',
+      charge_frequency: '',
+      charge_unit_label: '',
+      pricing_note: '',
+      event_location: '',
+      session_start_time: '',
+      session_end_time: '',
     },
   })
 
@@ -129,6 +163,14 @@ export default function AdminTuitionEvents() {
     setValue('end_date', e.end_date)
     setValue('active_days', e.active_days)
     setValue('banner_url', e.banner_url || '')
+    setValue('charge_amount', e.charge_amount ?? null)
+    setValue('charge_currency', e.charge_currency || 'KES')
+    setValue('charge_frequency', e.charge_frequency || '')
+    setValue('charge_unit_label', e.charge_unit_label || '')
+    setValue('pricing_note', e.pricing_note || '')
+    setValue('event_location', e.event_location || '')
+    setValue('session_start_time', e.session_start_time || '')
+    setValue('session_end_time', e.session_end_time || '')
     setValue('attendance_threshold', e.attendance_threshold)
     setValue('status', e.status || 'upcoming')
     setValue('postponed_to', e.postponed_to || '')
@@ -140,6 +182,14 @@ export default function AdminTuitionEvents() {
     data.is_active = data.status === 'active';
     if (!data.postponed_to) data.postponed_to = null;
     if (!data.banner_url) data.banner_url = null;
+    if (data.charge_amount === undefined || data.charge_amount === null || Number.isNaN(data.charge_amount)) data.charge_amount = null;
+    if (!data.charge_currency) data.charge_currency = 'KES';
+    if (!data.charge_frequency) data.charge_frequency = null;
+    if (!data.charge_unit_label) data.charge_unit_label = null;
+    if (!data.pricing_note) data.pricing_note = null;
+    if (!data.event_location) data.event_location = null;
+    if (!data.session_start_time) data.session_start_time = null;
+    if (!data.session_end_time) data.session_end_time = null;
 
     if (data.status === 'active') {
       await supabase.from('tuition_events').update({ is_active: false, status: 'ended' }).neq('id', editing?.id ?? '')
@@ -209,7 +259,12 @@ export default function AdminTuitionEvents() {
           <h1 className="text-2xl font-black" style={{ color: 'var(--text)' }}>Tuition Events</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>{events.length} events configured</p>
         </div>
-        <Button onClick={() => { reset(); setEditing(null); setAddOpen(true) }}><Plus size={16} /> New Event</Button>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Button variant="secondary" onClick={() => copyShareUrl(`${origin}/#testimonials`)}>
+            <MessageSquareQuote size={16} /> Copy Testimonial Link
+          </Button>
+          <Button onClick={() => { reset(); setEditing(null); setAddOpen(true) }}><Plus size={16} /> New Event</Button>
+        </div>
       </div>
 
       {loading ? (
@@ -267,6 +322,23 @@ export default function AdminTuitionEvents() {
                   {event.active_days.map((d: string) => (
                     <Badge key={d} variant="info">{d.slice(0, 3).toUpperCase()}</Badge>
                   ))}
+                </div>
+
+                <div className="mb-3 rounded-2xl border border-[var(--card-border)] bg-[var(--input)] p-3">
+                  <div className="text-[10px] font-black uppercase tracking-[0.16em] text-muted">Charges</div>
+                  <div className="mt-1 text-sm font-black" style={{ color: 'var(--text)' }}>{formatEventCharge(event)}</div>
+                  {event.pricing_note && <p className="mt-1 text-xs text-muted">{event.pricing_note}</p>}
+                </div>
+
+                <div className="mb-3 grid grid-cols-2 gap-2 text-xs">
+                  <div className="rounded-2xl border border-[var(--card-border)] bg-[var(--input)] p-3">
+                    <div className="text-[10px] font-black uppercase tracking-[0.16em] text-muted">Location</div>
+                    <div className="mt-1 font-black" style={{ color: 'var(--text)' }}>{event.event_location || 'Location not set'}</div>
+                  </div>
+                  <div className="rounded-2xl border border-[var(--card-border)] bg-[var(--input)] p-3">
+                    <div className="text-[10px] font-black uppercase tracking-[0.16em] text-muted">Session Time</div>
+                    <div className="mt-1 font-black" style={{ color: 'var(--text)' }}>{formatSessionTime(event)}</div>
+                  </div>
                 </div>
 
                 <div className="flex items-center justify-between text-sm">
@@ -341,6 +413,46 @@ export default function AdminTuitionEvents() {
           <div className="grid grid-cols-2 gap-4">
             <Input label="Start Date" type="date" error={errors.start_date?.message} {...register('start_date')} />
             <Input label="End Date" type="date" error={errors.end_date?.message} {...register('end_date')} />
+          </div>
+
+          <div className="rounded-2xl border border-[var(--card-border)] bg-[var(--input)] p-4">
+            <div className="mb-3">
+              <p className="text-sm font-black" style={{ color: 'var(--text)' }}>Venue & Session Time</p>
+              <p className="text-xs text-muted">Shown on landing cards and the public registration page.</p>
+            </div>
+            <Input label="Location / Venue" placeholder="Nairobi Campus, Westlands / Online / Hybrid" {...register('event_location')} />
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <Input label="Start Time" type="time" {...register('session_start_time')} />
+              <Input label="End Time" type="time" {...register('session_end_time')} />
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[var(--card-border)] bg-[var(--input)] p-4">
+            <div className="mb-3">
+              <p className="text-sm font-black" style={{ color: 'var(--text)' }}>Event Charges</p>
+              <p className="text-xs text-muted">Examples: KES 1,250 per week, KES 2,000 per 2 hours, or KES 15,000 full programme.</p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Input label="Amount" type="number" placeholder="1250" {...register('charge_amount', { valueAsNumber: true })} />
+              <Select label="Currency" {...register('charge_currency')}>
+                <option value="KES">KES</option>
+                <option value="USD">USD</option>
+              </Select>
+              <Select label="Billing Type" {...register('charge_frequency')}>
+                <option value="">Select billing type</option>
+                <option value="weekly">Weekly</option>
+                <option value="per_session">Per session</option>
+                <option value="per_2_hours">Per 2 hours</option>
+                <option value="daily">Daily</option>
+                <option value="monthly">Monthly</option>
+                <option value="per_term">Per term</option>
+                <option value="full_programme">Full programme</option>
+              </Select>
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <Input label="Public Unit Label" placeholder="per week / per 2 hours / full programme" {...register('charge_unit_label')} />
+              <Input label="Pricing Note" placeholder="Sibling discount available, deposit required..." {...register('pricing_note')} />
+            </div>
           </div>
 
           <div>

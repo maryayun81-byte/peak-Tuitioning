@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import Link from 'next/link'
 import { PublicPortalMenu } from '@/components/ui/PublicPortalMenu'
 import {
@@ -13,6 +14,23 @@ import {
   Wifi,
   Zap,
 } from 'lucide-react'
+
+export const metadata: Metadata = {
+  title: 'Tuition Centre Nairobi | Peak Performance KCSE & CBC Tutoring',
+  description:
+    'Visit Peak Performance Tutoring, a Nairobi tuition centre for KCSE revision, CBC support, diagnostics, small-group learning and holiday programmes.',
+  alternates: {
+    canonical: '/tuition-center-nairobi',
+  },
+  openGraph: {
+    title: 'Tuition Centre Nairobi | Peak Performance Tutoring',
+    description:
+      'A focused Nairobi academic hub for KCSE and CBC learners who need structure, calm, accountability and visible progress.',
+    url: 'https://www.peakcampus.co.ke/tuition-center-nairobi',
+    siteName: 'Peak Performance Tutoring',
+    images: [{ url: '/logo.png', width: 800, height: 600, alt: 'Peak Performance Nairobi tuition centre' }],
+  },
+}
 
 const facilities = [
   { name: 'Focused study rooms', desc: 'Quiet, supervised zones for deep work and guided revision.', icon: ShieldCheck },

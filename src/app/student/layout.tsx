@@ -35,6 +35,7 @@ const NAV_ITEMS = [
   { label: 'Quizzes', group: 'Learning', href: '/student/quizzes', icon: <BrainCircuit size={18} /> },
   { label: 'Live Campus', shortLabel: 'Live', group: 'Learning', href: '/student/live', icon: <Zap size={18} className="text-emerald-500" /> },
   { label: 'Exam Prep', group: 'Learning', href: '/student/exam-prep', icon: <Target size={18} className="text-indigo-500" /> },
+  { label: 'Exam Desk', group: 'Learning', href: '/student/exam-desk', icon: <FileText size={18} className="text-rose-500" /> },
   { label: 'Creator Hub', shortLabel: 'Create', group: 'Learning', href: '/student/flashcards', icon: <BookOpen size={18} className="text-sky-500" /> },
   { label: 'Daily Brain Gym', shortLabel: 'Brain Gym', group: 'Learning', href: '/student/brain-gym', icon: <BrainCircuit size={18} className="text-orange-500" /> },
   { label: 'Study Timer', shortLabel: 'Timer', group: 'Learning', href: '/student/study', icon: <Clock size={18} /> },

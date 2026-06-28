@@ -8,11 +8,13 @@ import {
 } from 'lucide-react'
 
 interface AnnotationCanvasProps {
+  pageId?: string
   backgroundText?: string
   backgroundJson?: string
   backgroundImageUrl?: string   
   initialJson?: string
-  onSave: (json: string) => void
+  initialData?: string
+  onSave: (json: string) => unknown
   readOnly?: boolean
   defaultColor?: string
   height?: number
@@ -61,7 +63,7 @@ const COLORS: ColorOption[] = [
 const STROKE_WIDTHS = [1, 2, 3, 4, 5, 6, 8, 10, 15, 20]
 
 export function AnnotationCanvas({
-  backgroundText, backgroundJson, backgroundImageUrl, initialJson,
+  backgroundText, backgroundJson, backgroundImageUrl, initialJson, initialData,
   onSave, readOnly, defaultColor = '#EF4444', height
 }: AnnotationCanvasProps) {
   const canvasRef  = useRef<HTMLCanvasElement>(null)
@@ -129,7 +131,7 @@ export function AnnotationCanvas({
   // Capture initial props in refs so the canvas only reads them ONCE on mount.
   // This is critical: if these were deps, every student save (which updates
   // initialJson via parent state) would teardown+reinit the canvas and wipe drawings.
-  const initialJsonRef    = useRef(initialJson)
+  const initialJsonRef    = useRef(initialJson ?? initialData)
   const backgroundTextRef = useRef(backgroundText)
   const backgroundJsonRef = useRef(backgroundJson)
   const backgroundImageUrlRef = useRef(backgroundImageUrl)

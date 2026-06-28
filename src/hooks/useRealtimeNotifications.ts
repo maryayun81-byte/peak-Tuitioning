@@ -21,12 +21,12 @@ export function useRealtimeNotifications() {
     icon.rel = 'icon'
     icon.href = unreadCount > 0
       ? `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#2563eb"/><path d="M17 44V20h18c8 0 13 4 13 11s-5 11-13 11H27v2H17zm10-11h8c2 0 3-1 3-2s-1-2-3-2h-8v4z" fill="white"/><circle cx="51" cy="13" r="11" fill="#ef4444"/><text x="51" y="17" font-size="12" text-anchor="middle" fill="white" font-family="Arial" font-weight="700">${unreadCount > 9 ? '9+' : unreadCount}</text></svg>`)}`
-      : '/logo.png'
+      : '/favicon.ico'
     if (!icon.parentNode) document.head.appendChild(icon)
 
     return () => {
       document.title = baseTitle
-      icon.href = '/logo.png'
+      icon.href = '/favicon.ico'
     }
   }, [unreadCount])
 
@@ -128,8 +128,8 @@ export function useRealtimeNotifications() {
               : `peak-${newNotif.type}-${newNotif.id}`
             const bn = new Notification(newNotif.title, {
               body: newNotif.body,
-              icon: '/logo.png',
-              badge: '/logo.png',
+              icon: '/icon-192.png',
+              badge: '/icon-192.png',
               tag,
             })
             bn.onclick = () => {

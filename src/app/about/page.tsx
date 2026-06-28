@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import Link from 'next/link'
 import { PublicPortalMenu } from '@/components/ui/PublicPortalMenu'
 import {
@@ -13,6 +14,15 @@ import {
   Target,
   Users,
 } from 'lucide-react'
+
+export const metadata: Metadata = {
+  title: 'About Peak Performance Tutoring Kenya | Diagnostic KCSE & CBC Support',
+  description:
+    'Learn how Peak Performance Tutoring supports Kenyan KCSE and CBC learners through diagnostic placement, ability-matched groups, active recall and parent-visible progress.',
+  alternates: {
+    canonical: '/about',
+  },
+}
 
 const principles = [
   {

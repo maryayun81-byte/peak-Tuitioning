@@ -2,6 +2,35 @@
 
 import { createAdminClient } from '@/lib/supabase/server'
 
+export async function getPublicRegistrationCounts() {
+  try {
+    const adminClient = await createAdminClient()
+    const { data, error } = await adminClient
+      .from('event_registrations')
+      .select('tuition_event_id, curriculum_label, class_level, status')
+      .neq('status', 'cancelled')
+
+    if (error) return { success: false, counts: [], error: error.message }
+
+    const grouped = new Map<string, { eventId: string; curriculum: string; classLevel: string; count: number }>()
+    ;(data || []).forEach((item: any) => {
+      const eventId = String(item.tuition_event_id || '')
+      const curriculum = String(item.curriculum_label || '').trim()
+      const classLevel = String(item.class_level || '').trim()
+      if (!eventId || !curriculum || !classLevel) return
+      const key = `${eventId}|${curriculum}|${classLevel}`
+      const existing = grouped.get(key)
+      if (existing) existing.count += 1
+      else grouped.set(key, { eventId, curriculum, classLevel, count: 1 })
+    })
+
+    return { success: true, counts: Array.from(grouped.values()) }
+  } catch (error: any) {
+    console.error('Registration Counts Error:', error)
+    return { success: false, counts: [], error: error.message || 'Server error occurred' }
+  }
+}
+
 export async function processPublicRegistration(formData: FormData) {
   try {
     const adminClient = await createAdminClient()

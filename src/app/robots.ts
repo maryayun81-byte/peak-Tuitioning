@@ -5,7 +5,7 @@ export default function robots(): MetadataRoute.Robots {
     rules: {
       userAgent: '*',
       allow: '/',
-      disallow: ['/api/', '/admin/', '/dashboard/'],
+      disallow: ['/api/', '/admin/', '/student/', '/teacher/', '/parent/', '/finance/', '/dashboard/'],
     },
     sitemap: 'https://www.peakcampus.co.ke/sitemap.xml',
   };

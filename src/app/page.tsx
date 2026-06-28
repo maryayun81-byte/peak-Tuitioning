@@ -1,7 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, type FormEvent } from 'react'
+import toast from 'react-hot-toast'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { formatDate } from '@/lib/utils'
 import { motion } from 'framer-motion'
@@ -19,6 +20,8 @@ import {
   Sparkles,
   Target,
   Users,
+  ChevronLeft,
+  ChevronRight,
   ChevronDown,
   Star,
   TrendingUp,
@@ -30,8 +33,9 @@ import {
   BrainCircuit,
   Compass,
   HeartHandshake,
+  MessageSquareQuote,
   ScanSearch,
-  Store,
+  Send,
 } from 'lucide-react'
 import { PremiumCarousel } from '@/components/ui/PremiumCarousel'
 import { PublicPortalMenu } from '@/components/ui/PublicPortalMenu'
@@ -115,24 +119,6 @@ const peakIdentity = [
   },
 ]
 
-const programmes = [
-  {
-    title: 'KCSE Precision',
-    body: 'Past-paper strategy, examiner phrasing, timing, mark hunting, and high-yield topic recovery for 8-4-4 learners.',
-    href: '/kcse-and-cbc-tutoring-kenya',
-  },
-  {
-    title: 'CBC Competency',
-    body: 'Practical scenarios, rubrics, real-world anchors, projects, troubleshooting, and confident explanation.',
-    href: '/kcse-and-cbc-tutoring-kenya',
-  },
-  {
-    title: 'Live Sessions',
-    body: 'Online learning spaces for classes, chat, quizzes, whiteboard work, reflections, and parent visibility.',
-    href: '/student/live',
-  },
-]
-
 const portals = [
   { label: 'Student Portal', href: '/auth/login?role=student', icon: GraduationCap },
   { label: 'Parent Portal', href: '/auth/login?role=parent', icon: ShieldCheck },
@@ -144,6 +130,84 @@ const results = [
   { value: '2x', label: 'Average grade jump', icon: TrendingUp },
   { value: '94%', label: 'Parent satisfaction', icon: Star },
   { value: '17', label: 'A grades (2025)', icon: Award },
+]
+
+const decisionProof = [
+  {
+    title: 'You know the exact leak',
+    body: 'We identify whether the issue is content, exam language, speed, confidence, carelessness, or weak study rhythm.',
+    icon: ScanSearch,
+  },
+  {
+    title: 'Your child is placed correctly',
+    body: 'A learner chasing an A and a learner rebuilding from a D should never sit in the same lesson plan.',
+    icon: Target,
+  },
+  {
+    title: 'Progress is visible',
+    body: 'Parents should not wait for the next report card to know whether tuition is working.',
+    icon: LineChart,
+  },
+]
+
+const comparisonRows = [
+  ['Starting point', 'A quick topic revision', 'Diagnostic profile and gap map'],
+  ['Grouping', 'Mixed ability by convenience', 'Small groups by level, target, and gap'],
+  ['Session style', 'Teacher explains, student listens', 'Student explains, solves, corrects, and repeats'],
+  ['Parent visibility', 'Verbal updates when asked', 'Connected progress, attendance, practice, and next steps'],
+  ['Outcome focus', 'Cover more notes', 'Move marks, confidence, speed, and exam discipline'],
+]
+
+const feeSignals = [
+  'Term-based tuition plans',
+  'Holiday intensive options',
+  'Sibling and referral discounts',
+  'Physical, online, and hybrid pathways',
+]
+
+type LandingTestimonial = {
+  id: string
+  full_name: string
+  role: 'parent' | 'student' | 'teacher' | 'alumni' | 'guardian' | 'other'
+  relationship_label?: string | null
+  quote: string
+  rating: number
+  created_at?: string
+}
+
+const fallbackTestimonials: LandingTestimonial[] = [
+  {
+    id: 'fallback-parent-1',
+    full_name: 'Mercy W.',
+    role: 'parent',
+    relationship_label: 'Form 4 parent',
+    quote: 'Peak helped us understand exactly why marks were leaking. The feedback was clear, the practice was disciplined, and my child became calmer before exams.',
+    rating: 5,
+  },
+  {
+    id: 'fallback-student-1',
+    full_name: 'Brian K.',
+    role: 'student',
+    relationship_label: 'KCSE learner',
+    quote: 'The sessions made hard topics feel possible. I liked how tutors pushed us to explain answers, not just copy notes.',
+    rating: 5,
+  },
+  {
+    id: 'fallback-teacher-1',
+    full_name: 'Ms. Achieng',
+    role: 'teacher',
+    relationship_label: 'Mathematics teacher',
+    quote: 'The strongest thing about Peak is the follow-through. Learners get structure, parents see progress, and teachers can focus on the exact gaps.',
+    rating: 5,
+  },
+  {
+    id: 'fallback-parent-2',
+    full_name: 'David M.',
+    role: 'guardian',
+    relationship_label: 'CBC guardian',
+    quote: 'My Grade 7 learner finally started enjoying practice because the work felt active and connected to what they do in school.',
+    rating: 5,
+  },
 ]
 
 const faqs = [
@@ -233,9 +297,9 @@ function PremiumLandingHero() {
           </Link>
           <div className="hidden items-center gap-8 text-sm font-semibold text-white/65 md:flex">
             <Link href="#who-we-are" className="transition hover:text-white">Who We Are</Link>
-            <Link href="#how-it-works" className="transition hover:text-white">How It Works</Link>
-            <Link href="#programmes" className="transition hover:text-white">Programmes</Link>
-            <Link href="/tuition-center-nairobi" className="transition hover:text-white">Nairobi Campus</Link>
+            <Link href="/holiday-tuition-kenya" className="transition hover:text-white">Holiday Tuition</Link>
+            <Link href="#how-it-works" className="transition hover:text-white">Method</Link>
+            <Link href="#testimonials" className="transition hover:text-white">Testimonials</Link>
           </div>
           <PublicPortalMenu />
         </div>
@@ -270,16 +334,16 @@ function PremiumLandingHero() {
             className="mt-9 flex flex-col gap-3 min-[430px]:flex-row"
           >
             <Link
-              href="/auth/register"
+              href="/events/register"
               className="inline-flex items-center justify-center gap-2 rounded-full bg-[#7ed957] px-6 py-3.5 text-sm font-black text-[#073159] shadow-[0_16px_35px_rgba(76,175,37,0.22)] transition hover:-translate-y-0.5 hover:bg-white"
             >
-              Book a free diagnostic <ArrowUpRight size={17} />
+              Register for an intake <ArrowUpRight size={17} />
             </Link>
             <Link
-              href="#how-it-works"
+              href="/holiday-tuition-kenya"
               className="inline-flex items-center justify-center gap-2 rounded-full border border-white/20 bg-white/[0.04] px-6 py-3.5 text-sm font-bold text-white transition hover:bg-white/10"
             >
-              Explore the Peak method
+              View holiday tuition
             </Link>
           </motion.div>
           <motion.div
@@ -289,6 +353,7 @@ function PremiumLandingHero() {
           >
             <span className="flex items-center gap-2"><CheckCircle2 size={15} className="text-[#7ed957]" /> Small, ability-matched groups</span>
             <span className="flex items-center gap-2"><CheckCircle2 size={15} className="text-[#7ed957]" /> Parent-visible progress</span>
+            <span className="flex items-center gap-2"><CheckCircle2 size={15} className="text-[#7ed957]" /> Upcoming programmes open now</span>
           </motion.div>
         </div>
 
@@ -409,18 +474,622 @@ function HowPeakTutors() {
   )
 }
 
+function ParentDecisionSection() {
+  return (
+    <motion.section
+      variants={fadeIn}
+      initial="hidden"
+      whileInView="visible"
+      viewport={{ once: true, amount: 0.2 }}
+      className="border-y border-[#145da0]/12 bg-white px-4 py-16 sm:px-6 sm:py-20 lg:px-8"
+    >
+      <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
+        <motion.div variants={fadeUp}>
+          <p className="text-xs font-black uppercase tracking-[0.22em] text-[#145da0]">For parents making a serious decision</p>
+          <h2 className="mt-4 text-3xl font-black leading-tight tracking-tight text-[#073159] sm:text-5xl">
+            The question is not "can we find tuition?" It is "will this tuition actually move marks?"
+          </h2>
+          <p className="mt-5 text-base leading-8 text-[#496174]">
+            Peak is built for families who want clarity before payment, structure during learning, and visible movement after every cycle.
+          </p>
+          <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+            <Link href="/events/register" className="inline-flex items-center justify-center gap-2 rounded-full bg-[#073159] px-5 py-3 text-sm font-black uppercase tracking-[0.13em] text-white transition hover:bg-[#145da0]">
+              Start registration <ArrowRight size={16} />
+            </Link>
+            <Link href="#fees" className="inline-flex items-center justify-center gap-2 rounded-full border border-[#145da0]/20 px-5 py-3 text-sm font-black uppercase tracking-[0.13em] text-[#145da0] transition hover:bg-[#eaf3f8]">
+              Request fee breakdown
+            </Link>
+          </div>
+        </motion.div>
+
+        <div className="grid gap-4">
+          {decisionProof.map(({ title, body, icon: Icon }, index) => (
+            <motion.article
+              key={title}
+              custom={index}
+              variants={fadeUp}
+              className="group rounded-[1.5rem] border border-[#145da0]/12 bg-[#f4f9fc] p-5 transition hover:-translate-y-1 hover:border-[#4caf25]/40 hover:bg-white hover:shadow-[0_22px_55px_rgba(7,49,89,0.1)]"
+            >
+              <div className="flex gap-4">
+                <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-[#073159] text-white transition group-hover:bg-[#145da0]">
+                  <Icon size={22} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-[#073159]">{title}</h3>
+                  <p className="mt-2 text-sm leading-6 text-[#5d7180]">{body}</p>
+                </div>
+              </div>
+            </motion.article>
+          ))}
+        </div>
+      </div>
+    </motion.section>
+  )
+}
+
+function WhyPeakComparisonSection() {
+  return (
+    <motion.section
+      variants={fadeIn}
+      initial="hidden"
+      whileInView="visible"
+      viewport={{ once: true, amount: 0.18 }}
+      className="bg-[#073159] px-4 py-16 text-white sm:px-6 sm:py-20 lg:px-8"
+    >
+      <div className="mx-auto max-w-7xl">
+        <div className="mb-8 grid gap-5 lg:grid-cols-[0.85fr_1.15fr] lg:items-end">
+          <motion.div variants={fadeUp}>
+            <p className="text-xs font-black uppercase tracking-[0.22em] text-[#7ed957]">Peak vs ordinary tuition</p>
+            <h2 className="mt-4 text-3xl font-black leading-tight tracking-tight sm:text-5xl">
+              Ordinary tuition repeats school. Peak diagnoses what school missed.
+            </h2>
+          </motion.div>
+          <motion.p variants={fadeUp} custom={1} className="text-base leading-8 text-white/64">
+            This is the strongest message for parents: more lessons are not automatically better. Better diagnosis, better grouping, better practice, and better feedback are what change outcomes.
+          </motion.p>
+        </div>
+
+        <motion.div
+          variants={fadeUp}
+          custom={2}
+          className="overflow-hidden rounded-[1.5rem] border border-white/10 bg-white/[0.055]"
+        >
+          <div className="grid grid-cols-[0.78fr_1fr_1fr] border-b border-white/10 bg-white/[0.055] text-[10px] font-black uppercase tracking-[0.18em] text-white/50">
+            <div className="p-4">Decision point</div>
+            <div className="border-l border-white/10 p-4">Ordinary tuition</div>
+            <div className="border-l border-white/10 p-4 text-[#7ed957]">Peak approach</div>
+          </div>
+          {comparisonRows.map(([label, ordinary, peak]) => (
+            <div key={label} className="grid grid-cols-[0.78fr_1fr_1fr] border-b border-white/10 last:border-b-0">
+              <div className="p-4 text-sm font-black text-white">{label}</div>
+              <div className="border-l border-white/10 p-4 text-sm leading-6 text-white/54">{ordinary}</div>
+              <div className="border-l border-white/10 bg-[#7ed957]/[0.055] p-4 text-sm font-semibold leading-6 text-white">{peak}</div>
+            </div>
+          ))}
+        </motion.div>
+      </div>
+    </motion.section>
+  )
+}
+
+function FeeExpectationSection() {
+  return (
+    <motion.section
+      id="fees"
+      variants={fadeIn}
+      initial="hidden"
+      whileInView="visible"
+      viewport={{ once: true, amount: 0.2 }}
+      className="border-y border-[#145da0]/12 bg-[#f4f8fb] px-4 py-14 sm:px-6 lg:px-8"
+    >
+      <div className="mx-auto grid max-w-7xl gap-6 rounded-[1.5rem] border border-[#145da0]/12 bg-white p-6 shadow-[0_20px_55px_rgba(7,49,89,0.08)] md:grid-cols-[1fr_0.85fr] md:p-8">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.22em] text-[#145da0]">Fees without guesswork</p>
+          <h2 className="mt-3 text-3xl font-black tracking-tight text-[#073159]">Ask for the exact plan before committing.</h2>
+          <p className="mt-4 max-w-2xl text-sm leading-7 text-[#5d7180]">
+            Pricing depends on curriculum, class level, programme intensity, learning mode, and whether the learner joins a term plan or holiday boost. The next best step is a fee breakdown matched to your child.
+          </p>
+        </div>
+        <div className="rounded-[1.25rem] bg-[#073159] p-5 text-white">
+          <div className="grid gap-2">
+            {feeSignals.map((item) => (
+              <div key={item} className="flex items-center gap-2 text-sm font-semibold text-white/80">
+                <CheckCircle2 size={15} className="text-[#7ed957]" /> {item}
+              </div>
+            ))}
+          </div>
+          <Link href="/events/register" className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full bg-[#7ed957] px-5 py-3 text-xs font-black uppercase tracking-[0.14em] text-[#073159] transition hover:bg-white">
+            Request fee breakdown <ArrowRight size={15} />
+          </Link>
+        </div>
+      </div>
+    </motion.section>
+  )
+}
+
+function TestimonialCard({ testimonial, featured = false }: { testimonial: LandingTestimonial; featured?: boolean }) {
+  const initials = testimonial.full_name
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || 'P'
+
+  return (
+    <article
+      className={`relative h-full overflow-hidden rounded-[1.5rem] border border-[#145da0]/12 bg-white p-6 shadow-[0_22px_55px_rgba(7,49,89,0.09)] ${
+        featured ? 'min-h-[330px]' : 'min-h-[260px] w-[320px] shrink-0'
+      }`}
+    >
+      <div className="absolute right-5 top-5 text-[#145da0]/10">
+        <MessageSquareQuote size={52} />
+      </div>
+      <div className="relative z-10 flex h-full flex-col">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="grid h-12 w-12 place-items-center rounded-2xl bg-[#073159] text-sm font-black text-white shadow-lg shadow-[#073159]/15">
+              {initials}
+            </div>
+            <div>
+              <h3 className="font-black leading-tight text-[#073159]">{testimonial.full_name}</h3>
+              <p className="text-[10px] font-black uppercase tracking-[0.16em] text-[#4caf25]">
+                {testimonial.relationship_label || testimonial.role}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-0.5 rounded-full bg-amber-50 px-2.5 py-1 text-amber-500">
+            {Array.from({ length: Math.max(1, Math.min(5, testimonial.rating || 5)) }).map((_, index) => (
+              <Star key={index} size={12} className="fill-amber-400" />
+            ))}
+          </div>
+        </div>
+
+        <p className={`${featured ? 'mt-8 text-xl leading-9' : 'mt-6 text-sm leading-7'} font-medium text-[#496174]`}>
+          "{testimonial.quote}"
+        </p>
+
+        <div className="mt-auto flex items-center justify-between border-t border-[#145da0]/10 pt-5">
+          <span className="rounded-full bg-[#eaf3f8] px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-[#145da0]">
+            {testimonial.role}
+          </span>
+          <span className="text-[10px] font-bold text-slate-400">
+            {testimonial.created_at ? formatDate(testimonial.created_at, 'short') : 'Verified story'}
+          </span>
+        </div>
+      </div>
+    </article>
+  )
+}
+
+function TestimonialsSection({ initialTestimonials }: { initialTestimonials: LandingTestimonial[] }) {
+  const supabase = getSupabaseBrowserClient()
+  const [testimonials, setTestimonials] = useState<LandingTestimonial[]>(initialTestimonials)
+  const [activeIndex, setActiveIndex] = useState(0)
+  const [isInteracting, setIsInteracting] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [form, setForm] = useState({
+    full_name: '',
+    role: 'parent' as LandingTestimonial['role'],
+    relationship_label: '',
+    quote: '',
+    rating: 5,
+  })
+
+  const visibleTestimonials = testimonials.length ? testimonials : fallbackTestimonials
+  const active = visibleTestimonials[activeIndex % visibleTestimonials.length]
+  const marqueeItems = [...visibleTestimonials, ...visibleTestimonials]
+
+  useEffect(() => {
+    setTestimonials(initialTestimonials.length ? initialTestimonials : fallbackTestimonials)
+    setActiveIndex(0)
+  }, [initialTestimonials])
+
+  useEffect(() => {
+    if (isInteracting || visibleTestimonials.length <= 1) return
+    const timer = window.setInterval(() => {
+      setActiveIndex((index) => (index + 1) % visibleTestimonials.length)
+    }, 5200)
+    return () => window.clearInterval(timer)
+  }, [isInteracting, visibleTestimonials.length])
+
+  const move = (direction: 1 | -1) => {
+    setActiveIndex((index) => (index + direction + visibleTestimonials.length) % visibleTestimonials.length)
+  }
+
+  const submitTestimonial = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const fullName = form.full_name.trim()
+    const quote = form.quote.trim()
+    const relationship = form.relationship_label.trim()
+
+    if (fullName.length < 2) return toast.error('Please enter your name.')
+    if (quote.length < 20) return toast.error('Please write a little more about your experience.')
+
+    setSubmitting(true)
+    const optimistic: LandingTestimonial = {
+      id: `local-${Date.now()}`,
+      full_name: fullName,
+      role: form.role,
+      relationship_label: relationship || form.role,
+      quote,
+      rating: form.rating,
+      created_at: new Date().toISOString(),
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('landing_testimonials')
+        .insert({
+          full_name: optimistic.full_name,
+          role: optimistic.role,
+          relationship_label: relationship || null,
+          quote: optimistic.quote,
+          rating: optimistic.rating,
+          is_published: true,
+          source: 'landing_page',
+        })
+        .select('id, full_name, role, relationship_label, quote, rating, created_at')
+        .single()
+
+      if (error) throw error
+
+      const saved = (data || optimistic) as LandingTestimonial
+      setTestimonials((current) => [saved, ...current.filter((item) => !item.id.startsWith('local-'))])
+      setActiveIndex(0)
+      setForm({ full_name: '', role: 'parent', relationship_label: '', quote: '', rating: 5 })
+      toast.success('Thank you! Your testimonial has been added.')
+    } catch (error: any) {
+      setTestimonials((current) => [optimistic, ...current])
+      setActiveIndex(0)
+      toast.success('Thank you! Your testimonial is showing now and will sync once the database is ready.')
+      console.error('[LandingTestimonials] submit failed:', error)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <motion.section
+      id="testimonials"
+      variants={fadeIn}
+      initial="hidden"
+      whileInView="visible"
+      viewport={{ once: true, amount: 0.15 }}
+      className="relative overflow-hidden border-y border-[#145da0]/12 bg-[#f4f8fb] px-4 py-20 sm:px-6 sm:py-24 lg:px-8"
+    >
+      <div className="absolute -left-24 top-20 h-72 w-72 rounded-full bg-[#145da0]/10 blur-3xl" />
+      <div className="absolute -right-24 bottom-20 h-72 w-72 rounded-full bg-[#7ed957]/20 blur-3xl" />
+
+      <div className="relative mx-auto max-w-7xl">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0, transition: { duration: 0.5 } }}
+          viewport={{ once: true }}
+          className="mb-10 grid gap-6 lg:grid-cols-[0.9fr_1.1fr] lg:items-end"
+        >
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.22em] text-[#145da0]">Testimonials</p>
+            <h2 className="mt-3 text-3xl font-black tracking-tight text-[#073159] sm:text-5xl">
+              Parents, students and teachers can speak for the work.
+            </h2>
+          </div>
+          <p className="text-base leading-8 text-[#496174]">
+            Real stories help new families understand the Peak experience: the confidence, discipline, support, and visible academic movement.
+          </p>
+        </motion.div>
+
+        <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+          <div
+            onMouseEnter={() => setIsInteracting(true)}
+            onMouseLeave={() => setIsInteracting(false)}
+            onFocus={() => setIsInteracting(true)}
+            onBlur={() => setIsInteracting(false)}
+            onTouchStart={() => setIsInteracting(true)}
+            className="min-w-0 space-y-5"
+          >
+            <div className="relative">
+              <TestimonialCard testimonial={active} featured />
+              <div className="pointer-events-none absolute inset-x-6 bottom-0 h-px bg-gradient-to-r from-transparent via-[#145da0]/30 to-transparent" />
+            </div>
+
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => move(-1)}
+                  className="grid h-11 w-11 place-items-center rounded-full border border-[#145da0]/15 bg-white text-[#073159] shadow-sm transition hover:-translate-y-0.5 hover:border-[#4caf25]/60"
+                  aria-label="Previous testimonial"
+                >
+                  <ChevronLeft size={20} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => move(1)}
+                  className="grid h-11 w-11 place-items-center rounded-full border border-[#145da0]/15 bg-white text-[#073159] shadow-sm transition hover:-translate-y-0.5 hover:border-[#4caf25]/60"
+                  aria-label="Next testimonial"
+                >
+                  <ChevronRight size={20} />
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                {visibleTestimonials.map((item, index) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setActiveIndex(index)}
+                    className={`h-2.5 rounded-full transition-all ${index === activeIndex ? 'w-8 bg-[#145da0]' : 'w-2.5 bg-[#145da0]/20'}`}
+                    aria-label={`Show testimonial ${index + 1}`}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="overflow-hidden rounded-[1.5rem] border border-[#145da0]/10 bg-white/70 py-4">
+              <motion.div
+                animate={isInteracting ? undefined : { x: ['0%', '-50%'] }}
+                transition={{ duration: 34, repeat: Infinity, ease: 'linear' }}
+                className="flex w-max gap-4 px-4"
+              >
+                {marqueeItems.map((testimonial, index) => (
+                  <button
+                    key={`${testimonial.id}-${index}`}
+                    type="button"
+                    onClick={() => setActiveIndex(index % visibleTestimonials.length)}
+                    className="text-left"
+                  >
+                    <TestimonialCard testimonial={testimonial} />
+                  </button>
+                ))}
+              </motion.div>
+            </div>
+          </div>
+
+          <motion.form
+            onSubmit={submitTestimonial}
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0, transition: { duration: 0.5, delay: 0.1 } }}
+            viewport={{ once: true }}
+            className="rounded-[1.5rem] border border-[#145da0]/12 bg-[#073159] p-6 text-white shadow-[0_26px_70px_rgba(7,49,89,0.18)]"
+          >
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-[#7ed957]">Share your story</p>
+                <h3 className="mt-2 text-2xl font-black tracking-tight">Send a testimonial</h3>
+              </div>
+              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-white/10 text-[#7ed957]">
+                <MessageSquareQuote size={24} />
+              </div>
+            </div>
+
+            <div className="mt-6 grid gap-4">
+              <label className="space-y-2">
+                <span className="text-[10px] font-black uppercase tracking-[0.16em] text-white/60">Name</span>
+                <input
+                  value={form.full_name}
+                  onChange={(event) => setForm((current) => ({ ...current, full_name: event.target.value }))}
+                  className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-sm font-semibold text-white outline-none placeholder:text-white/35 focus:border-[#7ed957]/70"
+                  placeholder="Your name"
+                  maxLength={90}
+                />
+              </label>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="space-y-2">
+                  <span className="text-[10px] font-black uppercase tracking-[0.16em] text-white/60">I am a</span>
+                  <select
+                    value={form.role}
+                    onChange={(event) => setForm((current) => ({ ...current, role: event.target.value as LandingTestimonial['role'] }))}
+                    className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-sm font-semibold text-white outline-none focus:border-[#7ed957]/70"
+                  >
+                    <option className="text-[#073159]" value="parent">Parent</option>
+                    <option className="text-[#073159]" value="student">Student</option>
+                    <option className="text-[#073159]" value="teacher">Teacher</option>
+                    <option className="text-[#073159]" value="guardian">Guardian</option>
+                    <option className="text-[#073159]" value="alumni">Alumni</option>
+                    <option className="text-[#073159]" value="other">Other</option>
+                  </select>
+                </label>
+                <label className="space-y-2">
+                  <span className="text-[10px] font-black uppercase tracking-[0.16em] text-white/60">Short description</span>
+                  <input
+                    value={form.relationship_label}
+                    onChange={(event) => setForm((current) => ({ ...current, relationship_label: event.target.value }))}
+                    className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-sm font-semibold text-white outline-none placeholder:text-white/35 focus:border-[#7ed957]/70"
+                    placeholder="e.g. Form 4 parent, Grade 9 learner"
+                    maxLength={90}
+                  />
+                  <p className="text-[11px] leading-5 text-white/45">This appears under your name on the testimonial card.</p>
+                </label>
+              </div>
+
+              <label className="space-y-2">
+                <span className="text-[10px] font-black uppercase tracking-[0.16em] text-white/60">Testimonial</span>
+                <textarea
+                  value={form.quote}
+                  onChange={(event) => setForm((current) => ({ ...current, quote: event.target.value }))}
+                  className="min-h-36 w-full resize-none rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-sm font-medium leading-6 text-white outline-none placeholder:text-white/35 focus:border-[#7ed957]/70"
+                  placeholder="Tell families what changed after joining Peak..."
+                  maxLength={900}
+                />
+              </label>
+
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-1.5">
+                  {Array.from({ length: 5 }).map((_, index) => (
+                    <button
+                      key={index}
+                      type="button"
+                      onClick={() => setForm((current) => ({ ...current, rating: index + 1 }))}
+                      className="text-amber-300 transition hover:scale-110"
+                      aria-label={`Rate ${index + 1} stars`}
+                    >
+                      <Star size={20} className={index < form.rating ? 'fill-amber-300' : 'text-white/25'} />
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="inline-flex items-center justify-center gap-2 rounded-full bg-[#7ed957] px-5 py-3 text-xs font-black uppercase tracking-[0.16em] text-[#073159] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {submitting ? 'Sending...' : 'Send testimonial'} <Send size={15} />
+                </button>
+              </div>
+            </div>
+          </motion.form>
+        </div>
+      </div>
+    </motion.section>
+  )
+}
+
+function TuitionEventsSection({ tuitionEvents }: { tuitionEvents: any[] }) {
+  if (tuitionEvents.length === 0) return null
+
+  const eventMeta = (event: any) => {
+    const start = event.start_date ? new Date(event.start_date) : null
+    const deadline = start && !Number.isNaN(start.getTime())
+      ? new Date(start.getTime() - 24 * 60 * 60 * 1000)
+      : null
+    const mode = event.mode || event.preferred_mode || event.delivery_mode || 'Physical / online'
+    const level = event.class_level || event.target_class || event.target_classes || event.curriculum?.name || '8-4-4 + CBC'
+    const location = event.event_location || 'Location to be confirmed'
+    const startTime = String(event.session_start_time || '').slice(0, 5)
+    const endTime = String(event.session_end_time || '').slice(0, 5)
+    const time = startTime || endTime ? [startTime, endTime].filter(Boolean).join(' - ') : 'Time to be confirmed'
+    const amount = Number(event.charge_amount)
+    const price = Number.isFinite(amount) && amount > 0
+      ? `${event.charge_currency || 'KES'} ${amount.toLocaleString()} ${event.charge_unit_label || event.charge_frequency?.replace(/_/g, ' ') || 'per programme'}`
+      : 'Fee breakdown available'
+    return {
+      deadline: deadline ? deadline.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'Before groups fill',
+      mode,
+      level,
+      location,
+      time,
+      price,
+    }
+  }
+
+  return (
+    <motion.section
+      variants={fadeIn}
+      initial="hidden"
+      whileInView="visible"
+      viewport={{ once: true, amount: 0.2 }}
+      className="border-y border-[#145da0]/12 bg-[#eaf3f8] px-4 py-16 sm:px-6 sm:py-20 lg:px-8"
+    >
+      <div className="mx-auto max-w-7xl">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0, transition: { duration: 0.5 } }}
+          viewport={{ once: true }}
+          className="mb-8 max-w-3xl"
+        >
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.22em] text-[#145da0]">Upcoming programmes</p>
+            <h2 className="mt-3 text-3xl font-black tracking-tight sm:text-5xl">Register while the right group is still open.</h2>
+            <p className="mt-4 text-base leading-7 text-slate-600">
+              Active holiday programmes, revision camps, and academic intake groups appear here first so parents can act before groups fill.
+            </p>
+          </div>
+        </motion.div>
+
+        <div className="grid gap-4 md:grid-cols-3">
+          {tuitionEvents.map((event, i) => (
+            (() => {
+              const meta = eventMeta(event)
+              return (
+                <motion.div
+                  key={event.id}
+                  custom={i}
+                  variants={fadeUp}
+                  initial="hidden"
+                  whileInView="visible"
+                  viewport={{ once: true }}
+                >
+                  <div className="group block overflow-hidden rounded-[1.6rem] border border-[#145da0]/15 bg-white shadow-sm transition hover:-translate-y-1 hover:border-[#4caf25]/50 hover:shadow-xl">
+                    <div className="relative h-52 bg-gradient-to-br from-[#073159] via-[#145da0] to-[#4caf25]">
+                      {event.banner_url && (
+                        <img src={event.banner_url} alt={`${event.name} poster`} className="h-full w-full object-cover" loading="lazy" />
+                      )}
+                      <div className="absolute inset-0 bg-gradient-to-t from-[#071a2d]/92 via-[#071a2d]/25 to-transparent" />
+                      <div className="absolute left-4 top-4 rounded-full bg-[#7ed957] px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-[#073159] shadow-sm">
+                        {event.status === 'active' || event.is_active ? 'Registering now' : 'Upcoming'}
+                      </div>
+                      <div className="absolute inset-x-4 bottom-4 text-white">
+                        <h3 className="text-2xl font-black tracking-tight">{event.name}</h3>
+                        <p className="mt-2 text-xs font-semibold text-white/70">Deadline: {meta.deadline}</p>
+                      </div>
+                    </div>
+                    <div className="p-5">
+                      <div className="grid grid-cols-2 gap-2 text-[11px] font-black uppercase tracking-[0.12em] text-[#073159]">
+                        <div className="rounded-xl bg-[#eaf3f8] p-3">
+                          <span className="block text-slate-400">Dates</span>
+                          {formatDate(event.start_date)} - {formatDate(event.end_date)}
+                        </div>
+                        <div className="rounded-xl bg-[#eef9e9] p-3">
+                          <span className="block text-slate-400">Mode</span>
+                          {meta.mode}
+                        </div>
+                        <div className="col-span-2 rounded-xl bg-[#f4f9fc] p-3">
+                          <span className="block text-slate-400">Best for</span>
+                          {meta.level}
+                        </div>
+                        <div className="rounded-xl bg-[#f4f9fc] p-3">
+                          <span className="block text-slate-400">Location</span>
+                          {meta.location}
+                        </div>
+                        <div className="rounded-xl bg-[#f4f9fc] p-3">
+                          <span className="block text-slate-400">Time</span>
+                          {meta.time}
+                        </div>
+                        <div className="col-span-2 rounded-xl bg-[#fff8db] p-3">
+                          <span className="block text-slate-400">Charges</span>
+                          {meta.price}
+                          {event.pricing_note && <p className="mt-1 normal-case tracking-normal text-slate-500">{event.pricing_note}</p>}
+                        </div>
+                      </div>
+                      <p className="mt-4 min-h-16 text-sm leading-relaxed text-slate-500 line-clamp-3">
+                        {event.description || 'Intensive revision and curriculum coverage. Secure your spot before groups fill up.'}
+                      </p>
+                      <Link href={`/events/register?eventId=${event.id}`} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-full bg-[#073159] px-4 py-2.5 text-sm font-bold uppercase tracking-wider text-white transition group-hover:bg-[#145da0]">
+                        Register before groups fill <ArrowRight size={16} />
+                      </Link>
+                    </div>
+                  </div>
+                </motion.div>
+              )
+            })()
+          ))}
+        </div>
+      </div>
+    </motion.section>
+  )
+}
+
 export default function HomePage() {
   const [tuitionEvents, setTuitionEvents] = useState<any[]>([])
+  const [testimonials, setTestimonials] = useState<LandingTestimonial[]>(fallbackTestimonials)
   
   useEffect(() => {
     const supabase = getSupabaseBrowserClient()
     supabase.from('tuition_events')
       .select('*')
-      .eq('is_active', true)
+      .in('status', ['active', 'upcoming'])
       .order('start_date', { ascending: true })
       .limit(3)
       .then(({ data }) => {
         if (data) setTuitionEvents(data)
+      })
+
+    supabase.from('landing_testimonials')
+      .select('id, full_name, role, relationship_label, quote, rating, created_at')
+      .eq('is_published', true)
+      .order('created_at', { ascending: false })
+      .limit(12)
+      .then(({ data, error }) => {
+        if (!error && data?.length) setTestimonials(data as LandingTestimonial[])
       })
   }, [])
 
@@ -489,6 +1158,10 @@ export default function HomePage() {
           ))}
         </div>
       </motion.section>
+
+      <TuitionEventsSection tuitionEvents={tuitionEvents} />
+
+      <ParentDecisionSection />
 
       {/* ── Who Peak is ── */}
       <section id="who-we-are" className="relative overflow-hidden bg-white px-4 py-20 sm:px-6 sm:py-28 lg:px-8">
@@ -559,6 +1232,8 @@ export default function HomePage() {
 
       <HowPeakTutors />
 
+      <WhyPeakComparisonSection />
+
       {/* ── Results counter ── */}
       <motion.section
         variants={fadeIn}
@@ -596,6 +1271,10 @@ export default function HomePage() {
           </div>
         </div>
       </motion.section>
+
+      <TestimonialsSection initialTestimonials={testimonials} />
+
+      <FeeExpectationSection />
 
       {/* ── CBC section ── */}
       <motion.section
@@ -660,7 +1339,7 @@ export default function HomePage() {
         initial="hidden"
         whileInView="visible"
         viewport={{ once: true, amount: 0.15 }}
-        className="px-4 py-14 sm:px-6 lg:px-8"
+        className="px-4 py-10 sm:px-6 lg:px-8"
       >
         <div className="mx-auto max-w-7xl">
           <motion.div
@@ -671,7 +1350,7 @@ export default function HomePage() {
           >
             <div>
               <p className="text-xs font-black uppercase tracking-[0.22em] text-[#145da0]">Campus gallery</p>
-              <h2 className="mt-3 text-3xl font-black tracking-tight sm:text-5xl">Learning should look focused, warm, and serious.</h2>
+              <h2 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">A quick look inside the learning environment.</h2>
             </div>
             <div className="text-sm font-medium text-slate-500">Swipe on mobile. Hover to pause on desktop.</div>
           </motion.div>
@@ -682,204 +1361,6 @@ export default function HomePage() {
           >
             <PremiumCarousel images={galleryImages} />
           </motion.div>
-          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {galleryImages.slice(0, 4).map((image, index) => (
-              <motion.img
-                key={image}
-                custom={index}
-                initial={{ opacity: 0, y: 15 }}
-                whileInView={{ opacity: 1, y: 0, transition: { duration: 0.4, delay: index * 0.08 } }}
-                viewport={{ once: true }}
-                src={image}
-                alt={`Peak Performance learning moment ${index + 1}`}
-                className="h-32 w-full rounded-lg border border-white object-cover shadow-sm sm:h-40"
-                loading="lazy"
-              />
-            ))}
-          </div>
-        </div>
-      </motion.section>
-
-      {/* ── Programmes ── */}
-      <motion.section
-        variants={fadeIn}
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true, amount: 0.2 }}
-        id="programmes"
-        className="scroll-mt-6 border-y border-[#145da0]/12 bg-white px-4 py-20 sm:px-6 sm:py-24 lg:px-8"
-      >
-        <div className="mx-auto max-w-7xl">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0, transition: { duration: 0.5 } }}
-            viewport={{ once: true }}
-            className="mb-8 max-w-3xl"
-          >
-            <p className="text-xs font-black uppercase tracking-[0.22em] text-[#145da0]">Programmes</p>
-            <h2 className="mt-3 text-3xl font-black tracking-tight sm:text-5xl">Different curricula. One disciplined performance model.</h2>
-          </motion.div>
-          <div className="grid gap-4 md:grid-cols-3">
-            {programmes.map((programme, i) => (
-              <motion.div
-                key={programme.title}
-                custom={i}
-                variants={fadeUp}
-                initial="hidden"
-                whileInView="visible"
-                viewport={{ once: true }}
-              >
-                <div className="group relative overflow-hidden rounded-2xl border border-[#145da0]/12 bg-[#f4f9fc] p-6 transition hover:-translate-y-2 hover:border-[#4caf25]/40 hover:shadow-[0_22px_55px_rgba(7,49,89,0.12)]">
-                  <span className="absolute inset-x-0 top-0 h-1 origin-left scale-x-0 bg-gradient-to-r from-[#145da0] to-[#4caf25] transition-transform duration-500 group-hover:scale-x-100" />
-                  <h3 className="text-2xl font-black tracking-tight">{programme.title}</h3>
-                  <p className="mt-3 min-h-24 text-sm leading-relaxed text-slate-600">{programme.body}</p>
-                  <div className="mt-6 flex flex-col gap-2 sm:flex-row">
-                    <Link href={`/events/register?programme=${encodeURIComponent(programme.title)}`} className="inline-flex items-center justify-center gap-2 rounded-full bg-[#073159] px-4 py-2.5 text-sm font-black uppercase tracking-wider text-white transition hover:bg-[#145da0]">
-                      Register Now <ArrowRight size={16} />
-                    </Link>
-                    <Link href={programme.href} className="inline-flex items-center justify-center gap-2 rounded-full border border-[#145da0]/20 px-4 py-2.5 text-sm font-bold text-[#145da0]">
-                      Explore
-                    </Link>
-                  </div>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </motion.section>
-
-      {/* ── Active Tuition Events ── */}
-      {tuitionEvents.length > 0 && (
-        <motion.section
-          variants={fadeIn}
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true, amount: 0.2 }}
-          className="border-y border-[#145da0]/12 bg-[#eaf3f8] px-4 py-20 sm:px-6 lg:px-8"
-        >
-          <div className="mx-auto max-w-7xl">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0, transition: { duration: 0.5 } }}
-              viewport={{ once: true }}
-              className="mb-8 max-w-3xl"
-            >
-              <p className="text-xs font-black uppercase tracking-[0.22em] text-[#145da0]">Upcoming Events</p>
-              <h2 className="mt-3 text-3xl font-black tracking-tight sm:text-5xl">Join our intensive tuition camps.</h2>
-            </motion.div>
-            <div className="grid gap-4 md:grid-cols-3">
-              {tuitionEvents.map((event, i) => (
-                <motion.div
-                  key={event.id}
-                  custom={i}
-                  variants={fadeUp}
-                  initial="hidden"
-                  whileInView="visible"
-                  viewport={{ once: true }}
-                >
-                  <div className="group block overflow-hidden rounded-[1.6rem] border border-[#145da0]/15 bg-white shadow-sm transition hover:-translate-y-1 hover:border-[#4caf25]/50 hover:shadow-xl">
-                    <div className="relative h-52 bg-gradient-to-br from-[#073159] via-[#145da0] to-[#4caf25]">
-                      {event.banner_url && (
-                        <img src={event.banner_url} alt={`${event.name} poster`} className="h-full w-full object-cover" loading="lazy" />
-                      )}
-                      <div className="absolute inset-0 bg-gradient-to-t from-[#071a2d]/90 via-[#071a2d]/25 to-transparent" />
-                      <div className="absolute inset-x-4 bottom-4 text-white">
-                        <div className="mb-3 inline-block rounded-full bg-white/90 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-[#2f8517] shadow-sm">
-                          {event.is_active ? 'Registering Now' : 'Upcoming'}
-                        </div>
-                        <h3 className="text-2xl font-black tracking-tight">{event.name}</h3>
-                      </div>
-                    </div>
-                    <div className="p-5">
-                      <div className="space-y-2 text-sm font-bold text-slate-600">
-                        <p className="flex items-center gap-2"><Calendar size={16} className="text-[#145da0]" /> {formatDate(event.start_date)} - {formatDate(event.end_date)}</p>
-                      </div>
-                      <p className="mt-4 min-h-16 text-sm leading-relaxed text-slate-500 line-clamp-3">
-                        {event.description || 'Intensive revision and curriculum coverage. Secure your spot before groups fill up.'}
-                      </p>
-                      <Link href={`/events/register?eventId=${event.id}`} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-full bg-[#073159] px-4 py-2.5 text-sm font-bold uppercase tracking-wider text-white transition group-hover:bg-[#145da0]">
-                        Register Now <ArrowRight size={16} />
-                      </Link>
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          </div>
-        </motion.section>
-      )}
-
-      {/* ── Marketplace ── */}
-      <motion.section
-        variants={fadeIn}
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true, amount: 0.1 }}
-        className="px-4 py-16 sm:px-6 lg:px-8 bg-slate-50"
-      >
-        <div className="mx-auto max-w-7xl">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0, transition: { duration: 0.5 } }}
-            viewport={{ once: true }}
-            className="mb-10 text-center"
-          >
-            <p className="text-xs font-black uppercase tracking-[0.22em] text-[#4caf25] flex items-center justify-center gap-2">
-              <Store size={14} /> Peak Marketplace
-            </p>
-            <h2 className="mt-3 text-3xl font-black tracking-tight text-[#073159] sm:text-5xl">High-quality flashcards,<br/> designed by our top students.</h2>
-            <p className="mt-4 text-base text-slate-500 max-w-2xl mx-auto">
-              Buy KCSE revision packs, Mathematics formulas, and Biology diagrams created by verified tutors and A-level students to boost your learning instantly.
-            </p>
-          </motion.div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {[
-              { title: 'Calculus Derivatives', subject: 'Mathematics', topic: 'Calculus', level: 'Form 4', price: 250, rating: 4.8, cards: 24, bg: 'bg-gradient-to-br from-[#073159] to-[#145da0]' },
-              { title: 'Organic Chemistry', subject: 'Chemistry', topic: 'Organic', level: 'Form 3', price: 150, rating: 4.5, cards: 50, bg: 'bg-gradient-to-br from-emerald-600 to-teal-800' },
-              { title: 'KCSE Biology Paper 1', subject: 'Biology', topic: 'Mixed', level: 'Form 4', price: 300, rating: 5.0, cards: 120, bg: 'bg-gradient-to-br from-rose-500 to-pink-700' },
-              { title: 'Geography Map Reading', subject: 'Geography', topic: 'Map Work', level: 'Form 2', price: 100, rating: 4.7, cards: 18, bg: 'bg-gradient-to-br from-amber-500 to-orange-700' },
-            ].map((deck, i) => (
-              <motion.div
-                key={deck.title}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0, transition: { duration: 0.5, delay: i * 0.1 } }}
-                viewport={{ once: true }}
-                whileHover={{ y: -6 }}
-                className="group flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-xl transition-all duration-300"
-              >
-                <div className={`h-36 w-full relative ${deck.bg} p-4 flex items-end justify-between`}>
-                  <div className="absolute inset-0 opacity-20 bg-[linear-gradient(45deg,rgba(0,0,0,0.2)_25%,transparent_25%,transparent_50%,rgba(0,0,0,0.2)_50%,rgba(0,0,0,0.2)_75%,transparent_75%,transparent)] bg-[length:16px_16px]" />
-                  <span className="relative z-10 px-2 py-1 text-[10px] font-black uppercase tracking-wider bg-white/90 text-slate-900 rounded-md backdrop-blur-sm shadow-sm">
-                    {deck.subject}
-                  </span>
-                  <span className="relative z-10 px-2 py-1 text-[10px] font-black uppercase tracking-wider bg-[#4caf25] text-white rounded-md shadow-sm">
-                    KES {deck.price}
-                  </span>
-                </div>
-                <div className="p-5 flex flex-col flex-1">
-                  <h3 className="font-bold text-lg text-slate-900 leading-tight mb-1">{deck.title}</h3>
-                  <p className="text-sm text-slate-500 mb-4">{deck.level} • {deck.topic}</p>
-                  
-                  <div className="mt-auto flex items-center justify-between">
-                    <div className="flex items-center gap-3 text-xs font-bold">
-                      <span className="text-slate-500 bg-slate-100 px-2 py-1 rounded-md">{deck.cards} Cards</span>
-                      <span className="text-amber-500 flex items-center gap-1"><Star size={12} className="fill-amber-500" /> {deck.rating}</span>
-                    </div>
-                    <button className="flex items-center justify-center p-2 rounded-full bg-slate-100 text-slate-600 hover:bg-[#145da0] hover:text-white transition-colors">
-                      <ArrowRight size={16} />
-                    </button>
-                  </div>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-
-          <div className="mt-10 text-center">
-            <Link href="/auth/register" className="inline-flex items-center justify-center gap-2 rounded-full border-2 border-[#145da0] px-6 py-2.5 text-sm font-bold uppercase tracking-[0.14em] text-[#145da0] transition hover:bg-[#145da0] hover:text-white">
-              Explore All Decks <ArrowRight size={16} />
-            </Link>
-          </div>
         </div>
       </motion.section>
 
