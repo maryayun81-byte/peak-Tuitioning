@@ -8,6 +8,7 @@ import { PWAHandler } from '@/components/PWAHandler'
 import { NavigationProgress } from '@/components/ui/NavigationProgress'
 import { NetworkBanner } from '@/components/ui/NetworkBanner'
 import { NavigationRefetchManager } from '@/components/NavigationRefetchManager'
+import { FloatingSupportChat } from '@/components/public/FloatingSupportChat'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -118,6 +119,9 @@ export default function RootLayout({
         <link rel="icon" href="/favicon-32x32.png" sizes="32x32" type="image/png" />
         <link rel="icon" href="/favicon-48x48.png" sizes="48x48" type="image/png" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
+        <meta name="msapplication-TileImage" content="/icon-192.png" />
+        <meta name="msapplication-TileColor" content="#073159" />
+        <meta name="msapplication-config" content="/browserconfig.xml" />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
@@ -173,6 +177,7 @@ export default function RootLayout({
             <HydrationGuard>
               {children}
             </HydrationGuard>
+            <FloatingSupportChat />
             <Toaster
               position="top-right"
               toastOptions={{

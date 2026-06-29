@@ -20,7 +20,7 @@ const phoneNumber = '0798971625'
 const internationalPhone = '+254798971625'
 const whatsappUrl = 'https://wa.me/254798971625?text=Hello%20Peak%20Performance%20Tutoring%2C%20I%20would%20like%20to%20ask%20about%20KCSE%20or%20CBC%20tuition.'
 const mapQuery = encodeURIComponent('St Ignatius Christian School Kinoo')
-const mapEmbedUrl = `https://www.google.com/maps?q=${mapQuery}&output=embed`
+const mapEmbedUrl = 'https://www.openstreetmap.org/export/embed.html?bbox=36.6810%2C-1.2580%2C36.7050%2C-1.2420&layer=mapnik&marker=-1.2500%2C36.6930'
 const directionsUrl = `https://www.google.com/maps/search/?api=1&query=${mapQuery}`
 
 export const metadata: Metadata = {
@@ -205,12 +205,11 @@ export default function ContactPage() {
 
           <div className="min-h-[360px] border-t border-slate-200 lg:min-h-[560px] lg:border-l lg:border-t-0">
             <iframe
-              title="Map to St Ignatius Christian School Kinoo"
+              title="Map around St Ignatius Christian School Kinoo"
               src={mapEmbedUrl}
               className="h-full min-h-[360px] w-full"
               loading="lazy"
-              referrerPolicy="no-referrer-when-downgrade"
-              allowFullScreen
+              referrerPolicy="no-referrer"
             />
           </div>
         </div>

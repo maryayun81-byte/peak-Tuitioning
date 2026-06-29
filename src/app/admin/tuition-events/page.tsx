@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, Trash2, Edit, Calendar, Gift, X, AlertTriangle, ImagePlus, Upload, MessageSquareQuote, UsersRound } from 'lucide-react'
+import { Plus, Trash2, Edit, Calendar, Gift, X, AlertTriangle, ImagePlus, Upload, MessageSquareQuote, UsersRound, Wallet } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
@@ -26,11 +26,38 @@ function formatEventCharge(event: any) {
   return `${currency} ${amount.toLocaleString()} ${unit}`
 }
 
+function formatSlotCharge(slot: Partial<ClassSlotRow> | ClassSlotDraft | undefined, fallback?: any) {
+  const amount = Number((slot as any)?.charge_amount)
+  if (Number.isFinite(amount) && amount > 0) {
+    const currency = (slot as any)?.charge_currency || fallback?.charge_currency || 'KES'
+    const unit = (slot as any)?.charge_unit_label || (slot as any)?.charge_frequency?.replace(/_/g, ' ') || fallback?.charge_unit_label || fallback?.charge_frequency?.replace(/_/g, ' ') || 'per programme'
+    return `${currency} ${amount.toLocaleString()} ${unit}`
+  }
+  return formatEventCharge(fallback)
+}
+
 function formatSessionTime(event: any) {
   if (!event.session_start_time && !event.session_end_time) return 'Time not set'
   const start = String(event.session_start_time || '').slice(0, 5)
   const end = String(event.session_end_time || '').slice(0, 5)
   return [start, end].filter(Boolean).join(' - ')
+}
+
+function normalizeEventPosterUrl(rawValue: string) {
+  const raw = String(rawValue || '').trim()
+  if (!raw) return null
+  if (raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('/')) return raw
+  const cleanPath = raw
+    .replace(/^event-posters\//, '')
+    .replace(/^public\//, '')
+    .replace(/^\/+/, '')
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  if (!supabaseUrl) return raw
+  return `${supabaseUrl.replace(/\/$/, '')}/storage/v1/object/public/event-posters/${cleanPath}`
+}
+
+function getEventPosterUrl(event: any) {
+  return normalizeEventPosterUrl(event?.banner_url || event?.poster_url || event?.image_url || '') || ''
 }
 
 interface Holiday {
@@ -45,6 +72,19 @@ type ClassSlotRow = {
   curriculum_id: string
   class_id: string
   capacity: number
+  charge_amount?: number | null
+  charge_currency?: string | null
+  charge_frequency?: string | null
+  charge_unit_label?: string | null
+  pricing_note?: string | null
+}
+
+type ClassSlotDraft = {
+  capacity: number | ''
+  charge_amount: number | ''
+  charge_frequency: string
+  charge_unit_label: string
+  pricing_note: string
 }
 
 const schema = z.object({
@@ -52,6 +92,11 @@ const schema = z.object({
   start_date: z.string(),
   end_date: z.string(),
   banner_url: z.string().optional().or(z.literal('')),
+  banner_object_position: z.string().default('center center'),
+  banner_overlay_strength: z.preprocess(
+    (value) => (typeof value === 'number' && Number.isNaN(value)) || value === '' ? 70 : value,
+    z.number().min(0).max(95).default(70)
+  ),
   charge_amount: z.preprocess(
     (value) => (typeof value === 'number' && Number.isNaN(value)) || value === '' ? null : value,
     z.number().min(0).nullable().optional()
@@ -77,7 +122,7 @@ export default function AdminTuitionEvents() {
   const [curriculums, setCurriculums] = useState<any[]>([])
   const [classes, setClasses] = useState<any[]>([])
   const [eventSlots, setEventSlots] = useState<ClassSlotRow[]>([])
-  const [classSlots, setClassSlots] = useState<Record<string, number | ''>>({})
+  const [classSlots, setClassSlots] = useState<Record<string, ClassSlotDraft>>({})
   const [loading, setLoading] = useState(true)
   const [addOpen, setAddOpen] = useState(false)
   const [editing, setEditing] = useState<TuitionEvent | null>(null)
@@ -97,6 +142,8 @@ export default function AdminTuitionEvents() {
       status: 'upcoming',
       postponed_to: '',
       banner_url: '',
+      banner_object_position: 'center center',
+      banner_overlay_strength: 70,
       charge_amount: null,
       charge_currency: 'KES',
       charge_frequency: '',
@@ -129,7 +176,7 @@ export default function AdminTuitionEvents() {
         supabase.from('tuition_events').select('*, curriculum:curriculums(name)').order('start_date', { ascending: false }),
         supabase.from('curriculums').select('*').order('name'),
         supabase.from('classes').select('id, name, curriculum_id, level').order('level').order('name'),
-        supabase.from('tuition_event_class_slots').select('event_id, curriculum_id, class_id, capacity'),
+        supabase.from('tuition_event_class_slots').select('event_id, curriculum_id, class_id, capacity, charge_amount, charge_currency, charge_frequency, charge_unit_label, pricing_note'),
       ])
       setEvents(tRes.data ?? [])
       setCurriculums(cRes.data ?? [])
@@ -177,6 +224,8 @@ export default function AdminTuitionEvents() {
     setValue('end_date', e.end_date)
     setValue('active_days', e.active_days)
     setValue('banner_url', e.banner_url || '')
+    setValue('banner_object_position', e.banner_object_position || 'center center')
+    setValue('banner_overlay_strength', e.banner_overlay_strength ?? 70)
     setValue('charge_amount', e.charge_amount ?? null)
     setValue('charge_currency', e.charge_currency || 'KES')
     setValue('charge_frequency', e.charge_frequency || '')
@@ -188,11 +237,17 @@ export default function AdminTuitionEvents() {
     setValue('attendance_threshold', e.attendance_threshold)
     setValue('status', e.status || 'upcoming')
     setValue('postponed_to', e.postponed_to || '')
-    const nextSlots: Record<string, number> = {}
+    const nextSlots: Record<string, ClassSlotDraft> = {}
     eventSlots
       .filter((slot) => slot.event_id === e.id)
       .forEach((slot) => {
-        nextSlots[slot.class_id] = Number(slot.capacity) || 0
+        nextSlots[slot.class_id] = {
+          capacity: Number(slot.capacity) || 0,
+          charge_amount: slot.charge_amount == null ? '' : Number(slot.charge_amount),
+          charge_frequency: slot.charge_frequency || '',
+          charge_unit_label: slot.charge_unit_label || '',
+          pricing_note: slot.pricing_note || '',
+        }
       })
     setClassSlots(nextSlots)
     setAddOpen(true)
@@ -202,7 +257,9 @@ export default function AdminTuitionEvents() {
     // Keep is_active boolean synced for legacy queries
     data.is_active = data.status === 'active';
     if (!data.postponed_to) data.postponed_to = null;
-    if (!data.banner_url) data.banner_url = null;
+    data.banner_url = normalizeEventPosterUrl(data.banner_url);
+    if (!data.banner_object_position) data.banner_object_position = 'center center';
+    if (data.banner_overlay_strength === undefined || data.banner_overlay_strength === null || Number.isNaN(data.banner_overlay_strength)) data.banner_overlay_strength = 70;
     if (data.charge_amount === undefined || data.charge_amount === null || Number.isNaN(data.charge_amount)) data.charge_amount = null;
     if (!data.charge_currency) data.charge_currency = 'KES';
     if (!data.charge_frequency) data.charge_frequency = null;
@@ -228,7 +285,14 @@ export default function AdminTuitionEvents() {
         event_id: eventId,
         curriculum_id: classItem.curriculum_id,
         class_id: classItem.id,
-        capacity: Math.max(0, Number(classSlots[classItem.id]) || 0),
+        capacity: Math.max(0, Number(classSlots[classItem.id]?.capacity) || 0),
+        charge_amount: classSlots[classItem.id]?.charge_amount === '' || classSlots[classItem.id]?.charge_amount == null
+          ? null
+          : Math.max(0, Number(classSlots[classItem.id]?.charge_amount) || 0),
+        charge_currency: data.charge_currency || 'KES',
+        charge_frequency: classSlots[classItem.id]?.charge_frequency || data.charge_frequency || null,
+        charge_unit_label: classSlots[classItem.id]?.charge_unit_label || data.charge_unit_label || null,
+        pricing_note: classSlots[classItem.id]?.pricing_note || null,
       }))
       if (slotRows.length > 0) {
         const { error: slotError } = await supabase
@@ -288,6 +352,51 @@ export default function AdminTuitionEvents() {
   }
 
   const activeDays = watch('active_days') ?? []
+  const bannerPosition = watch('banner_object_position') || 'center center'
+  const bannerOverlayStrength = watch('banner_overlay_strength') ?? 70
+
+  const updateClassSlot = (classId: string, patch: Partial<ClassSlotDraft>) => {
+    const emptySlot: ClassSlotDraft = {
+      capacity: '',
+      charge_amount: '',
+      charge_frequency: '',
+      charge_unit_label: '',
+      pricing_note: '',
+    }
+    setClassSlots((prev) => ({
+      ...prev,
+      [classId]: { ...emptySlot, ...(prev[classId] || {}), ...patch },
+    }))
+  }
+
+  const applyClassPricingPreset = (matcher: (classItem: any) => boolean, amount: number, unitLabel = 'per week') => {
+    setClassSlots((prev) => {
+      const next = { ...prev }
+      classes.filter(matcher).forEach((classItem) => {
+        const emptySlot: ClassSlotDraft = {
+          capacity: '',
+          charge_amount: '',
+          charge_frequency: '',
+          charge_unit_label: '',
+          pricing_note: '',
+        }
+        next[classItem.id] = {
+          ...emptySlot,
+          ...(next[classItem.id] || {}),
+          charge_amount: amount,
+          charge_frequency: 'weekly',
+          charge_unit_label: unitLabel,
+        }
+      })
+      return next
+    })
+    toast.success(`Applied KES ${amount.toLocaleString()} ${unitLabel}`)
+  }
+
+  const matchesClassPricingGroup = (classItem: any, targets: string[]) => {
+    const name = String(classItem.name || '').toLowerCase().replace(/\s+/g, ' ')
+    return targets.some((target) => name.includes(target))
+  }
 
   // Compute weeks for view
   const eventWeeks = selectedEvent
@@ -324,9 +433,9 @@ export default function AdminTuitionEvents() {
               return (
             <motion.div key={event.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }}>
               <Card className="overflow-hidden">
-                {event.banner_url ? (
+                {getEventPosterUrl(event) ? (
                   <div className="relative h-40 overflow-hidden bg-[var(--input)]">
-                    <img src={event.banner_url} alt={`${event.name} banner`} className="h-full w-full object-cover" />
+                    <img src={getEventPosterUrl(event)} alt={`${event.name} banner`} className="h-full w-full object-cover" style={{ objectPosition: event.banner_object_position || 'center center' }} />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/10 to-transparent" />
                     <Badge className="absolute bottom-3 left-3" variant={event.status === 'active' ? 'success' : event.status === 'postponed' ? 'warning' : event.status === 'upcoming' ? 'info' : 'muted'}>
                       {event.status === 'active' ? 'Registering now' : event.status.charAt(0).toUpperCase() + event.status.slice(1)}
@@ -403,7 +512,7 @@ export default function AdminTuitionEvents() {
                         const classItem = classes.find((item) => item.id === slot.class_id)
                         return (
                           <span key={slot.class_id} className="rounded-full bg-[var(--card)] px-2.5 py-1 text-[10px] font-black text-muted">
-                            {classItem?.name || 'Class'}: {slot.capacity}
+                            {classItem?.name || 'Class'}: {slot.capacity} place{Number(slot.capacity) === 1 ? '' : 's'} - {formatSlotCharge(slot, event)}
                           </span>
                         )
                       })}
@@ -470,7 +579,22 @@ export default function AdminTuitionEvents() {
           <div className="rounded-2xl border border-[var(--card-border)] bg-[var(--input)] p-3">
             <label className="mb-2 block text-sm font-bold" style={{ color: 'var(--text)' }}>Poster / Banner</label>
             {watch('banner_url') ? (
-              <img src={watch('banner_url')} alt="Event banner preview" className="mb-3 h-36 w-full rounded-xl object-cover" />
+              <div className="mb-3 overflow-hidden rounded-2xl border border-[var(--card-border)] bg-[var(--card)]">
+                <div className="relative h-44 overflow-hidden">
+                  <img
+                    src={watch('banner_url')}
+                    alt="Event banner preview"
+                    className="h-full w-full object-cover"
+                    style={{ objectPosition: bannerPosition }}
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent" style={{ opacity: Math.max(0, Math.min(95, Number(bannerOverlayStrength))) / 100 }} />
+                  <div className="absolute bottom-4 left-4 right-4 text-white">
+                    <div className="mb-2 inline-flex rounded-full bg-white/90 px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-[#073159]">Live card preview</div>
+                    <div className="text-xl font-black leading-tight">{watch('name') || 'Holiday Tuition Programme'}</div>
+                    <div className="mt-1 text-xs font-bold text-white/75">{watch('event_location') || 'Venue to be confirmed'}</div>
+                  </div>
+                </div>
+              </div>
             ) : (
               <div className="mb-3 flex h-28 items-center justify-center rounded-xl border border-dashed border-[var(--card-border)] text-sm text-muted">
                 Upload a wide poster or paste an image URL.
@@ -483,7 +607,17 @@ export default function AdminTuitionEvents() {
                 <input type="file" accept="image/*" className="hidden" disabled={uploadingBanner} onChange={(e) => uploadBanner(e.target.files?.[0])} />
               </label>
             </div>
-            <p className="mt-2 text-xs text-muted">Recommended: 1600 x 900 poster. It will be cropped beautifully on cards.</p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_140px]">
+              <Select label="Card Crop Position" {...register('banner_object_position')}>
+                <option value="center center">Center</option>
+                <option value="center top">Top</option>
+                <option value="center bottom">Bottom</option>
+                <option value="left center">Left</option>
+                <option value="right center">Right</option>
+              </Select>
+              <Input label="Overlay %" type="number" min={0} max={95} {...register('banner_overlay_strength', { valueAsNumber: true })} />
+            </div>
+            <p className="mt-2 text-xs text-muted">Recommended: 1600 x 900 poster. Adjust crop position until the important faces/text stay visible on cards.</p>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <Input label="Start Date" type="date" error={errors.start_date?.message} {...register('start_date')} />
@@ -537,8 +671,26 @@ export default function AdminTuitionEvents() {
               </div>
               <div>
                 <p className="text-sm font-black" style={{ color: 'var(--text)' }}>Class Slots</p>
-                <p className="text-xs text-muted">Set available places per class. Leave blank or 0 for classes that should not show public slots.</p>
+                <p className="text-xs text-muted">Set available places and class-specific fees. Example: Form 3/Form 4 KES 1,250 weekly, Grade 6-9 KES 1,000 weekly.</p>
               </div>
+            </div>
+            <div className="mb-4 grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => applyClassPricingPreset((classItem) => matchesClassPricingGroup(classItem, ['form 3', 'form 4', 'grade 10']), 1250, 'per week')}
+                className="rounded-2xl border border-primary/20 bg-primary/10 px-4 py-3 text-left transition hover:bg-primary/15"
+              >
+                <div className="text-xs font-black uppercase tracking-[0.16em] text-primary">Apply senior rate</div>
+                <div className="mt-1 text-sm font-black" style={{ color: 'var(--text)' }}>Form 3, Form 4, Grade 10 - KES 1,250 weekly</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => applyClassPricingPreset((classItem) => matchesClassPricingGroup(classItem, ['grade 6', 'grade 7', 'grade 8', 'grade 9']), 1000, 'per week')}
+                className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-left transition hover:bg-emerald-500/15"
+              >
+                <div className="text-xs font-black uppercase tracking-[0.16em] text-emerald-600">Apply junior CBC rate</div>
+                <div className="mt-1 text-sm font-black" style={{ color: 'var(--text)' }}>Grade 6-9 - KES 1,000 weekly</div>
+              </button>
             </div>
             <div className="space-y-4">
               {curriculums.map((curriculum) => {
@@ -547,27 +699,73 @@ export default function AdminTuitionEvents() {
                 return (
                   <div key={curriculum.id} className="rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-3">
                     <div className="mb-3 text-xs font-black uppercase tracking-[0.16em] text-primary">{curriculum.name}</div>
-                    <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="grid gap-3">
                       {curriculumClasses.map((classItem) => (
-                        <label key={classItem.id} className="flex items-center justify-between gap-3 rounded-xl bg-[var(--input)] px-3 py-2">
-                          <span className="min-w-0 truncate text-sm font-bold" style={{ color: 'var(--text)' }}>{classItem.name}</span>
-                          <input
-                            type="number"
-                            min={0}
-                            inputMode="numeric"
-                            placeholder="0"
-                            value={classSlots[classItem.id] ?? ''}
-                            onChange={(event) => {
-                              const value = event.target.value
-                              setClassSlots((prev) => ({
-                                ...prev,
-                                [classItem.id]: value === '' ? '' : Math.max(0, Number(value) || 0),
-                              }))
-                            }}
-                            className="h-9 w-24 rounded-lg border border-[var(--card-border)] bg-[var(--card)] px-3 text-right text-sm font-black outline-none focus:border-primary"
-                            style={{ color: 'var(--text)' }}
-                          />
-                        </label>
+                        <div key={classItem.id} className="rounded-2xl bg-[var(--input)] p-3">
+                          <div className="mb-3 flex items-center justify-between gap-3">
+                            <span className="min-w-0 truncate text-sm font-black" style={{ color: 'var(--text)' }}>{classItem.name}</span>
+                            <div className="flex items-center gap-2 rounded-full bg-[var(--card)] px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-muted">
+                              <Wallet size={12} /> Class fee
+                            </div>
+                          </div>
+                          <div className="grid gap-2 sm:grid-cols-[0.75fr_1fr_1fr]">
+                            <input
+                              type="number"
+                              min={0}
+                              inputMode="numeric"
+                              placeholder="Slots"
+                              value={classSlots[classItem.id]?.capacity ?? ''}
+                              onChange={(event) => {
+                                const value = event.target.value
+                                updateClassSlot(classItem.id, { capacity: value === '' ? '' : Math.max(0, Number(value) || 0) })
+                              }}
+                              className="h-10 rounded-xl border border-[var(--card-border)] bg-[var(--card)] px-3 text-sm font-black outline-none focus:border-primary"
+                              style={{ color: 'var(--text)' }}
+                            />
+                            <input
+                              type="number"
+                              min={0}
+                              inputMode="decimal"
+                              placeholder="Amount e.g. 1250"
+                              value={classSlots[classItem.id]?.charge_amount ?? ''}
+                              onChange={(event) => {
+                                const value = event.target.value
+                                updateClassSlot(classItem.id, { charge_amount: value === '' ? '' : Math.max(0, Number(value) || 0) })
+                              }}
+                              className="h-10 rounded-xl border border-[var(--card-border)] bg-[var(--card)] px-3 text-sm font-black outline-none focus:border-primary"
+                              style={{ color: 'var(--text)' }}
+                            />
+                            <select
+                              value={classSlots[classItem.id]?.charge_frequency ?? ''}
+                              onChange={(event) => updateClassSlot(classItem.id, { charge_frequency: event.target.value })}
+                              className="h-10 rounded-xl border border-[var(--card-border)] bg-[var(--card)] px-3 text-sm font-black outline-none focus:border-primary"
+                              style={{ color: 'var(--text)' }}
+                            >
+                              <option value="">Use event billing</option>
+                              <option value="weekly">Weekly</option>
+                              <option value="per_session">Per session</option>
+                              <option value="per_2_hours">Per 2 hours</option>
+                              <option value="daily">Daily</option>
+                              <option value="full_programme">Full programme</option>
+                            </select>
+                          </div>
+                          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                            <input
+                              placeholder="Public label e.g. per week"
+                              value={classSlots[classItem.id]?.charge_unit_label ?? ''}
+                              onChange={(event) => updateClassSlot(classItem.id, { charge_unit_label: event.target.value })}
+                              className="h-10 rounded-xl border border-[var(--card-border)] bg-[var(--card)] px-3 text-sm font-bold outline-none focus:border-primary"
+                              style={{ color: 'var(--text)' }}
+                            />
+                            <input
+                              placeholder="Optional note for this class"
+                              value={classSlots[classItem.id]?.pricing_note ?? ''}
+                              onChange={(event) => updateClassSlot(classItem.id, { pricing_note: event.target.value })}
+                              className="h-10 rounded-xl border border-[var(--card-border)] bg-[var(--card)] px-3 text-sm font-bold outline-none focus:border-primary"
+                              style={{ color: 'var(--text)' }}
+                            />
+                          </div>
+                        </div>
                       ))}
                     </div>
                   </div>

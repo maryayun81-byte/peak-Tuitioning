@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, BookOpenCheck, GraduationCap, Loader2, Sparkles, UsersRound, Wand2 } from 'lucide-react'
+import { ArrowLeft, BookOpenCheck, Building2, ClipboardCheck, GraduationCap, Loader2, MailCheck, NotebookTabs, Phone, School, Sparkles, UserRound, UsersRound, Wand2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
@@ -22,6 +22,11 @@ type RegistrationSlot = {
   capacity: number
   registered: number
   remaining: number
+  chargeAmount?: number | null
+  chargeCurrency?: string | null
+  chargeFrequency?: string | null
+  chargeUnitLabel?: string | null
+  pricingNote?: string | null
 }
 
 function formatEventCharge(event?: any) {
@@ -30,6 +35,15 @@ function formatEventCharge(event?: any) {
   if (!Number.isFinite(amount) || amount <= 0) return 'Fee breakdown available'
   const unit = event.charge_unit_label || event.charge_frequency?.replace(/_/g, ' ') || 'per programme'
   return `${event.charge_currency || 'KES'} ${amount.toLocaleString()} ${unit}`
+}
+
+function formatSelectedCharge(event?: any, slot?: RegistrationSlot) {
+  const slotAmount = Number(slot?.chargeAmount)
+  if (Number.isFinite(slotAmount) && slotAmount > 0) {
+    const unit = slot?.chargeUnitLabel || slot?.chargeFrequency?.replace(/_/g, ' ') || event?.charge_unit_label || event?.charge_frequency?.replace(/_/g, ' ') || 'per programme'
+    return `${slot?.chargeCurrency || event?.charge_currency || 'KES'} ${slotAmount.toLocaleString()} ${unit}`
+  }
+  return formatEventCharge(event)
 }
 
 function formatSessionTime(event?: any) {
@@ -51,6 +65,19 @@ const STRUGGLE_HINTS: Record<string, string> = {
   'Integrated Science': 'I struggle with experiments, explaining answers, and remembering key terms.',
   Physics: 'I struggle with equations, electricity, waves, and interpreting diagrams.',
   Biology: 'I struggle with genetics, classification, and explaining biological processes.',
+}
+
+const premiumInputClass = 'h-12 rounded-xl text-sm font-semibold shadow-none'
+const premiumSelectClass = 'h-12 rounded-xl text-sm font-semibold shadow-none'
+const premiumTextareaClass = 'min-h-28 rounded-xl text-sm font-semibold leading-6 shadow-none'
+
+function resolveEventPosterUrl(event?: any) {
+  const raw = String(event?.banner_url || event?.poster_url || event?.image_url || '').trim()
+  if (!raw) return ''
+  if (raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('/')) return raw
+  const cleanPath = raw.replace(/^event-posters\//, '').replace(/^public\//, '').replace(/^\/+/, '')
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  return supabaseUrl ? `${supabaseUrl.replace(/\/$/, '')}/storage/v1/object/public/event-posters/${cleanPath}` : raw
 }
 
 function isSupportedCurriculum(name = '') {
@@ -109,7 +136,7 @@ export default function EventRegistrationPage() {
       const [eventRes, curriculumRes, classRes, subjectRes, countsRes] = await Promise.all([
         supabase
           .from('tuition_events')
-          .select('id, name, start_date, end_date, status, is_active, charge_amount, charge_currency, charge_frequency, charge_unit_label, pricing_note, event_location, session_start_time, session_end_time')
+          .select('id, name, start_date, end_date, status, is_active, banner_url, banner_object_position, charge_amount, charge_currency, charge_frequency, charge_unit_label, pricing_note, event_location, session_start_time, session_end_time')
           .in('status', ['active', 'upcoming'])
           .order('start_date', { ascending: true }),
         supabase.from('curriculums').select('id, name').order('name'),
@@ -175,6 +202,7 @@ export default function EventRegistrationPage() {
   const selectedEvent = useMemo(() => {
     return events.find((event) => event.id === form.event_id)
   }, [events, form.event_id])
+  const selectedPosterUrl = resolveEventPosterUrl(selectedEvent)
   const selectedSlotRows = useMemo(() => {
     return registrationSlots
       .filter((item) => !form.event_id || item.eventId === form.event_id)
@@ -185,6 +213,7 @@ export default function EventRegistrationPage() {
     ? selectedSlotRows.find((item) => item.classId === selectedClassId)
     : undefined
   const selectedEventHasSlots = selectedSlotRows.length > 0
+  const selectedCharge = formatSelectedCharge(selectedEvent, selectedClassSlot)
 
   const toggleSubject = (subjectName: string) => {
     setSubjectResults((prev) => prev.some((item) => item.subjectName === subjectName)
@@ -220,19 +249,54 @@ export default function EventRegistrationPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,#dff4ff_0,#f6fbff_34%,#eef7f0_100%)] px-4 py-8 text-slate-950 md:py-12">
+    <div className="relative min-h-screen overflow-hidden bg-[linear-gradient(135deg,#f6fbff_0%,#eaf6fb_48%,#f3faef_100%)] px-4 py-8 text-slate-950 md:py-12">
+      <div className="pointer-events-none absolute left-8 top-24 hidden h-28 w-20 rotate-[-10deg] rounded-[1.4rem] border border-[#145da0]/12 bg-white/70 shadow-[0_24px_70px_rgba(7,49,89,0.12)] lg:block" />
+      <div className="pointer-events-none absolute right-10 top-40 hidden h-20 w-32 rotate-[8deg] rounded-[1.2rem] border border-[#7ed957]/25 bg-[#f8fff5]/80 shadow-[0_24px_70px_rgba(7,49,89,0.1)] lg:block" />
       <Link href="/" className="mx-auto mb-6 flex max-w-6xl items-center gap-2 text-sm font-black text-[#145da0]"><ArrowLeft size={16} /> Back to Peak Performance</Link>
       <form onSubmit={submit} className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[0.8fr_1.2fr]">
         <aside className="h-fit overflow-hidden rounded-[2.2rem] bg-[#062744] text-white shadow-[0_30px_80px_rgba(7,49,89,0.22)] lg:sticky lg:top-6">
           <div className="relative p-6 md:p-8">
-            <div className="absolute -right-16 -top-16 h-44 w-44 rounded-full bg-[#7ed957]/20 blur-2xl" />
-            <div className="absolute -bottom-20 left-8 h-52 w-52 rounded-full bg-[#32b7ff]/20 blur-3xl" />
+            <div className="absolute -right-16 -top-16 h-44 w-44 rounded-full bg-[#7ed957]/16 blur-2xl" />
+            <div className="absolute -bottom-20 left-8 h-52 w-52 rounded-full bg-[#32b7ff]/14 blur-3xl" />
             <div className="relative">
-              <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-black uppercase tracking-[0.18em] text-[#bff8a7]">
-                <Sparkles size={14} /> Academic Intake
+              <div
+                className="relative min-h-[300px] overflow-hidden rounded-[1.8rem] border border-white/10 bg-[#073159] bg-cover bg-center shadow-[0_22px_70px_rgba(0,0,0,0.22)]"
+                style={{
+                  backgroundImage: selectedPosterUrl ? `url("${selectedPosterUrl}")` : undefined,
+                  backgroundPosition: selectedEvent?.banner_object_position || 'center center',
+                }}
+              >
+                {!selectedPosterUrl && (
+                  <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(126,217,87,.18),transparent_42%),linear-gradient(45deg,rgba(255,255,255,.08)_25%,transparent_25%,transparent_50%,rgba(255,255,255,.08)_50%,rgba(255,255,255,.08)_75%,transparent_75%,transparent)] bg-[length:auto,22px_22px]" />
+                )}
+                <div className="absolute inset-x-0 bottom-0 h-44 bg-gradient-to-t from-[#061827]/92 via-[#061827]/58 to-transparent" />
+                <div className="absolute bottom-0 left-0 right-0 p-5">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/14 px-3 py-1 text-xs font-black uppercase tracking-[0.18em] text-[#d8ffc7] backdrop-blur">
+                    <Sparkles size={14} /> Academic Intake
+                  </div>
+                  <h1 className="mt-4 text-4xl font-black leading-tight text-white drop-shadow-[0_2px_16px_rgba(0,0,0,0.45)]">Programme Registration</h1>
+                  <p className="mt-3 text-sm font-semibold leading-relaxed text-white/84 drop-shadow-[0_1px_10px_rgba(0,0,0,0.35)]">
+                    A premium learner profile for teachers: curriculum, class, recent performance, and exactly where support is needed.
+                  </p>
+                </div>
               </div>
-              <h1 className="mt-5 text-4xl font-black leading-tight">Programme Registration</h1>
-              <p className="mt-3 text-sm leading-relaxed text-white/72">A premium learner profile for teachers: curriculum, class, recent performance, and exactly where support is needed.</p>
+              <div className="mt-5 grid grid-cols-[1fr_0.7fr] gap-3">
+                <div className="rounded-3xl border border-white/10 bg-white/10 p-4 backdrop-blur">
+                  <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-[#bff8a7]">
+                    <Building2 size={14} /> Peak intake desk
+                  </div>
+                  <div className="mt-4 space-y-2">
+                    <div className="h-2 rounded-full bg-white/65" />
+                    <div className="h-2 w-3/4 rounded-full bg-white/35" />
+                    <div className="h-2 w-1/2 rounded-full bg-[#7ed957]/70" />
+                  </div>
+                </div>
+                <div className="relative rounded-3xl border border-white/10 bg-[#7ed957]/15 p-4">
+                  <div className="absolute right-3 top-3 h-10 w-10 rotate-12 rounded-xl border border-[#7ed957]/30 bg-white/10" />
+                  <NotebookTabs className="relative h-8 w-8 text-[#bff8a7]" />
+                  <div className="relative mt-5 text-[10px] font-black uppercase tracking-[0.16em] text-white/65">Profile card</div>
+                </div>
+              </div>
               <div className="mt-6 rounded-3xl border border-white/10 bg-white/10 p-4 backdrop-blur">
                 <p className="text-xs font-black uppercase tracking-widest text-white/50">Selected programme</p>
                 <p className="mt-1 text-lg font-black">{selectedEventName || 'Choose a programme'}</p>
@@ -248,61 +312,97 @@ export default function EventRegistrationPage() {
                 </div>
                 <div className="mt-3 rounded-2xl bg-[#7ed957]/15 p-3">
                   <p className="text-[10px] font-black uppercase tracking-widest text-[#bff8a7]">Charges</p>
-                  <p className="mt-1 text-sm font-black">{formatEventCharge(selectedEvent)}</p>
-                  {selectedEvent?.pricing_note && <p className="mt-1 text-xs leading-5 text-white/60">{selectedEvent.pricing_note}</p>}
+                  <p className="mt-1 text-sm font-black">{selectedCharge}</p>
+                  {(selectedClassSlot?.pricingNote || selectedEvent?.pricing_note) && <p className="mt-1 text-xs leading-5 text-white/60">{selectedClassSlot?.pricingNote || selectedEvent.pricing_note}</p>}
                 </div>
               </div>
-              <div className="mt-4 overflow-hidden rounded-3xl border border-white/10 bg-black/20 p-4 backdrop-blur">
-                <div className="flex items-center gap-3">
-                  <div className="grid h-11 w-11 place-items-center rounded-2xl bg-[#7ed957] text-[#073159] shadow-lg shadow-[#7ed957]/20">
-                    <UsersRound size={22} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/50">Available places</p>
-                    <div className="mt-1 flex items-end gap-2">
-                      <span className="text-4xl font-black leading-none text-white">{selectedEventHasSlots ? selectedRemainingTotal : 'Open'}</span>
-                      <span className="pb-1 text-xs font-black uppercase tracking-[0.14em] text-[#bff8a7]">
-                        {selectedEventHasSlots ? (selectedRemainingTotal === 1 ? 'slot remaining' : 'slots remaining') : 'registration'}
-                      </span>
+              <div className="mt-4 overflow-hidden rounded-3xl border border-white/10 bg-black/18 p-4 backdrop-blur">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-[#7ed957] text-[#073159] shadow-lg shadow-[#7ed957]/20">
+                      <UsersRound size={20} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/50">Availability</p>
+                      <p className="mt-1 truncate text-sm font-black text-white">
+                        {selectedClassSlot
+                          ? `${form.class_level}: ${selectedClassSlot.remaining > 0 ? `${selectedClassSlot.remaining} left` : 'Full'}`
+                          : selectedEventHasSlots
+                            ? `${selectedRemainingTotal} total spaces left`
+                            : 'Open registration'}
+                      </p>
                     </div>
                   </div>
+                  <span className="shrink-0 rounded-full bg-white px-3 py-1.5 text-xs font-black text-[#073159]">
+                    {selectedEventHasSlots ? `${selectedRemainingTotal}` : 'Open'}
+                  </span>
                 </div>
                 {selectedSlotRows.length > 0 ? (
-                  <div className="mt-4 grid gap-2">
-                    {selectedSlotRows.slice(0, 8).map((item) => (
-                      <div key={`${item.eventId}-${item.curriculum}-${item.classLevel}`} className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/10 px-3 py-2">
-                        <span className="flex min-w-0 items-center gap-2 text-[10px] font-black uppercase tracking-[0.13em] text-white/82">
-                          <span className={`h-2 w-2 shrink-0 rounded-full ${item.remaining > 0 ? 'bg-[#7ed957]' : 'bg-rose-400'}`} />
-                          <span className="truncate">{item.curriculum} · {item.classLevel}</span>
-                        </span>
-                        <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-black ${item.remaining > 0 ? 'bg-white text-[#073159]' : 'bg-rose-100 text-rose-700'}`}>
+                  <div className="mt-3 flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                    {selectedSlotRows.map((item) => (
+                      <div key={`${item.eventId}-${item.curriculum}-${item.classLevel}`} className="shrink-0 rounded-2xl border border-white/10 bg-white/10 px-3 py-2">
+                        <div className="max-w-28 truncate text-[10px] font-black uppercase tracking-[0.12em] text-white/72">{item.classLevel}</div>
+                        <div className={`mt-1 text-sm font-black ${item.remaining > 0 ? 'text-[#bff8a7]' : 'text-rose-200'}`}>
                           {item.remaining > 0 ? `${item.remaining} left` : 'Full'}
-                        </span>
+                        </div>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <p className="mt-3 text-xs leading-5 text-white/55">Slots are being confirmed. Submit your details and Peak Performance will advise on availability.</p>
+                  <p className="mt-3 text-xs leading-5 text-white/55">Slots are being confirmed. Peak Performance will advise on availability.</p>
                 )}
-              </div>
-              <div className="mt-5 grid gap-3 text-sm">
-                {[
-                  ['1', 'Student and parent details'],
-                  ['2', 'Curriculum and class'],
-                  ['3', 'Subject performance'],
-                ].map(([step, label]) => (
-                  <div key={step} className="flex items-center gap-3 rounded-2xl bg-white/8 p-3">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-xs font-black text-[#073159]">{step}</span>
-                    <span className="font-bold text-white/85">{label}</span>
-                  </div>
-                ))}
               </div>
             </div>
           </div>
         </aside>
 
         <main className="space-y-5">
-          <section className="rounded-[2rem] border border-white bg-white/90 p-5 shadow-[0_18px_55px_rgba(7,49,89,0.08)] backdrop-blur md:p-7">
+          <div className="relative overflow-hidden rounded-[2.2rem] border border-white bg-[#073159] p-5 text-white shadow-[0_22px_70px_rgba(7,49,89,0.18)] md:p-6">
+            <div className="absolute right-5 top-5 h-24 w-40 rotate-6 rounded-3xl border border-white/10 bg-white/8" />
+            <div className="absolute bottom-4 right-24 h-16 w-24 -rotate-6 rounded-2xl border border-[#7ed957]/30 bg-[#7ed957]/12" />
+            <div className="relative grid gap-5 md:grid-cols-[1fr_260px] md:items-center">
+              <div>
+                <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-[#bff8a7]">
+                  <MailCheck size={14} /> Admissions desk
+                </div>
+                <h2 className="mt-3 max-w-xl text-2xl font-black leading-tight">{selectedEventName || 'Programme registration'}</h2>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-white/72">Complete the learner profile so Peak Performance can place them in the right group, teacher track, and subject support plan.</p>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { Icon: ClipboardCheck, label: 'Profile' },
+                  { Icon: NotebookTabs, label: 'Subjects' },
+                  { Icon: GraduationCap, label: 'Placement' },
+                ].map(({ Icon, label }) => (
+                  <div key={label} className="rounded-2xl border border-white/10 bg-white/10 p-3 text-center backdrop-blur">
+                    <Icon className="mx-auto h-5 w-5 text-[#7ed957]" />
+                    <div className="mt-2 text-[10px] font-black uppercase tracking-[0.12em] text-white/68">{label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-[2rem] border border-white bg-white/90 p-5 shadow-[0_18px_55px_rgba(7,49,89,0.08)] backdrop-blur">
+            <div className="relative grid grid-cols-3 gap-2">
+              <div className="absolute left-[16%] right-[16%] top-4 h-1 rounded-full bg-[#d9eaf3]" />
+              <div className="absolute left-[16%] right-[50%] top-4 h-1 rounded-full bg-[#7ed957]" />
+              {[
+                ['1', 'Student and parent details'],
+                ['2', 'Curriculum and class'],
+                ['3', 'Subject performance'],
+              ].map(([step, label]) => (
+                <div key={step} className="relative flex flex-col items-center text-center">
+                  <span className={`z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-black shadow-lg ${step === '1' ? 'bg-[#7ed957] text-[#073159] shadow-[#7ed957]/25' : 'bg-[#073159] text-white shadow-[#073159]/15'}`}>
+                    {step}
+                  </span>
+                  <span className="mt-2 text-[11px] font-black leading-tight text-[#073159] sm:text-sm">{label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <section className="rounded-[2rem] border border-white bg-white/92 p-5 shadow-[0_18px_55px_rgba(7,49,89,0.08)] backdrop-blur md:p-7">
             <div className="flex items-center gap-3">
               <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#e9f8e2] text-[#2f8517]"><GraduationCap size={22} /></div>
               <div>
@@ -311,18 +411,18 @@ export default function EventRegistrationPage() {
               </div>
             </div>
             <div className="mt-5 grid gap-4 md:grid-cols-2">
-              <Input required placeholder="Student full name" value={form.student_full_name} onChange={(e) => setForm({ ...form, student_full_name: e.target.value })} />
-              <Input required placeholder="Parent/guardian name" value={form.parent_name} onChange={(e) => setForm({ ...form, parent_name: e.target.value })} />
-              <Input required placeholder="Parent/guardian phone number" value={form.parent_phone} onChange={(e) => setForm({ ...form, parent_phone: e.target.value })} />
-              <Input placeholder="Student phone number (optional)" value={form.student_phone} onChange={(e) => setForm({ ...form, student_phone: e.target.value })} />
-              <Input required placeholder="School name" value={form.school_name} onChange={(e) => setForm({ ...form, school_name: e.target.value })} />
-              <Select required value={form.preferred_mode} onChange={(e) => setForm({ ...form, preferred_mode: e.target.value })}>
+              <Input className={premiumInputClass} leftIcon={<UserRound size={17} />} required placeholder="Student full name" value={form.student_full_name} onChange={(e) => setForm({ ...form, student_full_name: e.target.value })} />
+              <Input className={premiumInputClass} leftIcon={<UsersRound size={17} />} required placeholder="Parent/guardian name" value={form.parent_name} onChange={(e) => setForm({ ...form, parent_name: e.target.value })} />
+              <Input className={premiumInputClass} leftIcon={<Phone size={17} />} required placeholder="Parent/guardian phone number" value={form.parent_phone} onChange={(e) => setForm({ ...form, parent_phone: e.target.value })} />
+              <Input className={premiumInputClass} leftIcon={<Phone size={17} />} placeholder="Student phone number (optional)" value={form.student_phone} onChange={(e) => setForm({ ...form, student_phone: e.target.value })} />
+              <Input className={premiumInputClass} leftIcon={<School size={17} />} required placeholder="School name" value={form.school_name} onChange={(e) => setForm({ ...form, school_name: e.target.value })} />
+              <Select className={premiumSelectClass} required value={form.preferred_mode} onChange={(e) => setForm({ ...form, preferred_mode: e.target.value })}>
                 <option value="">Preferred learning mode</option>
                 <option value="Physical">Physical</option>
                 <option value="Online">Online</option>
                 <option value="Hybrid">Hybrid</option>
               </Select>
-              <Select required value={form.event_id} onChange={(e) => {
+              <Select className={premiumSelectClass} required value={form.event_id} onChange={(e) => {
                 const chosen = events.find((item) => item.id === e.target.value)
                 setForm({ ...form, event_id: e.target.value, programme_selected: chosen?.name || form.programme_selected })
               }}>
@@ -332,7 +432,7 @@ export default function EventRegistrationPage() {
             </div>
           </section>
 
-          <section className="rounded-[2rem] border border-white bg-white/90 p-5 shadow-[0_18px_55px_rgba(7,49,89,0.08)] backdrop-blur md:p-7">
+          <section className="rounded-[2rem] border border-white bg-white/92 p-5 shadow-[0_18px_55px_rgba(7,49,89,0.08)] backdrop-blur md:p-7">
             <div className="flex items-center gap-3">
               <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#eaf3f8] text-[#145da0]"><BookOpenCheck size={22} /></div>
               <div>
@@ -341,11 +441,11 @@ export default function EventRegistrationPage() {
               </div>
             </div>
             <div className="mt-5 grid gap-4 md:grid-cols-3">
-              <Select required value={form.curriculum} onChange={(e) => setForm({ ...form, curriculum: e.target.value })}>
+              <Select className={premiumSelectClass} required value={form.curriculum} onChange={(e) => setForm({ ...form, curriculum: e.target.value })}>
                 <option value="">Curriculum</option>
                 {curriculums.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}
               </Select>
-              <Select required value={selectedClassId} disabled={!selectedCurriculum} onChange={(e) => {
+              <Select className={premiumSelectClass} required value={selectedClassId} disabled={!selectedCurriculum} onChange={(e) => {
                 const chosen = classOptions.find((item) => item.id === e.target.value)
                 setSelectedClassId(e.target.value)
                 setForm({ ...form, class_level: chosen?.name || '' })
@@ -359,7 +459,7 @@ export default function EventRegistrationPage() {
                   return <option key={item.id} value={item.id} disabled={Boolean(slot && slot.remaining <= 0)}>{label}</option>
                 })}
               </Select>
-              <Select required value={form.overall_grade} onChange={(e) => setForm({ ...form, overall_grade: e.target.value })}>
+              <Select className={premiumSelectClass} required value={form.overall_grade} onChange={(e) => setForm({ ...form, overall_grade: e.target.value })}>
                 <option value="">Overall grade / performance</option>
                 {grades.map((grade) => <option key={grade} value={grade}>{grade}</option>)}
               </Select>
@@ -368,14 +468,14 @@ export default function EventRegistrationPage() {
               <div className={`mt-4 rounded-3xl border p-4 text-sm font-bold ${selectedClassSlot ? (selectedClassSlot.remaining > 0 ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-rose-200 bg-rose-50 text-rose-900') : 'border-[#145da0]/15 bg-[#eaf3f8] text-[#073159]'}`}>
                 {selectedClassSlot
                   ? selectedClassSlot.remaining > 0
-                    ? `${selectedClassSlot.remaining} ${selectedClassSlot.remaining === 1 ? 'slot remains' : 'slots remain'} for ${form.curriculum} ${form.class_level}.`
+                    ? `${selectedClassSlot.remaining} ${selectedClassSlot.remaining === 1 ? 'slot remains' : 'slots remain'} for ${form.curriculum} ${form.class_level}. Fee: ${formatSelectedCharge(selectedEvent, selectedClassSlot)}.`
                     : `${form.curriculum} ${form.class_level} is full for this programme. Choose another available class or contact Peak Performance.`
                   : 'This programme is accepting registrations for the selected class. Peak Performance will confirm the final placement.'}
               </div>
             )}
           </section>
 
-          <section className="rounded-[2rem] border border-white bg-white/90 p-5 shadow-[0_18px_55px_rgba(7,49,89,0.08)] backdrop-blur md:p-7">
+          <section className="rounded-[2rem] border border-white bg-white/92 p-5 shadow-[0_18px_55px_rgba(7,49,89,0.08)] backdrop-blur md:p-7">
             <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
               <div className="flex items-center gap-3">
                 <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#fff5db] text-[#b77900]"><Sparkles size={21} /></div>
@@ -421,12 +521,12 @@ export default function EventRegistrationPage() {
                     <button type="button" onClick={() => toggleSubject(item.subjectName)} className="text-xs font-bold text-rose-600">Remove</button>
                   </div>
                   <div className="mt-4 grid gap-3 md:grid-cols-[220px_1fr]">
-                    <Select required value={item.grade} onChange={(e) => updateSubject(item.subjectName, { grade: e.target.value })}>
+                    <Select className={premiumSelectClass} required value={item.grade} onChange={(e) => updateSubject(item.subjectName, { grade: e.target.value })}>
                       <option value="">Recent grade</option>
                       {grades.map((grade) => <option key={grade} value={grade}>{grade}</option>)}
                     </Select>
                     <div className="space-y-2">
-                      <Textarea required placeholder={STRUGGLE_HINTS[item.subjectName] || `What are you struggling with in ${item.subjectName}?`} value={item.struggle} onChange={(e) => updateSubject(item.subjectName, { struggle: e.target.value })} />
+                      <Textarea className={premiumTextareaClass} required placeholder={STRUGGLE_HINTS[item.subjectName] || `What are you struggling with in ${item.subjectName}?`} value={item.struggle} onChange={(e) => updateSubject(item.subjectName, { struggle: e.target.value })} />
                       <button type="button" onClick={() => updateSubject(item.subjectName, { struggle: improveStruggle(item.subjectName, item.struggle) })} className="inline-flex items-center gap-2 text-xs font-black uppercase tracking-widest text-[#145da0]">
                         <Wand2 size={14} /> Help Me Describe My Struggles
                       </button>

@@ -2,6 +2,43 @@
 
 import { createAdminClient } from '@/lib/supabase/server'
 
+function resolvePublicPosterUrl(rawValue: unknown) {
+  const raw = String(rawValue || '').trim()
+  if (!raw) return ''
+  if (raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('/')) return raw
+  const cleanPath = raw
+    .replace(/^event-posters\//, '')
+    .replace(/^public\//, '')
+    .replace(/^\/+/, '')
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL
+  if (!supabaseUrl) return raw
+  return `${supabaseUrl.replace(/\/$/, '')}/storage/v1/object/public/event-posters/${cleanPath}`
+}
+
+export async function getPublicTuitionEvents() {
+  try {
+    const adminClient = await createAdminClient()
+    const { data, error } = await adminClient
+      .from('tuition_events')
+      .select('*')
+      .in('status', ['active', 'upcoming'])
+      .order('start_date', { ascending: true })
+      .limit(3)
+
+    if (error) return { success: false, events: [], error: error.message }
+
+    const events = (data || []).map((event: any) => ({
+      ...event,
+      posterUrl: resolvePublicPosterUrl(event.banner_url || event.poster_url || event.image_url),
+    }))
+
+    return { success: true, events }
+  } catch (error: any) {
+    console.error('Public Tuition Events Error:', error)
+    return { success: false, events: [], error: error.message || 'Server error occurred' }
+  }
+}
+
 export async function getPublicRegistrationCounts() {
   try {
     const adminClient = await createAdminClient()
@@ -26,7 +63,7 @@ export async function getPublicRegistrationCounts() {
 
     const { data: slotData, error: slotError } = await adminClient
       .from('tuition_event_class_slots')
-      .select('event_id, curriculum_id, class_id, capacity, curriculum:curriculums(name), class:classes(name)')
+      .select('event_id, curriculum_id, class_id, capacity, charge_amount, charge_currency, charge_frequency, charge_unit_label, pricing_note, curriculum:curriculums(name), class:classes(name)')
       .gt('capacity', 0)
 
     if (slotError) {
@@ -47,6 +84,11 @@ export async function getPublicRegistrationCounts() {
         capacity,
         registered,
         remaining: Math.max(0, capacity - registered),
+        chargeAmount: slot.charge_amount == null ? null : Number(slot.charge_amount),
+        chargeCurrency: slot.charge_currency || 'KES',
+        chargeFrequency: slot.charge_frequency || null,
+        chargeUnitLabel: slot.charge_unit_label || null,
+        pricingNote: slot.pricing_note || null,
       }
     })
 

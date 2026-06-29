@@ -36,9 +36,12 @@ import {
   MessageSquareQuote,
   ScanSearch,
   Send,
+  BadgeCheck,
+  Wallet,
 } from 'lucide-react'
 import { PremiumCarousel } from '@/components/ui/PremiumCarousel'
 import { PublicPortalMenu } from '@/components/ui/PublicPortalMenu'
+import { getPublicRegistrationCounts, getPublicTuitionEvents } from '@/app/actions/event-registration'
 
 const campusGalleryImages = Array.from(
   { length: 49 },
@@ -99,6 +102,35 @@ const painSolutions = [
   ['Students who read but forget', 'Active recall and blurting make gaps visible immediately.'],
   ['D and C students losing hope', 'Scaffolded wins rebuild confidence before adding complexity.'],
   ['B students stuck below A', 'Timed exam pressure, marking-scheme language, and harder questions.'],
+]
+
+const publicNavLinks = [
+  { label: 'Who We Are', href: '#who-we-are' },
+  { label: 'Holiday Tuition', href: '/holiday-tuition-kenya' },
+  { label: 'Method', href: '#how-it-works' },
+  { label: 'Testimonials', href: '#testimonials' },
+  { label: 'Contact', href: '/contact' },
+]
+
+const premiumExperienceTiles = [
+  {
+    title: 'Focused tuition rooms',
+    body: 'Quiet, guided spaces where students solve, explain, correct and try again.',
+    image: '/media__1776964680232.jpg',
+    href: '/tuition-center-nairobi',
+  },
+  {
+    title: 'CBC practical learning',
+    body: 'Competency tasks, hands-on observation and real-world explanations for Grades 6-9.',
+    image: '/cbc-hands-on-09.jpeg',
+    href: '/kcse-and-cbc-tutoring-kenya',
+  },
+  {
+    title: 'Holiday revision energy',
+    body: 'Short, intense programmes for catch-up, confidence and exam discipline.',
+    image: '/campus-gallery-36.jpeg',
+    href: '/holiday-tuition-kenya',
+  },
 ]
 
 const peakIdentity = [
@@ -295,18 +327,19 @@ function PremiumLandingHero() {
               <div className="mt-1 truncate text-[9px] font-bold uppercase tracking-[0.2em] text-[#7ed957] sm:text-[10px]">Tutoring Kenya</div>
             </motion.div>
           </Link>
-          <div className="hidden items-center gap-8 text-sm font-semibold text-white/65 md:flex">
-            <Link href="#who-we-are" className="transition hover:text-white">Who We Are</Link>
-            <Link href="/holiday-tuition-kenya" className="transition hover:text-white">Holiday Tuition</Link>
-            <Link href="#how-it-works" className="transition hover:text-white">Method</Link>
-            <Link href="#testimonials" className="transition hover:text-white">Testimonials</Link>
+          <div className="hidden items-center gap-6 text-sm font-semibold text-white/65 lg:flex">
+            {publicNavLinks.map((item) => (
+              <Link key={item.href} href={item.href} className="transition hover:text-white">
+                {item.label}
+              </Link>
+            ))}
           </div>
           <PublicPortalMenu />
         </div>
       </nav>
 
       <div className="relative z-10 mx-auto grid max-w-7xl gap-12 px-4 pb-16 pt-14 sm:px-6 sm:pb-20 sm:pt-20 lg:min-h-[720px] lg:grid-cols-[1.02fr_0.98fr] lg:items-center lg:gap-16 lg:px-8 lg:py-20">
-        <div className="max-w-3xl">
+        <div className="order-2 max-w-3xl lg:order-1">
           <motion.div
             initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0, transition: { duration: 0.6, delay: 0.2 } }}
@@ -360,7 +393,7 @@ function PremiumLandingHero() {
         <motion.div
           initial={{ opacity: 0, x: 40, scale: 0.96 }}
           animate={{ opacity: 1, x: 0, scale: 1, transition: { duration: 0.8, delay: 0.45 } }}
-          className="relative mx-auto w-full max-w-[570px] lg:mx-0"
+          className="order-1 relative mx-auto w-full max-w-[570px] lg:order-2 lg:mx-0"
         >
           <div className="absolute -inset-3 rounded-[2rem] border border-white/10 sm:-inset-5 sm:rounded-[2.5rem]" />
           <div className="relative overflow-hidden rounded-[1.5rem] bg-white/10 shadow-[0_36px_90px_rgba(0,0,0,0.4)] sm:rounded-[2rem]">
@@ -393,6 +426,84 @@ function PremiumLandingHero() {
         </motion.div>
       </div>
     </section>
+  )
+}
+
+function PremiumExperienceSection() {
+  return (
+    <motion.section
+      variants={fadeIn}
+      initial="hidden"
+      whileInView="visible"
+      viewport={{ once: true, amount: 0.18 }}
+      className="relative overflow-hidden bg-[#f6fbff] px-4 py-14 sm:px-6 sm:py-18 lg:px-8"
+    >
+      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#145da0]/25 to-transparent" />
+      <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.92fr_1.08fr] lg:items-center">
+        <motion.div variants={fadeUp}>
+          <p className="text-xs font-black uppercase tracking-[0.22em] text-[#145da0]">The Peak experience</p>
+          <h2 className="mt-4 max-w-2xl text-4xl font-black leading-[0.98] tracking-tight text-[#073159] sm:text-6xl">
+            A place students can feel proud to belong to.
+          </h2>
+          <p className="mt-6 max-w-xl text-base leading-8 text-[#496174]">
+            The platform should not feel like ordinary tuition. Peak brings together a physical learning atmosphere, CBC practical work, holiday revision energy, and connected digital progress.
+          </p>
+          <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+            <Link href="/contact" className="inline-flex items-center justify-center gap-2 rounded-full bg-[#073159] px-5 py-3 text-sm font-black uppercase tracking-[0.13em] text-white transition hover:bg-[#145da0]">
+              Contact Peak <Phone size={16} />
+            </Link>
+            <Link href="/events/register" className="inline-flex items-center justify-center gap-2 rounded-full border border-[#145da0]/20 bg-white px-5 py-3 text-sm font-black uppercase tracking-[0.13em] text-[#145da0] transition hover:bg-[#eaf3f8]">
+              See open programmes <ArrowRight size={16} />
+            </Link>
+          </div>
+        </motion.div>
+
+        <div className="grid gap-3 sm:grid-cols-3">
+          {premiumExperienceTiles.map((tile, index) => (
+            <motion.div
+              key={tile.title}
+              custom={index}
+              variants={fadeUp}
+              whileHover={{ y: -8, scale: 1.01 }}
+              className={`${index === 0 ? 'sm:col-span-2 sm:row-span-2' : ''} group relative min-h-[260px] overflow-hidden rounded-[1.5rem] shadow-[0_24px_60px_rgba(7,49,89,0.13)]`}
+            >
+              <img src={tile.image} alt={tile.title} className="absolute inset-0 h-full w-full object-cover transition duration-700 group-hover:scale-105" loading="lazy" />
+              <div className="absolute inset-0 bg-gradient-to-t from-[#071a2d]/88 via-[#071a2d]/20 to-transparent" />
+              <div className="absolute inset-x-0 bottom-0 p-5 text-white">
+                <div className="mb-3 inline-flex rounded-full bg-[#7ed957] px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-[#073159]">
+                  {index === 0 ? 'Campus' : index === 1 ? 'CBC' : 'Holiday'}
+                </div>
+                <h3 className="text-2xl font-black tracking-tight">{tile.title}</h3>
+                <p className="mt-2 max-w-sm text-sm leading-6 text-white/72">{tile.body}</p>
+                <Link href={tile.href} className="mt-4 inline-flex items-center gap-2 text-xs font-black uppercase tracking-[0.14em] text-[#a5ef87] transition group-hover:gap-3">
+                  Explore <ArrowRight size={14} />
+                </Link>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      </div>
+
+      <div className="mx-auto mt-8 grid max-w-7xl gap-3 md:grid-cols-4">
+        {[
+          { title: 'Kinoo access', body: 'St Ignatius Christian School learning point', icon: MapPin },
+          { title: 'Parent confidence', body: 'Clear calls, WhatsApp and registration routes', icon: Phone },
+          { title: 'CBC experience', body: 'Visual, practical and competency-led support', icon: Sparkles },
+          { title: 'KCSE pressure', body: 'Exam language, timing and mark discipline', icon: Award },
+        ].map(({ title, body, icon: Icon }, index) => (
+          <motion.div
+            key={String(title)}
+            custom={index}
+            variants={fadeUp}
+            className="rounded-2xl border border-[#145da0]/10 bg-white p-4 shadow-sm"
+          >
+            <Icon className="h-5 w-5 text-[#145da0]" />
+            <div className="mt-4 text-sm font-black text-[#073159]">{title}</div>
+            <p className="mt-1 text-xs leading-5 text-[#5d7180]">{body}</p>
+          </motion.div>
+        ))}
+      </div>
+    </motion.section>
   )
 }
 
@@ -943,7 +1054,100 @@ function TestimonialsSection({ initialTestimonials }: { initialTestimonials: Lan
   )
 }
 
-function TuitionEventsSection({ tuitionEvents }: { tuitionEvents: any[] }) {
+type PublicEventSlot = {
+  eventId: string
+  remaining: number
+  capacity: number
+  chargeAmount?: number | null
+  chargeCurrency?: string | null
+  chargeFrequency?: string | null
+  chargeUnitLabel?: string | null
+}
+
+function resolveEventPosterUrl(event: any) {
+  const raw = String(event?.posterUrl || event?.banner_url || event?.poster_url || event?.image_url || '').trim()
+  if (!raw) return ''
+  if (raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('/')) return raw
+
+  const cleanPath = raw
+    .replace(/^event-posters\//, '')
+    .replace(/^public\//, '')
+    .replace(/^\/+/, '')
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  if (!supabaseUrl) return raw
+  return `${supabaseUrl.replace(/\/$/, '')}/storage/v1/object/public/event-posters/${cleanPath}`
+}
+
+function getEventStartTime(event: any) {
+  if (!event?.start_date) return null
+  const time = String(event.session_start_time || '00:00').slice(0, 5)
+  const date = new Date(`${event.start_date}T${time || '00:00'}:00`)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function getCountdownParts(target: Date | null, nowMs: number) {
+  if (!target) return null
+  const diff = Math.max(0, target.getTime() - nowMs)
+  const totalSeconds = Math.floor(diff / 1000)
+  const days = Math.floor(totalSeconds / 86400)
+  const hours = Math.floor((totalSeconds % 86400) / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  return { diff, days, hours, minutes, seconds }
+}
+
+function EventCountdown({ event }: { event: any }) {
+  const [nowMs, setNowMs] = useState(() => Date.now())
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  const parts = getCountdownParts(getEventStartTime(event), nowMs)
+  if (!parts) return null
+
+  if (parts.diff <= 0) {
+    return (
+      <div className="rounded-2xl border border-[#7ed957]/25 bg-[#073159] p-3 text-white shadow-[0_14px_35px_rgba(7,49,89,0.16)]">
+        <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-[#bff8a7]">
+          <Clock3 size={13} /> Running now
+        </div>
+        <div className="mt-1 text-sm font-black">Registration still open while spaces last</div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-2xl border border-[#145da0]/10 bg-[#073159] p-3 text-white shadow-[0_14px_35px_rgba(7,49,89,0.16)]">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-[#bff8a7]">
+          <Clock3 size={13} /> Starts in
+        </span>
+        <span className="rounded-full bg-[#7ed957] px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.14em] text-[#073159]">
+          Live countdown
+        </span>
+      </div>
+      <div className="grid grid-cols-4 gap-1.5">
+        {[
+          ['Days', parts.days],
+          ['Hrs', parts.hours],
+          ['Min', parts.minutes],
+          ['Sec', parts.seconds],
+        ].map(([label, value]) => (
+          <div key={label} className="rounded-xl bg-white/10 px-2 py-2 text-center ring-1 ring-white/10">
+            <div className="text-lg font-black leading-none tabular-nums">{String(value).padStart(2, '0')}</div>
+            <div className="mt-1 text-[8px] font-black uppercase tracking-[0.16em] text-white/55">{label}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function TuitionEventsSection({ tuitionEvents, eventSlots }: { tuitionEvents: any[]; eventSlots: PublicEventSlot[] }) {
+  const [failedPosterIds, setFailedPosterIds] = useState<Set<string>>(() => new Set())
+
   if (tuitionEvents.length === 0) return null
 
   const eventMeta = (event: any) => {
@@ -957,17 +1161,41 @@ function TuitionEventsSection({ tuitionEvents }: { tuitionEvents: any[] }) {
     const startTime = String(event.session_start_time || '').slice(0, 5)
     const endTime = String(event.session_end_time || '').slice(0, 5)
     const time = startTime || endTime ? [startTime, endTime].filter(Boolean).join(' - ') : 'Time to be confirmed'
+    const eventSlotRows = eventSlots.filter((slot) => slot.eventId === event.id)
+    const pricedSlots = eventSlotRows
+      .map((slot) => Number(slot.chargeAmount))
+      .filter((amount) => Number.isFinite(amount) && amount > 0)
+    const samplePricedSlot = eventSlotRows.find((slot) => Number(slot.chargeAmount) > 0)
     const amount = Number(event.charge_amount)
-    const price = Number.isFinite(amount) && amount > 0
-      ? `${event.charge_currency || 'KES'} ${amount.toLocaleString()} ${event.charge_unit_label || event.charge_frequency?.replace(/_/g, ' ') || 'per programme'}`
-      : 'Fee breakdown available'
+    const price = pricedSlots.length > 0
+      ? `${samplePricedSlot?.chargeCurrency || 'KES'} ${Math.min(...pricedSlots).toLocaleString()}${Math.max(...pricedSlots) !== Math.min(...pricedSlots) ? ` - ${Math.max(...pricedSlots).toLocaleString()}` : ''} ${samplePricedSlot?.chargeUnitLabel || samplePricedSlot?.chargeFrequency?.replace(/_/g, ' ') || 'per programme'}`
+      : Number.isFinite(amount) && amount > 0
+        ? `${event.charge_currency || 'KES'} ${amount.toLocaleString()} ${event.charge_unit_label || event.charge_frequency?.replace(/_/g, ' ') || 'per programme'}`
+        : 'Fee breakdown available'
     return {
       deadline: deadline ? deadline.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'Before groups fill',
+      dateRange: `${formatDate(event.start_date)} - ${formatDate(event.end_date)}`,
       mode,
       level,
       location,
       time,
       price,
+    }
+  }
+
+  const slotMeta = (eventId: string) => {
+    const rows = eventSlots.filter((slot) => slot.eventId === eventId)
+    const capacity = rows.reduce((sum, slot) => sum + (Number(slot.capacity) || 0), 0)
+    const remaining = rows.reduce((sum, slot) => sum + (Number(slot.remaining) || 0), 0)
+    return {
+      configured: rows.length > 0,
+      capacity,
+      remaining,
+      label: rows.length > 0
+        ? remaining > 0
+          ? `${remaining} of ${capacity} left`
+          : 'Fully booked'
+        : 'Limited groups',
     }
   }
 
@@ -977,28 +1205,45 @@ function TuitionEventsSection({ tuitionEvents }: { tuitionEvents: any[] }) {
       initial="hidden"
       whileInView="visible"
       viewport={{ once: true, amount: 0.2 }}
-      className="border-y border-[#145da0]/12 bg-[#eaf3f8] px-4 py-16 sm:px-6 sm:py-20 lg:px-8"
+      className="relative overflow-hidden border-y border-[#145da0]/12 bg-[#eaf3f8] px-4 py-16 sm:px-6 sm:py-20 lg:px-8"
     >
-      <div className="mx-auto max-w-7xl">
+      <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,.72),rgba(234,243,248,.84)_45%,rgba(126,217,87,.12))]" />
+      <div className="relative mx-auto max-w-7xl">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0, transition: { duration: 0.5 } }}
           viewport={{ once: true }}
-          className="mb-8 max-w-3xl"
+          className="mb-9 grid gap-5 lg:grid-cols-[1fr_0.74fr] lg:items-end"
         >
           <div>
-            <p className="text-xs font-black uppercase tracking-[0.22em] text-[#145da0]">Upcoming programmes</p>
+            <p className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-black uppercase tracking-[0.22em] text-[#145da0] shadow-sm">
+              <Sparkles size={14} /> Upcoming programmes
+            </p>
             <h2 className="mt-3 text-3xl font-black tracking-tight sm:text-5xl">Register while the right group is still open.</h2>
             <p className="mt-4 text-base leading-7 text-slate-600">
               Active holiday programmes, revision camps, and academic intake groups appear here first so parents can act before groups fill.
             </p>
           </div>
+          <div className="rounded-[1.5rem] border border-[#145da0]/10 bg-white/80 p-5 shadow-[0_18px_55px_rgba(7,49,89,0.08)] backdrop-blur">
+            <div className="flex items-center gap-3">
+              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-[#073159] text-[#7ed957]">
+                <BadgeCheck size={23} />
+              </div>
+              <div>
+                <div className="text-sm font-black text-[#073159]">Parent decision window</div>
+                <p className="mt-1 text-xs leading-5 text-slate-500">Slots, dates, venue and fees are visible before registration.</p>
+              </div>
+            </div>
+          </div>
         </motion.div>
 
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-5 md:grid-cols-3">
           {tuitionEvents.map((event, i) => (
             (() => {
               const meta = eventMeta(event)
+              const slots = slotMeta(event.id)
+              const active = event.status === 'active' || event.is_active
+              const posterUrl = failedPosterIds.has(event.id) ? '' : resolveEventPosterUrl(event)
               return (
                 <motion.div
                   key={event.id}
@@ -1008,53 +1253,83 @@ function TuitionEventsSection({ tuitionEvents }: { tuitionEvents: any[] }) {
                   whileInView="visible"
                   viewport={{ once: true }}
                 >
-                  <div className="group block overflow-hidden rounded-[1.6rem] border border-[#145da0]/15 bg-white shadow-sm transition hover:-translate-y-1 hover:border-[#4caf25]/50 hover:shadow-xl">
-                    <div className="relative h-52 bg-gradient-to-br from-[#073159] via-[#145da0] to-[#4caf25]">
-                      {event.banner_url && (
-                        <img src={event.banner_url} alt={`${event.name} poster`} className="h-full w-full object-cover" loading="lazy" />
+                  <div className="group flex h-full flex-col overflow-hidden rounded-[1.7rem] border border-white bg-white shadow-[0_22px_60px_rgba(7,49,89,0.1)] ring-1 ring-[#145da0]/10 transition hover:-translate-y-1.5 hover:shadow-[0_30px_80px_rgba(7,49,89,0.18)]">
+                    <div
+                      className="relative h-64 bg-gradient-to-br from-[#073159] via-[#145da0] to-[#4caf25] bg-cover bg-center"
+                      style={{
+                        backgroundImage: posterUrl ? `url("${posterUrl}")` : undefined,
+                        backgroundPosition: event.banner_object_position || 'center center',
+                      }}
+                    >
+                      {posterUrl && (
+                        <img
+                          src={posterUrl}
+                          alt={`${event.name} poster`}
+                          className="absolute inset-0 h-full w-full object-cover transition duration-700 group-hover:scale-105"
+                          style={{ objectPosition: event.banner_object_position || 'center center' }}
+                          loading="eager"
+                          onError={() => {
+                            setFailedPosterIds((prev) => new Set(prev).add(event.id))
+                          }}
+                        />
                       )}
-                      <div className="absolute inset-0 bg-gradient-to-t from-[#071a2d]/92 via-[#071a2d]/25 to-transparent" />
-                      <div className="absolute left-4 top-4 rounded-full bg-[#7ed957] px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-[#073159] shadow-sm">
-                        {event.status === 'active' || event.is_active ? 'Registering now' : 'Upcoming'}
-                      </div>
-                      <div className="absolute inset-x-4 bottom-4 text-white">
-                        <h3 className="text-2xl font-black tracking-tight">{event.name}</h3>
-                        <p className="mt-2 text-xs font-semibold text-white/70">Deadline: {meta.deadline}</p>
+                      {!posterUrl && (
+                        <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(126,217,87,.22),transparent_38%),linear-gradient(45deg,rgba(255,255,255,.08)_25%,transparent_25%,transparent_50%,rgba(255,255,255,.08)_50%,rgba(255,255,255,.08)_75%,transparent_75%,transparent)] bg-[length:auto,22px_22px]" />
+                      )}
+                      <div className="absolute left-4 right-4 top-4 flex items-start justify-between gap-2">
+                        <div className={`rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] shadow-sm ${active ? 'bg-[#7ed957] text-[#073159]' : 'bg-white/92 text-[#145da0]'}`}>
+                          {active ? 'Registering now' : 'Upcoming'}
+                        </div>
+                        <div className={`rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] shadow-sm ${slots.configured && slots.remaining === 0 ? 'bg-rose-100 text-rose-700' : 'bg-white text-[#073159]'}`}>
+                          {slots.label}
+                        </div>
                       </div>
                     </div>
-                    <div className="p-5">
-                      <div className="grid grid-cols-2 gap-2 text-[11px] font-black uppercase tracking-[0.12em] text-[#073159]">
-                        <div className="rounded-xl bg-[#eaf3f8] p-3">
-                          <span className="block text-slate-400">Dates</span>
-                          {formatDate(event.start_date)} - {formatDate(event.end_date)}
+                    <div className="flex flex-1 flex-col p-5">
+                      <div className="mb-3">
+                        <div className="mb-2 flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.16em] text-[#2f8517]">
+                          <Calendar size={14} /> Register by {meta.deadline}
                         </div>
-                        <div className="rounded-xl bg-[#eef9e9] p-3">
-                          <span className="block text-slate-400">Mode</span>
-                          {meta.mode}
-                        </div>
-                        <div className="col-span-2 rounded-xl bg-[#f4f9fc] p-3">
-                          <span className="block text-slate-400">Best for</span>
-                          {meta.level}
-                        </div>
-                        <div className="rounded-xl bg-[#f4f9fc] p-3">
-                          <span className="block text-slate-400">Location</span>
-                          {meta.location}
-                        </div>
-                        <div className="rounded-xl bg-[#f4f9fc] p-3">
-                          <span className="block text-slate-400">Time</span>
-                          {meta.time}
-                        </div>
-                        <div className="col-span-2 rounded-xl bg-[#fff8db] p-3">
-                          <span className="block text-slate-400">Charges</span>
-                          {meta.price}
-                          {event.pricing_note && <p className="mt-1 normal-case tracking-normal text-slate-500">{event.pricing_note}</p>}
+                        <h3 className="text-2xl font-black leading-tight tracking-tight text-[#073159]">{event.name}</h3>
+                      </div>
+                      <div className="mb-3">
+                        <EventCountdown event={event} />
+                      </div>
+                      <div className="grid gap-2">
+                        {[
+                          { label: 'Dates', value: meta.dateRange, icon: Calendar, tone: 'bg-[#eaf3f8] text-[#145da0]' },
+                          { label: 'Time', value: meta.time, icon: Clock3, tone: 'bg-[#eef9e9] text-[#2f8517]' },
+                          { label: 'Venue', value: meta.location, icon: MapPin, tone: 'bg-[#f4f9fc] text-[#145da0]' },
+                          { label: 'Fees', value: meta.price, icon: Wallet, tone: 'bg-[#fff8db] text-[#9a6b00]' },
+                        ].map(({ label, value, icon: Icon, tone }) => (
+                          <div key={label} className="flex items-center gap-3 rounded-2xl border border-[#145da0]/8 bg-[#f8fbfd] p-3">
+                            <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${tone}`}>
+                              <Icon size={17} />
+                            </span>
+                            <div className="min-w-0">
+                              <div className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-400">{label}</div>
+                              <div className="mt-0.5 truncate text-sm font-black text-[#073159]">{value}</div>
+                            </div>
+                          </div>
+                        ))}
+                        <div className="rounded-2xl border border-[#145da0]/8 bg-[#073159] p-3 text-white">
+                          <div className="flex items-center gap-3">
+                            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white/10 text-[#7ed957]">
+                              <Users size={17} />
+                            </span>
+                            <div className="min-w-0">
+                              <div className="text-[9px] font-black uppercase tracking-[0.18em] text-white/45">Best for</div>
+                              <div className="mt-0.5 truncate text-sm font-black">{meta.level}</div>
+                            </div>
+                          </div>
                         </div>
                       </div>
-                      <p className="mt-4 min-h-16 text-sm leading-relaxed text-slate-500 line-clamp-3">
+                      {event.pricing_note && <p className="mt-3 rounded-2xl bg-[#fff8db] px-3 py-2 text-xs font-bold leading-5 text-[#7a5a00]">{event.pricing_note}</p>}
+                      <p className="mt-4 text-sm leading-relaxed text-slate-500 line-clamp-3">
                         {event.description || 'Intensive revision and curriculum coverage. Secure your spot before groups fill up.'}
                       </p>
-                      <Link href={`/events/register?eventId=${event.id}`} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-full bg-[#073159] px-4 py-2.5 text-sm font-bold uppercase tracking-wider text-white transition group-hover:bg-[#145da0]">
-                        Register before groups fill <ArrowRight size={16} />
+                      <Link href={`/events/register?eventId=${event.id}`} className="mt-auto inline-flex w-full items-center justify-center gap-2 rounded-full bg-[#073159] px-4 py-3 text-sm font-black uppercase tracking-[0.13em] text-white transition hover:bg-[#145da0]">
+                        Secure a place <ArrowRight size={16} />
                       </Link>
                     </div>
                   </div>
@@ -1070,18 +1345,14 @@ function TuitionEventsSection({ tuitionEvents }: { tuitionEvents: any[] }) {
 
 export default function HomePage() {
   const [tuitionEvents, setTuitionEvents] = useState<any[]>([])
+  const [eventSlots, setEventSlots] = useState<PublicEventSlot[]>([])
   const [testimonials, setTestimonials] = useState<LandingTestimonial[]>(fallbackTestimonials)
   
   useEffect(() => {
     const supabase = getSupabaseBrowserClient()
-    supabase.from('tuition_events')
-      .select('*')
-      .in('status', ['active', 'upcoming'])
-      .order('start_date', { ascending: true })
-      .limit(3)
-      .then(({ data }) => {
-        if (data) setTuitionEvents(data)
-      })
+    getPublicTuitionEvents().then((result) => {
+      if (result.success) setTuitionEvents(result.events || [])
+    }).catch(() => null)
 
     supabase.from('landing_testimonials')
       .select('id, full_name, role, relationship_label, quote, rating, created_at')
@@ -1091,25 +1362,15 @@ export default function HomePage() {
       .then(({ data, error }) => {
         if (!error && data?.length) setTestimonials(data as LandingTestimonial[])
       })
+
+    getPublicRegistrationCounts().then((result) => {
+      if (result.success) setEventSlots((result.slots || []) as PublicEventSlot[])
+    }).catch(() => null)
   }, [])
 
   return (
-    <main className="premium-landing min-h-screen bg-[#f4f8fb] pb-[64px] font-dm-sans text-[#073159] sm:pb-[68px]">
+    <main className="premium-landing min-h-screen bg-[#f4f8fb] font-dm-sans text-[#073159]">
       {/* ── Sticky CTA ── */}
-      <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-white/10 bg-[#071a2d]/95 shadow-[0_-16px_45px_rgba(2,6,23,0.18)] backdrop-blur-xl">
-        <div className="mx-auto flex max-w-7xl items-center justify-center px-3 py-2.5 sm:justify-between sm:px-6 lg:px-8">
-          <span className="hidden text-sm font-bold text-white sm:inline">
-            Begin with clarity. Your first diagnostic session is complimentary.
-          </span>
-          <Link
-            href="/auth/register"
-            className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-[#7ed957] px-5 py-2.5 text-xs font-black uppercase tracking-[0.13em] text-[#073159] transition hover:bg-white sm:w-auto sm:text-sm"
-          >
-            <Phone size={14} /> Book free diagnostic
-          </Link>
-        </div>
-      </div>
-
       <PremiumLandingHero />
 
       <div className="overflow-hidden border-y border-white/10 bg-[#145da0] py-3 text-white">
@@ -1132,6 +1393,8 @@ export default function HomePage() {
       </div>
 
       {/* ── Stats ── */}
+      <PremiumExperienceSection />
+
       <motion.section
         variants={fadeIn}
         initial="hidden"
@@ -1159,7 +1422,7 @@ export default function HomePage() {
         </div>
       </motion.section>
 
-      <TuitionEventsSection tuitionEvents={tuitionEvents} />
+      <TuitionEventsSection tuitionEvents={tuitionEvents} eventSlots={eventSlots} />
 
       <ParentDecisionSection />
 
