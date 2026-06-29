@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, BookOpenCheck, Building2, ClipboardCheck, GraduationCap, Loader2, MailCheck, NotebookTabs, Phone, School, Sparkles, UserRound, UsersRound, Wand2 } from 'lucide-react'
+import { ArrowLeft, BookOpenCheck, Building2, GraduationCap, Loader2, NotebookTabs, Phone, School, Sparkles, UserRound, UsersRound, Wand2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
@@ -269,7 +269,8 @@ export default function EventRegistrationPage() {
                 {!selectedPosterUrl && (
                   <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(126,217,87,.18),transparent_42%),linear-gradient(45deg,rgba(255,255,255,.08)_25%,transparent_25%,transparent_50%,rgba(255,255,255,.08)_50%,rgba(255,255,255,.08)_75%,transparent_75%,transparent)] bg-[length:auto,22px_22px]" />
                 )}
-                <div className="absolute inset-x-0 bottom-0 h-44 bg-gradient-to-t from-[#061827]/92 via-[#061827]/58 to-transparent" />
+                <div className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-[#061827]/96 via-[#061827]/72 to-transparent" />
+                <div className="absolute inset-x-0 bottom-0 h-28 bg-[#061827]/28 backdrop-blur-[1px]" />
                 <div className="absolute bottom-0 left-0 right-0 p-5">
                   <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/14 px-3 py-1 text-xs font-black uppercase tracking-[0.18em] text-[#d8ffc7] backdrop-blur">
                     <Sparkles size={14} /> Academic Intake
@@ -357,32 +358,6 @@ export default function EventRegistrationPage() {
         </aside>
 
         <main className="space-y-5">
-          <div className="relative overflow-hidden rounded-[2.2rem] border border-white bg-[#073159] p-5 text-white shadow-[0_22px_70px_rgba(7,49,89,0.18)] md:p-6">
-            <div className="absolute right-5 top-5 h-24 w-40 rotate-6 rounded-3xl border border-white/10 bg-white/8" />
-            <div className="absolute bottom-4 right-24 h-16 w-24 -rotate-6 rounded-2xl border border-[#7ed957]/30 bg-[#7ed957]/12" />
-            <div className="relative grid gap-5 md:grid-cols-[1fr_260px] md:items-center">
-              <div>
-                <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-[#bff8a7]">
-                  <MailCheck size={14} /> Admissions desk
-                </div>
-                <h2 className="mt-3 max-w-xl text-2xl font-black leading-tight">{selectedEventName || 'Programme registration'}</h2>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-white/72">Complete the learner profile so Peak Performance can place them in the right group, teacher track, and subject support plan.</p>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { Icon: ClipboardCheck, label: 'Profile' },
-                  { Icon: NotebookTabs, label: 'Subjects' },
-                  { Icon: GraduationCap, label: 'Placement' },
-                ].map(({ Icon, label }) => (
-                  <div key={label} className="rounded-2xl border border-white/10 bg-white/10 p-3 text-center backdrop-blur">
-                    <Icon className="mx-auto h-5 w-5 text-[#7ed957]" />
-                    <div className="mt-2 text-[10px] font-black uppercase tracking-[0.12em] text-white/68">{label}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
           <div className="rounded-[2rem] border border-white bg-white/90 p-5 shadow-[0_18px_55px_rgba(7,49,89,0.08)] backdrop-blur">
             <div className="relative grid grid-cols-3 gap-2">
               <div className="absolute left-[16%] right-[16%] top-4 h-1 rounded-full bg-[#d9eaf3]" />

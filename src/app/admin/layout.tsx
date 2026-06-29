@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Users, UserCheck, GraduationCap, BookOpen,
   Calendar, CalendarDays, ClipboardList, BarChart3, Bell,
   Settings, LogOut, CreditCard, FileText, BookMarked,
-  TrendingUp, Library, Layers, Award, School, MapPin, DollarSign, FileCheck, ShieldCheck
+  TrendingUp, Library, Layers, Award, School, MapPin, DollarSign, FileCheck, ShieldCheck, Newspaper
 } from 'lucide-react'
 import { Sidebar, BottomNav } from '@/components/layout/Sidebar'
 import { useAuthStore } from '@/stores/authStore'
@@ -29,6 +29,7 @@ const NAV_ITEMS = [
   { label: 'Timetables', href: '/admin/timetables', icon: <Calendar size={18} /> },
   { label: 'Tuition Events', href: '/admin/tuition-events', icon: <CalendarDays size={18} /> },
   { label: 'Event Registrations', href: '/admin/event-registrations', icon: <Users size={18} /> },
+  { label: 'Blog', href: '/admin/blog', icon: <Newspaper size={18} /> },
   { label: 'Exam Events', href: '/admin/exam-events', icon: <ClipboardList size={18} /> },
   { label: 'National Exams', shortLabel: 'National', href: '/admin/national-exams', icon: <CalendarDays size={18} /> },
   { label: 'Grading Systems', href: '/admin/grading', icon: <Award size={18} /> },

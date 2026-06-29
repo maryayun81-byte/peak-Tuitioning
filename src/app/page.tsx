@@ -38,10 +38,12 @@ import {
   Send,
   BadgeCheck,
   Wallet,
+  Newspaper,
 } from 'lucide-react'
 import { PremiumCarousel } from '@/components/ui/PremiumCarousel'
 import { PublicPortalMenu } from '@/components/ui/PublicPortalMenu'
 import { getPublicRegistrationCounts, getPublicTuitionEvents } from '@/app/actions/event-registration'
+import { getPublicBlogPosts, type MarketingBlogPost } from '@/app/actions/blog'
 
 const campusGalleryImages = Array.from(
   { length: 49 },
@@ -108,6 +110,7 @@ const publicNavLinks = [
   { label: 'Who We Are', href: '#who-we-are' },
   { label: 'Holiday Tuition', href: '/holiday-tuition-kenya' },
   { label: 'Method', href: '#how-it-works' },
+  { label: 'Blog', href: '/blog' },
   { label: 'Testimonials', href: '#testimonials' },
   { label: 'Contact', href: '/contact' },
 ]
@@ -465,16 +468,18 @@ function PremiumExperienceSection() {
               custom={index}
               variants={fadeUp}
               whileHover={{ y: -8, scale: 1.01 }}
-              className={`${index === 0 ? 'sm:col-span-2 sm:row-span-2' : ''} group relative min-h-[260px] overflow-hidden rounded-[1.5rem] shadow-[0_24px_60px_rgba(7,49,89,0.13)]`}
+              className="group relative min-h-[320px] overflow-hidden rounded-[1.5rem] shadow-[0_24px_60px_rgba(7,49,89,0.13)]"
             >
-              <img src={tile.image} alt={tile.title} className="absolute inset-0 h-full w-full object-cover transition duration-700 group-hover:scale-105" loading="lazy" />
-              <div className="absolute inset-0 bg-gradient-to-t from-[#071a2d]/88 via-[#071a2d]/20 to-transparent" />
-              <div className="absolute inset-x-0 bottom-0 p-5 text-white">
-                <div className="mb-3 inline-flex rounded-full bg-[#7ed957] px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-[#073159]">
+              <img src={tile.image} alt={tile.title} className="absolute inset-0 z-0 h-full w-full object-cover transition duration-700 group-hover:scale-105" loading="lazy" />
+              <div className="absolute inset-0 z-10 bg-[#020812]/42 transition duration-500 group-hover:bg-[#020812]/34" />
+              <div className="absolute inset-x-0 bottom-0 z-20 h-[74%] bg-gradient-to-t from-[#020812]/96 via-[#020812]/68 to-transparent" />
+              <div className="absolute inset-x-0 bottom-0 z-30 h-48 bg-[#020812]/42" />
+              <div className="absolute inset-x-0 bottom-0 z-40 p-5 text-white">
+                <div className="mb-3 inline-flex rounded-full bg-[#7ed957] px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-[#073159] shadow-[0_8px_24px_rgba(0,0,0,0.24)]">
                   {index === 0 ? 'Campus' : index === 1 ? 'CBC' : 'Holiday'}
                 </div>
-                <h3 className="text-2xl font-black tracking-tight">{tile.title}</h3>
-                <p className="mt-2 max-w-sm text-sm leading-6 text-white/72">{tile.body}</p>
+                <h3 className="text-2xl font-black tracking-tight drop-shadow-[0_2px_14px_rgba(0,0,0,0.55)]">{tile.title}</h3>
+                <p className="mt-2 max-w-sm text-sm font-semibold leading-6 text-white/88 drop-shadow-[0_1px_10px_rgba(0,0,0,0.45)]">{tile.body}</p>
                 <Link href={tile.href} className="mt-4 inline-flex items-center gap-2 text-xs font-black uppercase tracking-[0.14em] text-[#a5ef87] transition group-hover:gap-3">
                   Explore <ArrowRight size={14} />
                 </Link>
@@ -1343,10 +1348,66 @@ function TuitionEventsSection({ tuitionEvents, eventSlots }: { tuitionEvents: an
   )
 }
 
+function LatestNewsRail({ posts }: { posts: MarketingBlogPost[] }) {
+  if (posts.length === 0) return null
+
+  return (
+    <motion.section
+      variants={fadeIn}
+      initial="hidden"
+      whileInView="visible"
+      viewport={{ once: true, amount: 0.18 }}
+      className="bg-white px-4 py-14 sm:px-6 lg:px-8"
+    >
+      <div className="mx-auto max-w-7xl">
+        <div className="mb-6 flex flex-col justify-between gap-4 md:flex-row md:items-end">
+          <div>
+            <p className="inline-flex items-center gap-2 rounded-full bg-[#eaf3f8] px-3 py-1.5 text-xs font-black uppercase tracking-[0.2em] text-[#145da0]">
+              <Newspaper size={14} /> Latest news
+            </p>
+            <h2 className="mt-4 max-w-3xl text-3xl font-black leading-tight tracking-tight text-[#073159] sm:text-4xl">
+              Fresh Peak insights for parents and learners.
+            </h2>
+          </div>
+          <Link href="/blog" className="inline-flex w-fit items-center gap-2 rounded-full border border-[#145da0]/15 px-5 py-3 text-sm font-black uppercase tracking-[0.13em] text-[#145da0] transition hover:bg-[#eaf3f8]">
+            View all articles <ArrowRight size={16} />
+          </Link>
+        </div>
+
+        <div className="-mx-4 overflow-x-auto px-4 pb-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="flex gap-4">
+            {posts.slice(0, 8).map((post) => (
+              <Link key={post.id} href={`/blog/${post.slug}`} className="group w-[82vw] max-w-[360px] shrink-0 overflow-hidden rounded-[1.5rem] border border-[#145da0]/10 bg-white shadow-[0_16px_45px_rgba(7,49,89,0.1)] transition hover:-translate-y-1 hover:shadow-[0_24px_65px_rgba(7,49,89,0.16)] sm:w-[340px]">
+                <div className="relative h-48 bg-[#073159]">
+                  {post.coverImageUrl && <img src={post.coverImageUrl} alt={post.title} className="h-full w-full object-cover transition duration-700 group-hover:scale-105" loading="lazy" />}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
+                  <div className="absolute left-4 top-4 rounded-full bg-white/95 px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-[#145da0]">{post.category}</div>
+                </div>
+                <div className="p-5">
+                  <h3 className="line-clamp-2 text-lg font-black leading-tight text-[#073159]">{post.title}</h3>
+                  <div className="relative mt-3 h-[4.5rem] overflow-hidden">
+                    <p className="text-sm leading-6 text-slate-600">{post.excerpt}</p>
+                    <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-white to-white/0" />
+                  </div>
+                  <div className="mt-5 flex items-center justify-between text-xs font-black uppercase tracking-[0.12em] text-slate-400">
+                    <span>{post.readMinutes} min</span>
+                    <span className="inline-flex items-center gap-1 text-[#145da0]">Read <ArrowRight size={13} /></span>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      </div>
+    </motion.section>
+  )
+}
+
 export default function HomePage() {
   const [tuitionEvents, setTuitionEvents] = useState<any[]>([])
   const [eventSlots, setEventSlots] = useState<PublicEventSlot[]>([])
   const [testimonials, setTestimonials] = useState<LandingTestimonial[]>(fallbackTestimonials)
+  const [blogPosts, setBlogPosts] = useState<MarketingBlogPost[]>([])
   
   useEffect(() => {
     const supabase = getSupabaseBrowserClient()
@@ -1365,6 +1426,10 @@ export default function HomePage() {
 
     getPublicRegistrationCounts().then((result) => {
       if (result.success) setEventSlots((result.slots || []) as PublicEventSlot[])
+    }).catch(() => null)
+
+    getPublicBlogPosts(4).then((result) => {
+      if (result.success) setBlogPosts(result.posts || [])
     }).catch(() => null)
   }, [])
 
@@ -1707,6 +1772,8 @@ export default function HomePage() {
           </motion.div>
         </div>
       </motion.section>
+
+      <LatestNewsRail posts={blogPosts} />
 
       {/* ── CTA ── */}
       <motion.section

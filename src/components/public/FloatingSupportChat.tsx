@@ -36,7 +36,6 @@ export function FloatingSupportChat() {
   )
 
   const isAppArea = /^\/(admin|student|teacher|parent|finance)(\/|$)/.test(pathname || '')
-  if (isAppArea) return null
 
   const renderMessageContent = (content: string) => {
     const lines = content
@@ -107,6 +106,8 @@ export function FloatingSupportChat() {
     setQueuedMessages(rest)
     void sendMessage(next, { alreadyDisplayed: true })
   }, [sending, queuedMessages])
+
+  if (isAppArea) return null
 
   const submitHandoff = async (event: FormEvent) => {
     event.preventDefault()

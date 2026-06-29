@@ -86,7 +86,7 @@ export function PublicPortalMenu() {
   }, [])
 
   return (
-    <div ref={menuRef} className="relative z-50">
+    <div ref={menuRef} className="relative z-[200]">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
@@ -100,7 +100,7 @@ export function PublicPortalMenu() {
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-3 w-[min(calc(100vw-1rem),390px)] overflow-hidden rounded-2xl border border-white/20 bg-white text-[#073159] shadow-[0_28px_80px_rgba(2,6,23,0.35)]">
+        <div className="absolute right-0 z-[210] mt-3 w-[min(calc(100vw-1rem),390px)] overflow-hidden rounded-2xl border border-white/20 bg-white text-[#073159] shadow-[0_28px_80px_rgba(2,6,23,0.35)]">
           <div className="border-b border-white/10 bg-[#071a2d] px-4 py-3 text-white sm:px-5 sm:py-4">
             <div className="text-sm font-black tracking-tight sm:text-base">Peak navigation</div>
             <div className="mt-0.5 text-[11px] text-white/60 sm:mt-1 sm:text-xs">Portals first. Explore Peak below.</div>
