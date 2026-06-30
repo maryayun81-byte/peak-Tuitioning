@@ -403,9 +403,9 @@ function PremiumLandingHero() {
             <motion.img
               animate={{ scale: [1, 1.035, 1] }}
               transition={{ duration: 10, repeat: Infinity, ease: 'easeInOut' }}
-              src="/media__1776963140564.jpg"
+              src="/peak-hero-classroom.png"
               alt="Peak Performance students in a focused learning session"
-              className="h-[370px] w-full object-cover object-center sm:h-[540px]"
+              className="h-[370px] w-full object-cover object-[center_42%] sm:h-[540px]"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-[#071a2d]/75 via-transparent to-transparent" />
             <div className="absolute bottom-0 left-0 right-0 p-5 sm:p-7">

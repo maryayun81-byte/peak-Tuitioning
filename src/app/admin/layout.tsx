@@ -1,13 +1,13 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import {
   LayoutDashboard, Users, UserCheck, GraduationCap, BookOpen,
   Calendar, CalendarDays, ClipboardList, BarChart3, Bell,
   Settings, LogOut, CreditCard, FileText, BookMarked,
-  TrendingUp, Library, Layers, Award, School, MapPin, DollarSign, FileCheck, ShieldCheck, Newspaper
+  TrendingUp, Library, Layers, Award, School, MapPin, DollarSign, FileCheck, ShieldCheck, Newspaper, MessageCircle, Bot
 } from 'lucide-react'
 import { Sidebar, BottomNav } from '@/components/layout/Sidebar'
 import { useAuthStore } from '@/stores/authStore'
@@ -15,6 +15,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { getInitials } from '@/lib/utils'
 import { GraduationCap as Logo } from 'lucide-react'
 import { SplashScreen } from '@/components/SplashScreen'
+import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 
 const NAV_ITEMS = [
   { label: 'Dashboard', href: '/admin', icon: <LayoutDashboard size={18} /> },
@@ -29,6 +30,8 @@ const NAV_ITEMS = [
   { label: 'Timetables', href: '/admin/timetables', icon: <Calendar size={18} /> },
   { label: 'Tuition Events', href: '/admin/tuition-events', icon: <CalendarDays size={18} /> },
   { label: 'Event Registrations', href: '/admin/event-registrations', icon: <Users size={18} /> },
+  { label: 'APEX Messages', href: '/admin/apex-messages', icon: <MessageCircle size={18} /> },
+  { label: 'Support Intelligence', shortLabel: 'Intel', href: '/admin/support-intelligence', icon: <Bot size={18} /> },
   { label: 'Blog', href: '/admin/blog', icon: <Newspaper size={18} /> },
   { label: 'Exam Events', href: '/admin/exam-events', icon: <ClipboardList size={18} /> },
   { label: 'National Exams', shortLabel: 'National', href: '/admin/national-exams', icon: <CalendarDays size={18} /> },
@@ -66,6 +69,33 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const { profile, isLoading } = useAuthStore()
   const { signOut } = useAuth()
   const router = useRouter()
+  const supabase = getSupabaseBrowserClient()
+  const [apexUnreadCount, setApexUnreadCount] = useState(0)
+
+  const navItems = useMemo(() => NAV_ITEMS.map((item) => (
+    item.href === '/admin/apex-messages' ? { ...item, badge: apexUnreadCount } : item
+  )), [apexUnreadCount])
+
+  const mobileBottom = navItems.slice(0, 4)
+  const mobileMore = [
+    ...navItems.slice(4),
+    { label: 'Sign Out', href: '#', icon: <LogOut size={18} /> },
+  ]
+
+  useEffect(() => {
+    const loadApexUnread = async () => {
+      const { count } = await supabase
+        .from('public_support_thread_messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('author_role', 'visitor')
+        .eq('is_read_by_admin', false)
+      setApexUnreadCount(count || 0)
+    }
+
+    void loadApexUnread()
+    const timer = window.setInterval(loadApexUnread, 12000)
+    return () => window.clearInterval(timer)
+  }, [supabase])
 
   useEffect(() => {
     console.log(`[AdminLayout] Auth State: isLoading=${isLoading}, role=${profile?.role}`)
@@ -101,7 +131,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <SplashScreen storageKey="splash-admin" role="admin" />
       {/* Desktop Sidebar */}
       <Sidebar
-        items={NAV_ITEMS}
+        items={navItems}
         bottomItems={[
           { label: 'Sign Out', href: '#', icon: <LogOut size={18} />, onClick: () => signOut() },
         ]}
@@ -141,8 +171,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
       {/* Mobile Bottom Nav */}
       <BottomNav 
-        items={MOBILE_BOTTOM} 
-        moreItems={MOBILE_MORE.map(item => 
+        items={mobileBottom} 
+        moreItems={mobileMore.map(item => 
           item.label === 'Sign Out' ? { ...item, onClick: signOut } : item
         )} 
       />

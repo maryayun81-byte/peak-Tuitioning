@@ -11,6 +11,12 @@ import type { Profile, Student, Teacher, Parent, Theme } from '@/types/database'
 // Module-level lock to prevent concurrent loads for the same user across multiple hook instances
 const loadingMap = new Map<string, Promise<void>>()
 
+function timeoutResult(label: string, ms: number) {
+  return new Promise<{ data: any; error: any }>((resolve) => {
+    window.setTimeout(() => resolve({ data: null, error: { message: `${label} timed out`, isTimeout: true } }), ms)
+  })
+}
+
 export function useAuth() {
   const router = useRouter()
   const supabase = getSupabaseBrowserClient()
@@ -41,16 +47,17 @@ export function useAuth() {
           setProfile({ id: userId, role: metadataRole, full_name: 'User' } as Profile)
         }
 
-        // Profile Race with 4s timeout
+        // Profile race with timeout. Resolve instead of rejecting so slow network does not surface as a console error.
         const profileResult = await Promise.race([
           supabase.from('profiles').select('*').eq('id', userId).single(),
-          new Promise<{ data: any; error: any }>((_, reject) => setTimeout(() => reject(new Error('Profile fetch timed out')), 8000))
+          timeoutResult('Profile fetch', 12000)
         ])
 
         const { data: profileData, error: profileError } = profileResult
         
         if (profileError || !profileData) {
-          if (profileError) console.warn('[useAuth] Profile fetch error (Supabase might be unreachable):', profileError)
+          if (profileError && !profileError.isTimeout) console.warn('[useAuth] Profile fetch error (Supabase might be unreachable):', profileError)
+          if (profileError?.isTimeout) console.warn('[useAuth] Profile fetch timed out; keeping existing session state.')
           // If we have a metadata role but profiles fetch failed, don't reset yet
           // unless we have no profile at all.
           if (!sessionRole && !hasProfile) reset()
@@ -67,8 +74,12 @@ export function useAuth() {
             if (p.role === 'student') {
               const { data, error: fetchError } = await Promise.race([
                 supabase.from('students').select('*, class:classes(id, name), curriculum:curriculums(id, name)').eq('user_id', userId).single(),
-                new Promise<{ data: any; error: any }>((_, reject) => setTimeout(() => reject(new Error('Student data fetch timed out')), 15000))
+                timeoutResult('Student data fetch', 15000)
               ])
+              if (fetchError?.isTimeout) {
+                console.warn('[useAuth] Student data fetch timed out; keeping existing student state.')
+                return
+              }
               if (data) {
                 const derivedOnboarded = data.onboarded === true || p.has_onboarded === true || Boolean(data.class_id && data.curriculum_id)
                 const studentPayload = { ...data, onboarded: derivedOnboarded } as Student
@@ -83,10 +94,14 @@ export function useAuth() {
                 setStudent(null)
               }
             } else if (p.role === 'parent') {
-              const { data: parentListData } = await Promise.race([
+              const { data: parentListData, error: parentFetchError } = await Promise.race([
                 supabase.from('parents').select('*').eq('user_id', userId),
-                new Promise<{ data: any; error: any }>((_, reject) => setTimeout(() => reject(new Error('Parent data fetch timed out')), 15000))
+                timeoutResult('Parent data fetch', 15000)
               ])
+              if (parentFetchError?.isTimeout) {
+                console.warn('[useAuth] Parent data fetch timed out; keeping existing parent state.')
+                return
+              }
               if (parentListData && parentListData.length > 0) {
                 const anyOnboarded = parentListData.some((r: any) => r.onboarded === true)
                 setParent({ ...parentListData[0], onboarded: anyOnboarded } as Parent)
@@ -95,10 +110,14 @@ export function useAuth() {
                 setParent(null)
               }
             } else if (p.role === 'teacher') {
-              const { data: teacherRows } = await Promise.race([
+              const { data: teacherRows, error: teacherFetchError } = await Promise.race([
                 supabase.from('teachers').select('*, teacher_assignments(is_class_teacher)').eq('user_id', userId),
-                new Promise<{ data: any; error: any }>((_, reject) => setTimeout(() => reject(new Error('Teacher data fetch timed out')), 8000))
+                timeoutResult('Teacher data fetch', 12000)
               ])
+              if (teacherFetchError?.isTimeout) {
+                console.warn('[useAuth] Teacher data fetch timed out; keeping existing teacher state.')
+                return
+              }
               
               if (teacherRows && teacherRows.length > 0) {
                 const teacherIds = teacherRows.map((row: any) => row.id)
