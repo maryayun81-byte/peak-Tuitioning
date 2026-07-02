@@ -471,9 +471,8 @@ function PremiumExperienceSection() {
               className="group relative min-h-[320px] overflow-hidden rounded-[1.5rem] shadow-[0_24px_60px_rgba(7,49,89,0.13)]"
             >
               <img src={tile.image} alt={tile.title} className="absolute inset-0 z-0 h-full w-full object-cover transition duration-700 group-hover:scale-105" loading="lazy" />
-              <div className="absolute inset-0 z-10 bg-[#020812]/42 transition duration-500 group-hover:bg-[#020812]/34" />
-              <div className="absolute inset-x-0 bottom-0 z-20 h-[74%] bg-gradient-to-t from-[#020812]/96 via-[#020812]/68 to-transparent" />
-              <div className="absolute inset-x-0 bottom-0 z-30 h-48 bg-[#020812]/42" />
+              <div className="absolute inset-0 z-10 bg-[#020812]/50 transition duration-500 group-hover:bg-[#020812]/40" />
+              <div className="absolute inset-x-0 bottom-0 z-20 h-3/4 bg-gradient-to-t from-[#020812] via-[#020812]/85 to-transparent" />
               <div className="absolute inset-x-0 bottom-0 z-40 p-5 text-white">
                 <div className="mb-3 inline-flex rounded-full bg-[#7ed957] px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-[#073159] shadow-[0_8px_24px_rgba(0,0,0,0.24)]">
                   {index === 0 ? 'Campus' : index === 1 ? 'CBC' : 'Holiday'}

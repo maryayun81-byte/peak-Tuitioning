@@ -52,6 +52,18 @@ interface ExpenseBreakdown {
   color: string
 }
 
+interface ActiveEventSummary {
+  id: string
+  name: string
+  startDate: string
+  endDate: string
+  registrations: number
+  paidStudents: number
+  payments: number
+  collected: number
+  expected: number
+}
+
 const COLORS = ['#F59E0B', '#8B5CF6', '#10B981', '#3B82F6', '#EF4444', '#F97316', '#06B6D4', '#6B7280']
 
 export default function FinanceDashboard() {
@@ -64,6 +76,7 @@ export default function FinanceDashboard() {
   const [weeklyTrend, setWeeklyTrend] = useState<WeeklyTrend[]>([])
   const [recentPayments, setRecentPayments] = useState<RecentPayment[]>([])
   const [expenseBreakdown, setExpenseBreakdown] = useState<ExpenseBreakdown[]>([])
+  const [activeEventSummary, setActiveEventSummary] = useState<ActiveEventSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [lastRefresh, setLastRefresh] = useState(new Date())
 
@@ -76,8 +89,17 @@ export default function FinanceDashboard() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      // Fetch payments MTD
-      const [paymentsRes, lastMonthPayRes, expensesRes, lastMonthExpRes, centersRes, recentRes, expCatRes] = await Promise.all([
+      const activeEventRes = await supabase
+        .from('tuition_events')
+        .select('id, name, start_date, end_date, daily_rate, is_active, status')
+        .or('is_active.eq.true,status.eq.active')
+        .order('start_date', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      const activeEvent = activeEventRes.data as any
+
+      const [paymentsRes, lastMonthPayRes, expensesRes, lastMonthExpRes, centersRes, recentRes, expCatRes, activeRegsRes, activePaymentsRes, activeSlotsRes] = await Promise.all([
         supabase.from('payments').select('amount, tuition_center_id').gte('payment_date', monthStart).lte('payment_date', monthEnd),
         supabase.from('payments').select('amount').gte('payment_date', lastMonthStart).lte('payment_date', lastMonthEnd),
         supabase.from('expenses').select('amount, tuition_center_id, category:expense_categories(name, color)').gte('expense_date', monthStart).lte('expense_date', monthEnd),
@@ -85,6 +107,15 @@ export default function FinanceDashboard() {
         supabase.from('tuition_centers').select('id, name'),
         supabase.from('payments').select('id, amount, currency, payment_date, method, receipt_number, student:students(full_name), tuition_event:tuition_events(name)').order('payment_date', { ascending: false }).limit(8),
         supabase.from('expenses').select('amount, category:expense_categories(name, color)').gte('expense_date', monthStart).lte('expense_date', monthEnd),
+        activeEvent?.id
+          ? supabase.from('event_registrations').select('id, student_name, curriculum_label, class_level, status').eq('tuition_event_id', activeEvent.id).neq('status', 'cancelled')
+          : Promise.resolve({ data: [] }),
+        activeEvent?.id
+          ? supabase.from('payments').select('amount, student_name, student_id').eq('tuition_event_id', activeEvent.id)
+          : Promise.resolve({ data: [] }),
+        activeEvent?.id
+          ? supabase.from('tuition_event_class_slots').select('class:classes(name), charge_amount').eq('event_id', activeEvent.id)
+          : Promise.resolve({ data: [] }),
       ])
 
       const payments = paymentsRes.data ?? []
@@ -92,6 +123,9 @@ export default function FinanceDashboard() {
       const expenses = expensesRes.data ?? []
       const lastMonthExp = lastMonthExpRes.data ?? []
       const centers = centersRes.data ?? []
+      const activeRegistrations = activeRegsRes.data ?? []
+      const activePayments = activePaymentsRes.data ?? []
+      const activeSlots = activeSlotsRes.data ?? []
 
       const totalRevMTD = payments.reduce((s, p) => s + Number(p.amount), 0)
       const totalExpMTD = expenses.reduce((s, e) => s + Number(e.amount), 0)
@@ -106,6 +140,35 @@ export default function FinanceDashboard() {
         revenueChange: lastRevMTD > 0 ? ((totalRevMTD - lastRevMTD) / lastRevMTD) * 100 : 0,
         expenseChange: lastExpMTD > 0 ? ((totalExpMTD - lastExpMTD) / lastExpMTD) * 100 : 0,
       })
+
+      if (activeEvent?.id) {
+        const slotChargeByClass = new Map<string, number>()
+        ;(activeSlots as any[]).forEach((slot: any) => {
+          const className = String(slot.class?.name || '').toLowerCase()
+          const charge = Number(slot.charge_amount)
+          if (className && Number.isFinite(charge) && charge > 0) slotChargeByClass.set(className, charge)
+        })
+
+        const expected = (activeRegistrations as any[]).reduce((sum, reg: any) => {
+          const classCharge = slotChargeByClass.get(String(reg.class_level || '').toLowerCase())
+          return sum + (classCharge || Number(activeEvent.daily_rate) || 0)
+        }, 0)
+        const paidStudentKeys = new Set((activePayments as any[]).map((p: any) => p.student_id || String(p.student_name || '').toLowerCase()).filter(Boolean))
+
+        setActiveEventSummary({
+          id: activeEvent.id,
+          name: activeEvent.name,
+          startDate: activeEvent.start_date,
+          endDate: activeEvent.end_date,
+          registrations: activeRegistrations.length,
+          paidStudents: paidStudentKeys.size,
+          payments: activePayments.length,
+          collected: (activePayments as any[]).reduce((sum, p: any) => sum + Number(p.amount || 0), 0),
+          expected,
+        })
+      } else {
+        setActiveEventSummary(null)
+      }
 
       // Center revenue breakdown
       const centerMap = new Map<string, CenterRevenue>()
@@ -234,6 +297,34 @@ export default function FinanceDashboard() {
           Refresh
         </button>
       </div>
+
+      {activeEventSummary && (
+        <Card className="overflow-hidden border border-emerald-500/15 bg-gradient-to-br from-emerald-500/10 via-[var(--card)] to-amber-500/10 p-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-500">Active tuition event</p>
+              <h2 className="mt-2 text-xl font-black" style={{ color: 'var(--text)' }}>{activeEventSummary.name}</h2>
+              <p className="mt-1 text-sm font-semibold" style={{ color: 'var(--text-muted)' }}>
+                {formatDate(activeEventSummary.startDate)} - {formatDate(activeEventSummary.endDate)}
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:min-w-[620px]">
+              {[
+                ['Registered', activeEventSummary.registrations.toLocaleString(), 'learners'],
+                ['Collected', formatCurrency(activeEventSummary.collected), `${activeEventSummary.payments} payments`],
+                ['Paid Learners', activeEventSummary.paidStudents.toLocaleString(), 'unique students'],
+                ['Expected', formatCurrency(activeEventSummary.expected), 'based on event rates'],
+              ].map(([label, value, hint]) => (
+                <div key={label} className="rounded-2xl border border-white/10 bg-white/5 p-3">
+                  <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>{label}</p>
+                  <p className="mt-1 text-lg font-black" style={{ color: 'var(--text)' }}>{value}</p>
+                  <p className="mt-0.5 text-[10px] font-bold" style={{ color: 'var(--text-muted)' }}>{hint}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Card>
+      )}
 
       {/* KPI Strip */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">

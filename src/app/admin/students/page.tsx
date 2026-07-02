@@ -510,7 +510,9 @@ export default function AdminStudents() {
               <div className="text-center py-12" style={{ color: 'var(--text-muted)' }}>No students found matching your criteria.</div>
            ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                 {paginatedStudents.map((student, i) => (
+                 {paginatedStudents.map((student, i) => {
+                    const isNewAccount = student.created_at ? Date.now() - new Date(student.created_at).getTime() < 24 * 60 * 60 * 1000 : false
+                    return (
                     <motion.div
                        key={student.id}
                        initial={{ opacity: 0, y: 15 }}
@@ -531,6 +533,11 @@ export default function AdminStudents() {
                                      <Badge variant={student.user_id ? 'success' : 'warning'} className="mt-1 shadow-sm border-none text-[10px]">
                                         {student.user_id ? 'Registered' : 'Pending'}
                                      </Badge>
+                                     {isNewAccount && (
+                                       <Badge variant="warning" className="ml-1 mt-1 shadow-sm border-none text-[10px]">
+                                         New
+                                       </Badge>
+                                     )}
                                   </div>
                                </div>
                             </div>
@@ -612,7 +619,8 @@ export default function AdminStudents() {
                           </div>
                        </Card>
                     </motion.div>
-                 ))}
+                    )
+                 })}
               </div>
            )}
 

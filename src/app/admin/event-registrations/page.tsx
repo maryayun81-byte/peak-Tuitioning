@@ -1,17 +1,32 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { BarChart3, ChevronLeft, ChevronRight, Download, FileText, Printer, Search, Users } from 'lucide-react'
+import { BarChart3, CalendarDays, ChevronLeft, ChevronRight, Download, FileText, GraduationCap, Phone, Plus, Printer, School, Search, ShieldCheck, Trash2, UserRound, Users } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { Card, Badge } from '@/components/ui/Card'
+import { Modal } from '@/components/ui/Modal'
+import { adminRegisterEventStudents } from '@/app/actions/event-registration'
 
 function csvEscape(value: any) {
   return `"${String(value ?? '').replace(/"/g, '""')}"`
 }
 
 const PAGE_SIZE = 8
+const blankAdminRow = {
+  studentName: '',
+  parentName: '',
+  parentPhone: '',
+  studentPhone: '',
+  schoolName: '',
+  curriculumId: '',
+  classId: '',
+  tuitionEventId: '',
+  tuitionCenterId: '',
+  preferredMode: 'Physical',
+  hasStudentAccount: false,
+}
 
 function countBy(items: any[], getKey: (item: any) => string | undefined | null) {
   return Object.entries(items.reduce((acc: Record<string, number>, item) => {
@@ -19,7 +34,7 @@ function countBy(items: any[], getKey: (item: any) => string | undefined | null)
     acc[key] = (acc[key] || 0) + 1
     return acc
   }, {}))
-    .map(([label, value]) => ({ label, value }))
+    .map(([label, value]) => ({ label, value: Number(value) }))
     .sort((a, b) => b.value - a.value || a.label.localeCompare(b.label))
 }
 
@@ -60,6 +75,14 @@ export default function AdminEventRegistrations() {
   const [classLevel, setClassLevel] = useState('')
   const [weakness, setWeakness] = useState('')
   const [page, setPage] = useState(1)
+  const [registerOpen, setRegisterOpen] = useState(false)
+  const [registering, setRegistering] = useState(false)
+  const [adminEvents, setAdminEvents] = useState<any[]>([])
+  const [adminCurriculums, setAdminCurriculums] = useState<any[]>([])
+  const [adminClasses, setAdminClasses] = useState<any[]>([])
+  const [adminCenters, setAdminCenters] = useState<any[]>([])
+  const [adminRows, setAdminRows] = useState<any[]>([{ ...blankAdminRow }])
+  const [credentialResults, setCredentialResults] = useState<any[]>([])
 
   useEffect(() => {
     loadData()
@@ -73,14 +96,25 @@ export default function AdminEventRegistrations() {
     setLoading(true)
     const { data, error } = await supabase
       .from('event_registrations')
-      .select('*, tuition_event:tuition_events(id, name, start_date)')
+      .select('*, tuition_event:tuition_events(id, name, start_date), student:students(id, admission_number, temp_password, created_at)')
       .order('registered_at', { ascending: false })
+
+    const [eventRes, curriculumRes, classRes, centerRes] = await Promise.all([
+      supabase.from('tuition_events').select('id, name, start_date, status, is_active').in('status', ['active', 'upcoming']).order('start_date', { ascending: true }),
+      supabase.from('curriculums').select('id, name').order('name'),
+      supabase.from('classes').select('id, name, curriculum_id').order('name'),
+      supabase.from('tuition_centers').select('id, name').order('name'),
+    ])
 
     if (error) {
       toast.error('Failed to load programme registrations')
     } else {
       setRegistrations(data || [])
     }
+    setAdminEvents(eventRes.data || [])
+    setAdminCurriculums(curriculumRes.data || [])
+    setAdminClasses(classRes.data || [])
+    setAdminCenters(centerRes.data || [])
     setLoading(false)
   }
 
@@ -126,6 +160,16 @@ export default function AdminEventRegistrations() {
   const byEvent = countBy(filtered, (item) => item.tuition_event?.name || item.programme_selected)
   const byClass = countBy(filtered, (item) => item.class_level)
   const byCurriculum = countBy(filtered, (item) => item.curriculum_label)
+  const renderPagination = () => (
+    <div className="flex flex-col gap-2 rounded-2xl bg-[var(--input)] p-3 text-sm text-muted sm:flex-row sm:items-center sm:justify-between">
+      <span>Showing {(page - 1) * PAGE_SIZE + 1}-{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length} registrations</span>
+      <div className="flex items-center gap-2">
+        <Button size="sm" variant="secondary" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronLeft size={15} /> Prev</Button>
+        <span className="text-xs font-black text-primary">Page {page} / {totalPages}</span>
+        <Button size="sm" variant="secondary" disabled={page >= totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>Next <ChevronRight size={15} /></Button>
+      </div>
+    </div>
+  )
 
   const exportCsv = () => {
     const rows = [
@@ -158,6 +202,42 @@ export default function AdminEventRegistrations() {
     URL.revokeObjectURL(url)
   }
 
+  const updateAdminRow = (index: number, patch: any) => {
+    setAdminRows((rows) => rows.map((row, i) => i === index ? { ...row, ...patch } : row))
+  }
+
+  const addAdminRow = () => {
+    const first = adminRows[0] || blankAdminRow
+    setAdminRows((rows) => [...rows, {
+      ...blankAdminRow,
+      tuitionEventId: first.tuitionEventId || '',
+      curriculumId: first.curriculumId || '',
+      classId: first.classId || '',
+      tuitionCenterId: first.tuitionCenterId || '',
+      preferredMode: first.preferredMode || 'Physical',
+    }])
+  }
+
+  const submitAdminRegistrations = async () => {
+    const rows = adminRows
+      .map((row) => ({ ...row, studentName: String(row.studentName || '').trim() }))
+      .filter((row) => row.studentName)
+
+    if (rows.length === 0) return toast.error('Add at least one student name.')
+    if (rows.some((row) => !row.tuitionEventId || !row.curriculumId || !row.classId)) {
+      return toast.error('Each row needs an event, curriculum and class.')
+    }
+
+    setRegistering(true)
+    const result = await adminRegisterEventStudents({ rows })
+    setRegistering(false)
+    if (!result.success) return toast.error(result.error || 'Could not register students')
+
+    setCredentialResults(result.results || [])
+    toast.success(`Registered ${rows.length} learner${rows.length === 1 ? '' : 's'}. Created ${result.created || 0}, linked ${result.linked || 0}.`)
+    await loadData()
+  }
+
   return (
     <div className="space-y-6 p-4 pb-24 md:p-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -167,6 +247,7 @@ export default function AdminEventRegistrations() {
           <p className="mt-1 text-sm text-muted">Review learner context before the programme starts.</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button onClick={() => setRegisterOpen(true)}><Plus size={16} /> Register Students</Button>
           <Button variant="secondary" onClick={exportCsv}><Download size={16} /> Export CSV</Button>
           <Button variant="secondary" onClick={() => window.print()}><Printer size={16} /> Export PDF</Button>
         </div>
@@ -220,42 +301,61 @@ export default function AdminEventRegistrations() {
         </Card>
       ) : (
         <div className="space-y-4">
-          <div className="flex flex-col gap-2 rounded-2xl bg-[var(--input)] p-3 text-sm text-muted sm:flex-row sm:items-center sm:justify-between">
-            <span>Showing {(page - 1) * PAGE_SIZE + 1}-{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length} registrations</span>
-            <div className="flex items-center gap-2">
-              <Button size="sm" variant="secondary" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronLeft size={15} /> Prev</Button>
-              <span className="text-xs font-black text-primary">Page {page} / {totalPages}</span>
-              <Button size="sm" variant="secondary" disabled={page >= totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>Next <ChevronRight size={15} /></Button>
-            </div>
-          </div>
+          {renderPagination()}
           {paginated.map((item) => {
             const subjects = Array.isArray(item.subject_results) ? item.subject_results : []
+            const studentCreatedAt = item.student?.created_at ? new Date(item.student.created_at).getTime() : 0
+            const isNewAccount = studentCreatedAt > 0 && Date.now() - studentCreatedAt < 24 * 60 * 60 * 1000
             return (
               <Card key={item.id} className="overflow-hidden border border-[var(--card-border)] bg-[var(--card)]">
-                <div className="grid gap-4 p-5 lg:grid-cols-[0.8fr_1.2fr]">
-                  <div>
-                    <Badge variant="primary" className="mb-3">{item.programme_selected || item.tuition_event?.name || 'Programme'}</Badge>
-                    <h2 className="text-xl font-black" style={{ color: 'var(--text)' }}>{item.student_name}</h2>
-                    <div className="mt-3 space-y-1 text-sm text-muted">
-                      <p><strong>Parent:</strong> {item.parent_name || 'Not provided'} - {item.parent_phone || 'No phone'}</p>
-                      <p><strong>Student phone:</strong> {item.student_phone || 'Optional not provided'}</p>
-                      <p><strong>School:</strong> {item.school_name || 'Not provided'}</p>
-                      <p><strong>Curriculum:</strong> {item.curriculum_label || 'Not provided'}</p>
-                      <p><strong>Class/Form/Grade:</strong> {item.class_level || 'Not provided'}</p>
-                      <p><strong>Preferred mode:</strong> {item.preferred_mode || 'Not provided'}</p>
-                      <p><strong>Overall grade:</strong> <span className="font-black text-primary">{item.overall_grade || 'Not provided'}</span></p>
+                <div className="grid gap-4 p-4 lg:grid-cols-[minmax(260px,0.85fr)_1.15fr]">
+                  <div className="min-w-0">
+                    <div className="mb-3 flex flex-wrap items-center gap-2">
+                      <Badge variant="primary" className="max-w-full truncate">{item.programme_selected || item.tuition_event?.name || 'Programme'}</Badge>
+                      {item.student_id && <Badge variant="success" className="gap-1"><ShieldCheck size={12} /> Account linked</Badge>}
+                      {isNewAccount && <span className="rounded-full bg-amber-400 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-amber-950">New</span>}
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary text-sm font-black text-white">
+                        {String(item.student_name || '?').slice(0, 1).toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <h2 className="truncate text-lg font-black" style={{ color: 'var(--text)' }}>{item.student_name}</h2>
+                        <p className="mt-0.5 text-xs font-bold text-muted">{item.curriculum_label || 'Curriculum not provided'} - {item.class_level || 'Class not provided'}</p>
+                      </div>
+                    </div>
+                    <div className="mt-4 grid gap-2 text-xs sm:grid-cols-2">
+                      <div className="rounded-xl bg-[var(--input)] p-2.5">
+                        <p className="flex items-center gap-1.5 font-black" style={{ color: 'var(--text)' }}><UserRound size={13} /> {item.parent_name || 'Parent not provided'}</p>
+                        <p className="mt-1 flex items-center gap-1.5 text-muted"><Phone size={12} /> {item.parent_phone || 'No phone'}</p>
+                      </div>
+                      <div className="rounded-xl bg-[var(--input)] p-2.5">
+                        <p className="flex items-center gap-1.5 font-black" style={{ color: 'var(--text)' }}><School size={13} /> {item.school_name || 'School not provided'}</p>
+                        <p className="mt-1 flex items-center gap-1.5 text-muted"><GraduationCap size={12} /> Overall: {item.overall_grade || 'Not provided'}</p>
+                      </div>
+                      <div className="rounded-xl bg-[var(--input)] p-2.5">
+                        <p className="font-black" style={{ color: 'var(--text)' }}>{item.preferred_mode || 'Mode not provided'}</p>
+                        <p className="mt-1 text-muted">Preferred learning mode</p>
+                      </div>
+                      <div className="rounded-xl bg-[var(--input)] p-2.5">
+                        <p className="flex items-center gap-1.5 font-black" style={{ color: 'var(--text)' }}><CalendarDays size={13} /> {item.tuition_event?.start_date ? new Date(item.tuition_event.start_date).toLocaleDateString() : 'Date TBC'}</p>
+                        <p className="mt-1 font-mono text-muted">{item.student?.admission_number || 'No account credentials yet'}</p>
+                      </div>
                     </div>
                   </div>
-                  <div>
-                    <div className="mb-3 flex items-center gap-2">
+                  <div className="min-w-0">
+                    <div className="mb-3 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
                       <FileText size={17} className="text-primary" />
-                      <h3 className="font-black" style={{ color: 'var(--text)' }}>Subject-by-subject grades and struggles</h3>
+                        <h3 className="font-black" style={{ color: 'var(--text)' }}>Subjects and struggles</h3>
+                      </div>
+                      <span className="rounded-full bg-[var(--input)] px-2.5 py-1 text-[10px] font-black text-muted">{subjects.length} subjects</span>
                     </div>
-                    <div className="grid gap-3 md:grid-cols-2">
+                    <div className="grid gap-2 md:grid-cols-2">
                       {subjects.map((subject: any, index: number) => (
                         <div key={`${subject.subjectName}-${index}`} className="rounded-2xl bg-[var(--input)] p-3">
                           <div className="flex items-center justify-between gap-2">
-                            <p className="font-black" style={{ color: 'var(--text)' }}>{subject.subjectName}</p>
+                            <p className="truncate text-sm font-black" style={{ color: 'var(--text)' }}>{subject.subjectName}</p>
                             <span className="rounded-full bg-primary px-2 py-1 text-[10px] font-black text-white">{subject.grade}</span>
                           </div>
                           <p className="mt-2 text-xs leading-relaxed text-muted">{subject.struggle || 'No struggle provided.'}</p>
@@ -273,8 +373,105 @@ export default function AdminEventRegistrations() {
               </Card>
             )
           })}
+          {renderPagination()}
         </div>
       )}
+
+      <Modal isOpen={registerOpen} onClose={() => setRegisterOpen(false)} title="Register Students For Event" size="full">
+        <div className="space-y-5">
+          <div className="rounded-2xl border border-primary/15 bg-primary/5 p-4">
+            <p className="text-sm font-black" style={{ color: 'var(--text)' }}>Admin registration does not require weaknesses.</p>
+            <p className="mt-1 text-xs leading-5 text-muted">
+              Add one or many students. If the learner does not already have a Peak account, the system will create one and show the admission number plus temporary password.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            {adminRows.map((row, index) => {
+              const rowClasses = row.curriculumId ? adminClasses.filter((item) => item.curriculum_id === row.curriculumId) : adminClasses
+              return (
+                <div key={index} className="rounded-3xl border border-[var(--card-border)] bg-[var(--input)] p-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-widest text-primary">Student row {index + 1}</p>
+                      <p className="text-xs text-muted">No weakness fields are needed here.</p>
+                    </div>
+                    {adminRows.length > 1 && (
+                      <button type="button" onClick={() => setAdminRows((rows) => rows.filter((_, i) => i !== index))} className="rounded-xl p-2 text-rose-500 hover:bg-rose-500/10" aria-label="Remove row">
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    <input value={row.studentName} onChange={(e) => updateAdminRow(index, { studentName: e.target.value })} placeholder="Student full name" className="h-11 rounded-2xl bg-[var(--card)] px-3 text-sm font-bold outline-none" />
+                    <input value={row.parentName} onChange={(e) => updateAdminRow(index, { parentName: e.target.value })} placeholder="Parent name optional" className="h-11 rounded-2xl bg-[var(--card)] px-3 text-sm font-bold outline-none" />
+                    <input value={row.parentPhone} onChange={(e) => updateAdminRow(index, { parentPhone: e.target.value })} placeholder="Parent phone optional" className="h-11 rounded-2xl bg-[var(--card)] px-3 text-sm font-bold outline-none" />
+                    <input value={row.schoolName} onChange={(e) => updateAdminRow(index, { schoolName: e.target.value })} placeholder="School optional" className="h-11 rounded-2xl bg-[var(--card)] px-3 text-sm font-bold outline-none" />
+                    <select value={row.tuitionEventId} onChange={(e) => updateAdminRow(index, { tuitionEventId: e.target.value })} className="h-11 rounded-2xl bg-[var(--card)] px-3 text-sm font-bold outline-none">
+                      <option value="">Select tuition event</option>
+                      {adminEvents.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                    </select>
+                    <select value={row.curriculumId} onChange={(e) => updateAdminRow(index, { curriculumId: e.target.value, classId: '' })} className="h-11 rounded-2xl bg-[var(--card)] px-3 text-sm font-bold outline-none">
+                      <option value="">Select curriculum</option>
+                      {adminCurriculums.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                    </select>
+                    <select value={row.classId} onChange={(e) => updateAdminRow(index, { classId: e.target.value })} className="h-11 rounded-2xl bg-[var(--card)] px-3 text-sm font-bold outline-none">
+                      <option value="">Select class/grade/form</option>
+                      {rowClasses.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                    </select>
+                    <select value={row.tuitionCenterId} onChange={(e) => updateAdminRow(index, { tuitionCenterId: e.target.value })} className="h-11 rounded-2xl bg-[var(--card)] px-3 text-sm font-bold outline-none">
+                      <option value="">No center / assign later</option>
+                      {adminCenters.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {[
+                      [false, 'No account yet - create one'],
+                      [true, 'Already has account - link only'],
+                    ].map(([value, label]) => (
+                      <button
+                        type="button"
+                        key={String(value)}
+                        onClick={() => updateAdminRow(index, { hasStudentAccount: value })}
+                        className={`rounded-2xl border px-4 py-3 text-left text-xs font-black uppercase tracking-widest transition ${row.hasStudentAccount === value ? 'border-primary bg-primary text-white' : 'border-[var(--card-border)] bg-[var(--card)] text-muted hover:text-primary'}`}
+                      >
+                        {label as string}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <Button type="button" variant="secondary" onClick={addAdminRow}><Plus size={16} /> Add Row</Button>
+            <Button type="button" disabled={registering} onClick={submitAdminRegistrations}>
+              {registering ? 'Registering...' : 'Register Students & Create Accounts'}
+            </Button>
+          </div>
+
+          {credentialResults.length > 0 && (
+            <div className="rounded-3xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+              <p className="text-sm font-black text-emerald-600">Registration results</p>
+              <div className="mt-3 grid gap-2 md:grid-cols-2">
+                {credentialResults.map((item, index) => (
+                  <div key={`${item.studentName}-${index}`} className="rounded-2xl bg-[var(--card)] p-3 text-xs">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-black" style={{ color: 'var(--text)' }}>{item.studentName}</p>
+                      <Badge variant={item.status === 'created' ? 'success' : item.status === 'failed' ? 'warning' : 'info'}>{item.status}</Badge>
+                    </div>
+                    {item.admissionNumber && <p className="mt-2 font-mono text-muted">Admission: {item.admissionNumber}</p>}
+                    {item.password && <p className="mt-1 font-mono text-muted">Password: {item.password}</p>}
+                    {item.error && <p className="mt-2 text-rose-500">{item.error}</p>}
+                    {item.note && <p className="mt-2 text-muted">{item.note}</p>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </Modal>
     </div>
   )
 }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Plus, Trash2, Edit, Calendar, Gift, X, AlertTriangle, ImagePlus, Upload, MessageSquareQuote, UsersRound, Wallet } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
@@ -133,6 +133,10 @@ export default function AdminTuitionEvents() {
   const [activeTab, setActiveTab] = useState<'events' | 'weeks'>('events')
   const [uploadingBanner, setUploadingBanner] = useState(false)
   const [origin, setOrigin] = useState('')
+  const cropDragRef = useRef<{ active: boolean; startX: number; startY: number; startPosX: number; startPosY: number }>({
+    active: false, startX: 0, startY: 0, startPosX: 50, startPosY: 50,
+  })
+  const cropPreviewRef = useRef<HTMLDivElement>(null)
 
   const { register, handleSubmit, reset, control, watch, setValue, formState: { errors } } = useForm<EventForm>({
     resolver: zodResolver(schema),
@@ -326,11 +330,63 @@ export default function AdminTuitionEvents() {
       }
       const { data } = supabase.storage.from('event-posters').getPublicUrl(path)
       setValue('banner_url', data.publicUrl)
-      toast.success('Event banner uploaded')
+      // Reset focal point to center on new upload
+      setValue('banner_object_position', '50% 50%')
+      toast.success('Event banner uploaded — drag the crosshair to set crop position')
     } finally {
       setUploadingBanner(false)
     }
   }
+
+  /** Parse object-position string ("50% 50%" or "center top" etc.) into [x%, y%] */
+  const parseFocalPoint = useCallback((pos: string): [number, number] => {
+    const keywordMap: Record<string, number> = {
+      left: 0, center: 50, right: 100, top: 0, bottom: 100,
+    }
+    const parts = (pos || '50% 50%').trim().split(/\s+/)
+    const parse = (p: string, isY: boolean) => {
+      if (p.endsWith('%')) return parseFloat(p)
+      if (p in keywordMap) return keywordMap[p]
+      return isY ? 50 : 50
+    }
+    const x = parse(parts[0] ?? '50%', false)
+    const y = parse(parts[1] ?? '50%', true)
+    return [Math.max(0, Math.min(100, x)), Math.max(0, Math.min(100, y))]
+  }, [])
+
+  const handleCropPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!cropPreviewRef.current) return
+    e.preventDefault()
+    const rect = cropPreviewRef.current.getBoundingClientRect()
+    const [curX, curY] = parseFocalPoint(watch('banner_object_position'))
+    cropDragRef.current = {
+      active: true,
+      startX: e.clientX,
+      startY: e.clientY,
+      startPosX: curX,
+      startPosY: curY,
+    }
+    cropPreviewRef.current.setPointerCapture(e.pointerId)
+  }, [parseFocalPoint, watch])
+
+  const handleCropPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!cropDragRef.current.active || !cropPreviewRef.current) return
+    e.preventDefault()
+    const rect = cropPreviewRef.current.getBoundingClientRect()
+    const dx = e.clientX - cropDragRef.current.startX
+    const dy = e.clientY - cropDragRef.current.startY
+    // Convert pixel delta to percentage delta relative to container
+    const dxPct = (dx / rect.width) * 100
+    const dyPct = (dy / rect.height) * 100
+    const newX = Math.max(0, Math.min(100, cropDragRef.current.startPosX + dxPct))
+    const newY = Math.max(0, Math.min(100, cropDragRef.current.startPosY + dyPct))
+    setValue('banner_object_position', `${Math.round(newX)}% ${Math.round(newY)}%`)
+  }, [setValue])
+
+  const handleCropPointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    cropDragRef.current.active = false
+    if (cropPreviewRef.current) cropPreviewRef.current.releasePointerCapture(e.pointerId)
+  }, [])
 
   const del = async (id: string) => {
     const { error } = await supabase.from('tuition_events').delete().eq('id', id)
@@ -354,6 +410,10 @@ export default function AdminTuitionEvents() {
   const activeDays = watch('active_days') ?? []
   const bannerPosition = watch('banner_object_position') || 'center center'
   const bannerOverlayStrength = watch('banner_overlay_strength') ?? 70
+  const [focalX, focalY] = parseFocalPoint(bannerPosition)
+  const currentBannerUrl = watch('banner_url')
+  const currentEventName = watch('name')
+  const currentEventLocation = watch('event_location')
 
   const updateClassSlot = (classId: string, patch: Partial<ClassSlotDraft>) => {
     const emptySlot: ClassSlotDraft = {
@@ -578,28 +638,106 @@ export default function AdminTuitionEvents() {
           <Input label="Event Name" placeholder="e.g. April Holiday Tuition" error={errors.name?.message} {...register('name')} />
           <div className="rounded-2xl border border-[var(--card-border)] bg-[var(--input)] p-3">
             <label className="mb-2 block text-sm font-bold" style={{ color: 'var(--text)' }}>Poster / Banner</label>
-            {watch('banner_url') ? (
-              <div className="mb-3 overflow-hidden rounded-2xl border border-[var(--card-border)] bg-[var(--card)]">
-                <div className="relative h-44 overflow-hidden">
+
+            {currentBannerUrl ? (
+              <div className="mb-3 rounded-2xl overflow-hidden border border-[var(--card-border)]">
+                {/* ── Drag Crop Editor ── */}
+                <div
+                  ref={cropPreviewRef}
+                  className="relative h-52 overflow-hidden select-none touch-none cursor-crosshair group"
+                  onPointerDown={handleCropPointerDown}
+                  onPointerMove={handleCropPointerMove}
+                  onPointerUp={handleCropPointerUp}
+                  onPointerCancel={handleCropPointerUp}
+                  title="Drag to set the focal point"
+                >
+                  {/* Poster image — objectPosition moves the visible region */}
                   <img
-                    src={watch('banner_url')}
-                    alt="Event banner preview"
-                    className="h-full w-full object-cover"
+                    src={currentBannerUrl}
+                    alt="Event banner crop editor"
+                    className="absolute inset-0 h-full w-full object-cover pointer-events-none"
                     style={{ objectPosition: bannerPosition }}
+                    draggable={false}
                   />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent" style={{ opacity: Math.max(0, Math.min(95, Number(bannerOverlayStrength))) / 100 }} />
-                  <div className="absolute bottom-4 left-4 right-4 text-white">
-                    <div className="mb-2 inline-flex rounded-full bg-white/90 px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-[#073159]">Live card preview</div>
-                    <div className="text-xl font-black leading-tight">{watch('name') || 'Holiday Tuition Programme'}</div>
-                    <div className="mt-1 text-xs font-bold text-white/75">{watch('event_location') || 'Venue to be confirmed'}</div>
+
+                  {/* Rule-of-thirds grid overlay — visible on hover */}
+                  <div className="absolute inset-0 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                    <div className="h-full w-full" style={{
+                      backgroundImage: 'linear-gradient(rgba(255,255,255,0.15) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.15) 1px, transparent 1px)',
+                      backgroundSize: '33.33% 33.33%'
+                    }} />
+                  </div>
+
+                  {/* Dark overlay — shows readability preview */}
+                  <div
+                    className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent pointer-events-none"
+                    style={{ opacity: Math.max(0, Math.min(95, Number(bannerOverlayStrength))) / 100 }}
+                  />
+
+                  {/* Focal point crosshair handle */}
+                  <div
+                    className="absolute z-20 pointer-events-none"
+                    style={{ left: `${focalX}%`, top: `${focalY}%`, transform: 'translate(-50%, -50%)' }}
+                  >
+                    <div className="w-10 h-10 rounded-full border-2 border-white/80 shadow-[0_0_0_1px_rgba(0,0,0,0.5)] backdrop-blur-[1px] flex items-center justify-center">
+                      <div className="absolute w-full h-px bg-white/80" />
+                      <div className="absolute h-full w-px bg-white/80" />
+                      <div className="w-2 h-2 rounded-full bg-white shadow-md" />
+                    </div>
+                  </div>
+
+                  {/* Drag instruction badge */}
+                  <div className="absolute top-3 left-3 z-30 px-3 py-1.5 rounded-full bg-black/60 backdrop-blur text-white text-[10px] font-black tracking-wider pointer-events-none">
+                    &#x2195;&#x2194; Drag to crop
+                  </div>
+
+                  {/* Live card text preview */}
+                  <div className="absolute bottom-4 left-4 right-4 text-white pointer-events-none">
+                    <div className="mb-2 inline-flex rounded-full bg-white/90 px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-[#073159]">Card preview</div>
+                    <div className="text-xl font-black leading-tight drop-shadow-md">{currentEventName || 'Holiday Tuition Programme'}</div>
+                    <div className="mt-1 text-xs font-bold text-white/75">{currentEventLocation || 'Venue to be confirmed'}</div>
+                  </div>
+                </div>
+
+                {/* Focal point readout + quick presets */}
+                <div className="p-3 flex items-center justify-between gap-3" style={{ background: 'var(--input)' }}>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Focal point:</span>
+                    <code className="text-[10px] font-mono font-bold px-2 py-0.5 rounded" style={{ background: 'var(--card)', color: 'var(--text)' }}>
+                      {bannerPosition}
+                    </code>
+                  </div>
+                  <div className="flex gap-1.5 flex-wrap">
+                    {[
+                      { label: 'Top', val: '50% 10%' },
+                      { label: 'Mid', val: '50% 50%' },
+                      { label: 'Bot', val: '50% 90%' },
+                      { label: 'Left', val: '10% 50%' },
+                      { label: 'Right', val: '90% 50%' },
+                    ].map(p => (
+                      <button
+                        key={p.label}
+                        type="button"
+                        onClick={() => setValue('banner_object_position', p.val)}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-colors ${
+                          bannerPosition === p.val
+                            ? 'bg-primary text-white'
+                            : 'bg-[var(--card)] text-[var(--text-muted)] hover:text-[var(--text)]'
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
                   </div>
                 </div>
               </div>
             ) : (
-              <div className="mb-3 flex h-28 items-center justify-center rounded-xl border border-dashed border-[var(--card-border)] text-sm text-muted">
-                Upload a wide poster or paste an image URL.
+              <div className="mb-3 flex flex-col h-32 items-center justify-center rounded-xl border-2 border-dashed border-[var(--card-border)] gap-2">
+                <ImagePlus size={24} className="opacity-20" />
+                <p className="text-sm font-bold" style={{ color: 'var(--text-muted)' }}>Upload a poster to enable the crop editor</p>
               </div>
             )}
+
             <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
               <Input placeholder="https://..." {...register('banner_url')} />
               <label className="inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-black text-white">
@@ -607,17 +745,10 @@ export default function AdminTuitionEvents() {
                 <input type="file" accept="image/*" className="hidden" disabled={uploadingBanner} onChange={(e) => uploadBanner(e.target.files?.[0])} />
               </label>
             </div>
-            <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_140px]">
-              <Select label="Card Crop Position" {...register('banner_object_position')}>
-                <option value="center center">Center</option>
-                <option value="center top">Top</option>
-                <option value="center bottom">Bottom</option>
-                <option value="left center">Left</option>
-                <option value="right center">Right</option>
-              </Select>
-              <Input label="Overlay %" type="number" min={0} max={95} {...register('banner_overlay_strength', { valueAsNumber: true })} />
+            <div className="mt-3">
+              <Input label="Overlay Darkness %" type="number" min={0} max={95} {...register('banner_overlay_strength', { valueAsNumber: true })} />
             </div>
-            <p className="mt-2 text-xs text-muted">Recommended: 1600 x 900 poster. Adjust crop position until the important faces/text stay visible on cards.</p>
+            <p className="mt-2 text-xs" style={{ color: 'var(--text-muted)' }}>Drag the crosshair on the preview to set the crop focal point. Use Quick presets for fast alignment.</p>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <Input label="Start Date" type="date" error={errors.start_date?.message} {...register('start_date')} />
