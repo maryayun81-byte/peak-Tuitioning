@@ -718,3 +718,23 @@ export async function updateEventRegistrationPerformance(input: {
     return { success: false, error: error.message || 'Could not update performance details.' }
   }
 }
+
+export async function deleteEventRegistration(registrationId: string) {
+  try {
+    const adminClient = await createAdminClient()
+    const id = String(registrationId || '').trim()
+    if (!id) return { success: false, error: 'Missing registration.' }
+
+    const { error } = await adminClient
+      .from('event_registrations')
+      .delete()
+      .eq('id', id)
+
+    if (error) return { success: false, error: error.message }
+
+    return { success: true, message: 'Registration deleted.' }
+  } catch (error: any) {
+    console.error('deleteEventRegistration error:', error)
+    return { success: false, error: error.message || 'Could not delete registration.' }
+  }
+}

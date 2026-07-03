@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, BookOpenCheck, CheckCircle2, Copy, Loader2, Phone, School, ShieldCheck, Sparkles, UserRound, UsersRound, Wand2 } from 'lucide-react'
+import { ArrowLeft, BookOpenCheck, CheckCircle2, Copy, Loader2, Phone, Plus, School, Sparkles, Trash2, UserRound, UsersRound, Wand2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
@@ -27,6 +27,13 @@ type RegistrationSlot = {
   chargeFrequency?: string | null
   chargeUnitLabel?: string | null
   pricingNote?: string | null
+}
+
+type LearnerRow = {
+  student_full_name: string
+  student_phone: string
+  school_name: string
+  has_student_account: string
 }
 
 function formatEventCharge(event?: any) {
@@ -127,9 +134,10 @@ export default function EventRegistrationPage() {
     overall_grade: '',
     has_student_account: 'no',
   })
+  const [extraLearners, setExtraLearners] = useState<LearnerRow[]>([])
   const [subjectResults, setSubjectResults] = useState<Array<{ subjectName: string; grade: string; struggle: string }>>([])
-  const [createdCredentials, setCreatedCredentials] = useState<{ admissionNumber?: string; email?: string; password?: string; note?: string } | null>(null)
-  const [completedRegistration, setCompletedRegistration] = useState<{ status?: string; admissionNumber?: string; note?: string } | null>(null)
+  const [createdCredentials, setCreatedCredentials] = useState<Array<{ learnerName?: string; admissionNumber?: string; email?: string; password?: string; note?: string }>>([])
+  const [completedRegistration, setCompletedRegistration] = useState<{ count?: number; statuses?: string[]; note?: string } | null>(null)
   
   const [currentStep, setCurrentStep] = useState(1)
   const totalSteps = 3
@@ -230,10 +238,29 @@ export default function EventRegistrationPage() {
     setSubjectResults((prev) => prev.map((item) => item.subjectName === subjectName ? { ...item, ...patch } : item))
   }
 
+  const updateExtraLearner = (index: number, patch: Partial<LearnerRow>) => {
+    setExtraLearners((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, ...patch } : row))
+  }
+
+  const learnerRows: LearnerRow[] = [
+    {
+      student_full_name: form.student_full_name,
+      student_phone: form.student_phone,
+      school_name: form.school_name,
+      has_student_account: form.has_student_account,
+    },
+    ...extraLearners,
+  ]
+
   const nextStep = () => {
     if (currentStep === 1) {
       if (!form.student_full_name || !form.parent_name || !form.parent_phone || !form.school_name || !form.preferred_mode || !form.event_id) {
         toast.error('Please fill in all required fields.')
+        return
+      }
+      const incompleteLearner = extraLearners.find((learner) => !learner.student_full_name || !learner.school_name)
+      if (incompleteLearner) {
+        toast.error('Each added learner needs a name and school.')
         return
       }
       setCurrentStep(2)
@@ -250,25 +277,50 @@ export default function EventRegistrationPage() {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    if (createdCredentials || completedRegistration) return
+    if (createdCredentials.length > 0 || completedRegistration) return
     if (resultsAvailable && subjectResults.length === 0) return toast.error('Select at least one subject or choose that results are not available now.')
     if (selectedClassSlot && selectedClassSlot.remaining <= 0) {
       return toast.error(`${form.curriculum} ${form.class_level} is full for this programme. Please choose another available class or contact Peak Performance.`)
     }
+    if (selectedClassSlot && selectedClassSlot.remaining < learnerRows.length) {
+      return toast.error(`Only ${selectedClassSlot.remaining} slot${selectedClassSlot.remaining === 1 ? '' : 's'} remain for ${form.curriculum} ${form.class_level}. Remove a learner or contact Peak Performance.`)
+    }
     setSubmitting(true)
-    const payload = new FormData()
-    Object.entries({ ...form, programme_selected: selectedEventName }).forEach(([key, value]) => payload.append(key, value))
-    payload.append('subject_results', JSON.stringify(resultsAvailable ? subjectResults : []))
-    const result = await processPublicRegistration(payload)
+    const results = []
+    for (const learner of learnerRows) {
+      const payload = new FormData()
+      Object.entries({
+        ...form,
+        student_full_name: learner.student_full_name,
+        student_phone: learner.student_phone,
+        school_name: learner.school_name,
+        has_student_account: learner.has_student_account,
+        programme_selected: selectedEventName,
+      }).forEach(([key, value]) => payload.append(key, value))
+      payload.append('subject_results', JSON.stringify(resultsAvailable ? subjectResults : []))
+      const result = await processPublicRegistration(payload)
+      results.push({ learner, result })
+      if (!result.success) break
+    }
     setSubmitting(false)
-    if (!result.success) return toast.error(result.error || 'Registration failed')
-    const message = result.message || 'Registration received successfully. Peak Performance will contact you with the next steps.'
-    toast.success(message, { duration: 6000 })
-    if (result.account?.created) {
-      setCreatedCredentials(result.account)
+    const failed = results.find((item) => !item.result.success)
+    if (failed) {
+      return toast.error(`${failed.learner.student_full_name}: ${failed.result.error || 'Registration failed'}`)
+    }
+    const accounts = results
+      .filter((item) => item.result.account?.created)
+      .map((item) => ({ learnerName: item.learner.student_full_name, ...item.result.account }))
+
+    toast.success(`Registered ${results.length} learner${results.length === 1 ? '' : 's'} successfully.`, { duration: 6000 })
+    if (accounts.length > 0) {
+      setCreatedCredentials(accounts)
       return
     }
-    setCompletedRegistration(result.account || { status: 'submitted', note: message })
+    setCompletedRegistration({
+      count: results.length,
+      statuses: results.map((item) => item.result.account?.status || 'submitted'),
+      note: 'Registration received successfully. Peak Performance will review your academic details and contact you with the next steps.',
+    })
   }
 
   if (loading) {
@@ -350,77 +402,153 @@ export default function EventRegistrationPage() {
             {currentStep === 1 && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <div className="text-center mb-8">
-                  <h2 className="text-2xl font-black text-[#073159]">Student & Parent Details</h2>
-                  <p className="text-sm text-slate-500 mt-2">Let's start with the basic contact information.</p>
+                  <h2 className="text-2xl font-black text-[#073159]">Parent, Programme & Learners</h2>
+                  <p className="text-sm text-slate-500 mt-2">Enter the parent once, then add the learner or learners joining this group.</p>
                 </div>
-                
-                <div className="grid gap-5 md:grid-cols-2">
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold uppercase tracking-wider text-slate-500 ml-1">Student Full Name *</label>
-                    <Input className="h-14 rounded-2xl bg-[#f4f9fc] border-transparent focus:bg-white focus:border-[#145da0] text-sm font-semibold transition-colors" leftIcon={<UserRound size={18} className="text-[#145da0]/50" />} required placeholder="e.g. John Doe" value={form.student_full_name} onChange={(e) => setForm({ ...form, student_full_name: e.target.value })} />
+
+                <div className="rounded-3xl border border-[#145da0]/10 bg-[#f4f9fc]/50 p-5">
+                  <div className="mb-4 flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-[#145da0] shadow-sm">
+                      <UsersRound size={18} />
+                    </div>
+                    <div>
+                      <p className="text-sm font-black text-[#073159]">Parent and programme</p>
+                      <p className="text-xs font-semibold text-slate-500">These details apply to all learners added below.</p>
+                    </div>
                   </div>
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold uppercase tracking-wider text-slate-500 ml-1">Parent/Guardian Name *</label>
-                    <Input className="h-14 rounded-2xl bg-[#f4f9fc] border-transparent focus:bg-white focus:border-[#145da0] text-sm font-semibold transition-colors" leftIcon={<UsersRound size={18} className="text-[#145da0]/50" />} required placeholder="e.g. Jane Doe" value={form.parent_name} onChange={(e) => setForm({ ...form, parent_name: e.target.value })} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold uppercase tracking-wider text-slate-500 ml-1">Parent Phone *</label>
-                    <Input className="h-14 rounded-2xl bg-[#f4f9fc] border-transparent focus:bg-white focus:border-[#145da0] text-sm font-semibold transition-colors" leftIcon={<Phone size={18} className="text-[#145da0]/50" />} required placeholder="07xx xxx xxx" value={form.parent_phone} onChange={(e) => setForm({ ...form, parent_phone: e.target.value })} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold uppercase tracking-wider text-slate-500 ml-1">Student Phone (Optional)</label>
-                    <Input className="h-14 rounded-2xl bg-[#f4f9fc] border-transparent focus:bg-white focus:border-[#145da0] text-sm font-semibold transition-colors" leftIcon={<Phone size={18} className="text-[#145da0]/50" />} placeholder="07xx xxx xxx" value={form.student_phone} onChange={(e) => setForm({ ...form, student_phone: e.target.value })} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold uppercase tracking-wider text-slate-500 ml-1">School Name *</label>
-                    <Input className="h-14 rounded-2xl bg-[#f4f9fc] border-transparent focus:bg-white focus:border-[#145da0] text-sm font-semibold transition-colors" leftIcon={<School size={18} className="text-[#145da0]/50" />} required placeholder="Current school" value={form.school_name} onChange={(e) => setForm({ ...form, school_name: e.target.value })} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold uppercase tracking-wider text-slate-500 ml-1">Programme *</label>
-                    <Select className="h-14 rounded-2xl bg-[#f4f9fc] border-transparent focus:bg-white focus:border-[#145da0] text-sm font-semibold transition-colors" required value={form.event_id} onChange={(e) => {
-                      const chosen = events.find((item) => item.id === e.target.value)
-                      setForm({ ...form, event_id: e.target.value, programme_selected: chosen?.name || form.programme_selected })
-                    }}>
-                      <option value="">Select Programme</option>
-                      {events.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5 md:col-span-2">
-                    <label className="text-xs font-bold uppercase tracking-wider text-slate-500 ml-1">Preferred Mode *</label>
-                    <Select className="h-14 rounded-2xl bg-[#f4f9fc] border-transparent focus:bg-white focus:border-[#145da0] text-sm font-semibold transition-colors" required value={form.preferred_mode} onChange={(e) => setForm({ ...form, preferred_mode: e.target.value })}>
-                      <option value="">Select Mode</option>
-                      <option value="Physical">Physical</option>
-                      <option value="Online">Online</option>
-                      <option value="Hybrid">Hybrid</option>
-                    </Select>
+                  <div className="grid gap-5 md:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold uppercase tracking-wider text-slate-500 ml-1">Parent/Guardian Name *</label>
+                      <Input className="h-14 rounded-2xl bg-white border-transparent focus:bg-white focus:border-[#145da0] text-sm font-semibold transition-colors" leftIcon={<UsersRound size={18} className="text-[#145da0]/50" />} required placeholder="e.g. Jane Doe" value={form.parent_name} onChange={(e) => setForm({ ...form, parent_name: e.target.value })} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold uppercase tracking-wider text-slate-500 ml-1">Parent Phone *</label>
+                      <Input className="h-14 rounded-2xl bg-white border-transparent focus:bg-white focus:border-[#145da0] text-sm font-semibold transition-colors" leftIcon={<Phone size={18} className="text-[#145da0]/50" />} required placeholder="07xx xxx xxx" value={form.parent_phone} onChange={(e) => setForm({ ...form, parent_phone: e.target.value })} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold uppercase tracking-wider text-slate-500 ml-1">Programme *</label>
+                      <Select className="h-14 rounded-2xl bg-white border-transparent focus:bg-white focus:border-[#145da0] text-sm font-semibold transition-colors" required value={form.event_id} onChange={(e) => {
+                        const chosen = events.find((item) => item.id === e.target.value)
+                        setForm({ ...form, event_id: e.target.value, programme_selected: chosen?.name || form.programme_selected })
+                      }}>
+                        <option value="">Select Programme</option>
+                        {events.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold uppercase tracking-wider text-slate-500 ml-1">Preferred Mode *</label>
+                      <Select className="h-14 rounded-2xl bg-white border-transparent focus:bg-white focus:border-[#145da0] text-sm font-semibold transition-colors" required value={form.preferred_mode} onChange={(e) => setForm({ ...form, preferred_mode: e.target.value })}>
+                        <option value="">Select Mode</option>
+                        <option value="Physical">Physical</option>
+                        <option value="Online">Online</option>
+                        <option value="Hybrid">Hybrid</option>
+                      </Select>
+                    </div>
                   </div>
                 </div>
 
-                <div className="mt-8 rounded-3xl border border-[#145da0]/10 bg-[#f4f9fc]/50 p-6">
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-[#145da0] shadow-sm">
-                      <ShieldCheck size={20} />
+                <div className="rounded-3xl border border-[#145da0]/10 bg-white p-5 shadow-sm">
+                  <div className="mb-4 flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#145da0] text-white shadow-sm">
+                      <UserRound size={18} />
                     </div>
-                    <div className="flex-1 w-full">
-                      <p className="text-sm font-black text-[#073159]">Peak Student Account</p>
-                      <p className="mt-1 text-xs font-medium leading-relaxed text-slate-500 mb-4">Does the learner already have an account? We search by learner name first, link it if found, and only create a new account when needed.</p>
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        {[
-                          ['no', 'No, create account'],
-                          ['yes', 'Yes, returning learner'],
-                        ].map(([value, label]) => (
-                          <button
-                            type="button"
-                            key={value}
-                            onClick={() => setForm({ ...form, has_student_account: value })}
-                            className={`rounded-xl border-2 px-4 py-3.5 text-center text-sm font-bold transition-all ${form.has_student_account === value ? 'border-[#145da0] bg-[#145da0] text-white shadow-md' : 'border-[#145da0]/10 bg-white text-[#073159] hover:border-[#145da0]/30'}`}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
+                    <div>
+                      <p className="text-sm font-black text-[#073159]">Learner 1</p>
+                      <p className="text-xs font-semibold text-slate-500">Start with the first child or student.</p>
                     </div>
                   </div>
+                  <div className="grid gap-5 md:grid-cols-3">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold uppercase tracking-wider text-slate-500 ml-1">Student Full Name *</label>
+                      <Input className="h-14 rounded-2xl bg-[#f4f9fc] border-transparent focus:bg-white focus:border-[#145da0] text-sm font-semibold transition-colors" leftIcon={<UserRound size={18} className="text-[#145da0]/50" />} required placeholder="e.g. John Doe" value={form.student_full_name} onChange={(e) => setForm({ ...form, student_full_name: e.target.value })} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold uppercase tracking-wider text-slate-500 ml-1">Student Phone (Optional)</label>
+                      <Input className="h-14 rounded-2xl bg-[#f4f9fc] border-transparent focus:bg-white focus:border-[#145da0] text-sm font-semibold transition-colors" leftIcon={<Phone size={18} className="text-[#145da0]/50" />} placeholder="07xx xxx xxx" value={form.student_phone} onChange={(e) => setForm({ ...form, student_phone: e.target.value })} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold uppercase tracking-wider text-slate-500 ml-1">School Name *</label>
+                      <Input className="h-14 rounded-2xl bg-[#f4f9fc] border-transparent focus:bg-white focus:border-[#145da0] text-sm font-semibold transition-colors" leftIcon={<School size={18} className="text-[#145da0]/50" />} required placeholder="Current school" value={form.school_name} onChange={(e) => setForm({ ...form, school_name: e.target.value })} />
+                    </div>
+                  </div>
+                  <div className="mt-4 rounded-2xl bg-[#f4f9fc] p-4">
+                    <p className="text-xs font-black uppercase tracking-widest text-[#073159]">Peak account for Learner 1</p>
+                    <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">We search by learner name first, link if found, and only create a new account when needed.</p>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      {[
+                        ['no', 'Create account if needed'],
+                        ['yes', 'Already has Peak account'],
+                      ].map(([value, label]) => (
+                        <button
+                          type="button"
+                          key={value}
+                          onClick={() => setForm({ ...form, has_student_account: value })}
+                          className={`rounded-xl border-2 px-4 py-3 text-center text-xs font-black transition-all ${form.has_student_account === value ? 'border-[#145da0] bg-[#145da0] text-white shadow-md' : 'border-[#145da0]/10 bg-white text-[#073159] hover:border-[#145da0]/30'}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-8 rounded-3xl border border-[#145da0]/10 bg-[#f4f9fc]/50 p-5">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-black text-[#073159]">Register more than one learner</p>
+                      <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
+                        Add siblings or learners joining the same programme, curriculum and class. Use a separate form for a different grade or class.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="rounded-2xl"
+                      onClick={() => setExtraLearners((rows) => [...rows, { student_full_name: '', student_phone: '', school_name: form.school_name, has_student_account: 'no' }])}
+                    >
+                      <Plus size={15} /> Add Learner
+                    </Button>
+                  </div>
+
+                  {extraLearners.length > 0 && (
+                    <div className="mt-5 space-y-3">
+                      {extraLearners.map((learner, index) => (
+                        <div key={index} className="rounded-3xl border border-white bg-white p-4 shadow-sm">
+                          <div className="mb-3 flex items-center justify-between gap-3">
+                            <p className="text-xs font-black uppercase tracking-widest text-[#145da0]">Additional learner {index + 2}</p>
+                            <button
+                              type="button"
+                              onClick={() => setExtraLearners((rows) => rows.filter((_, rowIndex) => rowIndex !== index))}
+                              className="rounded-xl p-2 text-rose-500 transition hover:bg-rose-50"
+                              aria-label="Remove learner"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                          <div className="grid gap-3 md:grid-cols-3">
+                            <Input className="h-12 rounded-2xl bg-[#f4f9fc] border-transparent text-sm font-semibold" required placeholder="Learner full name" value={learner.student_full_name} onChange={(e) => updateExtraLearner(index, { student_full_name: e.target.value })} />
+                            <Input className="h-12 rounded-2xl bg-[#f4f9fc] border-transparent text-sm font-semibold" placeholder="Student phone optional" value={learner.student_phone} onChange={(e) => updateExtraLearner(index, { student_phone: e.target.value })} />
+                            <Input className="h-12 rounded-2xl bg-[#f4f9fc] border-transparent text-sm font-semibold" required placeholder="School name" value={learner.school_name} onChange={(e) => updateExtraLearner(index, { school_name: e.target.value })} />
+                          </div>
+                          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                            {[
+                              ['no', 'Create account if needed'],
+                              ['yes', 'Already has Peak account'],
+                            ].map(([value, label]) => (
+                              <button
+                                type="button"
+                                key={value}
+                                onClick={() => updateExtraLearner(index, { has_student_account: value })}
+                                className={`rounded-xl border-2 px-3 py-2.5 text-xs font-black transition-all ${learner.has_student_account === value ? 'border-[#145da0] bg-[#145da0] text-white shadow-md' : 'border-[#145da0]/10 bg-[#f4f9fc] text-[#073159] hover:border-[#145da0]/30'}`}
+                              >
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -616,16 +744,16 @@ export default function EventRegistrationPage() {
                 Next Step
               </Button>
             ) : (
-              <Button type="submit" disabled={submitting || Boolean(createdCredentials || completedRegistration) || Boolean(selectedClassSlot && selectedClassSlot.remaining <= 0) || (resultsAvailable && subjectResults.length === 0)} className="rounded-xl px-6 sm:px-10 font-bold h-12 bg-[#7ed957] hover:bg-[#6cc546] text-[#073159] transition-colors shadow-lg shadow-[#7ed957]/25">
+              <Button type="submit" disabled={submitting || createdCredentials.length > 0 || Boolean(completedRegistration) || Boolean(selectedClassSlot && selectedClassSlot.remaining <= 0) || (resultsAvailable && subjectResults.length === 0)} className="rounded-xl px-6 sm:px-10 font-bold h-12 bg-[#7ed957] hover:bg-[#6cc546] text-[#073159] transition-colors shadow-lg shadow-[#7ed957]/25">
                 {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                {createdCredentials || completedRegistration ? 'Registration Sent' : selectedClassSlot && selectedClassSlot.remaining <= 0 ? 'Class Is Full' : 'Complete Registration'}
+                {createdCredentials.length > 0 || completedRegistration ? 'Registration Sent' : selectedClassSlot && selectedClassSlot.remaining <= 0 ? 'Class Is Full' : 'Complete Registration'}
               </Button>
             )}
           </div>
         </form>
       </main>
 
-      {completedRegistration && !createdCredentials && (
+      {completedRegistration && createdCredentials.length === 0 && (
         <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[#073159]/80 px-3 py-5 backdrop-blur-md sm:px-4">
           <div className="w-full max-w-md rounded-[1.75rem] bg-white shadow-2xl animate-in zoom-in-95 duration-300 sm:rounded-[2.25rem]">
             <div className="bg-[#145da0] p-6 text-center text-white relative overflow-hidden sm:p-8">
@@ -637,21 +765,13 @@ export default function EventRegistrationPage() {
                 <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#d8ffc7]">Registration Complete</p>
                 <h2 className="mt-2 text-2xl font-black sm:text-3xl">We have received it</h2>
                 <p className="mt-3 text-sm font-semibold leading-6 text-white/85">
-                  {completedRegistration.status === 'linked'
-                    ? 'We found the learner account and linked it to this registration.'
-                    : completedRegistration.status === 'existing_requested'
-                      ? 'The registration is saved. We did not find an exact account match, so Peak admin will link the learner manually.'
-                      : 'The registration is saved. Peak Performance will review the details and contact you with the next steps.'}
+                  {completedRegistration.statuses?.includes('existing_requested')
+                    ? `${completedRegistration.count || 1} learner registration${completedRegistration.count === 1 ? '' : 's'} saved. One or more accounts need admin linking.`
+                    : `${completedRegistration.count || 1} learner registration${completedRegistration.count === 1 ? '' : 's'} saved. Peak Performance will review the details and contact you with the next steps.`}
                 </p>
               </div>
             </div>
             <div className="space-y-4 bg-slate-50 p-5 sm:p-7">
-              {completedRegistration.admissionNumber && (
-                <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Linked admission number</p>
-                  <p className="mt-1.5 font-mono text-sm font-bold text-[#073159]">{completedRegistration.admissionNumber}</p>
-                </div>
-              )}
               <div className="rounded-2xl bg-[#eaf3f8] p-4 text-xs font-bold leading-5 text-[#073159]">
                 {resultsAvailable
                   ? 'Your academic details have been saved for placement.'
@@ -665,7 +785,7 @@ export default function EventRegistrationPage() {
         </div>
       )}
 
-      {createdCredentials && (
+      {createdCredentials.length > 0 && (
         <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[#073159]/80 px-3 py-5 backdrop-blur-md sm:px-4">
           <div className="max-h-[calc(100vh-2.5rem)] w-full max-w-md overflow-y-auto rounded-[1.75rem] bg-white shadow-2xl animate-in zoom-in-95 duration-300 sm:rounded-[2.25rem]">
             <div className="bg-[#145da0] p-5 text-center text-white relative overflow-hidden sm:p-7">
@@ -675,33 +795,38 @@ export default function EventRegistrationPage() {
                   <CheckCircle2 size={30} />
                 </div>
                 <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#d8ffc7] mb-2">Registration Complete</p>
-                <h2 className="text-2xl font-black sm:text-3xl">Account Created</h2>
+                <h2 className="text-2xl font-black sm:text-3xl">Account{createdCredentials.length === 1 ? '' : 's'} Created</h2>
                 <p className="mt-3 text-sm font-medium leading-relaxed text-white/80">
-                  Save these two details. The student logs in using the admission number and temporary password.
+                  Save these details. Each student logs in using the admission number and temporary password.
                 </p>
               </div>
             </div>
             <div className="space-y-3 bg-slate-50 p-5 sm:p-7">
-              {[
-                ['Admission number', createdCredentials.admissionNumber],
-                ['Temporary password', createdCredentials.password],
-              ].map(([label, value]) => (
-                <div key={label} className="flex items-center justify-between gap-4 rounded-2xl bg-white border border-slate-100 p-4 shadow-sm">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{label}</p>
-                    <p className="mt-1.5 truncate font-mono text-sm font-bold text-[#073159]">{value}</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      navigator.clipboard.writeText(String(value || ''))
-                      toast.success(`${label} copied`)
-                    }}
-                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#f4f9fc] text-[#145da0] hover:bg-[#eaf3f8] transition-colors"
-                    aria-label={`Copy ${label}`}
-                  >
-                    <Copy size={16} />
-                  </button>
+              {createdCredentials.map((credential, index) => (
+                <div key={`${credential.admissionNumber}-${index}`} className="rounded-2xl bg-white border border-slate-100 p-4 shadow-sm">
+                  <p className="mb-3 text-xs font-black text-[#073159]">{credential.learnerName || `Learner ${index + 1}`}</p>
+                  {[
+                    ['Admission number', credential.admissionNumber],
+                    ['Temporary password', credential.password],
+                  ].map(([label, value]) => (
+                    <div key={label} className="mb-2 flex items-center justify-between gap-4 last:mb-0">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{label}</p>
+                        <p className="mt-1.5 truncate font-mono text-sm font-bold text-[#073159]">{value}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(String(value || ''))
+                          toast.success(`${label} copied`)
+                        }}
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#f4f9fc] text-[#145da0] hover:bg-[#eaf3f8] transition-colors"
+                        aria-label={`Copy ${label}`}
+                      >
+                        <Copy size={16} />
+                      </button>
+                    </div>
+                  ))}
                 </div>
               ))}
               <div className="rounded-2xl bg-[#eaf3f8] p-4 text-xs font-bold leading-5 text-[#073159]">

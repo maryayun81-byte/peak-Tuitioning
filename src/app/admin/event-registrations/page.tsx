@@ -7,7 +7,7 @@ import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { Card, Badge } from '@/components/ui/Card'
 import { Modal } from '@/components/ui/Modal'
-import { adminRegisterEventStudents, updateEventRegistrationPerformance } from '@/app/actions/event-registration'
+import { adminRegisterEventStudents, deleteEventRegistration, updateEventRegistrationPerformance } from '@/app/actions/event-registration'
 
 function csvEscape(value: any) {
   return `"${String(value ?? '').replace(/"/g, '""')}"`
@@ -88,6 +88,7 @@ export default function AdminEventRegistrations() {
   const [performanceOverall, setPerformanceOverall] = useState('')
   const [performanceSubjects, setPerformanceSubjects] = useState<Array<{ subjectName: string; grade: string; struggle: string }>>([])
   const [savingPerformance, setSavingPerformance] = useState(false)
+  const [deletingRegistrationId, setDeletingRegistrationId] = useState('')
 
   useEffect(() => {
     loadData()
@@ -283,6 +284,20 @@ export default function AdminEventRegistrations() {
     await loadData()
   }
 
+  const removeRegistration = async (registration: any) => {
+    if (!registration?.id) return
+    const name = registration.student_name || 'this learner'
+    const ok = window.confirm(`Delete the event registration for ${name}? This removes the programme registration only. It will not delete the student account.`)
+    if (!ok) return
+
+    setDeletingRegistrationId(registration.id)
+    const result = await deleteEventRegistration(registration.id)
+    setDeletingRegistrationId('')
+    if (!result.success) return toast.error(result.error || 'Could not delete registration.')
+    toast.success(result.message || 'Registration deleted.')
+    await loadData()
+  }
+
   const editingCurriculumRow = editingPerformance
     ? adminCurriculums.find((item) => item.name === editingPerformance.curriculum_label)
     : null
@@ -382,6 +397,11 @@ export default function AdminEventRegistrations() {
                       <div className="min-w-0">
                         <h2 className="truncate text-lg font-black" style={{ color: 'var(--text)' }}>{item.student_name}</h2>
                         <p className="mt-0.5 text-xs font-bold text-muted">{item.curriculum_label || 'Curriculum not provided'} - {item.class_level || 'Class not provided'}</p>
+                        {item.student_phone && (
+                          <p className="mt-1 flex items-center gap-1.5 text-xs font-bold text-muted">
+                            <Phone size={12} /> Student: {item.student_phone}
+                          </p>
+                        )}
                       </div>
                     </div>
                     <div className="mt-4 grid gap-2 text-xs sm:grid-cols-2">
@@ -419,6 +439,14 @@ export default function AdminEventRegistrations() {
                           className="inline-flex items-center gap-1.5 rounded-full bg-primary px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-white shadow-sm transition hover:opacity-90"
                         >
                           <PencilLine size={12} /> Update
+                        </button>
+                        <button
+                          type="button"
+                          disabled={deletingRegistrationId === item.id}
+                          onClick={() => removeRegistration(item)}
+                          className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-rose-600 ring-1 ring-rose-200 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          <Trash2 size={12} /> {deletingRegistrationId === item.id ? 'Deleting' : 'Delete'}
                         </button>
                       </div>
                     </div>
