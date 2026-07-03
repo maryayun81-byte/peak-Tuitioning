@@ -123,11 +123,13 @@ export default function EventRegistrationPage() {
     event_id: '',
     programme_selected: '',
     preferred_mode: '',
+    results_available: 'yes',
     overall_grade: '',
     has_student_account: 'no',
   })
   const [subjectResults, setSubjectResults] = useState<Array<{ subjectName: string; grade: string; struggle: string }>>([])
   const [createdCredentials, setCreatedCredentials] = useState<{ admissionNumber?: string; email?: string; password?: string; note?: string } | null>(null)
+  const [completedRegistration, setCompletedRegistration] = useState<{ status?: string; admissionNumber?: string; note?: string } | null>(null)
   
   const [currentStep, setCurrentStep] = useState(1)
   const totalSteps = 3
@@ -186,6 +188,7 @@ export default function EventRegistrationPage() {
     ? (classSpecificSubjects.length > 0 ? classSpecificSubjects : curriculumSubjects.filter((item) => !item.class_id))
     : []
   const grades = gradeOptions(form.curriculum)
+  const resultsAvailable = form.results_available !== 'no'
 
   useEffect(() => {
     setForm((prev) => ({ ...prev, class_level: '', overall_grade: '' }))
@@ -235,8 +238,8 @@ export default function EventRegistrationPage() {
       }
       setCurrentStep(2)
     } else if (currentStep === 2) {
-      if (!form.curriculum || !selectedClassId || !form.overall_grade) {
-        toast.error('Please select curriculum, class, and overall grade.')
+      if (!form.curriculum || !selectedClassId || (resultsAvailable && !form.overall_grade)) {
+        toast.error(resultsAvailable ? 'Please select curriculum, class, and overall grade.' : 'Please select curriculum and class.')
         return
       }
       setCurrentStep(3)
@@ -247,14 +250,15 @@ export default function EventRegistrationPage() {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    if (subjectResults.length === 0) return toast.error('Select at least one subject.')
+    if (createdCredentials || completedRegistration) return
+    if (resultsAvailable && subjectResults.length === 0) return toast.error('Select at least one subject or choose that results are not available now.')
     if (selectedClassSlot && selectedClassSlot.remaining <= 0) {
       return toast.error(`${form.curriculum} ${form.class_level} is full for this programme. Please choose another available class or contact Peak Performance.`)
     }
     setSubmitting(true)
     const payload = new FormData()
     Object.entries({ ...form, programme_selected: selectedEventName }).forEach(([key, value]) => payload.append(key, value))
-    payload.append('subject_results', JSON.stringify(subjectResults))
+    payload.append('subject_results', JSON.stringify(resultsAvailable ? subjectResults : []))
     const result = await processPublicRegistration(payload)
     setSubmitting(false)
     if (!result.success) return toast.error(result.error || 'Registration failed')
@@ -264,7 +268,7 @@ export default function EventRegistrationPage() {
       setCreatedCredentials(result.account)
       return
     }
-    router.push('/')
+    setCompletedRegistration(result.account || { status: 'submitted', note: message })
   }
 
   if (loading) {
@@ -399,7 +403,7 @@ export default function EventRegistrationPage() {
                     </div>
                     <div className="flex-1 w-full">
                       <p className="text-sm font-black text-[#073159]">Peak Student Account</p>
-                      <p className="mt-1 text-xs font-medium leading-relaxed text-slate-500 mb-4">Does the learner already have an account? We will generate one if they don't.</p>
+                      <p className="mt-1 text-xs font-medium leading-relaxed text-slate-500 mb-4">Does the learner already have an account? We search by learner name first, link it if found, and only create a new account when needed.</p>
                       <div className="grid gap-3 sm:grid-cols-2">
                         {[
                           ['no', 'No, create account'],
@@ -428,6 +432,40 @@ export default function EventRegistrationPage() {
                   <p className="text-sm text-slate-500 mt-2">Help us place the learner in the correct group.</p>
                 </div>
 
+                <div className="rounded-3xl border border-[#145da0]/10 bg-[#f4f9fc] p-4 sm:p-5">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white text-[#145da0] shadow-sm">
+                        <BookOpenCheck size={20} />
+                      </div>
+                      <div>
+                        <p className="text-sm font-black text-[#073159]">Do you have recent marks or a result slip?</p>
+                        <p className="mt-1 text-xs font-semibold leading-relaxed text-slate-500">
+                          If not, continue. Peak will place the learner first, then do a baseline check before lessons begin.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 sm:w-[280px]">
+                      {[
+                        ['yes', 'Yes, add results'],
+                        ['no', 'Not now'],
+                      ].map(([value, label]) => (
+                        <button
+                          type="button"
+                          key={value}
+                          onClick={() => {
+                            setForm({ ...form, results_available: value, overall_grade: value === 'no' ? '' : form.overall_grade })
+                            if (value === 'no') setSubjectResults([])
+                          }}
+                          className={`rounded-xl border-2 px-3 py-3 text-xs font-black transition-all ${form.results_available === value ? 'border-[#145da0] bg-[#145da0] text-white shadow-md' : 'border-[#145da0]/10 bg-white text-[#073159] hover:border-[#145da0]/30'}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
                 <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold uppercase tracking-wider text-slate-500 ml-1">Curriculum *</label>
@@ -454,9 +492,9 @@ export default function EventRegistrationPage() {
                     </Select>
                   </div>
                   <div className="space-y-1.5 md:col-span-2 lg:col-span-1">
-                    <label className="text-xs font-bold uppercase tracking-wider text-slate-500 ml-1">Overall Grade *</label>
-                    <Select className="h-14 rounded-2xl bg-[#f4f9fc] border-transparent focus:bg-white focus:border-[#145da0] text-sm font-semibold transition-colors" required value={form.overall_grade} onChange={(e) => setForm({ ...form, overall_grade: e.target.value })}>
-                      <option value="">Select Grade</option>
+                    <label className="text-xs font-bold uppercase tracking-wider text-slate-500 ml-1">Overall Grade {resultsAvailable ? '*' : ''}</label>
+                    <Select className="h-14 rounded-2xl bg-[#f4f9fc] border-transparent focus:bg-white focus:border-[#145da0] text-sm font-semibold transition-colors" required={resultsAvailable} disabled={!resultsAvailable} value={form.overall_grade} onChange={(e) => setForm({ ...form, overall_grade: e.target.value })}>
+                      <option value="">{resultsAvailable ? 'Select Grade' : 'Results not available now'}</option>
                       {grades.map((grade) => <option key={grade} value={grade}>{grade}</option>)}
                     </Select>
                   </div>
@@ -486,7 +524,21 @@ export default function EventRegistrationPage() {
                   <p className="text-sm text-slate-500 mt-2">Select subjects and tell us where you need the most help.</p>
                 </div>
 
-                {!form.curriculum || !selectedClassId ? (
+                {!resultsAvailable ? (
+                  <div className="rounded-3xl border border-[#7ed957]/30 bg-[#f4fcf1] p-6 sm:p-8">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#7ed957] text-[#073159] shadow-sm">
+                        <CheckCircle2 size={22} />
+                      </div>
+                      <div>
+                        <p className="text-base font-black text-[#073159]">No results? Registration can still continue.</p>
+                        <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+                          Peak will not force guessed marks. The learner will complete subject selection during onboarding and teachers can run a baseline assessment before assigning support priorities.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ) : !form.curriculum || !selectedClassId ? (
                   <div className="rounded-3xl border border-dashed border-[#145da0]/20 bg-[#f4f9fc] p-8 text-center">
                     <p className="text-sm font-bold text-[#073159]">Please go back and select a curriculum and class first.</p>
                   </div>
@@ -515,7 +567,7 @@ export default function EventRegistrationPage() {
                   </div>
                 )}
 
-                {subjectResults.length > 0 && (
+                {resultsAvailable && subjectResults.length > 0 && (
                   <div className="mt-8 space-y-4">
                     <div className="h-px w-full bg-slate-100 mb-6"></div>
                     <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3 ml-1">Subject Details</p>
@@ -564,14 +616,54 @@ export default function EventRegistrationPage() {
                 Next Step
               </Button>
             ) : (
-              <Button type="submit" disabled={submitting || Boolean(selectedClassSlot && selectedClassSlot.remaining <= 0) || subjectResults.length === 0} className="rounded-xl px-6 sm:px-10 font-bold h-12 bg-[#7ed957] hover:bg-[#6cc546] text-[#073159] transition-colors shadow-lg shadow-[#7ed957]/25">
+              <Button type="submit" disabled={submitting || Boolean(createdCredentials || completedRegistration) || Boolean(selectedClassSlot && selectedClassSlot.remaining <= 0) || (resultsAvailable && subjectResults.length === 0)} className="rounded-xl px-6 sm:px-10 font-bold h-12 bg-[#7ed957] hover:bg-[#6cc546] text-[#073159] transition-colors shadow-lg shadow-[#7ed957]/25">
                 {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                {selectedClassSlot && selectedClassSlot.remaining <= 0 ? 'Class Is Full' : 'Complete Registration'}
+                {createdCredentials || completedRegistration ? 'Registration Sent' : selectedClassSlot && selectedClassSlot.remaining <= 0 ? 'Class Is Full' : 'Complete Registration'}
               </Button>
             )}
           </div>
         </form>
       </main>
+
+      {completedRegistration && !createdCredentials && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[#073159]/80 px-3 py-5 backdrop-blur-md sm:px-4">
+          <div className="w-full max-w-md rounded-[1.75rem] bg-white shadow-2xl animate-in zoom-in-95 duration-300 sm:rounded-[2.25rem]">
+            <div className="bg-[#145da0] p-6 text-center text-white relative overflow-hidden sm:p-8">
+              <div className="absolute -right-16 -top-16 h-48 w-48 rounded-full bg-[#7ed957]/20 blur-3xl pointer-events-none"></div>
+              <div className="relative z-10 flex flex-col items-center">
+                <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-[#7ed957] text-[#073159] shadow-lg shadow-[#7ed957]/30">
+                  <CheckCircle2 size={32} />
+                </div>
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#d8ffc7]">Registration Complete</p>
+                <h2 className="mt-2 text-2xl font-black sm:text-3xl">We have received it</h2>
+                <p className="mt-3 text-sm font-semibold leading-6 text-white/85">
+                  {completedRegistration.status === 'linked'
+                    ? 'We found the learner account and linked it to this registration.'
+                    : completedRegistration.status === 'existing_requested'
+                      ? 'The registration is saved. We did not find an exact account match, so Peak admin will link the learner manually.'
+                      : 'The registration is saved. Peak Performance will review the details and contact you with the next steps.'}
+                </p>
+              </div>
+            </div>
+            <div className="space-y-4 bg-slate-50 p-5 sm:p-7">
+              {completedRegistration.admissionNumber && (
+                <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Linked admission number</p>
+                  <p className="mt-1.5 font-mono text-sm font-bold text-[#073159]">{completedRegistration.admissionNumber}</p>
+                </div>
+              )}
+              <div className="rounded-2xl bg-[#eaf3f8] p-4 text-xs font-bold leading-5 text-[#073159]">
+                {resultsAvailable
+                  ? 'Your academic details have been saved for placement.'
+                  : 'No grades were forced. The learner can complete subject onboarding later and Peak can run a baseline check.'}
+              </div>
+              <Button type="button" className="w-full rounded-2xl py-4 font-black bg-[#073159] hover:bg-[#062744] text-white shadow-xl shadow-[#073159]/20 transition-all" onClick={() => router.push('/')}>
+                Return Home
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {createdCredentials && (
         <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[#073159]/80 px-3 py-5 backdrop-blur-md sm:px-4">

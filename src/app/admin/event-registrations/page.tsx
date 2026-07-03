@@ -1,13 +1,13 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { BarChart3, CalendarDays, ChevronLeft, ChevronRight, Download, FileText, GraduationCap, Phone, Plus, Printer, School, Search, ShieldCheck, Trash2, UserRound, Users } from 'lucide-react'
+import { AlertTriangle, BarChart3, CalendarDays, ChevronLeft, ChevronRight, Download, FileText, GraduationCap, PencilLine, Phone, Plus, Printer, School, Search, ShieldCheck, Trash2, UserRound, Users } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { Card, Badge } from '@/components/ui/Card'
 import { Modal } from '@/components/ui/Modal'
-import { adminRegisterEventStudents } from '@/app/actions/event-registration'
+import { adminRegisterEventStudents, updateEventRegistrationPerformance } from '@/app/actions/event-registration'
 
 function csvEscape(value: any) {
   return `"${String(value ?? '').replace(/"/g, '""')}"`
@@ -80,9 +80,14 @@ export default function AdminEventRegistrations() {
   const [adminEvents, setAdminEvents] = useState<any[]>([])
   const [adminCurriculums, setAdminCurriculums] = useState<any[]>([])
   const [adminClasses, setAdminClasses] = useState<any[]>([])
+  const [adminSubjects, setAdminSubjects] = useState<any[]>([])
   const [adminCenters, setAdminCenters] = useState<any[]>([])
   const [adminRows, setAdminRows] = useState<any[]>([{ ...blankAdminRow }])
   const [credentialResults, setCredentialResults] = useState<any[]>([])
+  const [editingPerformance, setEditingPerformance] = useState<any | null>(null)
+  const [performanceOverall, setPerformanceOverall] = useState('')
+  const [performanceSubjects, setPerformanceSubjects] = useState<Array<{ subjectName: string; grade: string; struggle: string }>>([])
+  const [savingPerformance, setSavingPerformance] = useState(false)
 
   useEffect(() => {
     loadData()
@@ -99,10 +104,11 @@ export default function AdminEventRegistrations() {
       .select('*, tuition_event:tuition_events(id, name, start_date), student:students(id, admission_number, temp_password, created_at)')
       .order('registered_at', { ascending: false })
 
-    const [eventRes, curriculumRes, classRes, centerRes] = await Promise.all([
+    const [eventRes, curriculumRes, classRes, subjectRes, centerRes] = await Promise.all([
       supabase.from('tuition_events').select('id, name, start_date, status, is_active').in('status', ['active', 'upcoming']).order('start_date', { ascending: true }),
       supabase.from('curriculums').select('id, name').order('name'),
       supabase.from('classes').select('id, name, curriculum_id').order('name'),
+      supabase.from('subjects').select('id, name, curriculum_id, class_id').order('name'),
       supabase.from('tuition_centers').select('id, name').order('name'),
     ])
 
@@ -114,6 +120,7 @@ export default function AdminEventRegistrations() {
     setAdminEvents(eventRes.data || [])
     setAdminCurriculums(curriculumRes.data || [])
     setAdminClasses(classRes.data || [])
+    setAdminSubjects(subjectRes.data || [])
     setAdminCenters(centerRes.data || [])
     setLoading(false)
   }
@@ -160,6 +167,7 @@ export default function AdminEventRegistrations() {
   const byEvent = countBy(filtered, (item) => item.tuition_event?.name || item.programme_selected)
   const byClass = countBy(filtered, (item) => item.class_level)
   const byCurriculum = countBy(filtered, (item) => item.curriculum_label)
+  const missingAccountCount = filtered.filter((item) => !item.student_id).length
   const renderPagination = () => (
     <div className="flex flex-col gap-2 rounded-2xl bg-[var(--input)] p-3 text-sm text-muted sm:flex-row sm:items-center sm:justify-between">
       <span>Showing {(page - 1) * PAGE_SIZE + 1}-{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length} registrations</span>
@@ -238,6 +246,53 @@ export default function AdminEventRegistrations() {
     await loadData()
   }
 
+  const openPerformanceEditor = (registration: any) => {
+    const existingSubjects = Array.isArray(registration.subject_results) ? registration.subject_results : []
+    const hasRealOverall = registration.overall_grade && !String(registration.overall_grade).toLowerCase().includes('not provided')
+    setEditingPerformance(registration)
+    setPerformanceOverall(hasRealOverall ? registration.overall_grade : '')
+    setPerformanceSubjects(existingSubjects.length > 0
+      ? existingSubjects.map((item: any) => ({
+          subjectName: String(item.subjectName || ''),
+          grade: String(item.grade || ''),
+          struggle: String(item.struggle || ''),
+        }))
+      : [{ subjectName: '', grade: '', struggle: '' }]
+    )
+  }
+
+  const updatePerformanceSubject = (index: number, patch: Partial<{ subjectName: string; grade: string; struggle: string }>) => {
+    setPerformanceSubjects((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, ...patch } : row))
+  }
+
+  const savePerformance = async () => {
+    if (!editingPerformance?.id) return
+    const cleanRows = performanceSubjects.filter((row) => row.subjectName.trim())
+    setSavingPerformance(true)
+    const result = await updateEventRegistrationPerformance({
+      registrationId: editingPerformance.id,
+      overallGrade: performanceOverall,
+      subjectResults: cleanRows,
+    })
+    setSavingPerformance(false)
+    if (!result.success) return toast.error(result.error || 'Could not update performance.')
+    toast.success(result.message || 'Performance updated.')
+    setEditingPerformance(null)
+    setPerformanceSubjects([])
+    setPerformanceOverall('')
+    await loadData()
+  }
+
+  const editingCurriculumRow = editingPerformance
+    ? adminCurriculums.find((item) => item.name === editingPerformance.curriculum_label)
+    : null
+  const editingClassRow = editingPerformance && editingCurriculumRow
+    ? adminClasses.find((item) => item.name === editingPerformance.class_level && item.curriculum_id === editingCurriculumRow.id)
+    : null
+  const performanceSubjectOptions = editingCurriculumRow
+    ? adminSubjects.filter((item) => item.curriculum_id === editingCurriculumRow.id && (!item.class_id || item.class_id === editingClassRow?.id))
+    : []
+
   return (
     <div className="space-y-6 p-4 pb-24 md:p-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -256,7 +311,7 @@ export default function AdminEventRegistrations() {
       <div className="grid gap-3 md:grid-cols-4">
         <Card className="p-4"><p className="text-xs font-bold text-muted">Total registrations</p><p className="mt-1 text-2xl font-black text-primary">{filtered.length}</p></Card>
         <Card className="p-4"><p className="text-xs font-bold text-muted">Selected event total</p><p className="mt-1 text-2xl font-black" style={{ color: 'var(--text)' }}>{selectedEventTotal}</p></Card>
-        <Card className="p-4"><p className="text-xs font-bold text-muted">Classes represented</p><p className="mt-1 text-2xl font-black" style={{ color: 'var(--text)' }}>{byClass.length}</p></Card>
+        <Card className="p-4"><p className="text-xs font-bold text-muted">Accounts missing</p><p className="mt-1 flex items-center gap-2 text-2xl font-black text-amber-600"><AlertTriangle size={22} /> {missingAccountCount}</p></Card>
         <Card className="p-4"><p className="text-xs font-bold text-muted">Curricula represented</p><p className="mt-1 text-2xl font-black" style={{ color: 'var(--text)' }}>{byCurriculum.length}</p></Card>
       </div>
 
@@ -313,6 +368,11 @@ export default function AdminEventRegistrations() {
                     <div className="mb-3 flex flex-wrap items-center gap-2">
                       <Badge variant="primary" className="max-w-full truncate">{item.programme_selected || item.tuition_event?.name || 'Programme'}</Badge>
                       {item.student_id && <Badge variant="success" className="gap-1"><ShieldCheck size={12} /> Account linked</Badge>}
+                      {!item.student_id && (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-amber-800 ring-1 ring-amber-300">
+                          <AlertTriangle size={12} /> Account missing
+                        </span>
+                      )}
                       {isNewAccount && <span className="rounded-full bg-amber-400 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-amber-950">New</span>}
                     </div>
                     <div className="flex items-start gap-3">
@@ -339,7 +399,9 @@ export default function AdminEventRegistrations() {
                       </div>
                       <div className="rounded-xl bg-[var(--input)] p-2.5">
                         <p className="flex items-center gap-1.5 font-black" style={{ color: 'var(--text)' }}><CalendarDays size={13} /> {item.tuition_event?.start_date ? new Date(item.tuition_event.start_date).toLocaleDateString() : 'Date TBC'}</p>
-                        <p className="mt-1 font-mono text-muted">{item.student?.admission_number || 'No account credentials yet'}</p>
+                        <p className={`mt-1 ${item.student?.admission_number ? 'font-mono text-muted' : 'font-black text-amber-700'}`}>
+                          {item.student?.admission_number || 'Account missing - create or link later'}
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -349,7 +411,16 @@ export default function AdminEventRegistrations() {
                       <FileText size={17} className="text-primary" />
                         <h3 className="font-black" style={{ color: 'var(--text)' }}>Subjects and struggles</h3>
                       </div>
-                      <span className="rounded-full bg-[var(--input)] px-2.5 py-1 text-[10px] font-black text-muted">{subjects.length} subjects</span>
+                      <div className="flex items-center gap-2">
+                        <span className="rounded-full bg-[var(--input)] px-2.5 py-1 text-[10px] font-black text-muted">{subjects.length} subjects</span>
+                        <button
+                          type="button"
+                          onClick={() => openPerformanceEditor(item)}
+                          className="inline-flex items-center gap-1.5 rounded-full bg-primary px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-white shadow-sm transition hover:opacity-90"
+                        >
+                          <PencilLine size={12} /> Update
+                        </button>
+                      </div>
                     </div>
                     <div className="grid gap-2 md:grid-cols-2">
                       {subjects.map((subject: any, index: number) => (
@@ -361,6 +432,12 @@ export default function AdminEventRegistrations() {
                           <p className="mt-2 text-xs leading-relaxed text-muted">{subject.struggle || 'No struggle provided.'}</p>
                         </div>
                       ))}
+                      {subjects.length === 0 && (
+                        <div className="rounded-2xl border border-dashed border-primary/25 bg-primary/5 p-4 md:col-span-2">
+                          <p className="text-sm font-black text-primary">Performance not captured yet</p>
+                          <p className="mt-1 text-xs leading-5 text-muted">Ask the learner for subjects or a result slip, then update overall performance, subject grades and weaknesses here.</p>
+                        </div>
+                      )}
                     </div>
                     {item.whatsapp_summary && (
                       <details className="mt-4 rounded-2xl bg-[var(--input)] p-3">
@@ -376,6 +453,102 @@ export default function AdminEventRegistrations() {
           {renderPagination()}
         </div>
       )}
+
+      <Modal isOpen={Boolean(editingPerformance)} onClose={() => setEditingPerformance(null)} title="Update Learner Performance" size="lg">
+        {editingPerformance && (
+          <div className="space-y-5">
+            <div className="rounded-3xl border border-primary/15 bg-primary/5 p-4">
+              <p className="text-sm font-black" style={{ color: 'var(--text)' }}>{editingPerformance.student_name}</p>
+              <p className="mt-1 text-xs font-bold text-muted">
+                {editingPerformance.curriculum_label || 'Curriculum not provided'} - {editingPerformance.class_level || 'Class not provided'} - {editingPerformance.programme_selected || editingPerformance.tuition_event?.name || 'Programme'}
+              </p>
+              <p className="mt-3 text-xs leading-5 text-muted">
+                Use this after the learner brings a result slip or tells Peak their real subjects. These details improve placement, teacher preparation and linked student onboarding.
+              </p>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-[220px_1fr]">
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-muted">Overall performance</label>
+                <input
+                  value={performanceOverall}
+                  onChange={(event) => setPerformanceOverall(event.target.value)}
+                  placeholder="e.g. B-, 62%, Exceeding expectations"
+                  className="mt-1 h-12 w-full rounded-2xl bg-[var(--input)] px-3 text-sm font-bold outline-none"
+                />
+              </div>
+              <div className="rounded-2xl bg-[var(--input)] p-3 text-xs leading-5 text-muted">
+                If the parent still has no results, leave this blank. The system will keep it as not provided yet and admin can update it later.
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-black" style={{ color: 'var(--text)' }}>Subject performance and weaknesses</p>
+                  <p className="text-xs text-muted">Add only confirmed subjects. No guessing.</p>
+                </div>
+                <Button type="button" size="sm" variant="secondary" onClick={() => setPerformanceSubjects((rows) => [...rows, { subjectName: '', grade: '', struggle: '' }])}>
+                  <Plus size={14} /> Add Subject
+                </Button>
+              </div>
+
+              {performanceSubjects.map((row, index) => (
+                <div key={index} className="rounded-3xl border border-[var(--card-border)] bg-[var(--input)] p-3">
+                  <div className="grid gap-3 md:grid-cols-[1fr_150px_auto]">
+                    <div>
+                      <label className="text-[10px] font-black uppercase tracking-widest text-muted">Subject</label>
+                      <input
+                        list="performance-subject-options"
+                        value={row.subjectName}
+                        onChange={(event) => updatePerformanceSubject(index, { subjectName: event.target.value })}
+                        placeholder="Select or type subject"
+                        className="mt-1 h-11 w-full rounded-2xl bg-[var(--card)] px-3 text-sm font-bold outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black uppercase tracking-widest text-muted">Grade / mark</label>
+                      <input
+                        value={row.grade}
+                        onChange={(event) => updatePerformanceSubject(index, { grade: event.target.value })}
+                        placeholder="e.g. C+, 54%"
+                        className="mt-1 h-11 w-full rounded-2xl bg-[var(--card)] px-3 text-sm font-bold outline-none"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setPerformanceSubjects((rows) => rows.length > 1 ? rows.filter((_, rowIndex) => rowIndex !== index) : [{ subjectName: '', grade: '', struggle: '' }])}
+                      className="mt-5 flex h-11 w-11 items-center justify-center rounded-2xl text-rose-500 transition hover:bg-rose-500/10"
+                      aria-label="Remove subject"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                  <textarea
+                    value={row.struggle}
+                    onChange={(event) => updatePerformanceSubject(index, { struggle: event.target.value })}
+                    placeholder="Weaknesses noticed or reported, e.g. algebra word problems, careless mistakes, time management..."
+                    className="mt-3 min-h-[86px] w-full resize-none rounded-2xl bg-[var(--card)] p-3 text-sm font-medium leading-6 outline-none"
+                  />
+                </div>
+              ))}
+
+              <datalist id="performance-subject-options">
+                {performanceSubjectOptions.map((subject) => (
+                  <option key={subject.id} value={subject.name} />
+                ))}
+              </datalist>
+            </div>
+
+            <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <Button type="button" variant="secondary" onClick={() => setEditingPerformance(null)}>Cancel</Button>
+              <Button type="button" disabled={savingPerformance} onClick={savePerformance}>
+                {savingPerformance ? 'Saving...' : 'Save Performance'}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       <Modal isOpen={registerOpen} onClose={() => setRegisterOpen(false)} title="Register Students For Event" size="full">
         <div className="space-y-5">

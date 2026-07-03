@@ -115,12 +115,17 @@ export async function processPublicRegistration(formData: FormData) {
     const eventId = formData.get('event_id') as string
     const programmeSelected = String(formData.get('programme_selected') || '').trim()
     const preferredMode = String(formData.get('preferred_mode') || '').trim()
+    const resultsAvailable = String(formData.get('results_available') || 'yes').trim().toLowerCase() !== 'no'
     const overallGrade = String(formData.get('overall_grade') || '').trim()
     const hasStudentAccount = String(formData.get('has_student_account') || 'no').trim().toLowerCase() === 'yes'
     const subjectResults = JSON.parse(String(formData.get('subject_results') || '[]'))
 
-    if (!fullName || !parentName || !parentPhone || !schoolName || !curriculum || !classLevel || !eventId || !programmeSelected || !preferredMode || !overallGrade) {
+    if (!fullName || !parentName || !parentPhone || !schoolName || !curriculum || !classLevel || !eventId || !programmeSelected || !preferredMode) {
       return { success: false, error: 'Missing required fields' }
+    }
+
+    if (resultsAvailable && !overallGrade) {
+      return { success: false, error: 'Please add the overall grade or choose that results are not available now.' }
     }
 
     const cleanSubjectResults = Array.isArray(subjectResults)
@@ -133,7 +138,7 @@ export async function processPublicRegistration(formData: FormData) {
           }))
       : []
 
-    if (cleanSubjectResults.length === 0) {
+    if (resultsAvailable && cleanSubjectResults.length === 0) {
       return { success: false, error: 'Please add at least one subject result.' }
     }
 
@@ -180,10 +185,12 @@ export async function processPublicRegistration(formData: FormData) {
       `Programme: ${programmeSelected}`,
       `Class/Form/Grade: ${classLevel}`,
       `Curriculum: ${curriculum}`,
-      `Overall Grade: ${overallGrade}`,
+      `Overall Grade: ${resultsAvailable ? overallGrade : 'Not provided yet'}`,
       '',
       'Subject Performance:',
-      ...cleanSubjectResults.map((item: any) => `${item.subjectName}: ${item.grade} — ${item.struggle || 'No struggle provided'}`),
+      ...(cleanSubjectResults.length > 0
+        ? cleanSubjectResults.map((item: any) => `${item.subjectName}: ${item.grade || 'No grade provided'} — ${item.struggle || 'No struggle provided'}`)
+        : ['Not provided yet - learner will do a baseline assessment / onboarding update.']),
       '',
       `Parent Phone: ${parentPhone}`,
     ].join('\n')
@@ -290,23 +297,25 @@ export async function processPublicRegistration(formData: FormData) {
               role: 'student',
             })
 
-            const selectedSubjectNames = cleanSubjectResults.map((item: any) => item.subjectName)
-            const { data: selectedSubjects } = await adminClient
-              .from('subjects')
-              .select('id, name, class_id')
-              .in('name', selectedSubjectNames)
-              .eq('curriculum_id', curriculumRow.id)
+            const selectedSubjectNames = cleanSubjectResults.map((item: any) => item.subjectName).filter(Boolean)
+            if (selectedSubjectNames.length > 0) {
+              const { data: selectedSubjects } = await adminClient
+                .from('subjects')
+                .select('id, name, class_id')
+                .in('name', selectedSubjectNames)
+                .eq('curriculum_id', curriculumRow.id)
 
-            const subjectPayload = (selectedSubjects || [])
-              .filter((subject: any) => !subject.class_id || subject.class_id === classRow.id)
-              .map((subject: any) => ({
-                student_id: newStudent.id,
-                subject_id: subject.id,
-                class_id: classRow.id,
-              }))
+              const subjectPayload = (selectedSubjects || [])
+                .filter((subject: any) => !subject.class_id || subject.class_id === classRow.id)
+                .map((subject: any) => ({
+                  student_id: newStudent.id,
+                  subject_id: subject.id,
+                  class_id: classRow.id,
+                }))
 
-            if (subjectPayload.length > 0) {
-              await adminClient.from('student_subjects').upsert(subjectPayload, { onConflict: 'student_id,subject_id' })
+              if (subjectPayload.length > 0) {
+                await adminClient.from('student_subjects').upsert(subjectPayload, { onConflict: 'student_id,subject_id' })
+              }
             }
 
             const { data: batch } = await adminClient
@@ -329,7 +338,9 @@ export async function processPublicRegistration(formData: FormData) {
               admissionNumber: admissionNumber,
               email,
               password,
-              note: 'A new Peak student account was created and selected subjects were prefilled.',
+              note: selectedSubjectNames.length > 0
+                ? 'A new Peak student account was created and selected subjects were prefilled.'
+                : 'A new Peak student account was created. The learner can choose subjects during onboarding.',
             }
           }
         }
@@ -349,7 +360,7 @@ export async function processPublicRegistration(formData: FormData) {
       class_level: classLevel,
       programme_selected: programmeSelected,
       preferred_mode: preferredMode,
-      overall_grade: overallGrade,
+      overall_grade: resultsAvailable ? overallGrade : 'Not provided yet',
       subject_results: cleanSubjectResults,
       whatsapp_summary: whatsappSummary,
       notes: `Academic intake submitted for ${programmeSelected}`,
@@ -602,5 +613,108 @@ export async function adminRegisterEventStudents(input: { rows: AdminRegistratio
   } catch (error: any) {
     console.error('Admin event registration error:', error)
     return { success: false, error: error.message || 'Could not register students.' }
+  }
+}
+
+export async function updateEventRegistrationPerformance(input: {
+  registrationId: string
+  overallGrade?: string
+  subjectResults?: Array<{ subjectName?: string; grade?: string; struggle?: string }>
+}) {
+  try {
+    const adminClient = await createAdminClient()
+    const registrationId = String(input.registrationId || '').trim()
+    if (!registrationId) return { success: false, error: 'Missing registration.' }
+
+    const cleanSubjectResults = Array.isArray(input.subjectResults)
+      ? input.subjectResults
+          .filter((item) => String(item?.subjectName || '').trim())
+          .map((item) => ({
+            subjectName: String(item.subjectName || '').trim(),
+            grade: String(item.grade || '').trim(),
+            struggle: String(item.struggle || '').trim(),
+          }))
+      : []
+
+    const overallGrade = String(input.overallGrade || '').trim() || 'Not provided yet'
+
+    const { data: registration, error: fetchError } = await adminClient
+      .from('event_registrations')
+      .select('id, student_name, parent_phone, student_id, curriculum_label, class_level, programme_selected, preferred_mode, school_name')
+      .eq('id', registrationId)
+      .maybeSingle()
+
+    if (fetchError || !registration?.id) {
+      return { success: false, error: fetchError?.message || 'Registration not found.' }
+    }
+
+    const whatsappSummary = [
+      'Updated Programme Registration',
+      '',
+      `Student: ${registration.student_name || 'Not provided'}`,
+      `Programme: ${registration.programme_selected || 'Not provided'}`,
+      `Class/Form/Grade: ${registration.class_level || 'Not provided'}`,
+      `Curriculum: ${registration.curriculum_label || 'Not provided'}`,
+      `Overall Grade: ${overallGrade}`,
+      '',
+      'Subject Performance:',
+      ...(cleanSubjectResults.length > 0
+        ? cleanSubjectResults.map((item) => `${item.subjectName}: ${item.grade || 'No grade provided'} - ${item.struggle || 'No struggle provided'}`)
+        : ['Not provided yet - learner needs baseline assessment / onboarding update.']),
+      '',
+      `Parent Phone: ${registration.parent_phone || 'Not provided'}`,
+    ].join('\n')
+
+    const { error } = await adminClient
+      .from('event_registrations')
+      .update({
+        overall_grade: overallGrade,
+        subject_results: cleanSubjectResults,
+        whatsapp_summary: whatsappSummary,
+      })
+      .eq('id', registrationId)
+
+    if (error) return { success: false, error: error.message }
+
+    if (registration.student_id && cleanSubjectResults.length > 0) {
+      const { data: curriculumRow } = await adminClient
+        .from('curriculums')
+        .select('id')
+        .eq('name', registration.curriculum_label)
+        .maybeSingle()
+
+      const { data: classRow } = await adminClient
+        .from('classes')
+        .select('id')
+        .eq('name', registration.class_level)
+        .eq('curriculum_id', curriculumRow?.id || '00000000-0000-0000-0000-000000000000')
+        .maybeSingle()
+
+      if (curriculumRow?.id && classRow?.id) {
+        const selectedSubjectNames = cleanSubjectResults.map((item) => item.subjectName).filter(Boolean)
+        const { data: selectedSubjects } = await adminClient
+          .from('subjects')
+          .select('id, class_id')
+          .in('name', selectedSubjectNames)
+          .eq('curriculum_id', curriculumRow.id)
+
+        const subjectPayload = (selectedSubjects || [])
+          .filter((subject: any) => !subject.class_id || subject.class_id === classRow.id)
+          .map((subject: any) => ({
+            student_id: registration.student_id,
+            subject_id: subject.id,
+            class_id: classRow.id,
+          }))
+
+        if (subjectPayload.length > 0) {
+          await adminClient.from('student_subjects').upsert(subjectPayload, { onConflict: 'student_id,subject_id' })
+        }
+      }
+    }
+
+    return { success: true, message: 'Performance details updated.' }
+  } catch (error: any) {
+    console.error('updateEventRegistrationPerformance error:', error)
+    return { success: false, error: error.message || 'Could not update performance details.' }
   }
 }
