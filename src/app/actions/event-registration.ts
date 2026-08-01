@@ -254,7 +254,7 @@ export async function processPublicRegistration(formData: FormData) {
         }
 
         const password = generateTempPassword()
-        const email = `${admissionNumber.toLowerCase()}@peak.edu`
+        const email = `${admissionNumber.toLowerCase()}@student.peak.edu`
         const { data: authUser, error: authError } = await adminClient.auth.admin.createUser({
           email,
           password,
@@ -469,7 +469,7 @@ async function createOrLinkStudentForRegistration(adminClient: any, input: {
   }
 
   const password = generateTempPassword()
-  const email = `${admissionNumber.toLowerCase()}@peak.edu`
+  const email = `${admissionNumber.toLowerCase()}@student.peak.edu`
   const { data: authUser, error: authError } = await adminClient.auth.admin.createUser({
     email,
     password,

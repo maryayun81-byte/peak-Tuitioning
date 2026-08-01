@@ -14,6 +14,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import toast from 'react-hot-toast'
 import { formatDate, generateTempPassword } from '@/lib/utils'
+import { deleteTeacher as deleteTeacherAction } from '@/app/actions/admin-users'
 import type { Teacher, Class, Subject } from '@/types/database'
 
 const teacherSchema = z.object({
@@ -33,6 +34,7 @@ export default function AdminTeachers() {
   const [addOpen, setAddOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [teacherToDelete, setTeacherToDelete] = useState<any>(null)
+  const [deleting, setDeleting] = useState(false)
   const [creating, setCreating] = useState(false)
   const [curriculums, setCurriculums] = useState<any[]>([])
   const [classes, setClasses] = useState<Class[]>([])
@@ -220,15 +222,18 @@ export default function AdminTeachers() {
 
   const deleteTeacher = async () => {
     if (!teacherToDelete) return;
+    setDeleting(true);
     try {
-      const { error } = await supabase.from('teachers').delete().eq('id', teacherToDelete.id);
-      if (error) throw error;
-      toast.success('Teacher deleted successfully');
+      const result = await deleteTeacherAction(teacherToDelete.id);
+      if (!result.success) throw new Error(result.error || 'Failed to delete teacher');
+      toast.success(result.message || 'Teacher deleted successfully');
       setDeleteOpen(false);
       setTeacherToDelete(null);
       loadData();
     } catch (e: any) {
       toast.error(e.message || 'Failed to delete teacher');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -314,7 +319,7 @@ export default function AdminTeachers() {
             const curricula = [...new Set(mappings.map((m: any) => m.curriculum?.name).filter(Boolean))]
             const prefClasses = [...new Set(mappings.map((m: any) => m.class?.name).filter(Boolean))]
             const prefSubjects = [...new Set(mappings.map((m: any) => m.subject?.name).filter(Boolean))]
-            const assignedClasses = t.teacher_assignments?.map((a: any) => a.class?.name).filter(Boolean) ?? []
+            const assignedClasses = Array.from(new Set<string>((t.teacher_assignments?.map((a: any) => a.class?.name) || []).filter(Boolean) as string[]))
             const isClassTeacher = t.teacher_assignments?.some((a: any) => a.is_class_teacher) ?? false
 
             return (
@@ -368,7 +373,7 @@ export default function AdminTeachers() {
                       )}
                       {prefSubjects.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 opacity-80">
-                          {prefSubjects.slice(0, 3).map((s: string) => <Badge key={s} variant="info" className="border-none text-[10px]">{s}</Badge>)}
+                          {prefSubjects.slice(0, 3).map((s: string, si: number) => <Badge key={`${s}-${si}`} variant="info" className="border-none text-[10px]">{s}</Badge>)}
                           {prefSubjects.length > 3 && <Badge variant="muted" className="border-none text-[10px]">+{prefSubjects.length - 3}</Badge>}
                         </div>
                       )}
@@ -685,7 +690,7 @@ export default function AdminTeachers() {
                </p>
                <div className="flex gap-3 justify-end pt-2">
                  <Button variant="secondary" onClick={() => { setDeleteOpen(false); setTeacherToDelete(null); }}>Cancel</Button>
-                 <Button onClick={deleteTeacher} className="bg-red-500 hover:bg-red-600 text-white border-none shadow-xl shadow-red-500/20">
+                 <Button onClick={deleteTeacher} isLoading={deleting} className="bg-red-500 hover:bg-red-600 text-white border-none shadow-xl shadow-red-500/20">
                    Delete Teacher
                  </Button>
                </div>

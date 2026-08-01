@@ -18,6 +18,7 @@ import {
 } from '@/lib/utils'
 import type { Student, Class, Curriculum } from '@/types/database'
 import { createStudentUser } from '@/app/actions/student'
+import { deleteStudent as deleteStudentAction } from '@/app/actions/admin-users'
 
 const studentSchema = z.object({
   full_name: z.string().optional(),
@@ -238,8 +239,11 @@ export default function AdminStudents() {
             continue
           }
 
-          // Auth created — insert student record
-          const { error: insertError } = await supabase.from('students').insert({
+          // Auth created — insert/update student record.
+          // Upsert on user_id so a recovered auth user (one whose email was
+          // already registered) is linked idempotently instead of failing on
+          // the unique user_id constraint.
+          const { error: insertError } = await supabase.from('students').upsert({
             user_id: authProvision.user_id,
             full_name: name,
             class_id: data.class_id,
@@ -249,7 +253,7 @@ export default function AdminStudents() {
             temp_password: tempPwd,
             onboarded: false,
             created_by_admin: true,
-          })
+          }, { onConflict: 'user_id' })
 
           if (insertError) {
             console.error(`Bulk insert failed for ${name}:`, insertError)
@@ -344,8 +348,9 @@ export default function AdminStudents() {
           return
         }
 
-        // Auth user created — insert student record
-        const { error: insertError } = await supabase.from('students').insert({
+        // Auth user created — insert/update student record (upsert on user_id
+        // so a recovered auth user is linked idempotently).
+        const { error: insertError } = await supabase.from('students').upsert({
           user_id: authProvision.user_id,
           full_name: data.full_name,
           class_id: data.class_id,
@@ -355,7 +360,7 @@ export default function AdminStudents() {
           temp_password: tempPwd,
           onboarded: false,
           created_by_admin: true,
-        })
+        }, { onConflict: 'user_id' })
 
         if (insertError) {
           console.error('Student insert failed:', insertError)
@@ -427,11 +432,15 @@ export default function AdminStudents() {
 
   const deleteStudent = async () => {
     if (!selected) return
-    const { error } = await supabase.from('students').delete().eq('id', selected.id)
-    if (error) { toast.error('Delete failed'); return }
-    toast.success('Student removed')
-    loadData()
-    setSelected(null)
+    try {
+      const result = await deleteStudentAction(selected.id)
+      if (!result.success) throw new Error(result.error || 'Delete failed')
+      toast.success(result.message || 'Student removed')
+      loadData()
+      setSelected(null)
+    } catch (err: any) {
+      toast.error(err.message || 'Delete failed')
+    }
   }
 
   return (

@@ -11,6 +11,8 @@ import { Card, Badge } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { useAuthStore } from '@/stores/authStore'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
+import { isStudentFullyOnboarded } from '@/lib/onboarding'
+import { linkStudentAccountToUser } from '@/app/actions/student'
 import { Skeleton } from '@/components/ui/Skeleton'
 import toast from 'react-hot-toast'
 
@@ -28,7 +30,7 @@ const SUBMIT_TIMEOUT_MS = 15000
 export default function StudentOnboarding() {
   const supabase = getSupabaseBrowserClient()
   const router = useRouter()
-  const { profile, student, setStudent, isInitialRevalidationComplete } = useAuthStore()
+  const { profile, student, setStudent, setProfile, isInitialRevalidationComplete } = useAuthStore()
   
   const [step, setStep] = useState(1)
   const [selectedAvatar, setSelectedAvatar] = useState('')
@@ -40,14 +42,60 @@ export default function StudentOnboarding() {
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [onboardingSuccess, setOnboardingSuccess] = useState(false)
   const [meta, setMeta] = useState<any>(null)
+  const [isCheckingOnboarding, setIsCheckingOnboarding] = useState(true)
   const submitAbortRef = useRef<AbortController | null>(null)
+  const [linkState, setLinkState] = useState<'idle' | 'linking' | 'linked' | 'failed'>('idle')
 
-  // Block access if already onboarded
+  // Block access if already onboarded — only when BOTH flags are true.
+  // Use a loading state to prevent redirect loops during data loading.
   useEffect(() => {
-    if (student && student.onboarded === true) {
-      router.replace('/student')
+    if (!isInitialRevalidationComplete) {
+      setIsCheckingOnboarding(true)
+      return
     }
-  }, [student?.onboarded])
+
+    setIsCheckingOnboarding(false)
+
+    if (isStudentFullyOnboarded(student, profile)) {
+      console.log('[Onboarding] Student already onboarded (both flags true), redirecting to dashboard')
+      router.replace('/student')
+    } else {
+      console.log('[Onboarding] Student not fully onboarded:', {
+        studentOnboarded: student?.onboarded,
+        profileOnboarded: profile?.has_onboarded
+      })
+    }
+  }, [student?.onboarded, profile?.has_onboarded, isInitialRevalidationComplete])
+
+  // ── ORPHANED ACCOUNT HEALING ──────────────────────────────────────────────
+  // If the session says "student" but no `students` row is linked to this user
+  // (an auth account left behind by a failed pre-fix admin creation), try to
+  // claim an unclaimed students row for the admission number embedded in the
+  // email. If none exists, show a clear "contact admin" state instead of a
+  // dead-end page that silently 500s from layout actions.
+  useEffect(() => {
+    if (!isInitialRevalidationComplete) return
+    if (student?.id) return
+    if (!profile || profile.role !== 'student') return
+    if (linkState !== 'idle') return
+
+    setLinkState('linking')
+    linkStudentAccountToUser()
+      .then(async (res) => {
+        if (res?.linked) {
+          setLinkState('linked')
+          const { data: fresh } = await supabase
+            .from('students')
+            .select('*, class:classes(id, name), curriculum:curriculums(id, name)')
+            .eq('user_id', profile.id)
+            .maybeSingle()
+          if (fresh) setStudent({ ...fresh, onboarded: fresh.onboarded === true } as any)
+        } else {
+          setLinkState('failed')
+        }
+      })
+      .catch(() => setLinkState('failed'))
+  }, [isInitialRevalidationComplete, student?.id, profile?.id, profile?.role, linkState, setStudent, supabase])
 
   // ── PHASE-GATED SUBJECT FETCH ──────────────────────────────────────────────
   // Wait for isInitialRevalidationComplete before fetching so we always have
@@ -154,6 +202,21 @@ export default function StudentOnboarding() {
       if (updateError) throw updateError
       if (!updatedStudent) throw new Error('Could not confirm profile update. Please try again.')
 
+      // 2b. Keep the profile-level flag in agreement. The proxy/layouts only
+      // treat a student as onboarded when BOTH flags are true, so this write is
+      // required — a student who only sets students.onboarded would be sent back
+      // into onboarding (or worse, drift into a one-flag "onboarded" bypass).
+      if (!profile?.has_onboarded) {
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .update({ has_onboarded: true })
+          .eq('id', student.user_id)
+        if (profileError) {
+          console.warn('[Onboarding] profiles.has_onboarded update error:', profileError)
+        }
+        if (profile) setProfile({ ...profile, has_onboarded: true })
+      }
+
       // 3. Update avatar (optional — fire-and-forget, doesn't block onboarding)
       if (selectedAvatar) {
         const avatar = AVATARS.find(a => a.id === selectedAvatar)
@@ -217,9 +280,55 @@ export default function StudentOnboarding() {
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-[var(--bg)]">
       <div className="w-full max-w-xl">
-        <AnimatePresence mode="wait">
-          {/* ── Step 1: Welcome ── */}
-          {step === 1 && (
+        {/* Loading state while checking onboarding status */}
+        {isCheckingOnboarding && (
+          <div className="text-center space-y-6">
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-accent flex items-center justify-center mx-auto shadow-lg">
+              <Loader2 size={32} className="text-white animate-spin" />
+            </div>
+            <p className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>
+              Checking your onboarding status...
+            </p>
+          </div>
+        )}
+
+        {!isCheckingOnboarding && !student?.id && (
+          <div className="text-center space-y-6">
+            {linkState === 'linking' || linkState === 'linked' ? (
+              <div className="space-y-6">
+                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-accent flex items-center justify-center mx-auto shadow-lg">
+                  <Loader2 size={32} className="text-white animate-spin" />
+                </div>
+                <p className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>
+                  {linkState === 'linked' ? 'Account linked — preparing your space…' : 'Linking your account…'}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                <div className="w-20 h-20 rounded-3xl bg-primary/10 flex items-center justify-center mx-auto text-primary">
+                  <AlertCircle size={40} />
+                </div>
+                <div className="space-y-2">
+                  <h1 className="text-2xl font-black" style={{ color: 'var(--text)' }}>
+                    Almost there!
+                  </h1>
+                  <p className="text-sm px-4 leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                    Your sign-in worked, but your student profile hasn&apos;t been linked to a class yet.
+                    Please contact your tuition centre administrator to complete your registration.
+                  </p>
+                </div>
+                <Button variant="secondary" className="px-8 rounded-3xl" onClick={() => window.location.reload()}>
+                  Check again
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {!isCheckingOnboarding && student?.id && (
+          <AnimatePresence mode="wait">
+            {/* ── Step 1: Welcome ── */}
+            {step === 1 && (
             <motion.div key="s1" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 1.1 }} className="text-center space-y-8">
               <div className="relative">
                 <div className="w-32 h-32 rounded-[2.5rem] bg-gradient-to-br from-primary to-accent flex items-center justify-center mx-auto shadow-2xl shadow-primary/40 relative z-10">
@@ -348,6 +457,10 @@ export default function StudentOnboarding() {
                         .select('*, class:classes(*), curriculum:curriculums(*)')
                         .single()
                       if (error) throw error
+                      if (!profile?.has_onboarded) {
+                        await supabase.from('profiles').update({ has_onboarded: true }).eq('id', student!.user_id)
+                        if (profile) setProfile({ ...profile, has_onboarded: true })
+                      }
                       setStudent({ ...updatedStudent, onboarded: true } as any)
                       supabase.auth.updateUser({ data: { onboarded: true } }).catch(() => {})
                       toast.success('Welcome to Peak! 🚀')
@@ -400,9 +513,9 @@ export default function StudentOnboarding() {
               {subjects.length > 0 && (
                 <div className="flex gap-4">
                   <Button variant="secondary" className="flex-1 py-6 rounded-3xl" onClick={() => setStep(3)}>Back</Button>
-                  <Button 
-                    className="flex-[2] py-6 rounded-3xl" 
-                    isLoading={loading} 
+                  <Button
+                    className="flex-[2] py-6 rounded-3xl"
+                    isLoading={loading}
                     onClick={finish}
                     disabled={selectedSubjects.length === 0 || loading}
                   >
@@ -412,7 +525,8 @@ export default function StudentOnboarding() {
               )}
             </motion.div>
           )}
-        </AnimatePresence>
+          </AnimatePresence>
+        )}
       </div>
     </div>
   )

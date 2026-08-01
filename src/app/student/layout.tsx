@@ -20,6 +20,7 @@ import { useRealtimeNotifications } from '@/hooks/useRealtimeNotifications'
 import { LevelUpManager } from '@/components/student/gamification/LevelUpManager'
 import { QuickInfoModal } from '@/components/notifications/QuickInfoModal'
 import { calculateLevel } from '@/lib/gamification'
+import { isStudentFullyOnboarded } from '@/lib/onboarding'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { PageErrorBoundary } from '@/components/ui/PageErrorBoundary'
 import { SessionHeartbeat } from '@/components/shared/SessionHeartbeat'
@@ -86,28 +87,28 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
   if (profile) stickyProfile.current = profile
   if (student) stickyStudent.current = student
 
-  // Track if the student was ever confirmed as onboarded in this session.
-  // Once we see onboarded=true, we never redirect to /student/onboarding
-  // — even if a background re-fetch transiently returns a different value.
-  const wasEverConfirmedOnboarded = useRef(false)
-  const studentHasOnboarded = student?.onboarded === true || profile?.has_onboarded === true
-  if (studentHasOnboarded) wasEverConfirmedOnboarded.current = true
+  // A student is only fully onboarded when BOTH DB flags agree (profiles.has_onboarded
+  // AND students.onboarded). We evaluate this from the freshly revalidated store values
+  // — never from a sticky/latched ref — so a stale localStorage value cannot keep a
+  // non-onboarded student on the dashboard. The server proxy re-enforces this on every
+  // request, so this gate is UX plus a second line of defense.
+  const studentHasOnboarded = isStudentFullyOnboarded(student, profile)
 
   useEffect(() => {
     if (!isLoading && !profile) router.push('/auth/login?role=student')
     if (!isLoading && profile?.role && profile.role !== 'student') {
       router.push(`/${profile.role}`)
+      return
     }
 
     if (
       isInitialRevalidationComplete &&
       profile &&
       profile.role === 'student' &&
-      profile.has_onboarded !== true &&
-      !wasEverConfirmedOnboarded.current &&
-      pathname !== '/student/onboarding'
+      pathname !== '/student/onboarding' &&
+      !isStudentFullyOnboarded(student, profile)
     ) {
-      router.push('/student/onboarding')
+      router.replace('/student/onboarding')
     }
   }, [profile, student, isLoading, router, pathname, isInitialRevalidationComplete])
 
@@ -130,8 +131,8 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
             const newLevelInfo = calculateLevel(payload.new.xp)
             
             // Only update store if XP actually changed to avoid infinite loops
-            if (payload.new.xp !== student.xp) {
-              setStudent({ ...student, xp: payload.new.xp })
+            if (payload.new.xp !== student.xp || payload.new.streak_count !== student.streak_count) {
+              setStudent({ ...student, xp: payload.new.xp, streak_count: payload.new.streak_count })
             }
 
             if (newLevelInfo.level > oldLevel) {
@@ -208,14 +209,14 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
       <div className="min-h-screen transition-all" style={{ background: 'var(--bg)' }}>
         <SplashScreen storageKey="splash-student" role="student" />
         <Sidebar
-          items={wasEverConfirmedOnboarded.current ? NAV_ITEMS.map(withNavBadge) : NAV_ITEMS.filter(i => i.label === 'Settings')}
+          items={studentHasOnboarded ? NAV_ITEMS.map(withNavBadge) : NAV_ITEMS.filter(i => i.label === 'Settings')}
           bottomItems={[
             { label: 'Sign Out', href: '#', icon: <LogOut size={18} />, onClick: () => signOut() },
           ]}
           logo={LogoComponent}
           role="student"
         >
-          {wasEverConfirmedOnboarded.current && s && (
+          {studentHasOnboarded && s && (
             <div className="mt-6 mb-2 px-4 space-y-3">
               <div className="flex items-center justify-between text-xs font-black">
                 <span style={{ color: 'var(--text-muted)' }}>Level {level}</span>
@@ -287,7 +288,7 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
         </main>
 
         <BottomNav 
-          items={wasEverConfirmedOnboarded.current 
+          items={studentHasOnboarded 
             ? [
                 withNavBadge(NAV_ITEMS[0]),
                 withNavBadge(NAV_ITEMS[1]),
@@ -296,7 +297,7 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
               ]
             : NAV_ITEMS.filter(i => i.label === 'Settings')
           } 
-          moreItems={wasEverConfirmedOnboarded.current 
+          moreItems={studentHasOnboarded 
             ? [
                 ...NAV_ITEMS.filter(item => !['/student', '/student/assignments', '/student/schedule', '/student/messages'].includes(item.href)).map(withNavBadge),
                 { label: 'Sign Out', group: 'Account', href: '#', icon: <LogOut size={18} />, onClick: signOut }

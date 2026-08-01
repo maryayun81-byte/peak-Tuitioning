@@ -1517,7 +1517,7 @@ function getCbcVisualLearningEngine(type: CurriculumType, registeredSubjects: st
   const subjectList = registeredSubjects.join(', ') || 'CBC subjects'
   const mode = context === 'duel' ? 'DUEL' : 'BRAIN GYM'
 
-  const grade6 = grade <= 6 ? `
+  const grade6 = grade > 0 && grade <= 6 ? `
 GRADE 6 / KPSEA VISUAL STYLE:
 - Use friendly blackboard-style sketches, simple tables, labelled diagrams, picture clues, maps of familiar places, shopping/farm/home/school scenes and step-by-step visual reasoning.
 - Language must be short, concrete and confidence-building.
@@ -1538,10 +1538,18 @@ GRADE ${grade || '7-8'} / JUNIOR SECONDARY VISUAL STYLE:
 - Move from guided visual clues toward independent reasoning.
 ` : ''
 
+  const undetected = grade === 0 ? `
+UNDETECTED GRADE — USE THE LEARNER'S ACTUAL CLASS:
+- The learner's exact grade was not parsed from "${className || 'their class record'}".
+- Match the visual style, language and difficulty to the learner's registered subjects and the class/level in their profile.
+- Do NOT default to Grade 6/KPSEA primary content unless the profile actually says Grade 6.
+- Prefer the learner's registered class level: use intermediate junior-secondary style diagrams for Grade 7-9 and more mature academic visuals for secondary students.
+` : ''
+
   return `
 CBC VISUAL LEARNING ENGINE FOR ${mode}:
 Registered CBC subjects: ${subjectList}.
-${grade6}${junior}${grade9}
+${undetected}${grade6}${junior}${grade9}
 Rules:
 - In every CBC ${mode.toLowerCase()} session, every question should be visual, practical or data-rich; at least 4 must include diagrams, maps, tables, graphs, apparatus, scenes or visual evidence.
 - Every CBC question MUST include a "visualScene" object:
@@ -2727,7 +2735,13 @@ export async function generateBrainGymQuestions(
   context?: 'brain_gym' | 'duel',
   subjects?: string[],
   excludeFingerprints?: string[],
-  options?: { trainingMode?: BrainGymTrainingMode; selectedSetBook?: string }
+  options?: {
+    trainingMode?: BrainGymTrainingMode
+    selectedSetBook?: string
+    className?: string
+    classLevel?: number | null
+    curriculumName?: string
+  }
 ): Promise<BrainGymQuestion[]> {
   let curriculumName = 'Kenyan CBC / 8-4-4'
   let className = ''
@@ -2788,6 +2802,13 @@ export async function generateBrainGymQuestions(
       }
     }
 
+    if (options?.className || options?.classLevel != null || options?.curriculumName) {
+      if (options.className) className = options.className
+      if (options.classLevel != null) classLevel = options.classLevel
+      if (options.curriculumName) curriculumName = options.curriculumName
+      curriculumContext = `${className || 'Unknown class'} under ${curriculumName}`
+    }
+
     const curriculumType = detectCurriculumType(curriculumName, className)
     if (registeredSubjects.length === 0) {
       registeredSubjects = getFallbackSubjectsForLearner(curriculumType, className)
@@ -2797,9 +2818,7 @@ export async function generateBrainGymQuestions(
     }
     const adaptiveProfile = getBrainGymAdaptiveProfile(className, classLevel)
     const sessionSeed = `${Date.now()}-${Math.floor(Math.random() * 999983)}`
-    const difficultyMix = context === 'duel'
-      ? '2 easy, 4 medium, 4 hard'
-      : getDifficultyMix(adaptiveProfile)
+    const difficultyMix = getDifficultyMix(adaptiveProfile)
 
     if (options?.selectedSetBook && options.trainingMode === 'essay' && context !== 'duel') {
       return applyAdaptiveProfile(getModeSpecificFallbackQuestions('essay', options.selectedSetBook), adaptiveProfile)

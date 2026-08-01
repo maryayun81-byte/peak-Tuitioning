@@ -16,16 +16,18 @@ import { Button } from '@/components/ui/Button'
 import { Avatar } from '@/components/ui/Avatar'
 import { useAuthStore } from '@/stores/authStore'
 import { getStudentYouTubeSuggestions } from '@/app/actions/youtube'
-import { getStudentHomepageFeeds, getStudentNationalExam } from '@/app/actions/student'
+import { getStudentHomepageFeeds, getStudentNationalExam, claimDailyLoginReward } from '@/app/actions/student'
 import { generateDailyInsights } from '@/app/actions/ai'
 import { getReferralSummary } from '@/app/actions/referrals'
 import { getApprovedCreatorReel } from '@/app/actions/flashcards'
 import { calculateLevel } from '@/lib/gamification'
+import toast from 'react-hot-toast'
 import confetti from 'canvas-confetti'
 import Link from 'next/link'
 import { SeasonalBackground } from '@/components/seasonal/SeasonalBackground'
 import { MotivationMessage } from '@/components/seasonal/MotivationMessage'
 import { useSeason, getSeasonTheme, getCurrentSeason, getSeasonOverride, setSeasonOverride, getReducedMotion, setReducedMotion } from '@/lib/seasonal-theme'
+import { LiveLessonsWidget } from '@/components/live/LiveLessonsWidget'
 
 // ── DAILY INSIGHTS COMPONENT ───────────────────────────────────────────────
 function DailyInsightsCard({ insight, isCBC }: { insight: any, isCBC: boolean }) {
@@ -823,7 +825,7 @@ function PremiumStudentHome({ student, profile, data, isCBC }: { student: any, p
     ? level >= 8 ? 'Knowledge King 👑' : level >= 4 ? 'Learning Lion 🦁' : 'Curious Cub 🐻'
     : 'KCSE Warrior ⚔️'
 
-  const streakCount = isCBC ? Math.max(1, Math.floor(currentXP / 50)) : data.brainGymStreak
+  const streakCount = student?.streak_count || 0
 
   const [leaderboard, setLeaderboard] = useState<any[]>([])
   const classId = (student as any)?.class_id
@@ -1021,6 +1023,13 @@ function PremiumStudentHome({ student, profile, data, isCBC }: { student: any, p
         <div className="mt-4">
           <NationalExamCountdownCard exam={data.nationalExam} />
         </div>
+
+        {/* ── Live Lessons ─────────────────────────────────────── */}
+        {classId && (
+          <div className="mt-4">
+            <LiveLessonsWidget role="student" classId={classId} />
+          </div>
+        )}
 
         {/* ── Daily Quests ───────────────────────────────────── */}
         <motion.div
@@ -1928,7 +1937,7 @@ function inferNationalExamType(curriculumName: string, className: string) {
 }
 
 export default function StudentHomepageRouter() {
-  const { student, profile } = useAuthStore()
+  const { student, profile, setStudent } = useAuthStore()
   const [loading, setLoading] = useState(true)
   const [curriculumName, setCurriculumName] = useState<string>('CBC')
   const [data, setData] = useState<{ 
@@ -2018,12 +2027,25 @@ export default function StudentHomepageRouter() {
         .select('*', { count: 'exact', head: true })
         .eq('status', 'waiting')
         .eq('class_id', classId)
-      
-      const { data: gymData } = await supabase
-        .from('brain_gym_streaks')
-        .select('current_streak')
-        .eq('student_id', student.id)
-        .single()
+
+      // Daily login XP + streak (idempotent server-side: one award per day).
+      const loginReward = await safeLoad('daily login reward', claimDailyLoginReward(), null)
+      const reward = loginReward && loginReward.success ? loginReward : null
+      if (reward) {
+        if (reward.xpAwarded > 0) {
+          toast.success(
+            reward.bonusXp > 0
+              ? `Daily login +${reward.xpAwarded} XP! (${reward.baseXp} + ${reward.bonusXp} streak bonus) · ${reward.streak}-day streak 🔥`
+              : `Daily login +${reward.xpAwarded} XP! · ${reward.streak}-day streak 🔥`,
+            { duration: 5000 }
+          )
+          if (student) {
+            setStudent({ ...student, xp: (student.xp || 0) + reward.xpAwarded, streak_count: reward.streak } as any)
+          }
+        } else if (student && reward.streak !== student.streak_count) {
+          setStudent({ ...student, streak_count: reward.streak } as any)
+        }
+      }
 
       // Fetch or Generate Daily Insights
       let currName = curriculumName
@@ -2064,7 +2086,7 @@ export default function StudentHomepageRouter() {
       setData({
         youtubeVideos: vids || [],
         activeDuelsCount: duelsCount || 0,
-        brainGymStreak: gymData?.current_streak || 0,
+        brainGymStreak: useAuthStore.getState().student?.streak_count || student?.streak_count || 0,
         recentAssignments: feeds.recentAssignments,
         recentQuizzes: feeds.recentQuizzes,
         upcomingSessions: feeds.upcomingSessions,

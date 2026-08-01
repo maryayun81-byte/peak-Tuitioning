@@ -22,6 +22,7 @@ import { Card } from '@/components/ui/Card'
 import toast from 'react-hot-toast'
 import type { Curriculum, Subject, Class } from '@/types/database'
 import { cn } from '@/lib/utils'
+import { TEACHER_ONBOARDING_SKIPPED_KEY } from '@/lib/onboarding'
 
 type Step = 'welcome' | 'curriculum' | 'subjects' | 'mapping'
 
@@ -144,26 +145,66 @@ export default function TeacherOnboarding() {
     if (!profile) return
     setLoading(true)
     try {
-      // Mark profile as onboarded
+      // Mark the profile as having skipped onboarding — deliberately do NOT set
+      // has_onboarded. That way the teacher can use the portal but keeps getting
+      // reminders to finish their setup.
       const { error } = await supabase
         .from('profiles')
-        .update({ 
-          has_onboarded: true, 
-          onboarding_skipped: true 
-        })
+        .update({ onboarding_skipped: true })
         .eq('id', profile.id)
-      
+
       if (error) throw error
 
-      // Also mark the teacher row as onboarded so both tables are consistent
-      // This ensures the layout sticky-ref works correctly on next login
-      await supabase
+      // If the teacher row was created by an admin invite (user_id is NULL),
+      // claim it by email so terms checks + RLS can resolve this teacher.
+      // Do NOT mark the teacher row as onboarded.
+      let teacherRowId: string | null = null
+      const { data: existingRow } = await supabase
         .from('teachers')
-        .update({ onboarded: true })
+        .select('id')
         .eq('user_id', profile.id)
-      
-      setProfile({ ...profile, has_onboarded: true })
-      toast.success('Onboarding skipped. You can set up your profile later.')
+        .maybeSingle()
+      teacherRowId = existingRow?.id ?? null
+
+      if (!teacherRowId && profile.email) {
+        const { data: inviteRow } = await supabase
+          .from('teachers')
+          .select('id')
+          .eq('email', profile.email)
+          .is('user_id', null)
+          .maybeSingle()
+        if (inviteRow) {
+          const { data: claimedRow } = await supabase
+            .from('teachers')
+            .update({ user_id: profile.id })
+            .eq('id', inviteRow.id)
+            .select('id')
+            .single()
+          teacherRowId = claimedRow?.id ?? null
+          if (claimedRow) setTeacher({ ...claimedRow, onboarded: false } as any)
+        }
+      }
+
+      // Keep a local flag so the teacher layout does not force them back into
+      // onboarding — but still shows "complete onboarding" reminders.
+      try {
+        window.localStorage.setItem(TEACHER_ONBOARDING_SKIPPED_KEY, '1')
+      } catch { /* private mode */ }
+
+      setProfile({ ...profile, has_onboarded: false, onboarding_skipped: true })
+      toast((t) => (
+        <span className="flex items-center gap-3">
+          <span className="text-sm font-medium">
+            You skipped setup. Please complete your onboarding to unlock your full portal.
+          </span>
+          <button
+            onClick={() => { toast.dismiss(t.id); router.push('/teacher/onboarding') }}
+            className="shrink-0 rounded-lg bg-primary px-3 py-1.5 text-xs font-black text-white"
+          >
+            Complete onboarding
+          </button>
+        </span>
+      ), { id: 'teacher-onboarding-skip-reminder', icon: '⚠️', duration: 8000 })
       router.push('/teacher')
     } catch (err) {
       console.error('Skip failed:', err)
@@ -279,7 +320,7 @@ export default function TeacherOnboarding() {
       // 5. Mark profile as onboarded
       const { error: profError } = await supabase
         .from('profiles')
-        .update({ has_onboarded: true })
+        .update({ has_onboarded: true, onboarding_skipped: false })
         .eq('id', profile.id)
       
       if (profError) {
@@ -288,7 +329,11 @@ export default function TeacherOnboarding() {
         return
       }
 
-      setProfile({ ...profile, has_onboarded: true })
+      try {
+        window.localStorage.removeItem(TEACHER_ONBOARDING_SKIPPED_KEY)
+      } catch { /* private mode */ }
+
+      setProfile({ ...profile, has_onboarded: true, onboarding_skipped: false })
       toast.success('🎉 Onboarding complete! Welcome to Peak Tuitioning.')
       router.push('/teacher')
     } catch (err: any) {

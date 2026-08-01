@@ -35,39 +35,72 @@ export default function TeacherSettings() {
     cacheKey: ['teacher-details-settings', profile?.id || 'anon'],
     fetcher: async () => {
       if (!profile?.id) return { data: null, error: 'No profile' }
-      
-      try {
-        const { data, error } = await supabase
-          .from('teachers')
-        .select(`
-          *,
-          teacher_curricula(curriculum:curricula(name)),
-          teacher_assignments(
-            class:classes(id, name),
-            subject:subjects(name),
-            is_class_teacher
-          )
-        `)
-        .eq('user_id', profile.id)
-        .single()
-      
-      if (error) return { data: null, error: error.message }
-      if (!data) return { data: null, error: 'Teacher record not found' }
 
-      // Extract unique classes and curriculums
-      const classes = Array.from(new Set(data.teacher_assignments.map((ta: any) => JSON.stringify(ta.class)))).map((s:any) => JSON.parse(s))
-      const curricula = data.teacher_curricula.map((tc: any) => tc.curriculum?.name)
-      const classTeacherFor = data.teacher_assignments.find((ta: any) => ta.is_class_teacher)?.class
-      
-      return {
-        data: {
-          ...data,
-          uniqueClasses: classes,
-          curriculaList: curricula,
-          classTeacherFor
-        },
-        error: null
+      // NOTE: The old query referenced a `teacher_curricula` table that does not
+      // exist in the schema (it was `teacher_curriculum_prefs` / `teacher_teaching_map`),
+      // which made PostgREST reject the query and this page always show an error.
+      // Onboarding writes curriculum/subject/class preferences to `teacher_teaching_map`.
+      const selectFields = `
+        *,
+        teacher_assignments(
+          class:classes(id, name),
+          subject:subjects(name),
+          is_class_teacher
+        ),
+        teacher_teaching_map(
+          curriculum:curriculums(name),
+          subject:subjects(name),
+          class:classes(id, name)
+        )
+      `
+      const loadRow = async () => {
+        const { data } = await supabase
+          .from('teachers')
+          .select(selectFields)
+          .eq('user_id', profile.id)
+          .maybeSingle()
+        return data || null
       }
+
+      try {
+        let data = await loadRow()
+
+        // Admin-invited teachers may not have user_id claimed yet. Claim by
+        // email (same pattern as the layout) so settings still load.
+        if (!data && profile.email) {
+          const { data: invite } = await supabase
+            .from('teachers')
+            .select('id')
+            .eq('email', profile.email)
+            .is('user_id', null)
+            .maybeSingle()
+          if (invite) {
+            await supabase.from('teachers').update({ user_id: profile.id }).eq('id', invite.id)
+            data = await loadRow()
+          }
+        }
+
+        if (!data) return { data: null, error: 'Teacher record not found' }
+
+        // Merge classes from admin assignments + onboarding teaching map
+        const classes = Array.from(new Set([
+          ...(data.teacher_assignments || []).map((ta: any) => ta.class).filter(Boolean).map((c: any) => JSON.stringify(c)),
+          ...(data.teacher_teaching_map || []).map((tm: any) => tm.class).filter(Boolean).map((c: any) => JSON.stringify(c)),
+        ])).map((s: any) => JSON.parse(s))
+        const curricula = Array.from(new Set(
+          (data.teacher_teaching_map || []).map((tm: any) => tm.curriculum?.name).filter(Boolean)
+        ))
+        const classTeacherFor = (data.teacher_assignments || []).find((ta: any) => ta.is_class_teacher)?.class
+
+        return {
+          data: {
+            ...data,
+            uniqueClasses: classes,
+            curriculaList: curricula,
+            classTeacherFor
+          },
+          error: null
+        }
       } catch (err: any) {
         return { data: null, error: err.message }
       }

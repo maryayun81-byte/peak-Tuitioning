@@ -20,10 +20,10 @@ export interface SeasonTheme {
 
 export function getCurrentSeason(): Season {
   const month = new Date().getMonth()
-  if (month >= 11 || month <= 1) return 'summer'
-  if (month >= 2 && month <= 4) return 'autumn'
-  if (month >= 5 && month <= 7) return 'winter'
-  return 'spring'
+  if (month >= 5 && month <= 7) return 'summer'
+  if (month >= 2 && month <= 4) return 'spring'
+  if (month >= 8 && month <= 10) return 'autumn'
+  return 'winter'
 }
 
 const STORAGE_KEY = 'peak_season_override'

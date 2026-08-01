@@ -7,8 +7,9 @@ import {
   Users, TrendingUp, UserCheck, UserX, AlertCircle, Info,
   Download, Search, Calendar, ChevronDown, Filter,
   CheckCircle2, XCircle, Clock, Award, Activity, Eye,
-  ArrowRight, Layers, BookOpen, School, Zap
+  ArrowRight, Layers, BookOpen, School, Zap, PrinterCheck
 } from 'lucide-react'
+import AttendanceRegisterBuilder from '@/components/admin/AttendanceRegisterBuilder'
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, PieChart, Pie, Cell,
@@ -501,6 +502,9 @@ export default function AdminAttendancePage() {
       .filter(s => s.class_id === clsId && s.full_name.toLowerCase().includes(search.toLowerCase()))
   }, [students, selectedClassId, expandedClass, search])
 
+  // ── Register Builder ──
+  const [showRegisterBuilder, setShowRegisterBuilder] = useState(false)
+
   // ── PDF Export ──
   const [exporting, setExporting] = useState(false)
 
@@ -569,9 +573,18 @@ export default function AdminAttendancePage() {
             {attLoading && <span className="ml-2 animate-pulse">⏳</span>}
           </p>
         </div>
-        <Button variant="secondary" onClick={exportPdf} isLoading={exporting} className="self-start">
-          <Download size={15} /> Export PDF
-        </Button>
+        <div className="flex items-center gap-2 self-start">
+          <button
+            onClick={() => setShowRegisterBuilder(true)}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-sm text-white shadow-lg shadow-blue-900/20 transition-all hover:scale-[1.02] active:scale-100"
+            style={{ background: 'linear-gradient(135deg,#1B3A5C,#2563EB)' }}
+          >
+            <PrinterCheck size={15} /> Print Register
+          </button>
+          <Button variant="secondary" onClick={exportPdf} isLoading={exporting}>
+            <Download size={15} /> Export PDF
+          </Button>
+        </div>
       </div>
 
       {/* ── Filters ── */}
@@ -956,6 +969,18 @@ export default function AdminAttendancePage() {
         threshold={selectedEvent?.attendance_threshold ?? 80}
         className={classes.find(c => c.id === selectedStudent?.class_id)?.name}
       />
+
+      {/* ── Attendance Register Builder ── */}
+      <AnimatePresence>
+        {showRegisterBuilder && (
+          <AttendanceRegisterBuilder
+            events={events}
+            curriculums={curriculums}
+            classes={classes}
+            onClose={() => setShowRegisterBuilder(false)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   )
 }

@@ -158,7 +158,7 @@ export async function POST(req: NextRequest) {
         if (!existing) foundUniqueNum = true
       }
 
-      const email = `${admissionNumber.toLowerCase()}@peak.edu`
+      const email = `${admissionNumber.toLowerCase()}@student.peak.edu`
 
       // 1. Try to create Auth user
       const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
@@ -178,6 +178,16 @@ export async function POST(req: NextRequest) {
             userId = foundUser.id
             isNewAccount = false
             console.log(`Recovered existing Auth user for ${reg.student_name} (${email})`)
+            // Reset the password so the printed credentials actually work at
+            // login. Without this the recovered user keeps its OLD password and
+            // login fails with "Invalid login credentials".
+            const { error: resetError } = await supabase.auth.admin.updateUserById(foundUser.id, {
+              password,
+              email_confirm: true,
+            })
+            if (resetError) {
+              console.error(`Password reset failed for recovered user ${foundUser.id}:`, resetError)
+            }
           } else {
             console.error(`Auth creation failed and recovery failed for ${reg.student_name}:`, authError)
             continue
@@ -281,7 +291,7 @@ export async function POST(req: NextRequest) {
         body: results.created.map(s => [
           s.full_name,
           s.admission_number,
-          `${s.admission_number.toLowerCase()}@peak.edu`,
+          `${s.admissionNumber.toLowerCase()}@student.peak.edu`,
           s.plain_password
         ]),
         theme: 'grid',

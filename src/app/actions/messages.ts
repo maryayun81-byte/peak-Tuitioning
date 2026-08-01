@@ -152,7 +152,7 @@ Critical is reserved for sexual solicitation, credible threats, self-harm, or gr
   }
 }
 
-async function getActor(expectedUserId?: string) {
+async function getActor(expectedUserId?: string, options: { soft?: boolean } = {}) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   const userId = user?.id || expectedUserId
@@ -164,7 +164,14 @@ async function getActor(expectedUserId?: string) {
     admin.from('teachers').select('id, user_id, full_name').eq('user_id', userId).maybeSingle(),
   ])
 
-  if (!student && !teacher) throw new Error('Messaging profile not found')
+  // Soft mode: read-only actions (e.g. unread badge counts) must never crash the
+  // whole portal when the auth user has no student/teacher row yet (orphaned
+  // account awaiting admin re-link). Strict mode throws so write/context actions
+  // still fail loudly instead of silently operating without a profile.
+  if (!student && !teacher) {
+    if (options.soft) return { user: { id: userId }, admin, student: null, teacher: null, role: 'unknown' as const }
+    throw new Error('Messaging profile not found')
+  }
   return { user: { id: userId }, admin, student, teacher, role: student ? 'student' as const : 'teacher' as const }
 }
 
@@ -1010,7 +1017,9 @@ export async function generatePeakReply(conversationId: string) {
 }
 
 export async function getPeakUnreadCount(expectedUserId?: string) {
-  const actor = await getActor(expectedUserId)
+  const actor = await getActor(expectedUserId, { soft: true })
+  // No student/teacher profile for this user yet — nothing to count, not an error.
+  if (!actor.student && !actor.teacher) return 0
   const idColumn = actor.role === 'student' ? 'student_id' : 'teacher_id'
   const id = actor.role === 'student' ? actor.student!.id : actor.teacher!.id
   const readColumn = actor.role === 'student' ? 'student_last_read_at' : 'teacher_last_read_at'

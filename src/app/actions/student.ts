@@ -2,6 +2,23 @@
 
 import { createClient as createServerClient, createAdminClient } from '@/lib/supabase/server'
 import { requireAdmin } from '@/lib/auth-guards'
+import { isEmailAlreadyRegisteredError, deriveAdmissionFromStudentEmail } from '@/lib/student-account'
+import { todayIso, computeLoginStreak, loginRewardForStreak } from '@/lib/login-rewards'
+
+// Finds an auth user by email. listUsers() in this supabase-js version has no
+// server-side filter, so we paginate and match client-side (same pattern used
+// by the event-registration credential generator).
+async function findAuthUserByEmail(adminClient: any, email: string) {
+  const normalized = email.toLowerCase().trim()
+  for (let page = 1; page <= 20; page++) {
+    const { data, error } = await adminClient.auth.admin.listUsers({ page, perPage: 1000 })
+    if (error) return null
+    const user = (data.users || []).find((u: any) => u.email?.toLowerCase() === normalized)
+    if (user) return user
+    if ((data.users || []).length < 1000) break
+  }
+  return null
+}
 
 export async function createStudentUser(admissionNumber: string, emailStr: string, tempPwd: string, fullName: string) {
   await requireAdmin()
@@ -18,7 +35,37 @@ export async function createStudentUser(admissionNumber: string, emailStr: strin
   if (error) {
     console.error('[createStudentUser] admin.createUser failed:', error.message, error.code)
 
-    // 2. If the on_auth_user_created trigger is broken, use the RPC fallback
+    // 2. RECOVERY: The admission-derived email is already registered. This
+    // happens when a previous attempt left an orphaned auth user behind (auth
+    // created but the students row insert failed), or when the account was
+    // created through the event-registration flow. Reuse the existing user
+    // instead of failing the whole create.
+    if (isEmailAlreadyRegisteredError(error)) {
+      const existing = await findAuthUserByEmail(adminClient, emailStr)
+      if (existing) {
+        console.warn(`[createStudentUser] Reusing existing auth user for ${emailStr} (${existing.id})`)
+        // Reset the password to the temp password the admin is about to display,
+        // so the printed credentials actually work at login. Without this, the
+        // recovered user keeps its OLD password and login fails with
+        // "Invalid login credentials" despite correct credentials being shown.
+        const updates: { email?: string; password: string; email_confirm: boolean } = {
+          password: tempPwd,
+          email_confirm: true,
+        }
+        if (existing.email?.toLowerCase() !== emailStr.toLowerCase()) {
+          updates.email = emailStr
+        }
+        const { error: updateError } = await adminClient.auth.admin.updateUserById(existing.id, updates)
+        if (updateError) {
+          console.error('[createStudentUser] failed to reset recovered user password:', updateError.message)
+          return { success: false, error: updateError.message, code: (updateError as any).code }
+        }
+        return { success: true, user_id: existing.id, recovered: true }
+      }
+      return { success: false, error: error.message, code: (error as any).code }
+    }
+
+    // 3. If the on_auth_user_created trigger is broken, use the RPC fallback
     if (error.code === 'unexpected_failure') {
       const { data: rpcUserId, error: rpcError } = await adminClient.rpc('admin_create_user', {
         p_email: emailStr,
@@ -39,6 +86,143 @@ export async function createStudentUser(admissionNumber: string, emailStr: strin
   }
 
   return { success: true, user_id: data.user.id }
+}
+
+// Heals orphaned student accounts: an auth user whose email follows the
+// `{admission}@student.peak.edu` convention but who has no linked `students` row.
+// If an UNCLAIMED students row (user_id IS NULL) exists for that admission number,
+// claim it by linking it to the current session user. Students whose record is
+// missing entirely must be re-created by an admin (which is idempotent now).
+export async function linkStudentAccountToUser() {
+  const supabase = await createServerClient()
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  if (authError || !user) return { success: false, linked: false, reason: 'not_authenticated' }
+
+  const role = user.app_metadata?.role || user.user_metadata?.role
+  if (role !== 'student') return { success: false, linked: false, reason: 'not_student' }
+
+  const admissionNumber = deriveAdmissionFromStudentEmail(user.email)
+  if (!admissionNumber) return { success: false, linked: false, reason: 'no_admission_email' }
+
+  const admin = await createAdminClient()
+
+  const { data: own } = await admin.from('students').select('id').eq('user_id', user.id).maybeSingle()
+  if (own) return { success: true, linked: true, alreadyLinked: true }
+
+  const { data: unclaimedRows } = await admin
+    .from('students')
+    .select('id')
+    .eq('admission_number', admissionNumber)
+    .is('user_id', null)
+    .limit(1)
+  const unclaimed = unclaimedRows?.[0]
+  if (!unclaimed) return { success: false, linked: false, reason: 'no_unclaimed_profile' }
+
+  const { error: linkError } = await admin
+    .from('students')
+    .update({ user_id: user.id })
+    .eq('id', unclaimed.id)
+    .is('user_id', null)
+
+  if (linkError) return { success: false, linked: false, reason: 'link_failed', error: linkError.message }
+
+  return { success: true, linked: true }
+}
+
+// Daily login reward: awards +10 XP (plus a milestone streak bonus) once per day
+// and advances the login streak. Idempotent per day and safe under concurrent
+// requests: the UPDATE is guarded on the previously-read last_login_date, so a
+// second claim loses the race and reports alreadyClaimed instead of double-awarding.
+export type DailyLoginRewardResult =
+  | { success: false; reason: string; error?: string }
+  | {
+      success: true
+      alreadyClaimed: true
+      xpAwarded: 0
+      baseXp: 0
+      bonusXp: 0
+      streak: number
+      tier: null
+    }
+  | {
+      success: true
+      alreadyClaimed: false
+      xpAwarded: number
+      baseXp: number
+      bonusXp: number
+      streak: number
+      tier: number | null
+    }
+
+export async function claimDailyLoginReward(): Promise<DailyLoginRewardResult> {
+  const supabase = await createServerClient()
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  if (authError || !user) return { success: false, reason: 'not_authenticated' }
+
+  const admin = await createAdminClient()
+  const { data: student } = await admin
+    .from('students')
+    .select('id, xp, streak_count, last_login_date')
+    .eq('user_id', user.id)
+    .maybeSingle()
+
+  if (!student) return { success: false, reason: 'no_student_profile' }
+
+  const today = todayIso()
+  const priorLastLoginDate = student.last_login_date || null
+  const priorStreak = student.streak_count || 0
+
+  if (priorLastLoginDate === today) {
+    return {
+      success: true,
+      alreadyClaimed: true,
+      xpAwarded: 0,
+      baseXp: 0,
+      bonusXp: 0,
+      streak: priorStreak,
+      tier: null,
+    }
+  }
+
+  const streak = computeLoginStreak(priorLastLoginDate, priorStreak, today)
+  const reward = loginRewardForStreak(streak)
+
+  const { data: updated, error } = await admin
+    .from('students')
+    .update({
+      xp: (student.xp || 0) + reward.total,
+      last_login_xp_at: today,
+      last_login_date: today,
+      streak_count: streak,
+    })
+    .eq('id', student.id)
+    .eq('last_login_date', priorLastLoginDate)
+    .select('xp, streak_count, last_login_date')
+    .maybeSingle()
+
+  if (error) return { success: false, reason: 'db_error', error: error.message }
+  if (!updated) {
+    // Another request already claimed today (concurrent tab/mount).
+    return {
+      success: true,
+      alreadyClaimed: true,
+      xpAwarded: 0,
+      baseXp: 0,
+      bonusXp: 0,
+      streak: priorStreak,
+      tier: null,
+    }
+  }
+
+  return {
+    success: true,
+    alreadyClaimed: false,
+    xpAwarded: reward.total,
+    baseXp: reward.base,
+    bonusXp: reward.bonus,
+    streak,
+    tier: reward.tier,
+  }
 }
 
 export async function updateOwnPassword(newPassword: string) {

@@ -150,73 +150,80 @@ export async function createLiveSession(input: CreateSessionInput) {
  * This should ideally be called by a cron job or background worker.
  */
 export async function dispatchLiveSessionReminders() {
-  const supabase = await createClient()
-  const now = new Date()
-  
-  // Define reminder phases
-  const phases = [
-    { label: '10 minutes', mins: 10, type: 'live_reminder_10m' },
-    { label: '5 minutes', mins: 5, type: 'live_reminder_5m' },
-    { label: '2 minutes', mins: 2, type: 'live_reminder_2m' }
-  ]
+  try {
+    const supabase = await createClient()
+    const now = new Date()
 
-  let totalNotifs = 0
+    // Define reminder phases
+    const phases = [
+      { label: '10 minutes', mins: 10, type: 'live_reminder_10m' },
+      { label: '5 minutes', mins: 5, type: 'live_reminder_5m' },
+      { label: '2 minutes', mins: 2, type: 'live_reminder_2m' }
+    ]
 
-  for (const phase of phases) {
-    const targetTime = new Date(now.getTime() + phase.mins * 60000)
-    const windowStart = new Date(targetTime.getTime() - 30000).toISOString() // 30 sec window
-    const windowEnd = new Date(targetTime.getTime() + 30000).toISOString()
+    let totalNotifs = 0
 
-    const { data: sessions } = await supabase
-      .from('live_sessions')
-      .select('*, class_id, tuition_center_id')
-      .eq('status', 'scheduled')
-      .lte('scheduled_at', windowEnd)
-      .gte('scheduled_at', windowStart)
+    for (const phase of phases) {
+      const targetTime = new Date(now.getTime() + phase.mins * 60000)
+      const windowStart = new Date(targetTime.getTime() - 30000).toISOString() // 30 sec window
+      const windowEnd = new Date(targetTime.getTime() + 30000).toISOString()
 
-    if (sessions && sessions.length > 0) {
-      for (const session of sessions) {
-        // IDEMPOTENCY CHECK: Check if we already sent this phase reminder for this session
-        const { data: existing } = await supabase
-          .from('notifications')
-          .select('id')
-          .contains('data', { session_id: session.id, type: phase.type })
-          .limit(1)
+      const { data: sessions } = await supabase
+        .from('live_sessions')
+        .select('*, class_id, tuition_center_id')
+        .eq('status', 'scheduled')
+        .lte('scheduled_at', windowEnd)
+        .gte('scheduled_at', windowStart)
 
-        if (existing && existing.length > 0) continue // Skip if already sent
+      if (sessions && sessions.length > 0) {
+        for (const session of sessions) {
+          // IDEMPOTENCY CHECK: Check if we already sent this phase reminder for this session
+          const { data: existing } = await supabase
+            .from('notifications')
+            .select('id')
+            .contains('data', { session_id: session.id, type: phase.type })
+            .limit(1)
 
-        // Fetch students
-        const { data: students } = await supabase
-          .from('students')
-          .select('user_id')
-          .eq('class_id', session.class_id)
-          .eq('tuition_center_id', session.tuition_center_id)
+          if (existing && existing.length > 0) continue // Skip if already sent
 
-        if (students && students.length > 0) {
-          const reminders = students.map(s => ({
-            user_id: s.user_id,
-            title: `Session Starts in ${phase.label}! ⚡`,
-            body: `Your session "${session.title}" is about to begin. Join the Live Campus now!`,
-            type: 'alert',
-            data: { session_id: session.id, type: phase.type, href: '/student/live' }
-          }))
+          // Fetch students
+          const { data: students } = await supabase
+            .from('students')
+            .select('user_id')
+            .eq('class_id', session.class_id)
+            .eq('tuition_center_id', session.tuition_center_id)
 
-          await supabase.from('notifications').insert(reminders)
-          const userIds = students.map(s => s.user_id).filter(Boolean) as string[]
-          const { sendPushNotification } = await import('./push')
-          await sendPushNotification(userIds, {
-            title: `Session Starts in ${phase.label}! ⚡`,
-            body: `Your session "${session.title}" is about to begin. Join the Live Campus now!`,
-            href: '/student/live',
-            tag: `live-session-${phase.type}`,
-          })
-          totalNotifs += reminders.length
+          if (students && students.length > 0) {
+            const reminders = students.map(s => ({
+              user_id: s.user_id,
+              title: `Session Starts in ${phase.label}! ⚡`,
+              body: `Your session "${session.title}" is about to begin. Join the Live Campus now!`,
+              type: 'alert',
+              data: { session_id: session.id, type: phase.type, href: '/student/live' }
+            }))
+
+            await supabase.from('notifications').insert(reminders)
+            const userIds = students.map(s => s.user_id).filter(Boolean) as string[]
+            const { sendPushNotification } = await import('./push')
+            await sendPushNotification(userIds, {
+              title: `Session Starts in ${phase.label}! ⚡`,
+              body: `Your session "${session.title}" is about to begin. Join the Live Campus now!`,
+              href: '/student/live',
+              tag: `live-session-${phase.type}`,
+            })
+            totalNotifs += reminders.length
+          }
         }
       }
     }
-  }
 
-  return { success: true, count: totalNotifs }
+    return { success: true, count: totalNotifs }
+  } catch (error: any) {
+    // Fire-and-forget heartbeat (SessionHeartbeat runs it on every student page).
+    // A transient failure must never surface as an unhandled 500 to the client.
+    console.error('[dispatchLiveSessionReminders] failed:', error?.message || error)
+    return { success: false, count: 0 }
+  }
 }
 
 export async function updateOutcomeStatus(outcomeId: string, isCompleted: boolean) {

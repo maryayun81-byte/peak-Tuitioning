@@ -22,6 +22,7 @@ import { TuitionEventBanner } from '@/components/dashboard/TuitionEventBanner'
 import { TimetableWidget } from '@/components/dashboard/TimetableWidget'
 import Link from 'next/link'
 import { ClassPulse, ClassInterventionPanel } from '@/components/teacher/ClassHub'
+import { LiveLessonsWidget } from '@/components/live/LiveLessonsWidget'
 
 import { usePageData } from '@/hooks/usePageData'
 import { ShimmerSkeleton } from '@/components/ui/ShimmerSkeleton'
@@ -242,6 +243,11 @@ export default function TeacherDashboard() {
         <TuitionEventBanner />
         <ExamEventBanner />
       </div>
+
+      {/* Live Lessons */}
+      {teacher?.id && (
+        <LiveLessonsWidget role="teacher" teacherId={teacher.id} />
+      )}
 
       {/* Command Center */}
       <motion.div 

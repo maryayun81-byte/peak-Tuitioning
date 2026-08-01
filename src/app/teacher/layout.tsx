@@ -25,6 +25,8 @@ import { PushNotificationSetup } from '@/components/PushNotificationSetup'
 
 import { useNotificationStore } from '@/stores/notificationStore'
 import { useRealtimeNotifications } from '@/hooks/useRealtimeNotifications'
+import { hasSkippedTeacherOnboarding } from '@/lib/onboarding'
+import toast from 'react-hot-toast'
 
 const NAV_ITEMS = [
   { label: 'Dashboard', href: '/teacher', icon: <LayoutDashboard size={18} /> },
@@ -75,34 +77,98 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
   // or transient store updates from re-triggering the onboarding redirect mid-session.
   const wasEverConfirmedOnboarded = useRef(false)
   const onboardingGateCheckRef = useRef(false)
+  const reminderShownForPathRef = useRef('')
   const teacherHasOnboarded = teacher?.onboarded === true || profile?.has_onboarded === true
   if (teacherHasOnboarded) wasEverConfirmedOnboarded.current = true
 
+  // A teacher who clicked "Skip setup" still has has_onboarded === false, but we
+  // must NOT force them back into onboarding. Instead we show repeated reminder
+  // toasts + a "Complete Onboarding" nav item until they finish.
+  const skippedOnboarding = hasSkippedTeacherOnboarding(profile)
+
   const [pendingTerm, setPendingTerm] = useState<any>(null)
-  // Only check terms once per session — not on every layout mount
+  // Only check terms once per session — after fresh DB data has loaded.
+  // We do NOT lock the ref until the check actually completes so that transient
+  // failures (e.g. network, stale persisted teacher.id) can be retried.
   const termsCheckedRef = useRef(false)
 
   useEffect(() => {
-    if (teacher?.id && !termsCheckedRef.current) {
+    // Wait for the full revalidation cycle to complete so we use the freshly
+    // fetched teacher row (with the correct DB id) rather than the stale
+    // localStorage snapshot that Zustand rehydrates on first render.
+    if (isInitialRevalidationComplete && profile?.id && !termsCheckedRef.current) {
       termsCheckedRef.current = true
-      checkTerms()
+      resolveTeacherIdentity().then(async (teacherIds) => {
+        if (teacherIds.length === 0) {
+          console.log('[Teacher Layout] No teacher identity available, will retry')
+          termsCheckedRef.current = false // allow retry once a teacher links up
+          return
+        }
+        await checkTerms(teacherIds)
+      })
     }
-  }, [teacher?.id])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isInitialRevalidationComplete, profile?.id, teacher?.id])
 
-  const checkTerms = async () => {
+  // Resolve the teacher identity for the terms check. Fall back to claiming an
+  // admin-invited teacher row by email (user_id is NULL until claimed) so that
+  // teachers who never completed the link step still see their terms modal.
+  const resolveTeacherIdentity = async (): Promise<string[]> => {
+    if (teacher?.id) {
+      return (teacher as any)?.linked_teacher_ids ?? [teacher.id]
+    }
+    if (!profile?.id || !profile?.email) return []
+
+    const supabase = getSupabaseBrowserClient()
+    const { data: inviteRow } = await supabase
+      .from('teachers')
+      .select('id, user_id, email')
+      .eq('email', profile.email)
+      .is('user_id', null)
+      .maybeSingle()
+
+    if (!inviteRow) return []
+
+    const { data: updatedRow, error: updateErr } = await supabase
+      .from('teachers')
+      .update({ user_id: profile.id })
+      .eq('id', inviteRow.id)
+      .select()
+      .single()
+
+    if (updateErr || !updatedRow) return []
+
+    console.log('[Teacher Layout] Claimed invited teacher record by email:', updatedRow.id)
+    setTeacher({ ...updatedRow, linked_teacher_ids: [updatedRow.id] } as any)
+    return [updatedRow.id]
+  }
+
+  const checkTerms = async (teacherIds: string[]) => {
     const supabase = getSupabaseBrowserClient()
     try {
-      const { data } = await supabase
+      console.log('[Teacher Layout] Checking terms for teacher IDs:', teacherIds)
+
+      const { data, error } = await supabase
         .from('document_assignments')
         .select('*, document:documents(title, content, version)')
-        .eq('teacher_id', teacher!.id)
+        .in('teacher_id', teacherIds)
         .eq('status', 'pending')
         .order('assigned_at', { ascending: false })
         .limit(1)
         .maybeSingle()
+
+      if (error) {
+        console.error('[Teacher Layout] Terms check failed:', error)
+        termsCheckedRef.current = false // allow retry on error
+        return
+      }
+
+      console.log('[Teacher Layout] Terms check result:', data ? 'Found pending term' : 'No pending terms')
       if (data) setPendingTerm(data)
     } catch (err) {
-      console.warn('[TeacherLayout] checkTerms failed silently:', err)
+      console.error('[Teacher Layout] Terms check error:', err)
+      // Reset the ref so that a future re-render can retry the check
+      termsCheckedRef.current = false
     }
   }
 
@@ -178,6 +244,9 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
       !wasEverConfirmedOnboarded.current &&
       pathname !== '/teacher/onboarding'
     ) {
+      // The teacher deliberately skipped onboarding — let them in and rely on
+      // the reminder toasts + nav item instead of hard-redirecting.
+      if (skippedOnboarding) return
       if (onboardingGateCheckRef.current) return
       onboardingGateCheckRef.current = true
       rescueAlreadyOnboardedTeacher().then((rescued) => {
@@ -186,7 +255,31 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
         onboardingGateCheckRef.current = false
       })
     }
-  }, [profile, teacher, isLoading, router, pathname, isInitialRevalidationComplete])
+  }, [profile, teacher, isLoading, router, pathname, isInitialRevalidationComplete, skippedOnboarding])
+
+  // Repeated "complete onboarding" reminder for teachers who skipped setup.
+  // Fires once per navigation so it nags until they finish without spamming.
+  useEffect(() => {
+    if (!profile || profile.role !== 'teacher') return
+    if (profile.has_onboarded === true || wasEverConfirmedOnboarded.current) return
+    if (pathname === '/teacher/onboarding') return
+    if (!skippedOnboarding) return
+    if (reminderShownForPathRef.current === pathname) return
+    reminderShownForPathRef.current = pathname
+    toast((t) => (
+      <span className="flex items-center gap-3">
+        <span className="text-sm font-medium">
+          You skipped onboarding — please complete it to unlock your full portal.
+        </span>
+        <button
+          onClick={() => { toast.dismiss(t.id); router.push('/teacher/onboarding') }}
+          className="shrink-0 rounded-lg bg-primary px-3 py-1.5 text-xs font-black text-white"
+        >
+          Complete onboarding
+        </button>
+      </span>
+    ), { id: 'teacher-onboarding-reminder', icon: '⚠️', duration: 8000 })
+  }, [pathname, profile, skippedOnboarding, router])
 
 
   // Only block the UI if we are truly loading the first time (no persisted profile)
@@ -217,7 +310,10 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
       <div className={`min-h-screen transition-all ${pendingTerm ? 'blur-md pointer-events-none' : ''}`} style={{ background: 'var(--bg)' }}>
         <SplashScreen storageKey="splash-teacher" role="teacher" />
       <Sidebar
-        items={wasEverConfirmedOnboarded.current ? NAV_ITEMS.filter(item => item.label !== 'Attendance' || teacher?.is_class_teacher).map(item => item.href === '/teacher/messages' ? { ...item, badge: messageUnreadCount } : item) : NAV_ITEMS.filter(i => i.label === 'Settings')}
+        items={wasEverConfirmedOnboarded.current ? NAV_ITEMS.filter(item => item.label !== 'Attendance' || teacher?.is_class_teacher).map(item => item.href === '/teacher/messages' ? { ...item, badge: messageUnreadCount } : item) : [
+          ...(skippedOnboarding ? [{ label: 'Complete Onboarding', href: '/teacher/onboarding', icon: <GraduationCap size={18} className="text-amber-400" /> }] : []),
+          ...NAV_ITEMS.filter(i => i.label === 'Settings')
+        ]}
         bottomItems={[
           { label: 'Sign Out', href: '#', icon: <LogOut size={18} />, onClick: () => signOut() },
         ]}
@@ -277,7 +373,10 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
       <BottomNav 
         items={wasEverConfirmedOnboarded.current 
           ? NAV_ITEMS.filter(item => item.label !== 'Attendance' || teacher?.is_class_teacher).map(item => item.href === '/teacher/messages' ? { ...item, badge: messageUnreadCount } : item).slice(0, 4)
-          : NAV_ITEMS.filter(i => i.label === 'Settings')
+          : [
+              ...(skippedOnboarding ? [{ label: 'Onboarding', href: '/teacher/onboarding', icon: <GraduationCap size={18} /> }] : []),
+              ...NAV_ITEMS.filter(i => i.label === 'Settings')
+            ]
         } 
         moreItems={wasEverConfirmedOnboarded.current 
           ? [

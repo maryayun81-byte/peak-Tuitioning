@@ -5,7 +5,7 @@ import { generateBrainGymQuestions, recordPeakCoachMasterySignals } from './brai
 import { getFallbackQuestions, questionFingerprint } from '@/lib/brainGymUtils'
 import { revalidatePath } from 'next/cache'
 import { sendPushNotification } from './push'
-import { adaptDuelQuestions, getAdaptiveDuelProfile, getAdaptivePowerUps, getAdaptiveTime } from '@/lib/duels/adaptiveProfile'
+import { adaptDuelQuestions, getAdaptiveDuelProfile, getAdaptivePowerUps, getAdaptiveTime, getDuelGradeBand } from '@/lib/duels/adaptiveProfile'
 import { attachDuelEngagement, getCurrentDuelSeason, getTerritoryPointAward, getXpWithTerritoryBonus } from '@/lib/duels/engagement'
 import type {
   Duel, DuelType, DuelParticipantWithStudent, Difficulty, CoachDifficulty,
@@ -24,13 +24,8 @@ function shuffle<T>(arr: T[]): T[] {
   return a
 }
 
-function getQuestionCountForType(type: DuelType, difficulty?: string): number {
-  if (type === 'quick' || type === 'friend') return 10
+function getQuestionCountForType(type: DuelType): number {
   if (type === 'daily') return 5
-  if (type === 'coach') return difficulty === 'legend' ? 20 : difficulty === 'master' ? 15 : 10
-  if (type === 'boss') return 15
-  if (type === 'tournament') return 12
-  if (type === 'weekly') return 15
   return 10
 }
 
@@ -166,6 +161,7 @@ async function getDuelLearnerContext(studentId: string) {
   let subjects: string[] = []
   let className = ''
   let curriculumName = ''
+  let classLevel: number | null = null
 
   try {
     const { data: subjectRows } = await supabase
@@ -186,6 +182,7 @@ async function getDuelLearnerContext(studentId: string) {
       .single()
 
     className = (student as any)?.class?.name || ''
+    classLevel = (student as any)?.class?.level ?? null
     curriculumName = (student as any)?.curriculum?.name || ''
   } catch {}
 
@@ -199,7 +196,7 @@ async function getDuelLearnerContext(studentId: string) {
       : ['Mathematics-CBC', 'English-CBC', 'Kiswahili-CBC', 'Integrated Science', 'Social Studies', 'Pre-Technical Studies', 'Agriculture & Nutrition']
   }
 
-  return { subjects, isCbc }
+  return { subjects, isCbc, className, curriculumName, classLevel }
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -255,28 +252,90 @@ async function getDuelQuestionSet(studentId: string, count: number) {
   const learnerContext = await getDuelLearnerContext(studentId)
   const subjects = learnerContext.subjects.length > 0 ? learnerContext.subjects : undefined
   const options = learnerContext.isCbc
-    ? { trainingMode: 'cbc_visual_duel' as any }
-    : undefined
+    ? {
+        trainingMode: 'cbc_visual_duel' as any,
+        className: learnerContext.className || undefined,
+        classLevel: learnerContext.classLevel,
+        curriculumName: learnerContext.curriculumName || undefined,
+      }
+    : {
+        className: learnerContext.className || undefined,
+        classLevel: learnerContext.classLevel,
+        curriculumName: learnerContext.curriculumName || undefined,
+      }
+
+  const seen = new Set<string>()
+  const markSeen = (q: any) => {
+    const fp = q?.fingerprint || questionFingerprint(q?.question || '')
+    if (fp) seen.add(fp)
+  }
+  const recentFingerprints = await getRecentDuelFingerprints(studentId)
+  recentFingerprints.forEach(fp => seen.add(fp))
 
   try {
-    const primary = await withTimeout(generateBrainGymQuestions(studentId, 'duel', subjects, undefined, options), 18000, 'Duel question generation')
-    questions = filterDuelQuestionsForLearner(primary, learnerContext.subjects, learnerContext.isCbc)
+    const primary = await withTimeout(generateBrainGymQuestions(studentId, 'duel', subjects, recentFingerprints, options), 18000, 'Duel question generation')
+    const filtered = filterDuelQuestionsForLearner(primary, learnerContext.subjects, learnerContext.isCbc).filter(q => {
+      const fp = q?.fingerprint || questionFingerprint(q?.question || '')
+      return !fp || !seen.has(fp)
+    })
+    filtered.forEach(markSeen)
+    questions = filtered
   } catch (error: any) {
     console.error('[Duels] Using fallback questions:', error?.message)
-    questions = getFallbackDuelQuestions(count, learnerContext.subjects, learnerContext.isCbc)
+    questions = getFallbackDuelQuestions(count, learnerContext.subjects, learnerContext.isCbc).filter(q => {
+      const fp = q?.fingerprint || questionFingerprint(q?.question || '')
+      return !fp || !seen.has(fp)
+    })
+    questions.forEach(markSeen)
   }
 
   if (questions.length < count) {
     try {
-      const refill = await withTimeout(generateBrainGymQuestions(studentId, 'duel', subjects, undefined, options), 12000, 'Duel refill generation')
-      questions = [...questions, ...filterDuelQuestionsForLearner(refill, learnerContext.subjects, learnerContext.isCbc)]
+      const refill = await withTimeout(generateBrainGymQuestions(studentId, 'duel', subjects, Array.from(seen), options), 12000, 'Duel refill generation')
+      const filtered = filterDuelQuestionsForLearner(refill, learnerContext.subjects, learnerContext.isCbc).filter(q => {
+        const fp = q?.fingerprint || questionFingerprint(q?.question || '')
+        return !fp || !seen.has(fp)
+      })
+      filtered.forEach(markSeen)
+      questions = [...questions, ...filtered]
     } catch (error: any) {
       console.error('[Duels] Using fallback refill:', error?.message)
-      questions = [...questions, ...getFallbackDuelQuestions(count, learnerContext.subjects, learnerContext.isCbc)]
+      const fallback = getFallbackDuelQuestions(count, learnerContext.subjects, learnerContext.isCbc).filter(q => {
+        const fp = q?.fingerprint || questionFingerprint(q?.question || '')
+        return !fp || !seen.has(fp)
+      })
+      fallback.forEach(markSeen)
+      questions = [...questions, ...fallback]
     }
   }
 
   return questions.slice(0, count)
+}
+
+async function getRecentDuelFingerprints(studentId: string, limit = 40): Promise<string[]> {
+  try {
+    const supabase = await createClient()
+    const { data: duels } = await supabase
+      .from('classroom_duels')
+      .select('questions, duel_type')
+      .eq('created_by', studentId)
+      .order('created_at', { ascending: false })
+      .limit(limit)
+
+    const fps = new Set<string>()
+    for (const duel of duels || []) {
+      const rawQuestions = duel?.questions
+      if (!Array.isArray(rawQuestions)) continue
+      for (const q of rawQuestions) {
+        const fp = q?.fingerprint || questionFingerprint(q?.question || q?.excerpt || '')
+        if (fp) fps.add(fp)
+      }
+    }
+    return Array.from(fps)
+  } catch (error) {
+    console.error('[Duels] recent fingerprints:', error)
+    return []
+  }
 }
 
 async function getStudentId() {
@@ -302,7 +361,7 @@ async function getStudentId() {
 export async function createDuel(input: CreateDuelInput) {
   const { studentId, userId, supabase, classLevel, className } = await getStudentId()
   const adaptiveProfile = getAdaptiveDuelProfile(classLevel, className)
-  const count = getQuestionCountForType(input.duel_type, input.difficulty)
+  const count = getQuestionCountForType(input.duel_type)
   const timePerQ = Math.max(25, input.time_per_question || getAdaptiveTime(getTimeForDifficulty(input.difficulty), adaptiveProfile))
 
   let questions: any[]
@@ -1112,7 +1171,7 @@ export async function getActiveBosses() {
 
   if (!isCbcLearner) return bosses
 
-  const grade = classLevel && classLevel <= 6 ? 6 : classLevel === 7 ? 7 : classLevel === 8 ? 8 : 9
+  const grade = getDuelGradeBand(classLevel, className)
   return [
     {
       id: 'cbc-data-dragon',
@@ -1498,7 +1557,7 @@ export async function createTournament(input: {
 }) {
   const supabase = await createClient()
   const { studentId } = await getStudentId()
-  const questions = await getDuelQuestionSet(studentId, 12)
+  const questions = await getDuelQuestionSet(studentId, getQuestionCountForType('tournament'))
 
   const rounds = input.max_participants || 32
   const bracket = Array.from({ length: Math.log2(rounds) }, (_, i) => ({
