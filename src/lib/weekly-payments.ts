@@ -10,13 +10,25 @@ export interface PaymentEntry {
   method: string
   note?: string
 }
+
+export type PaymentPlan = 'weekly' | 'daily'
+
 export interface RosterStudent {
   id: string
   name: string
+  // Standard weekly fee (used by the 'weekly' plan; the default rate).
   fee: number
+  // Billing cadence. 'daily' bills dailyFee per active teaching day in the
+  // week, 'weekly' bills a flat fee per week. Defaults to 'weekly'.
+  plan?: PaymentPlan
+  // Standard daily fee (used by the 'daily' plan).
+  dailyFee?: number
 }
 export type FeeOverrides = Record<string, number>
 export type Promises = Record<string, string>
+// Resolves how many teaching days a week actually has. Used only by the
+// 'daily' plan to compute the week's expected fee (defaults to DAYS_PER_WEEK).
+export type ActiveDaysForWeek = (week: string) => number
 
 export interface Flag {
   label: string
@@ -24,6 +36,7 @@ export interface Flag {
 }
 
 export const DEFAULT_WEEKLY_FEE = 1250
+export const DEFAULT_DAILY_FEE = 250
 export const DAYS_PER_WEEK = 5
 // How many consecutive touched weeks we'll walk back through when carrying a
 // balance forward. High enough to never matter in practice.
@@ -74,18 +87,29 @@ export function paidTotalFor(payments: PaymentEntry[], studentId: string, week: 
   return paymentsFor(payments, studentId, week).reduce((sum, p) => sum + (Number(p.amount) || 0), 0)
 }
 
-export function expectedFeeFor(student: RosterStudent, week: string, feeOverrides: FeeOverrides = {}): number {
+export function expectedFeeFor(
+  student: RosterStudent,
+  week: string,
+  feeOverrides: FeeOverrides = {},
+  activeDaysForWeek?: ActiveDaysForWeek
+): number {
   const key = weekKey(student.id, week)
-  return feeOverrides[key] != null ? feeOverrides[key] : student.fee
+  if (feeOverrides[key] != null) return feeOverrides[key]
+  if (student.plan === 'daily') {
+    const days = activeDaysForWeek ? activeDaysForWeek(week) : DAYS_PER_WEEK
+    return (Number(student.dailyFee) || DEFAULT_DAILY_FEE) * Math.max(0, days)
+  }
+  return student.fee
 }
 
 export function ownBalanceFor(
   student: RosterStudent,
   week: string,
   payments: PaymentEntry[],
-  feeOverrides: FeeOverrides = {}
+  feeOverrides: FeeOverrides = {},
+  activeDaysForWeek?: ActiveDaysForWeek
 ): number {
-  return expectedFeeFor(student, week, feeOverrides) - paidTotalFor(payments, student.id, week)
+  return expectedFeeFor(student, week, feeOverrides, activeDaysForWeek) - paidTotalFor(payments, student.id, week)
 }
 
 // A week only "counts" for carryover purposes if something was actually
@@ -108,19 +132,24 @@ export function weekWasTouched(
 // (expected − paid). A credit from overpaying one week rolls straight into the
 // next touched week's total; so does unpaid debt. Hitting an untouched week
 // stops the chain, so history from before the roster was in use never counts.
+// Each week's expected fee is plan-aware: a 'daily' plan student bills the
+// daily fee per active teaching day, a 'weekly' plan student bills the flat
+// weekly fee — and either cadence carries credit/debt identically across the
+// chain of touched weeks.
 export function cumulativeBalanceFor(
   student: RosterStudent,
   week: string,
   payments: PaymentEntry[],
   promises: Promises = {},
-  feeOverrides: FeeOverrides = {}
+  feeOverrides: FeeOverrides = {},
+  activeDaysForWeek?: ActiveDaysForWeek
 ): number {
-  let total = ownBalanceFor(student, week, payments, feeOverrides)
+  let total = ownBalanceFor(student, week, payments, feeOverrides, activeDaysForWeek)
   let cursor = week
   for (let i = 0; i < MAX_CARRY_LOOKBACK_WEEKS; i++) {
     const prev = toISODate(addDays(parseISODate(cursor), -7))
     if (!weekWasTouched(student.id, prev, payments, promises, feeOverrides)) break
-    total += ownBalanceFor(student, prev, payments, feeOverrides)
+    total += ownBalanceFor(student, prev, payments, feeOverrides, activeDaysForWeek)
     cursor = prev
   }
   return total

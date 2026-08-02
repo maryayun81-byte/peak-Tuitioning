@@ -19,10 +19,14 @@ import { generateAdmissionNumber, getEventWeeks } from '@/lib/utils'
 import toast from 'react-hot-toast'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import {
-  DEFAULT_WEEKLY_FEE, DAYS_PER_WEEK, toISODate, parseISODate, getMondayOf, addDays,
+  DEFAULT_WEEKLY_FEE, DEFAULT_DAILY_FEE, DAYS_PER_WEEK, toISODate, parseISODate, getMondayOf, addDays,
   weekKey, paymentsFor, paidTotalFor, expectedFeeFor, cumulativeBalanceFor, computeFlag,
 } from '@/lib/weekly-payments'
-import type { PaymentEntry, RosterStudent, Flag } from '@/lib/weekly-payments'
+import type { PaymentEntry, RosterStudent, Flag, PaymentPlan, ActiveDaysForWeek } from '@/lib/weekly-payments'
+import { buildCoachBrief, buildStudentBehaviors } from '@/lib/weekly-insights'
+import type { CoachBrief, CoachInput } from '@/lib/weekly-insights'
+import { generateCoachCommentary } from '@/app/actions/coach'
+import { PeakCoachPanel } from '@/components/admin/PeakCoachPanel'
 
 // ---------------------------------------------------------------------
 // Configuration
@@ -62,6 +66,8 @@ interface DbStudent {
   admission_number: string
   weekly_fee?: number | null
   weekly_roster_archived?: boolean | null
+  payment_plan?: string | null
+  daily_fee?: number | null
 }
 interface DbTuitionEvent {
   id: string
@@ -277,7 +283,7 @@ export default function WeeklyPayments() {
   const [addClassOpen, setAddClassOpen] = useState(false)
   const [addStudentOpen, setAddStudentOpen] = useState(false)
   const [classForm, setClassForm] = useState({ name: '', curriculum_id: '' })
-  const [studentForm, setStudentForm] = useState({ name: '', fee: String(DEFAULT_WEEKLY_FEE) })
+  const [studentForm, setStudentForm] = useState({ name: '', fee: String(DEFAULT_WEEKLY_FEE), plan: 'weekly' as PaymentPlan, dailyFee: String(DEFAULT_DAILY_FEE) })
   const [saving, setSaving] = useState(false)
   const [sendingReport, setSendingReport] = useState(false)
   const initEventRef = useRef(false)
@@ -359,6 +365,16 @@ export default function WeeklyPayments() {
     return getEventWeeks(selectedEvent.start_date, selectedEvent.end_date, selectedEvent.active_days || [], holidayDates)
   }, [selectedEvent, holidayDates])
 
+  // Resolves how many teaching days a given week has (drives the 'daily' plan's
+  // expected fee). Falls back to the full 5-day week outside a tuition event.
+  const activeDaysForWeek = useMemo<ActiveDaysForWeek>(() => {
+    if (eventWeeks.length === 0) return () => DAYS_PER_WEEK
+    const byWeek = new Map(
+      eventWeeks.map((w) => [toISODate(w.startDate), (w as any).activeDates?.length ?? DAYS_PER_WEEK])
+    )
+    return (week: string) => byWeek.get(week) ?? DAYS_PER_WEEK
+  }, [eventWeeks])
+
   // When the event (or its weeks) change, jump to the current event week.
   useEffect(() => {
     if (eventWeeks.length === 0) return
@@ -403,7 +419,13 @@ export default function WeeklyPayments() {
         curriculum_id: c.curriculum_id,
         students: dbStudents
           .filter((s) => s.class_id === c.id && !s.weekly_roster_archived)
-          .map((s) => ({ id: s.id, name: s.full_name, fee: Number(s.weekly_fee) || DEFAULT_WEEKLY_FEE })),
+          .map((s) => ({
+            id: s.id,
+            name: s.full_name,
+            fee: Number(s.weekly_fee) || DEFAULT_WEEKLY_FEE,
+            plan: s.payment_plan === 'daily' ? ('daily' as const) : ('weekly' as const),
+            dailyFee: Number(s.daily_fee) || 0,
+          })),
       })),
     [dbClasses, dbStudents]
   )
@@ -415,10 +437,10 @@ export default function WeeklyPayments() {
     return paidTotalFor(payments, studentId, week)
   }
   function expectedFeeForStudent(student: RosterStudent, week: string): number {
-    return expectedFeeFor(student, week, feeOverrides)
+    return expectedFeeFor(student, week, feeOverrides, activeDaysForWeek)
   }
   function balanceForStudent(student: RosterStudent, week: string): number {
-    return cumulativeBalanceFor(student, week, payments, promises, feeOverrides)
+    return cumulativeBalanceFor(student, week, payments, promises, feeOverrides, activeDaysForWeek)
   }
 
   interface BalanceRow {
@@ -560,6 +582,25 @@ export default function WeeklyPayments() {
       void loadData()
     }
   }
+  async function setPlan(studentId: string, plan: PaymentPlan) {
+    const { error } = await supabase.from('students').update({ payment_plan: plan }).eq('id', studentId)
+    if (error) {
+      toast.error('Could not save plan: ' + error.message)
+      void loadData()
+      return
+    }
+    setDbStudents((prev) => prev.map((s) => (s.id === studentId ? { ...s, payment_plan: plan } : s)))
+  }
+  function updateDailyFeeLocal(studentId: string, fee: number) {
+    setDbStudents((prev) => prev.map((s) => (s.id === studentId ? { ...s, daily_fee: Number(fee) || 0 } : s)))
+  }
+  async function commitDailyFee(studentId: string, fee: number) {
+    const { error } = await supabase.from('students').update({ daily_fee: Number(fee) || 0 }).eq('id', studentId)
+    if (error) {
+      toast.error('Could not save daily rate: ' + error.message)
+      void loadData()
+    }
+  }
   async function removeStudent(studentId: string) {
     if (!window.confirm('Remove this student from the roster? Their past payment history is kept but hidden.')) return
     const { error } = await supabase.from('students').update({ weekly_roster_archived: true }).eq('id', studentId)
@@ -590,12 +631,14 @@ export default function WeeklyPayments() {
           class_id: activeClass.id,
           curriculum_id: activeClass.curriculum_id,
           weekly_fee: Number(studentForm.fee) || DEFAULT_WEEKLY_FEE,
+          payment_plan: studentForm.plan,
+          daily_fee: studentForm.plan === 'daily' ? Number(studentForm.dailyFee) || DEFAULT_DAILY_FEE : null,
           onboarded: false,
           created_by_admin: true,
         })
         if (!error) {
           toast.success(`${name} added to ${activeClass.name}`)
-          setStudentForm({ name: '', fee: String(DEFAULT_WEEKLY_FEE) })
+          setStudentForm({ name: '', fee: String(DEFAULT_WEEKLY_FEE), plan: 'weekly', dailyFee: String(DEFAULT_DAILY_FEE) })
           setAddStudentOpen(false)
           await loadData()
           return
@@ -758,6 +801,97 @@ export default function WeeklyPayments() {
       .sort((a, b) => b.amount - a.amount)
   }, [payments])
 
+  // ---- Peak Coach: analysis across every class in the roster ----
+  // Per-student multi-week history feeds the payment-behavior engine and the
+  // AI commentary; the current week's coachBrief stays fully deterministic.
+  const studentHistories = useMemo(() => {
+    const weeks = Array.from(new Set(payments.map((p) => p.weekStart)))
+    if (!weeks.includes(weekStart)) weeks.push(weekStart)
+    const sorted = [...weeks].sort()
+    return rosterClasses.flatMap((c) =>
+      c.students.map((student) => ({
+        name: student.name,
+        className: c.name,
+        weeks: sorted.map((wk) => {
+          const expected = expectedFeeForStudent(student, wk)
+          const entries = paymentsFor(payments, student.id, wk)
+          const paid = entries.reduce((s, p) => s + (Number(p.amount) || 0), 0)
+          const balance = cumulativeBalanceFor(student, wk, payments, promises, feeOverrides, activeDaysForWeek)
+          return {
+            weekLabel: wk,
+            expected,
+            paid,
+            balance,
+            carryIn: balance - (expected - paid),
+            promisedDate: promises[weekKey(student.id, wk)] || undefined,
+            paymentCount: entries.length,
+          }
+        }),
+      }))
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rosterClasses, payments, promises, feeOverrides, weekStart])
+
+  const studentBehaviors = useMemo(
+    () => buildStudentBehaviors(studentHistories),
+    [studentHistories]
+  )
+
+  const coachInput = useMemo<CoachInput>(
+    () => ({
+      rows: rosterClasses.flatMap((c) =>
+        c.students.map((s) => {
+          const r = buildRow(c, s)
+          return {
+            name: r.student.name,
+            className: r.className,
+            expected: r.expected,
+            paid: r.paid,
+            balance: r.balance,
+            carryIn: r.carryIn,
+            promisedDate: r.promisedDate,
+            flagLabel: r.flag.label,
+            flagTone: r.flag.tone,
+            paymentCount: r.entries.length,
+          }
+        })
+      ),
+      totals: grandTotals,
+      trend: trendData.map((t) => ({ label: t.week, expected: t.expected, collected: t.collected })),
+      methods: methodBreakdown.map((m) => ({ method: m.method, count: m.count, amount: m.amount })),
+      weekLabel: weekRangeLabel || formatDateLabel(parseISODate(weekStart)),
+      behaviors: studentBehaviors,
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rosterClasses, payments, feeOverrides, promises, weekStart, grandTotals, trendData, methodBreakdown, weekRangeLabel, studentBehaviors]
+  )
+
+  const coachBrief = useMemo(() => buildCoachBrief(coachInput), [coachInput])
+
+  // AI commentary: fire-and-forget after a short debounce so every logged
+  // payment doesn't hammer the provider chain. Falls back to the deterministic
+  // brief on any failure (the action itself returns buildCoachBrief).
+  const [aiBrief, setAiBrief] = useState<CoachBrief | null>(null)
+  const aiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const coachInputKey = useMemo(() => JSON.stringify(coachInput), [coachInput])
+
+  useEffect(() => {
+    if (aiTimerRef.current) clearTimeout(aiTimerRef.current)
+    const t = setTimeout(async () => {
+      try {
+        const res = await generateCoachCommentary(coachInput)
+        setAiBrief(res)
+      } catch {
+        // keep deterministic brief
+      }
+    }, 1200)
+    aiTimerRef.current = t
+    return () => {
+      if (aiTimerRef.current) clearTimeout(aiTimerRef.current)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coachInputKey])
+
   // ---- CSV export ----
   function exportBalances(scope: 'class' | 'all') {
     const allRows = scope === 'class' && activeClass
@@ -824,7 +958,7 @@ export default function WeeklyPayments() {
       if (data.emailed) {
         toast.success(`Report emailed to ${data.recipients.length} recipient${data.recipients.length === 1 ? '' : 's'}`)
       } else {
-        toast('Report generated (no email configured — RESEND_API_KEY missing)')
+        toast('Report generated — email not sent (SMTP not configured or the send failed; see server logs)')
       }
     } catch (error: any) {
       toast.error(error.message || 'Could not generate report')
@@ -889,6 +1023,8 @@ export default function WeeklyPayments() {
             )}
           </div>
         </div>
+
+        <PeakCoachPanel brief={aiBrief ?? coachBrief} />
 
         <div className="wp-summary-grid">
           <SummaryCard label="Expected this week" value={formatMoney(grandTotals.expected)} />
@@ -997,6 +1133,9 @@ export default function WeeklyPayments() {
                       onFeeOverride={(v) => setFeeOverride(row.student.id, v)}
                       onDefaultFee={(v) => updateFeeLocal(row.student.id, Number(v) || 0)}
                       onFeeCommit={() => commitFee(row.student.id, row.student.fee)}
+                      onPlanChange={(plan) => setPlan(row.student.id, plan)}
+                      onDailyFee={(v) => updateDailyFeeLocal(row.student.id, Number(v) || 0)}
+                      onDailyFeeCommit={() => commitDailyFee(row.student.id, row.student.dailyFee || DEFAULT_DAILY_FEE)}
                       onAddPayment={(entry) => addPayment(row.student.id, entry)}
                       onRemovePayment={removePayment}
                       onPromiseChange={(date) => setPromise(row.student.id, date)}
@@ -1120,9 +1259,23 @@ export default function WeeklyPayments() {
               <input className="wp-input grow" value={studentForm.name} onChange={(e) => setStudentForm((f) => ({ ...f, name: e.target.value }))} placeholder="e.g. Amina Hassan" autoFocus />
             </div>
             <div className="wp-modal-field">
-              <label className="wp-field-label">Weekly fee (KSh)</label>
-              <input type="number" className="wp-input amount" value={studentForm.fee} onChange={(e) => setStudentForm((f) => ({ ...f, fee: e.target.value }))} />
+              <label className="wp-field-label">Payment plan</label>
+              <select className="wp-select" style={{ width: '100%' }} value={studentForm.plan} onChange={(e) => setStudentForm((f) => ({ ...f, plan: e.target.value as PaymentPlan }))}>
+                <option value="weekly">Weekly — flat fee per teaching week</option>
+                <option value="daily">Daily — fee per teaching day</option>
+              </select>
             </div>
+            {studentForm.plan === 'daily' ? (
+              <div className="wp-modal-field">
+                <label className="wp-field-label">Daily fee (KSh)</label>
+                <input type="number" className="wp-input amount" value={studentForm.dailyFee} onChange={(e) => setStudentForm((f) => ({ ...f, dailyFee: e.target.value }))} />
+              </div>
+            ) : (
+              <div className="wp-modal-field">
+                <label className="wp-field-label">Weekly fee (KSh)</label>
+                <input type="number" className="wp-input amount" value={studentForm.fee} onChange={(e) => setStudentForm((f) => ({ ...f, fee: e.target.value }))} />
+              </div>
+            )}
             <div className="wp-modal-actions">
               <button className="wp-btn-cancel" onClick={() => setAddStudentOpen(false)}>Cancel</button>
               <button className="wp-btn-primary" onClick={addStudent} disabled={saving || !studentForm.name.trim()}>
@@ -1149,6 +1302,9 @@ interface RosterRowProps {
   onFeeOverride: (value: string) => void
   onDefaultFee: (value: string) => void
   onFeeCommit: () => void
+  onPlanChange: (plan: PaymentPlan) => void
+  onDailyFee: (value: string) => void
+  onDailyFeeCommit: () => void
   onAddPayment: (entry: { date: string; amount: number; method: string; note?: string }) => void
   onRemovePayment: (id: string) => void
   onPromiseChange: (date: string) => void
@@ -1157,10 +1313,14 @@ interface RosterRowProps {
 
 function RosterRow({
   row, index, expanded, onToggle, onRename, onRenameCommit, onFeeOverride, onDefaultFee, onFeeCommit,
+  onPlanChange, onDailyFee, onDailyFeeCommit,
   onAddPayment, onRemovePayment, onPromiseChange, onRemoveStudent,
 }: RosterRowProps) {
   const { student, expected, entries, paid, balance, carryIn, promisedDate, flag } = row
-  const dailyRate = Math.round((student.fee || DEFAULT_WEEKLY_FEE) / DAYS_PER_WEEK)
+  const plan: PaymentPlan = student.plan === 'daily' ? 'daily' : 'weekly'
+  const dailyRate = plan === 'daily'
+    ? (Number(student.dailyFee) || DEFAULT_DAILY_FEE)
+    : Math.round((student.fee || DEFAULT_WEEKLY_FEE) / DAYS_PER_WEEK)
 
   const [form, setForm] = useState({ date: toISODate(new Date()), days: 'custom', amount: '', method: 'Cash', note: '' })
 
@@ -1279,16 +1439,34 @@ function RosterRow({
                 <div className="wp-detail-heading">Expected this week</div>
                 <div className="wp-fee-row">
                   <input type="number" value={expected} onChange={(e) => onFeeOverride(e.target.value)} className="wp-input small" />
-                  <span className="wp-standard-rate">standard rate: {formatMoney(student.fee)}/week</span>
+                  <span className="wp-standard-rate">
+                    {plan === 'daily'
+                      ? `standard rate: ${formatMoney(Number(student.dailyFee) || DEFAULT_DAILY_FEE)}/day`
+                      : `standard rate: ${formatMoney(student.fee)}/week`}
+                  </span>
                 </div>
                 <p className="wp-info-text">
                   Only change this if the arrangement for THIS week is different (e.g. attending fewer days). To
-                  change their normal weekly rate going forward, edit it below instead.
+                  change their normal rate going forward, edit it below instead.
                 </p>
                 <div className="wp-rate-row">
-                  <label className="wp-rate-label">Standard weekly rate:</label>
-                  <input type="number" value={student.fee} onChange={(e) => onDefaultFee(e.target.value)} onBlur={onFeeCommit} className="wp-input small" />
+                  <label className="wp-rate-label">Payment plan:</label>
+                  <select value={plan} onChange={(e) => onPlanChange(e.target.value as PaymentPlan)} className="wp-select">
+                    <option value="weekly">Weekly</option>
+                    <option value="daily">Daily</option>
+                  </select>
                 </div>
+                {plan === 'daily' ? (
+                  <div className="wp-rate-row">
+                    <label className="wp-rate-label">Standard daily rate:</label>
+                    <input type="number" value={Number(student.dailyFee) || DEFAULT_DAILY_FEE} onChange={(e) => onDailyFee(e.target.value)} onBlur={onDailyFeeCommit} className="wp-input small" />
+                  </div>
+                ) : (
+                  <div className="wp-rate-row">
+                    <label className="wp-rate-label">Standard weekly rate:</label>
+                    <input type="number" value={student.fee} onChange={(e) => onDefaultFee(e.target.value)} onBlur={onFeeCommit} className="wp-input small" />
+                  </div>
+                )}
 
                 <div style={{ marginTop: 16 }}>
                   <div className="wp-detail-heading">Promised payment date</div>

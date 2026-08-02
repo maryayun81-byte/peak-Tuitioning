@@ -3,7 +3,8 @@
 import { createClient as createServerClient, createAdminClient } from '@/lib/supabase/server'
 import { requireAdmin } from '@/lib/auth-guards'
 import { isEmailAlreadyRegisteredError, deriveAdmissionFromStudentEmail } from '@/lib/student-account'
-import { todayIso, computeLoginStreak, loginRewardForStreak } from '@/lib/login-rewards'
+import { todayIso, computeLoginStreak, loginRewardForStreak, loginLastLoginClaimFilter } from '@/lib/login-rewards'
+import { computeEligiblePendingSubjects, type PendingSubjectSource } from '@/lib/pendingSubjects'
 
 // Finds an auth user by email. listUsers() in this supabase-js version has no
 // server-side filter, so we paginate and match client-side (same pattern used
@@ -187,7 +188,8 @@ export async function claimDailyLoginReward(): Promise<DailyLoginRewardResult> {
   const streak = computeLoginStreak(priorLastLoginDate, priorStreak, today)
   const reward = loginRewardForStreak(streak)
 
-  const { data: updated, error } = await admin
+  const { operator, value } = loginLastLoginClaimFilter(priorLastLoginDate)
+  let updateQuery = admin
     .from('students')
     .update({
       xp: (student.xp || 0) + reward.total,
@@ -196,7 +198,12 @@ export async function claimDailyLoginReward(): Promise<DailyLoginRewardResult> {
       streak_count: streak,
     })
     .eq('id', student.id)
-    .eq('last_login_date', priorLastLoginDate)
+  updateQuery =
+    operator === 'is'
+      ? updateQuery.is('last_login_date', null)
+      : updateQuery.eq('last_login_date', value as string)
+
+  const { data: updated, error } = await updateQuery
     .select('xp, streak_count, last_login_date')
     .maybeSingle()
 
@@ -361,6 +368,78 @@ export async function getStudentSettingsSubjects(studentId: string, expectedUser
     registeredSubjects,
     availableSubjects: [...map.values()].sort((a: any, b: any) => String(a.name).localeCompare(String(b.name))),
   }
+}
+
+export async function getPendingSubjectUpdates(studentId: string, expectedUserId?: string) {
+  const { admin, student } = await verifyStudentForUser(studentId, expectedUserId)
+
+  const [registeredRes, curriculumRes, classLinkRes, teacherAssignedRes] = await Promise.all([
+    admin.from('student_subjects').select('subject_id').eq('student_id', student.id),
+    student.curriculum_id
+      ? admin
+          .from('subjects')
+          .select('id, name, code, category, class_id, curriculum_id')
+          .eq('curriculum_id', student.curriculum_id)
+      : Promise.resolve({ data: [] as any[], error: null }),
+    student.class_id
+      ? admin
+          .from('class_subjects')
+          .select('subject:subjects(id, name, code, category, class_id, curriculum_id)')
+          .eq('class_id', student.class_id)
+      : Promise.resolve({ data: [] as any[], error: null }),
+    student.class_id
+      ? admin
+          .from('teacher_assignments')
+          .select('subject:subjects(id, name, code, category, class_id, curriculum_id)')
+          .eq('class_id', student.class_id)
+      : Promise.resolve({ data: [] as any[], error: null }),
+  ])
+
+  if (registeredRes.error) throw registeredRes.error
+  if (curriculumRes.error) throw curriculumRes.error
+  if (classLinkRes.error) throw classLinkRes.error
+  if (teacherAssignedRes.error) throw teacherAssignedRes.error
+
+  const registeredSubjectIds = (registeredRes.data || []).map((row: any) => row.subject_id).filter(Boolean)
+
+  const subjects = computeEligiblePendingSubjects({
+    curriculumSubjects: curriculumRes.data || [],
+    classLinkSubjects: (classLinkRes.data || []).map((row: any) => normalizeRelation(row.subject)).filter(Boolean),
+    teacherAssignedSubjects: (teacherAssignedRes.data || []).map((row: any) => normalizeRelation(row.subject)).filter(Boolean),
+    registeredSubjectIds,
+    studentClassId: student.class_id,
+  })
+
+  return { subjects, hasPending: subjects.length > 0 }
+}
+
+export async function registerStudentSubjects(studentId: string, subjectIds: string[], expectedUserId?: string) {
+  const { admin, student } = await verifyStudentForUser(studentId, expectedUserId)
+
+  // Only register subjects that are currently eligible for this student. This
+  // prevents clients from registering arbitrary/out-of-curriculum subjects and
+  // makes the operation idempotent: already-registered subjects are not offered
+  // by getPendingSubjectUpdates, so they can never be re-inserted here.
+  const { subjects } = await getPendingSubjectUpdates(studentId, expectedUserId)
+  const eligible = new Set(subjects.map((s: PendingSubjectSource) => s.id))
+  const toRegister = Array.from(new Set((subjectIds || []).filter((id) => eligible.has(id))))
+
+  if (toRegister.length === 0) return { success: true, registeredCount: 0 }
+
+  const { error } = await admin
+    .from('student_subjects')
+    .upsert(
+      toRegister.map((subject_id) => ({
+        student_id: student.id,
+        subject_id,
+        class_id: student.class_id,
+      })),
+      { onConflict: 'student_id,subject_id', ignoreDuplicates: true }
+    )
+
+  if (error) return { success: false, registeredCount: 0, error: error.message }
+
+  return { success: true, registeredCount: toRegister.length }
 }
 
 export async function getStudentAssignmentBoard(input: {

@@ -3,6 +3,28 @@
 import { createAdminClient } from '@/lib/supabase/server'
 import { normalizeName } from '@/lib/admin/credentials'
 import { generateAdmissionNumber, generateTempPassword } from '@/lib/utils'
+import { sendSms } from '@/lib/smsleopard'
+
+async function sendRegistrationSms(input: {
+  parentPhone?: string | null
+  parentName?: string | null
+  studentName: string
+  programme: string
+  curriculum: string
+  classLevel: string
+}) {
+  if (!input.parentPhone) return
+  const message = [
+    `Dear ${input.parentName || 'Parent'},`,
+    `${input.studentName}'s registration for ${input.programme} (${input.curriculum} ${input.classLevel}) has been received.`,
+    'Peak Performance will review the details and contact you with next steps.',
+  ].join(' ')
+  try {
+    await sendSms([input.parentPhone], message)
+  } catch (error: any) {
+    console.error('Registration SMS failed:', error?.message || error)
+  }
+}
 
 function resolvePublicPosterUrl(rawValue: unknown) {
   const raw = String(rawValue || '').trim()
@@ -368,6 +390,15 @@ export async function processPublicRegistration(formData: FormData) {
 
     if (error) return { success: false, error: error.message }
 
+    await sendRegistrationSms({
+      parentPhone,
+      parentName,
+      studentName: fullName,
+      programme: programmeSelected,
+      curriculum,
+      classLevel,
+    })
+
     return { 
       success: true, 
       message: accountResult.status === 'created'
@@ -599,6 +630,14 @@ export async function adminRegisterEventStudents(input: { rows: AdminRegistratio
           admissionNumber: account.admissionNumber,
           password: account.password,
           note: account.note,
+        })
+        await sendRegistrationSms({
+          parentPhone: row.parentPhone,
+          parentName: row.parentName,
+          studentName: fullName,
+          programme: eventRow.name,
+          curriculum: curriculumRow.name,
+          classLevel: classRow.name,
         })
       }
     }

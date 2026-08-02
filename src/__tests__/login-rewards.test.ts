@@ -3,6 +3,7 @@ import {
   computeLoginStreak,
   loginRewardForStreak,
   todayIso,
+  loginLastLoginClaimFilter,
   LOGIN_XP_BASE,
   LOGIN_STREAK_BONUS_TIERS,
 } from '@/lib/login-rewards'
@@ -56,5 +57,16 @@ describe('loginRewardForStreak', () => {
 describe('todayIso', () => {
   it('formats as YYYY-MM-DD', () => {
     expect(todayIso(new Date('2026-08-01T10:00:00Z'))).toBe('2026-08-01')
+  })
+})
+
+describe('loginLastLoginClaimFilter', () => {
+  it('uses the is operator for a NULL prior login date (first-time login)', () => {
+    expect(loginLastLoginClaimFilter(null)).toEqual({ operator: 'is', value: null })
+    expect(loginLastLoginClaimFilter(undefined)).toEqual({ operator: 'is', value: null })
+  })
+
+  it('uses the eq operator for an existing prior login date', () => {
+    expect(loginLastLoginClaimFilter('2026-07-31')).toEqual({ operator: 'eq', value: '2026-07-31' })
   })
 })

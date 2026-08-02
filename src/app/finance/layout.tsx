@@ -8,8 +8,9 @@ import {
   TrendingUp, MapPin, ShoppingBag, Settings, LogOut,
   DollarSign
 } from 'lucide-react'
-import { Sidebar, BottomNav } from '@/components/layout/Sidebar'
+import { Sidebar, BottomNav, MobileSidebarToggle } from '@/components/layout/Sidebar'
 import { useAuthStore } from '@/stores/authStore'
+import { useSidebarStore } from '@/stores/sidebarStore'
 import { useAuth } from '@/hooks/useAuth'
 import { SplashScreen } from '@/components/SplashScreen'
 
@@ -48,6 +49,7 @@ const LogoComponent = (
 
 export default function FinanceLayout({ children }: { children: React.ReactNode }) {
   const { profile, isLoading } = useAuthStore()
+  const { collapsed } = useSidebarStore()
   const { signOut } = useAuth()
   const router = useRouter()
 
@@ -96,6 +98,7 @@ export default function FinanceLayout({ children }: { children: React.ReactNode 
           }}
         >
           <div className="flex items-center gap-2">
+            <MobileSidebarToggle />
             <div
               className="w-8 h-8 rounded-xl flex items-center justify-center"
               style={{ background: 'linear-gradient(135deg, #D97706, #F59E0B)' }}
@@ -107,7 +110,7 @@ export default function FinanceLayout({ children }: { children: React.ReactNode 
         </div>
 
         {/* Main Content */}
-        <div className="md:ml-[260px]">
+        <div className={collapsed ? 'md:ml-[80px]' : 'md:ml-[280px]'}>
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
             {children}
           </motion.div>

@@ -8,7 +8,7 @@ import {
   Users, Clock, ClipboardCheck, BookOpen, 
   Calendar, ArrowRight, MessageSquare, 
   PlusCircle, FileText, LayoutDashboard,
-  CheckCircle2, AlertCircle, Award, TrendingUp
+  CheckCircle2, AlertCircle, Award, TrendingUp, Pencil
 } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Card, StatCard, Badge } from '@/components/ui/Card'
@@ -64,6 +64,37 @@ export default function TeacherDashboard() {
   const { data: pendingAssignments } = usePageData<any[]>({
     cacheKey: ['teacher-recent-assignments', teacherIds.join('|') || 'anon'],
     fetcher: async () => supabase.from('assignments').select('*, class:classes(name)').in('teacher_id', teacherIds).order('created_at', { ascending: false }).limit(3),
+    enabled: teacherIds.length > 0,
+  })
+
+  // My Teaching Subjects (admin-assigned + self-registered)
+  const { data: teachingSubjects } = usePageData<any[]>({
+    cacheKey: ['teacher-teaching-subjects', teacherIds.join('|') || 'anon'],
+    fetcher: async () => {
+      if (teacherIds.length === 0) return { data: [], error: null }
+      const [assignedRes, selfRes] = await Promise.all([
+        supabase.from('teacher_assignments').select('subject:subjects(id, name, code), class:classes(name)').in('teacher_id', teacherIds),
+        supabase.from('teacher_subject_classes').select('subject:subjects(id, name, code), class:classes(name)').in('teacher_id', teacherIds).eq('status', 'active'),
+      ])
+      const normalizeRelation = (value: any) => (Array.isArray(value) ? value[0] : value)
+      const seen = new Set<string>()
+      const out: any[] = []
+      const push = (rows: any[] | null) => {
+        for (const r of rows || []) {
+          const subject = normalizeRelation(r.subject)
+          const cls = normalizeRelation(r.class)
+          if (!subject?.id) continue
+          const key = `${subject.id}:${cls?.name || 'any'}`
+          if (seen.has(key)) continue
+          seen.add(key)
+          out.push({ subject, className: cls?.name || null })
+        }
+      }
+      push(assignedRes.data)
+      push(selfRes.data)
+      out.sort((a, b) => String(a.subject.name).localeCompare(String(b.subject.name)))
+      return { data: out, error: null }
+    },
     enabled: teacherIds.length > 0,
   })
 
@@ -318,6 +349,52 @@ export default function TeacherDashboard() {
         {/* Right Column: Timetable & Tasks (7 cols) */}
         <div className="lg:col-span-7 space-y-8">
            <TimetableWidget role="teacher" />
+           
+           {/* My Teaching Subjects */}
+           <Card className="p-6 border-2 border-primary/5 bg-gradient-to-br from-[var(--card)] to-[var(--bg)]">
+              <div className="flex items-center justify-between mb-6">
+                 <h3 className="font-black text-xs uppercase tracking-widest flex items-center gap-2">
+                    <BookOpen size={14} className="text-primary" /> My Teaching Subjects
+                 </h3>
+                 <button
+                   type="button"
+                   onClick={() => window.dispatchEvent(new Event('peak:teaching-subjects-open'))}
+                   className="inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-colors hover:opacity-80"
+                   style={{ background: 'var(--input)', color: 'var(--text)', border: '1px solid var(--card-border)' }}
+                 >
+                    <Pencil size={11} /> Manage
+                 </button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                 {(teachingSubjects && teachingSubjects.length > 0 ? teachingSubjects : []).map((t: any, i: number) => (
+                   <span
+                     key={i}
+                     className="inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold"
+                     style={{ background: 'var(--input)', border: '1px solid var(--card-border)', color: 'var(--text)' }}
+                   >
+                      {t.subject.name}
+                      {t.className && (
+                        <span className="rounded-md px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider" style={{ background: 'var(--card)', color: 'var(--text-muted)' }}>
+                          {t.className}
+                        </span>
+                      )}
+                   </span>
+                 ))}
+                 {(!teachingSubjects || teachingSubjects.length === 0) && (
+                   <div className="w-full py-3 text-center">
+                      <p className="text-xs italic opacity-40">No teaching subjects yet.</p>
+                      <button
+                        type="button"
+                        onClick={() => window.dispatchEvent(new Event('peak:teaching-subjects-open'))}
+                        className="mt-2 text-xs font-black transition-colors hover:opacity-80"
+                        style={{ color: 'var(--primary)' }}
+                      >
+                        Add teaching subjects →
+                      </button>
+                   </div>
+                 )}
+              </div>
+           </Card>
            
            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <Card className="p-6 border-2 border-primary/5 bg-gradient-to-br from-[var(--card)] to-[var(--bg)]">

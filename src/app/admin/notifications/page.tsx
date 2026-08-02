@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Bell, Send, Users, Shield, UserCheck, GraduationCap, Clock, CheckCircle, Trash2, Search, Filter } from 'lucide-react'
+import { Bell, Send, MessageCircle, Users, Shield, UserCheck, GraduationCap, Clock, CheckCircle, Trash2, Search, Filter } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { Input, Select, Textarea } from '@/components/ui/Input'
@@ -11,6 +11,7 @@ import { Modal } from '@/components/ui/Modal'
 import { SkeletonList } from '@/components/ui/Skeleton'
 import toast from 'react-hot-toast'
 import { formatDate } from '@/lib/utils'
+import { sendBulkSms } from '@/app/actions/notifications'
 import type { Notification, Profile } from '@/types/database'
 
 export default function AdminNotifications() {
@@ -80,6 +81,40 @@ export default function AdminNotifications() {
     load()
   }
 
+  const [smsForm, setSmsForm] = useState({
+    message: '',
+    target: 'all' as 'all' | 'specific_role' | 'specific_user' | 'specific_numbers',
+    role: 'student' as 'admin' | 'teacher' | 'student' | 'parent',
+    user_id: '',
+    numbers: '',
+  })
+  const [smsOpen, setSmsOpen] = useState(false)
+  const [smsSending, setSmsSending] = useState(false)
+
+  const showSmsNumbersInput = smsForm.target === 'specific_numbers' || (smsForm.target === 'specific_role' && smsForm.role === 'parent')
+
+  const sendSmsBroadcast = async () => {
+    if (!smsForm.message.trim()) { toast.error('Enter an SMS message'); return }
+    setSmsSending(true)
+    try {
+      const result = await sendBulkSms({
+        message: smsForm.message,
+        target: smsForm.target,
+        role: smsForm.role,
+        user_ids: smsForm.target === 'specific_user' ? [smsForm.user_id] : undefined,
+        numbers: showSmsNumbersInput ? [smsForm.numbers] : undefined,
+      })
+      if (!result.success) { toast.error(result.error || 'SMS send failed'); return }
+      toast.success(`SMS sent to ${result.sent} of ${result.total} recipients`)
+      setSmsOpen(false)
+      setSmsForm({ ...smsForm, message: '', numbers: '' })
+    } catch (e: any) {
+      toast.error(e?.message || 'SMS send failed')
+    } finally {
+      setSmsSending(false)
+    }
+  }
+
   const deleteNotice = async (id: string) => {
     const { error } = await supabase.from('notifications').delete().eq('id', id)
     if (error) { toast.error('Failed'); return }
@@ -111,7 +146,10 @@ export default function AdminNotifications() {
            <h1 className="text-2xl font-black" style={{ color: 'var(--text)' }}>Global Notifications</h1>
            <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>Broadcast messages and track alerts</p>
         </div>
-        <Button onClick={() => setSendOpen(true)}><Send size={16} className="mr-2" /> Send Notification</Button>
+        <div className="flex gap-2">
+          <Button onClick={() => setSendOpen(true)}><Send size={16} className="mr-2" /> Send Notification</Button>
+          <Button variant="secondary" onClick={() => setSmsOpen(true)}><MessageCircle size={16} className="mr-2" /> Send SMS</Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -244,6 +282,57 @@ export default function AdminNotifications() {
             <div className="flex gap-3 justify-end pt-4">
                <Button variant="secondary" onClick={() => setSendOpen(false)}>Cancel</Button>
                <Button onClick={broadcast}>Send Message</Button>
+            </div>
+         </div>
+      </Modal>
+
+      {/* Send SMS Modal */}
+      <Modal isOpen={smsOpen} onClose={() => setSmsOpen(false)} title="Send SMS" size="md">
+         <div className="space-y-4">
+            <Select label="Recipient Target" value={smsForm.target} onChange={e => setSmsForm({...smsForm, target: e.target.value as any})}>
+               <option value="all">Everyone</option>
+               <option value="specific_role">Specific Role</option>
+               <option value="specific_user">Specific User</option>
+               <option value="specific_numbers">Specific Numbers</option>
+            </Select>
+
+            {smsForm.target === 'specific_role' && (
+              <Select label="Choose Role" value={smsForm.role} onChange={e => setSmsForm({...smsForm, role: e.target.value as any})}>
+                 <option value="student">Students</option>
+                 <option value="teacher">Teachers</option>
+                 <option value="parent">Parents (enter numbers)</option>
+                 <option value="admin">Admins</option>
+              </Select>
+            )}
+
+            {smsForm.target === 'specific_user' && (
+              <Select label="Choose User" value={smsForm.user_id} onChange={e => setSmsForm({...smsForm, user_id: e.target.value})}>
+                 <option value="">Select a user</option>
+                 {users.map(u => <option key={u.id} value={u.id}>{u.full_name} ({u.role})</option>)}
+              </Select>
+            )}
+
+            {showSmsNumbersInput && (
+              <Textarea
+                label="Phone Numbers"
+                placeholder="e.g. 0712345678, 0723456789, 0734567890"
+                rows={3}
+                value={smsForm.numbers}
+                onChange={e => setSmsForm({...smsForm, numbers: e.target.value})}
+              />
+            )}
+
+            <Textarea label="SMS Message" placeholder="Enter your SMS message here..." rows={4} value={smsForm.message} onChange={e => setSmsForm({...smsForm, message: e.target.value})} />
+
+            <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
+               Sent via SMSLeopard. {showSmsNumbersInput
+                 ? 'Separate numbers with commas, spaces or new lines. Invalid numbers are skipped.'
+                 : 'Sent to phone numbers on file. Recipients without a phone number are skipped.'}
+            </div>
+
+            <div className="flex gap-3 justify-end pt-4">
+               <Button variant="secondary" onClick={() => setSmsOpen(false)}>Cancel</Button>
+               <Button onClick={sendSmsBroadcast} disabled={smsSending}>{smsSending ? 'Sending...' : 'Send SMS'}</Button>
             </div>
          </div>
       </Modal>

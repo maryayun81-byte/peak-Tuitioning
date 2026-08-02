@@ -75,6 +75,43 @@ describe('weekly-payments balance logic', () => {
     expect(weekWasTouched('stu_1', W1, [], {}, { [`${W1}__stu_1`]: 1250 })).toBe(true)
     expect(weekWasTouched('stu_1', W1, [], {}, {})).toBe(false)
   })
+
+  it('daily plan bills dailyFee x active days, defaulting to a 5-day week', () => {
+    const s = student({ plan: 'daily', dailyFee: 250 })
+    expect(expectedFeeFor(s, W1, {}, () => 5)).toBe(1250)
+    expect(expectedFeeFor(s, W1, {}, () => 3)).toBe(750)
+    expect(expectedFeeFor(s, W1, {}, undefined)).toBe(1250)
+  })
+
+  it('a weekly override wins over the daily plan for that week', () => {
+    const s = student({ plan: 'daily', dailyFee: 250 })
+    const overrides = { [`${W1}__stu_1`]: 600 }
+    expect(expectedFeeFor(s, W1, overrides, () => 5)).toBe(600)
+    expect(ownBalanceFor(s, W1, [], overrides, () => 5)).toBe(600)
+  })
+
+  it('daily plan credit carries into the next touched week', () => {
+    // W1 has 3 active days => expected 750. Paid 1000 => 250 credit.
+    // W2 has 3 active days => expected 750; the credit applies => owes 500.
+    const s = student({ plan: 'daily', dailyFee: 250 })
+    const balance = cumulativeBalanceFor(s, W2, [pay(W1, 1000)], {}, {}, () => 3)
+    expect(balance).toBe(500)
+  })
+
+  it('daily plan debt rolls forward through a chain of touched weeks', () => {
+    // W1: 3 days => 750 due, paid 500 => 250 owed (week touched via payment).
+    // W2: 3 days => 750 due, nothing paid => 250 + 750 = 1000 carried.
+    const s = student({ plan: 'daily', dailyFee: 250 })
+    const balance = cumulativeBalanceFor(s, W2, [pay(W1, 500)], {}, {}, () => 3)
+    expect(balance).toBe(1000)
+  })
+
+  it('an untouched week breaks the daily-plan chain too', () => {
+    // W1: 3 days => 750 due, unpaid but untouched. W2 untouched. W3: 3 days.
+    // Nothing carries, so W3 just owes its own 750.
+    const s = student({ plan: 'daily', dailyFee: 250 })
+    expect(cumulativeBalanceFor(s, W3, [], {}, {}, () => 3)).toBe(750)
+  })
 })
 
 describe('computeFlag', () => {

@@ -1,13 +1,14 @@
 import fs from 'fs'
 import path from 'path'
+import nodemailer from 'nodemailer'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { getEventWeeks } from '@/lib/utils'
 import {
   toISODate, parseISODate, weekKey, paymentsFor, expectedFeeFor,
-  cumulativeBalanceFor, computeFlag,
+  cumulativeBalanceFor, computeFlag, DAYS_PER_WEEK,
 } from '@/lib/weekly-payments'
-import type { PaymentEntry, RosterStudent, Flag } from '@/lib/weekly-payments'
+import type { PaymentEntry, RosterStudent, Flag, ActiveDaysForWeek } from '@/lib/weekly-payments'
 
 declare module 'jspdf' {
   interface jsPDF {
@@ -16,7 +17,6 @@ declare module 'jspdf' {
 }
 
 const CURRENCY = 'KSh'
-const RESEND_API_URL = 'https://api.resend.com/emails'
 
 // ---------------------------------------------------------------------
 // Brand palette (sampled from public/logo.png)
@@ -206,7 +206,7 @@ export async function loadAllWeeklyData(supabase: any): Promise<{
 }> {
   const [classRes, studentRes, payRes, overrideRes, promiseRes] = await Promise.all([
     supabase.from('classes').select('id, name'),
-    supabase.from('students').select('id, full_name, class_id, weekly_fee').eq('weekly_roster_archived', false),
+    supabase.from('students').select('id, full_name, class_id, weekly_fee, payment_plan, daily_fee').eq('weekly_roster_archived', false),
     supabase.from('student_weekly_payments').select('id, student_id, week_start, paid_date, amount, method, note'),
     supabase.from('student_weekly_overrides').select('student_id, week_start, amount'),
     supabase.from('student_weekly_promises').select('student_id, week_start, promised_date'),
@@ -228,6 +228,8 @@ export async function loadAllWeeklyData(supabase: any): Promise<{
       id: s.id,
       name: s.full_name,
       fee: Number(s.weekly_fee) || 1250,
+      plan: s.payment_plan === 'daily' ? 'daily' : 'weekly',
+      dailyFee: Number(s.daily_fee) || 0,
     }
   })
 
@@ -253,16 +255,17 @@ export async function loadAllWeeklyData(supabase: any): Promise<{
 export function computeSummary(
   data: Awaited<ReturnType<typeof loadAllWeeklyData>>,
   week: { weekStart: string; weekEnd: string },
+  activeDaysForWeek?: ActiveDaysForWeek,
   today: Date = new Date()
 ): WeeklyReportSummary {
   const rows: WeeklyReportRow[] = []
   const perClassMap = new Map<string, { students: number; expected: number; collected: number; outstanding: number; credit: number }>()
 
   for (const student of data.students) {
-    const expected = expectedFeeFor(student, week.weekStart, data.feeOverrides)
+    const expected = expectedFeeFor(student, week.weekStart, data.feeOverrides, activeDaysForWeek)
     const entries = paymentsFor(data.payments, student.id, week.weekStart)
     const paid = entries.reduce((s, p) => s + (Number(p.amount) || 0), 0)
-    const balance = cumulativeBalanceFor(student, week.weekStart, data.payments, data.promises, data.feeOverrides)
+    const balance = cumulativeBalanceFor(student, week.weekStart, data.payments, data.promises, data.feeOverrides, activeDaysForWeek)
     const carryIn = balance - (expected - paid)
     const promisedDate = data.promises[weekKey(student.id, week.weekStart)] || null
     const flag = computeFlag({ balance, promisedDate: promisedDate || '', weekStart: week.weekStart }, today)
@@ -824,45 +827,52 @@ function formatGeneratedAt(date: Date) {
 }
 
 // ---------------------------------------------------------------------
-// Resend email
+// Nodemailer email
 // ---------------------------------------------------------------------
 export interface EmailAttachment {
   filename: string
   content: string // base64
 }
 
+// Sends the report via SMTP (Nodemailer). Returns true only when the message
+// was actually handed to the SMTP server. Returns false (without throwing)
+// when SMTP is not configured so callers can distinguish "not configured"
+// from a genuine send failure, which throws.
 export async function sendWeeklyReportEmail(opts: {
   to: string[]
   subject: string
   html: string
   attachments: EmailAttachment[]
-}): Promise<{ id: string } | null> {
-  const apiKey = process.env.RESEND_API_KEY
-  const from = process.env.RESEND_FROM || 'Peak Performance <onboarding@resend.dev>'
-  if (!apiKey) return null
+}): Promise<boolean> {
+  const host = process.env.SMTP_HOST
+  const user = process.env.SMTP_USER
+  const pass = process.env.SMTP_PASS
+  if (!host || !user || !pass) return false
 
-  const res = await fetch(RESEND_API_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      from,
-      to: opts.to,
-      subject: opts.subject,
-      html: opts.html,
-      attachments: opts.attachments,
-    }),
+  const transporter = nodemailer.createTransport({
+    host,
+    port: Number(process.env.SMTP_PORT || 465),
+    secure: process.env.SMTP_SECURE === undefined ? true : process.env.SMTP_SECURE !== 'false',
+    auth: { user, pass },
   })
 
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`Resend email failed (${res.status}): ${text}`)
-  }
+  const from =
+    process.env.SMTP_FROM ||
+    process.env.RESEND_FROM ||
+    `"Peak Performance Tutoring" <${user}>`
 
-  const data = await res.json()
-  return data ?? null
+  await transporter.sendMail({
+    from,
+    to: opts.to,
+    subject: opts.subject,
+    html: opts.html,
+    attachments: opts.attachments.map((a) => ({
+      filename: a.filename,
+      content: Buffer.from(a.content, 'base64'),
+      encoding: 'base64',
+    })),
+  })
+  return true
 }
 
 // ---------------------------------------------------------------------
@@ -874,14 +884,16 @@ export async function runWeeklyPaymentReport(opts: {
   weekStart?: string | null
   today?: Date
 }): Promise<{ summary: WeeklyReportSummary; emailed: boolean; recipients: string[]; pdf1: string; pdf2: string }> {
-  const { event, weekStart, weekEnd, weekNumber, weekLabel } = await loadEventAndWeek(opts.supabase, {
+  const { event, eventWeeks: weeks, weekStart, weekEnd, weekNumber, weekLabel } = await loadEventAndWeek(opts.supabase, {
     eventId: opts.eventId,
     weekStart: opts.weekStart,
     today: opts.today,
   })
 
   const data = await loadAllWeeklyData(opts.supabase)
-  const summary = computeSummary(data, { weekStart, weekEnd }, opts.today || new Date())
+  const activeDaysForWeek: ActiveDaysForWeek = (week: string) =>
+    weeks.find((w) => toISODate(w.startDate) === week)?.activeDates?.length ?? DAYS_PER_WEEK
+  const summary = computeSummary(data, { weekStart, weekEnd }, activeDaysForWeek, opts.today || new Date())
   summary.eventName = event?.name || ''
   summary.eventId = event?.id || null
   summary.weekLabel = weekLabel
@@ -917,7 +929,7 @@ export async function runWeeklyPaymentReport(opts: {
 
   if (uniqueTo.length > 0) {
     try {
-      await sendWeeklyReportEmail({
+      emailed = await sendWeeklyReportEmail({
         to: uniqueTo,
         subject: `Weekly Payments Report — ${weekLabel}`,
         html: `<h2 style="margin:0 0 8px;color:#1B3A5C">Weekly Payments Report</h2>
@@ -935,7 +947,6 @@ export async function runWeeklyPaymentReport(opts: {
           { filename: `weekly-payments-outstanding-${weekStart}.pdf`, content: pdf2.toString('base64') },
         ],
       })
-      emailed = true
     } catch (e: any) {
       console.error('Weekly report email failed:', e)
     }

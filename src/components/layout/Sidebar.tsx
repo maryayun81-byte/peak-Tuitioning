@@ -1,9 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import {
   LayoutDashboard, Users, UserCheck, GraduationCap, BookOpen,
   Calendar, CalendarDays, ClipboardList, BarChart3, Bell,
@@ -14,6 +14,7 @@ import {
 import { cn, getInitials } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
 import { useNotificationStore } from '@/stores/notificationStore'
+import { useSidebarStore, sidebarCollapsedKey, SIDEBAR_WIDTHS } from '@/stores/sidebarStore'
 
 export interface NavItem {
   label: string
@@ -34,34 +35,115 @@ interface SidebarProps {
   children?: React.ReactNode
 }
 
+const ease = { duration: 0.3, ease: 'easeInOut' as const }
+
 export function Sidebar({ items, bottomItems = [], logo, role, children }: SidebarProps) {
-  const [collapsed, setCollapsed] = useState(false)
   const pathname = usePathname()
   const { profile } = useAuthStore()
   const { unreadCount } = useNotificationStore()
+  const { collapsed, setCollapsed, toggle, mobileOpen, setMobileOpen } = useSidebarStore()
+  const prefersReducedMotion = useReducedMotion()
+  const transition = prefersReducedMotion ? { duration: 0 } : ease
+
+  // Load the per-user collapse preference whenever the signed-in user changes.
+  useEffect(() => {
+    if (!profile?.id) return
+    const saved = localStorage.getItem(sidebarCollapsedKey(profile.id))
+    if (saved !== null) setCollapsed(saved === 'true')
+  }, [profile?.id, setCollapsed])
+
+  const handleToggle = () => {
+    const next = !collapsed
+    setCollapsed(next)
+    if (profile?.id) localStorage.setItem(sidebarCollapsedKey(profile.id), String(next))
+  }
 
   const isActive = (href: string) => pathname === href || (href !== '/' && href !== '/student' && pathname.startsWith(href + '/'))
 
+  const bodyProps = {
+    items,
+    bottomItems,
+    logo,
+    role,
+    children,
+    isActive,
+  }
+
   return (
-    <motion.aside
-      animate={{ width: collapsed ? 72 : 260 }}
-      transition={{ duration: 0.3, ease: 'easeInOut' }}
-      className="fixed left-0 top-0 h-screen z-40 flex flex-col hidden md:flex"
-      style={{
-        background: 'var(--sidebar)',
-        borderRight: '1px solid var(--card-border)',
-        overflow: 'hidden',
-      }}
-    >
+    <>
+      {/* Desktop sidebar */}
+      <motion.aside
+        animate={{ width: collapsed ? SIDEBAR_WIDTHS.collapsed : SIDEBAR_WIDTHS.expanded }}
+        transition={transition}
+        className="fixed left-0 top-0 h-screen z-40 flex flex-col hidden md:flex"
+        style={{
+          background: 'var(--sidebar)',
+          borderRight: '1px solid var(--card-border)',
+          overflow: 'hidden',
+        }}
+      >
+        <SidebarContent {...bodyProps} collapsed={collapsed} onToggle={handleToggle} mobile={false} />
+      </motion.aside>
+
+      {/* Mobile overlay drawer */}
+      <AnimatePresence>
+        {mobileOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={transition}
+              className="fixed inset-0 z-50 md:hidden"
+              style={{ background: 'rgba(0,0,0,0.5)' }}
+              onClick={() => setMobileOpen(false)}
+            />
+            <motion.aside
+              initial={{ x: -SIDEBAR_WIDTHS.expanded }}
+              animate={{ x: 0 }}
+              exit={{ x: -SIDEBAR_WIDTHS.expanded }}
+              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+              className="fixed left-0 top-0 bottom-0 z-50 flex flex-col md:hidden"
+              style={{
+                width: `min(${SIDEBAR_WIDTHS.expanded}px, 85vw)`,
+                background: 'var(--sidebar)',
+                borderRight: '1px solid var(--card-border)',
+              }}
+            >
+              <SidebarContent {...bodyProps} collapsed={false} onToggle={() => setMobileOpen(false)} mobile />
+            </motion.aside>
+          </>
+        )}
+      </AnimatePresence>
+    </>
+  )
+}
+
+interface SidebarContentProps {
+  items: NavItem[]
+  bottomItems: NavItem[]
+  logo?: React.ReactNode
+  role: string
+  children?: React.ReactNode
+  collapsed: boolean
+  mobile: boolean
+  onToggle: () => void
+  isActive: (href: string) => boolean
+}
+
+function SidebarContent({ items, bottomItems, logo, role, children, collapsed, mobile, onToggle, isActive }: SidebarContentProps) {
+  return (
+    <>
       {/* Logo */}
       <div className="flex items-center justify-between p-4 h-16" style={{ borderBottom: '1px solid var(--card-border)' }}>
         {!collapsed && logo}
         <button
-          onClick={() => setCollapsed(!collapsed)}
+          onClick={onToggle}
           className="ml-auto p-1.5 rounded-lg hover:opacity-80 transition-opacity"
           style={{ background: 'var(--card)', color: 'var(--text-muted)' }}
+          aria-label={mobile ? 'Close navigation menu' : collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
-          {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+          {mobile ? <X size={16} /> : collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
         </button>
       </div>
 
@@ -70,7 +152,7 @@ export function Sidebar({ items, bottomItems = [], logo, role, children }: Sideb
         {items.map((item, index) => {
           const showGroup = !collapsed && item.group && item.group !== items[index - 1]?.group
           return (
-            <div key={item.href}>
+            <div key={item.href} onClick={mobile ? onToggle : undefined}>
               {showGroup && (
                 <div className="px-3 pb-1 pt-4 text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: 'var(--text-muted)' }}>
                   {item.group}
@@ -86,13 +168,14 @@ export function Sidebar({ items, bottomItems = [], logo, role, children }: Sideb
       {bottomItems.length > 0 && (
         <div className="py-3 px-3 space-y-1" style={{ borderTop: '1px solid var(--card-border)' }}>
           {bottomItems.map((item) => (
-            <SidebarItem 
-              key={item.href} 
-              item={item} 
-              collapsed={collapsed} 
-              isActive={isActive(item.href)} 
-              onClick={item.onClick}
-            />
+            <div key={item.href} onClick={mobile ? onToggle : undefined}>
+              <SidebarItem
+                item={item}
+                collapsed={collapsed}
+                isActive={isActive(item.href)}
+                onClick={item.onClick}
+              />
+            </div>
           ))}
         </div>
       )}
@@ -101,44 +184,45 @@ export function Sidebar({ items, bottomItems = [], logo, role, children }: Sideb
       {!collapsed && children}
 
       {/* User info */}
-      {profile && (
-        <div
-          className="p-3"
-          style={{ borderTop: '1px solid var(--card-border)' }}
-        >
-          <div className="flex items-center gap-3 p-2 rounded-xl" style={{ background: 'var(--card)' }}>
-            <div
-              className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
-              style={{ background: 'var(--primary)', color: 'white' }}
-            >
-              {getInitials(profile.full_name)}
-            </div>
-            {!collapsed && (
-              <div className="overflow-hidden">
-                <div className="text-sm font-semibold truncate" style={{ color: 'var(--text)' }}>
-                  {profile.full_name}
-                </div>
-                <div className="text-xs capitalize" style={{ color: 'var(--text-muted)' }}>
-                  {role}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-    </motion.aside>
+      <UserInfo role={role} />
+    </>
   )
 }
 
-function SidebarItem({ 
-  item, 
-  collapsed, 
+function UserInfo({ role }: { role: string }) {
+  const { profile } = useAuthStore()
+  if (!profile) return null
+  return (
+    <div className="p-3" style={{ borderTop: '1px solid var(--card-border)' }}>
+      <div className="flex items-center gap-3 p-2 rounded-xl" style={{ background: 'var(--card)' }}>
+        <div
+          className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
+          style={{ background: 'var(--primary)', color: 'white' }}
+        >
+          {getInitials(profile.full_name)}
+        </div>
+        <div className="overflow-hidden">
+          <div className="text-sm font-semibold truncate" style={{ color: 'var(--text)' }}>
+            {profile.full_name}
+          </div>
+          <div className="text-xs capitalize" style={{ color: 'var(--text-muted)' }}>
+            {role}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SidebarItem({
+  item,
+  collapsed,
   isActive,
-  onClick
-}: { 
-  item: NavItem; 
-  collapsed: boolean; 
-  isActive: boolean;
+  onClick,
+}: {
+  item: NavItem
+  collapsed: boolean
+  isActive: boolean
   onClick?: () => void
 }) {
   const content = (
@@ -168,17 +252,17 @@ function SidebarItem({
       background: isActive ? 'var(--primary)' : 'transparent',
       color: isActive ? 'white' : 'var(--text-muted)',
     },
-    title: collapsed ? item.label : undefined
+    title: collapsed ? item.label : undefined,
   }
 
   if (onClick) {
     return (
-      <button 
-        type="button" 
+      <button
+        type="button"
         onClick={(e) => {
           e.preventDefault()
           onClick()
-        }} 
+        }}
         {...commonProps}
       >
         {content}
@@ -194,6 +278,21 @@ function SidebarItem({
     >
       {content}
     </Link>
+  )
+}
+
+// Mobile hamburger — place it in a portal's mobile header to open the overlay drawer.
+export function MobileSidebarToggle() {
+  const { setMobileOpen } = useSidebarStore()
+  return (
+    <button
+      type="button"
+      onClick={() => setMobileOpen(true)}
+      className="p-2 rounded-xl hover:bg-[var(--input)] transition-colors md:hidden"
+      aria-label="Open navigation menu"
+    >
+      <Menu size={20} />
+    </button>
   )
 }
 
@@ -232,7 +331,7 @@ export function BottomNav({ items, moreItems = [] }: BottomNavProps) {
             </>
           )
           const commonStyle = { color: isActive(item.href) ? 'var(--primary)' : 'var(--text-muted)' }
-          
+
           if (item.onClick) {
             return (
               <button
@@ -245,7 +344,7 @@ export function BottomNav({ items, moreItems = [] }: BottomNavProps) {
               </button>
             )
           }
-          
+
           return (
             <Link
               key={item.href}

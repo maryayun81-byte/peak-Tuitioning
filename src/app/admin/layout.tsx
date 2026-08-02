@@ -9,8 +9,9 @@ import {
   Settings, LogOut, FileText, BookMarked,
   TrendingUp, Library, Layers, Award, School, MapPin, DollarSign, FileCheck, ShieldCheck, Newspaper, MessageCircle, Bot, Video
 } from 'lucide-react'
-import { Sidebar, BottomNav } from '@/components/layout/Sidebar'
+import { Sidebar, BottomNav, MobileSidebarToggle } from '@/components/layout/Sidebar'
 import { useAuthStore } from '@/stores/authStore'
+import { useSidebarStore } from '@/stores/sidebarStore'
 import { useAuth } from '@/hooks/useAuth'
 import { getInitials } from '@/lib/utils'
 import { GraduationCap as Logo } from 'lucide-react'
@@ -68,6 +69,7 @@ const LogoComponent = (
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const { profile, isLoading } = useAuthStore()
+  const { collapsed } = useSidebarStore()
   const { signOut } = useAuth()
   const router = useRouter()
   const supabase = getSupabaseBrowserClient()
@@ -155,6 +157,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           }}
         >
           <div className="flex items-center gap-2">
+            <MobileSidebarToggle />
             <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #7C3AED, #A78BFA)' }}>
               <Logo size={16} className="text-white" />
             </div>
@@ -163,7 +166,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </div>
 
         {/* Main Content */}
-        <div className="md:ml-[260px]">
+        <div className={collapsed ? 'md:ml-[80px]' : 'md:ml-[280px]'}>
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
             {children}
           </motion.div>

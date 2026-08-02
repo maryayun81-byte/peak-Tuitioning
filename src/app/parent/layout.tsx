@@ -10,8 +10,9 @@ import {
   GraduationCap as Logo, ShieldCheck, BookOpen,
   Sparkles, FileText, Zap
 } from 'lucide-react'
-import { Sidebar, BottomNav } from '@/components/layout/Sidebar'
+import { Sidebar, BottomNav, MobileSidebarToggle } from '@/components/layout/Sidebar'
 import { useAuthStore } from '@/stores/authStore'
+import { useSidebarStore } from '@/stores/sidebarStore'
 import { useAuth } from '@/hooks/useAuth'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { SplashScreen } from '@/components/SplashScreen'
@@ -52,6 +53,7 @@ const LogoComponent = (
 export default function ParentLayout({ children }: { children: React.ReactNode }) {
   const supabase = getSupabaseBrowserClient()
   const { profile, parent, selectedStudent, setSelectedStudent, isLoading } = useAuthStore()
+  const { collapsed } = useSidebarStore()
   const { signOut } = useAuth()
   const router = useRouter()
   const pathname = usePathname()
@@ -152,8 +154,10 @@ export default function ParentLayout({ children }: { children: React.ReactNode }
       <main className="min-h-screen transition-all duration-300 pb-28 md:pb-0">
         {/* Dynamic Premium Header */}
         <header
-          className="sticky top-0 z-40 px-6 py-4 flex items-center justify-between border-b border-[var(--card-border)] md:ml-[260px] bg-[var(--bg)]/80 backdrop-blur-2xl"
+          className={`sticky top-0 z-40 px-6 py-4 flex items-center justify-between border-b border-[var(--card-border)] ${collapsed ? 'md:ml-[80px]' : 'md:ml-[280px]'} bg-[var(--bg)]/80 backdrop-blur-2xl`}
         >
+           <div className="flex items-center gap-2">
+              <MobileSidebarToggle />
            {/* Elite Student Switcher */}
            <div className="relative group">
               <motion.button 
@@ -213,6 +217,7 @@ export default function ParentLayout({ children }: { children: React.ReactNode }
                 )}
               </AnimatePresence>
            </div>
+           </div>
            
            <div className="flex items-center gap-4">
               <div className="hidden md:flex items-center gap-2 px-4 py-2 rounded-2xl bg-gradient-to-r from-emerald-500/10 to-teal-500/10 text-emerald-600 border border-emerald-500/20 shadow-inner">
@@ -247,7 +252,7 @@ export default function ParentLayout({ children }: { children: React.ReactNode }
            </div>
         </header>
 
-        <div className="md:ml-[260px] relative">
+        <div className={`${collapsed ? 'md:ml-[80px]' : 'md:ml-[280px]'} relative`}>
            {/* Decorative Top Gradient */}
            <div className="absolute top-0 left-0 right-0 h-96 bg-gradient-to-b from-primary/5 to-transparent -z-10 pointer-events-none" />
            

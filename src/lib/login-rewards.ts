@@ -39,6 +39,20 @@ export function computeLoginStreak(
   return priorLastLoginDate === yesterday ? priorStreak + 1 : 1
 }
 
+/**
+ * Optimistic-concurrency filter for the "last claimed" day. PostgREST treats
+ * `col=eq.null` as `col = NULL`, which never matches, so a NULL last_login_date
+ * (first-time login) must use the `is` operator instead.
+ */
+export function loginLastLoginClaimFilter(priorLastLoginDate: string | null | undefined): {
+  operator: 'is' | 'eq'
+  value: string | null
+} {
+  return priorLastLoginDate
+    ? { operator: 'eq', value: priorLastLoginDate }
+    : { operator: 'is', value: null }
+}
+
 export function loginRewardForStreak(streak: number): {
   base: number
   bonus: number

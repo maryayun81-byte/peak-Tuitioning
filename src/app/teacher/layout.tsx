@@ -8,8 +8,9 @@ import {
   Library, GraduationCap, Award, Settings, LogOut,
   PlusCircle, FileText, Zap, Bell, Users, Layers, BrainCircuit, HelpCircle, Trophy, MessageCircle
 } from 'lucide-react'
-import { Sidebar, BottomNav } from '@/components/layout/Sidebar'
+import { Sidebar, BottomNav, MobileSidebarToggle } from '@/components/layout/Sidebar'
 import { useAuthStore } from '@/stores/authStore'
+import { useSidebarStore } from '@/stores/sidebarStore'
 import { useAuth } from '@/hooks/useAuth'
 import { GraduationCap as Logo } from 'lucide-react'
 import { SplashScreen } from '@/components/SplashScreen'
@@ -19,6 +20,7 @@ import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { TermsEnforcementModal } from '@/components/teacher/TermsEnforcementModal'
 import { PageErrorBoundary } from '@/components/ui/PageErrorBoundary'
 import { TeacherAIAssistant } from '@/components/teacher/TeacherAIAssistant'
+import { NewTeachingSubjectsManager } from '@/components/teacher/subjects/NewTeachingSubjectsManager'
 import { SessionHeartbeat } from '@/components/shared/SessionHeartbeat'
 import { useMessageUnreadCount } from '@/hooks/useMessageUnreadCount'
 import { PushNotificationSetup } from '@/components/PushNotificationSetup'
@@ -64,6 +66,7 @@ const LogoComponent = (
 
 export default function TeacherLayout({ children }: { children: React.ReactNode }) {
   const { profile, teacher, isLoading, isInitialRevalidationComplete, setProfile, setTeacher } = useAuthStore()
+  const { collapsed } = useSidebarStore()
   const { unreadCount } = useNotificationStore()
   const { count: messageUnreadCount } = useMessageUnreadCount()
   useRealtimeNotifications()
@@ -324,10 +327,11 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
       <main className="min-h-screen transition-all duration-300 pb-20 md:pb-0" style={{ marginLeft: 0 }}>
         {/* Modern Header for Teachers */}
         <header
-          className="sticky top-0 z-40 px-6 py-4 flex items-center justify-between border-b border-[var(--card-border)] md:ml-[260px]"
+          className={`sticky top-0 z-40 px-6 py-4 flex items-center justify-between border-b border-[var(--card-border)] ${collapsed ? 'md:ml-[80px]' : 'md:ml-[280px]'}`}
           style={{ background: 'rgba(var(--card-rgb), 0.8)', backdropFilter: 'blur(12px)' }}
         >
-          <div className="flex-1 min-w-0 mr-2 md:hidden">
+          <div className="flex items-center gap-2 flex-1 min-w-0 mr-2 md:hidden">
+            <MobileSidebarToggle />
             {LogoComponent}
           </div>
           
@@ -361,7 +365,7 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
         </header>
 
         {/* Main Content */}
-        <div className="md:ml-[260px]">
+        <div className={collapsed ? 'md:ml-[80px]' : 'md:ml-[280px]'}>
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
             <PageErrorBoundary>
               {children}
@@ -389,6 +393,7 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
       <PushNotificationSetup />
       <TeacherAIAssistant />
       <SessionHeartbeat />
+      <NewTeachingSubjectsManager />
       </div>
     </>
   )

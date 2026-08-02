@@ -1970,6 +1970,15 @@ export default function StudentHomepageRouter() {
     if (student?.id) loadData()
   }, [student?.id])
 
+  // When the student registers newly available curriculum subjects (from the
+  // NewSubjectsManager modal), refresh the homepage feeds immediately so the
+  // dashboard reflects the updated subject scope without a full reload.
+  useEffect(() => {
+    const onSubjectsUpdated = () => { if (student?.id) loadData() }
+    window.addEventListener('peak:subjects-updated', onSubjectsUpdated)
+    return () => window.removeEventListener('peak:subjects-updated', onSubjectsUpdated)
+  }, [student?.id])
+
   const loadData = async () => {
     if (!student?.id) return
     const supabase = getSupabaseBrowserClient()

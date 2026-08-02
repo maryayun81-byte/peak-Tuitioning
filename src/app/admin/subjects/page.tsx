@@ -80,12 +80,21 @@ export default function AdminSubjects() {
     if (error) { toast.error(error.message); return }
     toast.success(editing ? 'Subject updated!' : 'Subject created!')
     reset(); setEditing(null); setAddOpen(false); load()
+    notifySubjectsChanged()
   }
 
   const del = async (id: string) => {
     const { error } = await supabase.from('subjects').delete().eq('id', id)
     if (error) { toast.error('Cannot delete — assignments may exist'); return }
     toast.success('Deleted'); load()
+    notifySubjectsChanged()
+  }
+
+  // Let open student/teacher tabs re-check pending subjects immediately.
+  function notifySubjectsChanged() {
+    try {
+      window.localStorage.setItem('peak:subjects-changed', String(Date.now()))
+    } catch { /* ignore */ }
   }
 
   return (
