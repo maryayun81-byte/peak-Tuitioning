@@ -7,10 +7,12 @@ import {
   X, Receipt, RefreshCw, AlertCircle, Plus,
   Banknote, Smartphone, Building2, CreditCard, Filter,
   ArrowRight, Check, Clock, TrendingUp, Send,
-  Eye, Bell, Phone, CalendarClock, StickyNote, Zap, Star, ChevronRight, AlertTriangle
+  Eye, Bell, Phone, CalendarClock, StickyNote, Zap, Star, ChevronRight, AlertTriangle, Circle
 } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { formatCurrency, formatDate, getEventWeeks, getArrearsStatus } from '@/lib/utils'
+import { computeCoverage, nextUncoveredDates } from '@/lib/payment-coverage'
+import { defaultDailyRateFor } from '@/lib/billing-rates'
 import { Card, Badge } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { useAuthStore } from '@/stores/authStore'
@@ -202,6 +204,10 @@ export default function PaymentManagement() {
   const [selectedReg, setSelectedReg] = useState<Registration | null>(null)
 
   const [studentPayments, setStudentPayments] = useState<DBPayment[]>([])
+  // Attendance rows for the selected student (any status — used for the trust
+  // indicator) plus the finance-owned day marks (manual "used day" overrides).
+  const [attendanceRows, setAttendanceRows] = useState<{ date: string; status: string | null }[]>([])
+  const [dayMarks, setDayMarks] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
   const [loadRef, setLoadRef] = useState(0)
 
@@ -360,7 +366,21 @@ export default function PaymentManagement() {
   }, [registrations, selectedCenterId, selectedCurriculum, selectedClass, studentSearch, classes, curriculums])
 
   const activeDaysInWeek = selectedWeek?.activeDates?.length ?? 5
-  const dailyRate = deriveClassDailyRate(classSlot, activeDaysInWeek, selectedEvent?.daily_rate ?? 500)
+  // Default rate is curriculum/class-aware (CBC KES 200/day, senior/844 KES
+  // 250/day) rather than a single event-wide default, so a short holiday week
+  // doesn't change what one "day" costs. A class slot still wins if present.
+  const fallbackDailyRate = useMemo(() => {
+    if (!selectedReg) return selectedEvent?.daily_rate ?? 500
+    const curriculumName = selectedReg.class?.curriculum_id
+      ? curriculums.find(c => c.id === selectedReg.class?.curriculum_id)?.name
+      : selectedReg.curriculum_label
+    return defaultDailyRateFor({
+      curriculumName,
+      className: selectedReg.class?.name ?? null,
+      classLevel: selectedReg.class_level ?? null,
+    })
+  }, [selectedReg, curriculums, selectedEvent])
+  const dailyRate = deriveClassDailyRate(classSlot, activeDaysInWeek, fallbackDailyRate)
   const weeklyRate = dailyRate * activeDaysInWeek
 
   // Build a per-date status map from ALL student payments
@@ -409,6 +429,62 @@ export default function PaymentManagement() {
     return { totalDue, totalPaid, arrears, paidDates, unpaidDates, partPaidDates, isFullyPaid: arrears <= 0 }
   }, [selectedWeek, allAllocatedDays, dailyRate])
 
+  // All teaching dates across every week of the event (ascending). Used so a
+  // payment can roll across the week boundary into the next week's days.
+  const allActiveDates = useMemo(
+    () => [...new Set(weeks.flatMap((w: any) => w.activeDates ?? []))].sort(),
+    [weeks]
+  )
+
+  // Coverage: how many teaching-day credits the student has purchased, how
+  // many have been consumed by actual attendance, and the furthest upcoming
+  // date the remaining credit reaches ("paid until"). Skipped days don't waste
+  // money — only attended days consume credit.
+  const totalPaid = useMemo(
+    () => studentPayments.reduce((s, p) => s + (Number(p.amount) || 0), 0),
+    [studentPayments]
+  )
+  // Days the student actually attended: teacher attendance (present/late)
+  // plus finance-marked days. Skipped days (recorded absent / excused / not
+  // yet recorded) do NOT consume credit — they roll forward.
+  const consumedDates = useMemo(() => {
+    const set = new Set<string>()
+    attendanceRows.forEach(r => {
+      const status = (r.status || '').toLowerCase()
+      if (status === 'present' || status === 'late') set.add(r.date)
+    })
+    Object.entries(dayMarks).forEach(([date, used]) => { if (used) set.add(date) })
+    return [...set]
+  }, [attendanceRows, dayMarks])
+  // Any day with a record at all (any attendance status or a day mark) counts
+  // as "recorded" for the trust indicator.
+  const recordedDates = useMemo(() => {
+    const set = new Set<string>()
+    attendanceRows.forEach(r => set.add(r.date))
+    Object.keys(dayMarks).forEach(date => set.add(date))
+    return [...set]
+  }, [attendanceRows, dayMarks])
+  const coverage = useMemo(
+    () => computeCoverage({
+      activeDates: allActiveDates,
+      totalPaid,
+      attendedDates: consumedDates,
+      dailyRate,
+      today: new Date().toISOString().split('T')[0],
+    }),
+    [allActiveDates, totalPaid, consumedDates, dailyRate]
+  )
+  // Trust indicator: coverage assumes attended == consumed. When the teacher
+  // hasn't recorded most of the elapsed sessions yet, coverage can undercount
+  // consumption (look "paid until" further out than reality).
+  const coverageTrust = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0]
+    const elapsed = allActiveDates.filter(d => d <= today).length
+    const recorded = allActiveDates.filter(d => recordedDates.includes(d)).length
+    if (elapsed === 0) return { elapsed, recorded, ratio: 1 }
+    return { elapsed, recorded, ratio: recorded / elapsed }
+  }, [allActiveDates, recordedDates])
+
   // Load student payments
   const loadStudentData = useCallback(async () => {
     if (!selectedReg || !selectedEvent) return
@@ -417,6 +493,27 @@ export default function PaymentManagement() {
       .eq('tuition_event_id', selectedEvent.id)
       .ilike('student_name', selectedReg.student_name)
     setStudentPayments((data as any) ?? [])
+
+    // Attendance is keyed by registration_id (falls back to student_id). The
+    // teacher flow records a `status` ('present'/'absent'/'late'/'excused');
+    // `present` (boolean) is a legacy column. Attended = present or late. This
+    // tells us which teaching days the student actually attended, so unused
+    // paid days (skipped sessions) roll forward instead of being wasted.
+    const attRes = await supabase.from('attendance')
+      .select('date, status')
+      .eq('tuition_event_id', selectedEvent.id)
+      .eq(selectedReg.id ? 'registration_id' : 'student_id', selectedReg.id || selectedReg.student?.id || '')
+    setAttendanceRows(((attRes.data as any[]) ?? []).map(a => ({ date: a.date, status: a.status })))
+
+    // Finance-owned day marks: staff can consume a paid day immediately (mark
+    // it "used") when the student attended but the teacher hasn't logged it.
+    const marksRes = await supabase.from('payment_day_marks')
+      .select('date')
+      .eq('registration_id', selectedReg.id)
+      .eq('used', true)
+    const marks: Record<string, boolean> = {}
+    ;((marksRes.data as any[]) ?? []).forEach(m => { marks[m.date] = true })
+    setDayMarks(marks)
   }, [selectedReg, selectedEvent, supabase])
 
   useEffect(() => { loadStudentData() }, [loadStudentData, loadRef])
@@ -446,6 +543,34 @@ export default function PaymentManagement() {
     setFollowUpNote('')
   }, [selectedWeekIndex, selectedReg])
 
+  // Carry the amount into the next week: when the entered amount exceeds the
+  // full cost of the current week (the week's arrears), automatically extend
+  // the selection with the next uncovered teaching dates — e.g. paying for 5
+  // days on Thursday picks up Thursday + Friday, then Monday–Wednesday of next
+  // week. The surplus is computed against the whole week, so a partial day's
+  // remainder is settled first and only genuine overpayment rolls over.
+  const lastAutoExtendRef = useRef('')
+  useEffect(() => {
+    if (amount <= 0) return
+    const weekRemaining = weeklyStats?.arrears ?? 0
+    if (amount <= weekRemaining) return
+    const extraDays = Math.ceil((amount - weekRemaining) / dailyRate)
+    if (extraDays <= 0) return
+    const weekDates = selectedWeek?.activeDates ?? []
+    const from = weekDates.length > 0 ? weekDates[weekDates.length - 1] : new Date().toISOString().split('T')[0]
+    const extra = nextUncoveredDates({
+      count: extraDays,
+      activeDates: allActiveDates,
+      alreadyCovered: Object.keys(allAllocatedDays),
+      from,
+    })
+    if (extra.length === 0) return
+    const key = `${amount}|${weekRemaining}`
+    if (lastAutoExtendRef.current === key) return
+    lastAutoExtendRef.current = key
+    setSelectedDates(prev => [...new Set([...prev, ...extra])].sort())
+  }, [amount, weeklyStats, dailyRate, allActiveDates, allAllocatedDays, selectedWeek])
+
   // Preview what allocation would look like for current amount
   const liveAllocation = useMemo(() => {
     if (!selectedDates.length || dailyRate <= 0 || amount <= 0) return null
@@ -459,6 +584,42 @@ export default function PaymentManagement() {
     setSelectedDates(prev =>
       prev.includes(date) ? prev.filter(d => d !== date) : [...prev, date].sort()
     )
+  }
+
+  // Manually consume a paid teaching day: marks the date as attended so it
+  // counts against credit immediately, without waiting on the teacher. Useful
+  // when the student attended today but attendance isn't logged yet.
+  const toggleDayMark = async (date: string) => {
+    if (!selectedReg || !selectedEvent) return
+    const currentlyMarked = !!dayMarks[date]
+    setDayMarks(prev => ({ ...prev, [date]: !currentlyMarked }))
+    try {
+      if (currentlyMarked) {
+        const { error } = await supabase
+          .from('payment_day_marks')
+          .delete()
+          .eq('registration_id', selectedReg.id)
+          .eq('date', date)
+        if (error) throw error
+        toast.success('Day unmarked — credit restored')
+      } else {
+        const { error } = await supabase
+          .from('payment_day_marks')
+          .upsert({
+            registration_id: selectedReg.id,
+            tuition_event_id: selectedEvent.id,
+            date,
+            used: true,
+            created_by: profile?.id,
+          }, { onConflict: 'registration_id,date' })
+        if (error) throw error
+        toast.success('Day marked as used')
+      }
+      setLoadRef(p => p + 1)
+    } catch (err: any) {
+      setDayMarks(prev => ({ ...prev, [date]: currentlyMarked }))
+      toast.error(err?.message ?? 'Failed to update day mark')
+    }
   }
 
   const recordPayment = async () => {
@@ -928,6 +1089,52 @@ export default function PaymentManagement() {
           ) : (
             <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-5">
 
+              {/* ── Coverage / Paid-until Banner ── */}
+              <Card className="p-5 relative overflow-hidden" style={{ borderColor: coverage.coverageEndDate ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)' }}>
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex items-center gap-4">
+                    <div className={`w-12 h-12 shrink-0 rounded-2xl flex items-center justify-center text-white shadow-lg ${coverage.coverageEndDate ? 'bg-emerald-500 shadow-emerald-500/30' : 'bg-red-500 shadow-red-500/30'}`}>
+                      {coverage.coverageEndDate ? <CheckCircle size={22} /> : <AlertCircle size={22} />}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-black uppercase tracking-wider opacity-40">Coverage Status · carry-over aware</p>
+                      <p className="text-xl font-black leading-tight truncate" style={{ color: coverage.coverageEndDate ? '#10B981' : '#EF4444' }}>
+                        {coverage.coverageEndDate
+                          ? `Paid until ${new Date(coverage.coverageEndDate + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}`
+                          : 'No upcoming coverage'}
+                      </p>
+                      <p className="text-xs font-bold mt-0.5 opacity-50">
+                        {coverage.coverageEndDate
+                          ? `${coverage.remainingDays.toFixed(1)} teaching day(s) in credit · ${coverage.coveredDates.length} upcoming day(s) covered`
+                          : totalPaid > 0
+                            ? `Credit used up — ${formatCurrency(dailyRate)} needed for the next session`
+                            : 'No payments recorded for this event yet'}
+                      </p>
+                    </div>
+                  </div>
+                  {coverage.coverageEndDate && (
+                    <div className="text-right shrink-0">
+                      <p className="text-[10px] font-black uppercase tracking-wider opacity-40">Consumed by attendance</p>
+                      <p className="text-lg font-black" style={{ color: 'var(--text)' }}>
+                        {coverage.consumedDays} / {coverage.purchasedDays.toFixed(1)} days
+                      </p>
+                      <p className="text-[10px] font-bold mt-0.5 opacity-40">skipped days roll forward automatically</p>
+                    </div>
+                  )}
+                </div>
+                {/* Trust indicator: warn when most elapsed sessions have no
+                    attendance record yet, so "paid until" may look optimistic. */}
+                {coverageTrust.elapsed >= 2 && coverageTrust.ratio < 0.7 && (
+                  <div className="mt-4 flex items-start gap-2.5 p-3 rounded-xl" style={{ background: 'rgba(245,158,11,0.08)', border: '1px dashed rgba(245,158,11,0.35)' }}>
+                    <AlertTriangle size={15} className="text-amber-500 shrink-0 mt-0.5" />
+                    <p className="text-xs font-bold text-amber-700 leading-snug">
+                      Attendance logged for only {coverageTrust.recorded} of {coverageTrust.elapsed} elapsed sessions — coverage may look further ahead than reality.
+                      Ask the teacher to sync attendance, or mark attended days as used below.
+                    </p>
+                  </div>
+                )}
+              </Card>
+
               {/* ── Arrears Summary ── */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {[
@@ -991,6 +1198,9 @@ export default function PaymentManagement() {
                     const isPartPaid = existingAlloc?.status === 'part-paid'
                     const isSelected = selectedDates.includes(date)
                     const isToday = date === new Date().toISOString().split('T')[0]
+                    // Covered by carry-over credit (paid days rolled from a previous
+                    // week or an unused/skipped session), not by an allocation row.
+                    const coveredByCredit = !isPaid && !isPartPaid && coverage.coveredDates.includes(date)
 
                     return (
                       <button
@@ -998,7 +1208,7 @@ export default function PaymentManagement() {
                         disabled={isPaid}
                         onClick={() => handleDateToggle(date)}
                         className={`relative p-3.5 rounded-2xl text-left transition-all overflow-hidden
-                          ${isPaid ? 'opacity-60 cursor-not-allowed' : isSelected ? 'ring-2 ring-primary scale-[1.02]' : 'border border-[var(--card-border)] hover:border-primary/30 hover:scale-[1.01]'}
+                          ${isPaid ? 'opacity-60 cursor-not-allowed' : isSelected ? 'ring-2 ring-primary scale-[1.02]' : coveredByCredit ? 'ring-2 ring-blue-500/60' : 'border border-[var(--card-border)] hover:border-primary/30 hover:scale-[1.01]'}
                           ${isPartPaid && !isSelected ? 'border-amber-400/50' : ''}`}
                         style={{
                           background: isPaid
@@ -1007,35 +1217,94 @@ export default function PaymentManagement() {
                               ? 'rgba(245,158,11,0.06)'
                               : isSelected
                                 ? 'var(--primary-subtle, rgba(245,158,11,0.1))'
-                                : 'var(--card)'
+                                : coveredByCredit
+                                  ? 'rgba(59,130,246,0.08)'
+                                  : 'var(--card)'
                         }}
                       >
                         {/* Status dot */}
                         {existingAlloc && (
                           <div className={`absolute top-2 right-2 w-2 h-2 rounded-full ${dayStatusColor(existingAlloc.status)}`} />
                         )}
-                        {isToday && !existingAlloc && (
+                        {!existingAlloc && coveredByCredit && (
+                          <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-blue-500" />
+                        )}
+                        {isToday && !existingAlloc && !coveredByCredit && (
                           <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
                         )}
                         {isSelected && !existingAlloc && (
                           <Check size={10} className="absolute top-2 right-2 text-[var(--primary)]" />
                         )}
 
-                        <p className={`text-[9px] font-black uppercase tracking-tight ${isPaid ? 'text-emerald-600' : isPartPaid ? 'text-amber-500' : isSelected ? 'text-[var(--primary)]' : 'opacity-30'}`}>
+                        <p className={`text-[9px] font-black uppercase tracking-tight ${isPaid ? 'text-emerald-600' : isPartPaid ? 'text-amber-500' : coveredByCredit ? 'text-blue-600' : isSelected ? 'text-[var(--primary)]' : 'opacity-30'}`}>
                           {new Date(date + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short' })}
                         </p>
                         <p className="text-base font-black leading-tight mt-0.5">
                           {new Date(date + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
                         </p>
-                        <p className={`text-[9px] font-bold mt-1 ${isPaid ? 'text-emerald-500' : isPartPaid ? 'text-amber-500' : 'opacity-25'}`}>
+                        <p className={`text-[9px] font-bold mt-1 ${isPaid ? 'text-emerald-500' : isPartPaid ? 'text-amber-500' : coveredByCredit ? 'text-blue-500' : 'opacity-25'}`}>
                           {isPaid ? '✓ KES ' + dailyRate.toLocaleString()
                             : isPartPaid ? `${formatCurrency(existingAlloc!.allocated)} / ${dailyRate.toLocaleString()}`
-                              : `KES ${dailyRate.toLocaleString()}`}
+                              : coveredByCredit ? 'credit · covered'
+                                : `KES ${dailyRate.toLocaleString()}`}
                         </p>
                       </button>
                     )
                   })}
                 </div>
+
+                {/* Manual attendance override: consume a paid day immediately
+                    when the student attended but the teacher hasn't logged it. */}
+                {(() => {
+                  const today = new Date().toISOString().split('T')[0]
+                  const markable = (selectedWeek?.activeDates ?? []).filter((date: string) =>
+                    date <= today && (!attendanceRows.some(r => r.date === date) || dayMarks[date])
+                  )
+                  if (markable.length === 0) return null
+                  return (
+                    <div className="mt-4 p-4 rounded-2xl" style={{ background: 'rgba(139,92,246,0.05)', border: '1px dashed rgba(139,92,246,0.3)' }}>
+                      <p className="text-[10px] font-black uppercase tracking-wider text-violet-500 mb-2">
+                        Mark day as used · attendance not logged yet
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {markable.map((date: string) => {
+                          const marked = !!dayMarks[date]
+                          return (
+                            <button
+                              key={date}
+                              onClick={() => toggleDayMark(date)}
+                              className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-black border transition-all ${marked ? 'bg-violet-500 text-white border-violet-500' : 'bg-white/60 border-violet-400/40 text-violet-600 hover:bg-violet-500 hover:text-white'}`}
+                            >
+                              {marked ? <Check size={10} /> : <Circle size={8} />}
+                              {new Date(date + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
+                              {marked ? ' · used' : ''}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })()}
+
+                {/* Cross-week carry-over indicator */}
+                {(() => {
+                  const weekDates = new Set(selectedWeek?.activeDates ?? [])
+                  const spill = (selectedDates ?? []).filter(d => !weekDates.has(d))
+                  if (spill.length === 0) return null
+                  const spillWeekNum = weeks.findIndex(w => w.activeDates?.includes(spill[0]))
+                  return (
+                    <div className="mt-4 p-4 rounded-2xl flex flex-wrap items-center gap-2" style={{ background: 'rgba(59,130,246,0.06)', border: '1px dashed rgba(59,130,246,0.3)' }}>
+                      <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-blue-600">
+                        <RefreshCw size={12} /> Carries into Week {spillWeekNum >= 0 ? spillWeekNum + 1 : ''} · {spill.length} day(s)
+                      </span>
+                      {spill.map(d => (
+                        <span key={d} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black border bg-blue-500/10 border-blue-500/30 text-blue-600">
+                          {new Date(d + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
+                        </span>
+                      ))}
+                    </div>
+                  )
+                })()}
 
                 {/* Live allocation preview */}
                 {liveAllocation && liveAllocation.allocations.length > 0 && (

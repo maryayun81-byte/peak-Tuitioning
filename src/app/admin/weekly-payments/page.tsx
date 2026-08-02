@@ -23,8 +23,9 @@ import {
   weekKey, paymentsFor, paidTotalFor, expectedFeeFor, cumulativeBalanceFor, computeFlag,
 } from '@/lib/weekly-payments'
 import type { PaymentEntry, RosterStudent, Flag, PaymentPlan, ActiveDaysForWeek } from '@/lib/weekly-payments'
-import { buildCoachBrief, buildStudentBehaviors } from '@/lib/weekly-insights'
-import type { CoachBrief, CoachInput } from '@/lib/weekly-insights'
+import { buildCoachBrief, buildStudentBehaviors, computeAging } from '@/lib/weekly-insights'
+import type { CoachInput } from '@/lib/weekly-insights'
+import type { CoachCommentary } from '@/lib/coach-ai'
 import { generateCoachCommentary } from '@/app/actions/coach'
 import { PeakCoachPanel } from '@/components/admin/PeakCoachPanel'
 
@@ -837,6 +838,9 @@ export default function WeeklyPayments() {
     [studentHistories]
   )
 
+  // Debt aging: how many weeks each outstanding balance has been carried.
+  const aging = useMemo(() => computeAging(studentHistories), [studentHistories])
+
   const coachInput = useMemo<CoachInput>(
     () => ({
       rows: rosterClasses.flatMap((c) =>
@@ -861,17 +865,19 @@ export default function WeeklyPayments() {
       methods: methodBreakdown.map((m) => ({ method: m.method, count: m.count, amount: m.amount })),
       weekLabel: weekRangeLabel || formatDateLabel(parseISODate(weekStart)),
       behaviors: studentBehaviors,
+      aging,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [rosterClasses, payments, feeOverrides, promises, weekStart, grandTotals, trendData, methodBreakdown, weekRangeLabel, studentBehaviors]
+    [rosterClasses, payments, feeOverrides, promises, weekStart, grandTotals, trendData, methodBreakdown, weekRangeLabel, studentBehaviors, aging]
   )
 
   const coachBrief = useMemo(() => buildCoachBrief(coachInput), [coachInput])
 
   // AI commentary: fire-and-forget after a short debounce so every logged
-  // payment doesn't hammer the provider chain. Falls back to the deterministic
-  // brief on any failure (the action itself returns buildCoachBrief).
-  const [aiBrief, setAiBrief] = useState<CoachBrief | null>(null)
+  // payment doesn't hammer the provider chain. The deterministic brief above
+  // always drives the panel; the AI only adds a labelled commentary paragraph
+  // and returns null on any failure.
+  const [aiCommentary, setAiCommentary] = useState<CoachCommentary | null>(null)
   const aiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const coachInputKey = useMemo(() => JSON.stringify(coachInput), [coachInput])
 
@@ -880,9 +886,9 @@ export default function WeeklyPayments() {
     const t = setTimeout(async () => {
       try {
         const res = await generateCoachCommentary(coachInput)
-        setAiBrief(res)
+        setAiCommentary(res)
       } catch {
-        // keep deterministic brief
+        setAiCommentary(null)
       }
     }, 1200)
     aiTimerRef.current = t
@@ -891,6 +897,21 @@ export default function WeeklyPayments() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coachInputKey])
+
+  // Clicking a flag/insight jumps to the student's class and opens its detail.
+  const handleCoachNavigate = useCallback((studentName: string) => {
+    setFlaggedOnly(false)
+    for (const c of rosterClasses) {
+      const student = c.students.find((s) => s.name === studentName)
+      if (student) {
+        setActiveClassId(c.id)
+        setExpandedId(student.id)
+        setSearch(student.name)
+        return
+      }
+    }
+    setSearch(studentName)
+  }, [rosterClasses])
 
   // ---- CSV export ----
   function exportBalances(scope: 'class' | 'all') {
@@ -1024,7 +1045,7 @@ export default function WeeklyPayments() {
           </div>
         </div>
 
-        <PeakCoachPanel brief={aiBrief ?? coachBrief} />
+        <PeakCoachPanel brief={coachBrief} aging={aging} aiCommentary={aiCommentary} onNavigate={handleCoachNavigate} />
 
         <div className="wp-summary-grid">
           <SummaryCard label="Expected this week" value={formatMoney(grandTotals.expected)} />

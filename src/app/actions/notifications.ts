@@ -3,40 +3,27 @@
 import { createAdminClient } from '@/lib/supabase/server'
 import { requireAdmin } from '@/lib/auth-guards'
 import { rateLimit } from '@/lib/rate-limit'
-import { sendSms, normalizePhone, hasSmsleopardToken } from '@/lib/smsleopard'
+import { sendSms, parsePhoneNumbers, hasSmsleopardToken } from '@/lib/smsleopard'
 
 export type SmsComposerTarget = 'all' | 'specific_role' | 'specific_user' | 'specific_numbers'
 export type SmsComposerRole = 'admin' | 'teacher' | 'student' | 'parent'
 
 type SendBulkSmsInput = {
   message: string
-  target: SmsComposerTarget
+  target?: SmsComposerTarget
   role?: SmsComposerRole
   user_ids?: string[]
-  numbers?: string[]
+  numbers?: string[] | string
 }
 
-function parseNumbersInput(raw?: string[]): { numbers: string[]; error?: string } {
-  const chunks = (raw || [])
-    .flatMap((item) => String(item || '').split(/[,;\n]+/))
-    .map((s) => s.trim())
-    .filter(Boolean)
-
-  const numbers: string[] = []
-  for (const chunk of chunks) {
-    if (normalizePhone(chunk)) {
-      numbers.push(chunk)
-      continue
-    }
-    // A chunk like "0712 345 678" is a single number; a chunk like
-    // "0712345678 0723456789" is two numbers separated by a space.
-    const tokens = chunk.split(/\s+/).map((s) => s.trim()).filter(Boolean)
-    for (const token of tokens) {
-      if (normalizePhone(token)) numbers.push(token)
-    }
+function parseNumbersInput(raw?: string | string[]): { numbers: string[]; error?: string } {
+  const { numbers, dropped } = parsePhoneNumbers(raw)
+  if (numbers.length === 0) {
+    const hint = dropped.length > 0
+      ? ` Not recognized: ${dropped.slice(0, 5).join(', ')}.`
+      : ''
+    return { numbers: [], error: `Enter at least one valid phone number (07XXXXXXXX).${hint}` }
   }
-
-  if (numbers.length === 0) return { numbers: [], error: 'Enter at least one valid phone number.' }
   return { numbers }
 }
 
@@ -44,43 +31,59 @@ async function collectPhoneNumbers(
   adminClient: Awaited<ReturnType<typeof createAdminClient>>,
   input: Pick<SendBulkSmsInput, 'target' | 'role' | 'user_ids' | 'numbers'>,
 ): Promise<{ numbers: string[]; error?: string }> {
-  if (input.target === 'specific_numbers') {
-    return parseNumbersInput(input.numbers)
+  const target = input.target
+  const parsedProvided = parseNumbersInput(input.numbers)
+
+  // A caller who supplies explicit numbers wants THOSE numbers used, no matter
+  // the role or target. Only target='all' overrides this, because that means
+  // "broadcast to everyone in the database".
+  if (parsedProvided.numbers.length > 0 && target !== 'all') {
+    return parsedProvided
   }
 
-  if (input.target === 'specific_user') {
+  if (target === 'specific_numbers') {
+    return parsedProvided
+  }
+
+  if (target === 'specific_user') {
     const ids = (input.user_ids || []).filter(Boolean)
     if (ids.length === 0) return { numbers: [], error: 'Select at least one recipient.' }
     const { data } = await adminClient.from('profiles').select('phone').in('id', ids)
-    return { numbers: (data || []).map((p: any) => p.phone) }
+    const { numbers } = parsePhoneNumbers((data || []).map((p: any) => p.phone))
+    if (numbers.length === 0) return { numbers: [], error: 'No valid phone numbers found for the selected users.' }
+    return { numbers }
   }
 
-  if (input.target === 'specific_role') {
-    const role = input.role || 'student'
-    // Parents are entered manually — the phone numbers saved in the DB are not reliable.
-    if (role === 'parent') {
-      return parseNumbersInput(input.numbers)
-    }
-    if (role === 'teacher') {
+  if (target === 'specific_role') {
+    if (input.role === 'teacher') {
       const { data } = await adminClient.from('teachers').select('phone')
-      return { numbers: (data || []).map((t: any) => t.phone) }
+      const { numbers } = parsePhoneNumbers((data || []).map((t: any) => t.phone))
+      if (numbers.length === 0) return { numbers: [], error: 'No valid phone numbers found for teachers.' }
+      return { numbers }
     }
+    const role = input.role || 'student'
     const { data } = await adminClient.from('profiles').select('phone').eq('role', role)
-    return { numbers: (data || []).map((p: any) => p.phone) }
+    const { numbers } = parsePhoneNumbers((data || []).map((p: any) => p.phone))
+    if (numbers.length === 0) return { numbers: [], error: `No valid phone numbers found for ${role}s.` }
+    return { numbers }
   }
 
-  const [{ data: profiles }, { data: teachers }, { data: parents }] = await Promise.all([
-    adminClient.from('profiles').select('phone'),
-    adminClient.from('teachers').select('phone'),
-    adminClient.from('parents').select('phone'),
-  ])
-  return {
-    numbers: [
+  if (target === 'all') {
+    const [{ data: profiles }, { data: teachers }, { data: parents }] = await Promise.all([
+      adminClient.from('profiles').select('phone'),
+      adminClient.from('teachers').select('phone'),
+      adminClient.from('parents').select('phone'),
+    ])
+    const { numbers } = parsePhoneNumbers([
       ...(profiles || []).map((p: any) => p.phone),
       ...(teachers || []).map((t: any) => t.phone),
       ...(parents || []).map((p: any) => p.phone),
-    ],
+    ])
+    if (numbers.length === 0) return { numbers: [], error: 'No valid phone numbers found in the database.' }
+    return { numbers }
   }
+
+  return { numbers: [], error: 'Select a target (everyone, role, user, or specific numbers).' }
 }
 
 /**
@@ -122,7 +125,17 @@ export async function sendBulkSms(input: SendBulkSmsInput) {
 
   const adminClient = await createAdminClient()
   const { numbers, error: collectError } = await collectPhoneNumbers(adminClient, input)
-  if (collectError) return { success: false, sent: 0, total: 0, error: collectError }
+  if (collectError) {
+    console.error('[sendBulkSms] No recipients collected.', {
+      target: input.target,
+      role: input.role,
+      error: collectError,
+    })
+    return { success: false, sent: 0, total: 0, error: collectError }
+  }
 
-  return sendSms(numbers, message)
+  console.log('[sendBulkSms] Recipients ready.', { target: input.target, role: input.role, count: numbers.length })
+  const result = await sendSms(numbers, message)
+  console.log('[sendBulkSms] Result.', { success: result.success, sent: result.sent, total: result.total, error: result.error })
+  return result
 }

@@ -99,3 +99,48 @@ describe('buildStudentBehaviors', () => {
     expect(buildStudentBehaviors([{ name: 'X', className: 'C', weeks: [] }])).toEqual([])
   })
 })
+
+describe('buildStudentBehaviors trajectory', () => {
+  it('labels a recovering student as improving', () => {
+    const behaviors = buildStudentBehaviors([
+      student('Amina', [
+        week({ paid: 0 }),
+        week({ paid: 0, weekLabel: '2026-07-06' }),
+        week({ weekLabel: '2026-07-13' }),
+        week({ weekLabel: '2026-07-20' }),
+      ]),
+    ])
+    const b = behaviors.find((x) => x.id === 'behavior-miss-Amina')
+    expect(b).toBeDefined()
+    expect(b!.trajectory).toBe('improving')
+  })
+
+  it('labels a slipping student as worsening', () => {
+    const behaviors = buildStudentBehaviors([
+      student('Brian', [
+        week({ weekLabel: '2026-06-29' }),
+        week({ weekLabel: '2026-07-06' }),
+        week({ paid: 0, weekLabel: '2026-07-13' }),
+        week({ paid: 0, weekLabel: '2026-07-20' }),
+      ]),
+    ])
+    const b = behaviors.find((x) => x.id === 'behavior-miss-Brian')
+    expect(b).toBeDefined()
+    expect(b!.trajectory).toBe('worsening')
+  })
+
+  it('labels a steady student as stable and carries studentName', () => {
+    const behaviors = buildStudentBehaviors([
+      student('Eve', [
+        week({ weekLabel: '2026-06-29' }),
+        week({ weekLabel: '2026-07-06' }),
+        week({ weekLabel: '2026-07-13' }),
+        week({ weekLabel: '2026-07-20' }),
+      ]),
+    ])
+    const b = behaviors.find((x) => x.id === 'behavior-settled-Eve')
+    expect(b).toBeDefined()
+    expect(b!.trajectory).toBe('stable')
+    expect(b!.studentName).toBe('Eve')
+  })
+})

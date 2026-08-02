@@ -176,3 +176,101 @@ describe('buildCoachBrief insights', () => {
     expect(insight!.title).toContain('M-Pesa')
   })
 })
+
+describe('buildCoachBrief debt aging', () => {
+  it('flags accounts owing for 5+ weeks as red', () => {
+    const { insights } = brief({
+      rows: [row({ name: 'Amina', balance: 5000 })],
+      aging: {
+        buckets: [{ key: '5plus', label: '5+ weeks', count: 1, amount: 5000 }],
+        totalOutstanding: 5000,
+        oldest: { studentName: 'Amina', className: 'Grade 7', weeks: 6, balance: 5000 },
+      },
+    })
+    const insight = insights.find((i) => i.id === 'aging-deep')
+    expect(insight).toBeDefined()
+    expect(insight!.tone).toBe('red')
+    expect(insight!.title).toContain('5+ weeks')
+  })
+
+  it('names the oldest balance with a drill-down link', () => {
+    const { insights } = brief({
+      rows: [row({ name: 'Amina', balance: 5000 })],
+      aging: {
+        buckets: [{ key: '3to4', label: '3–4 weeks', count: 1, amount: 5000 }],
+        totalOutstanding: 5000,
+        oldest: { studentName: 'Amina', className: 'Grade 7', weeks: 4, balance: 5000 },
+      },
+    })
+    const insight = insights.find((i) => i.id === 'aging-oldest')
+    expect(insight).toBeDefined()
+    expect(insight!.studentName).toBe('Amina')
+    expect(insight!.title).toContain('4 weeks')
+  })
+
+  it('adds a direct-call verdict for very old debt', () => {
+    const { verdicts } = brief({
+      rows: [row({ name: 'Amina', balance: 5000 })],
+      totals: { expected: 1250, collected: 0, outstanding: 5000, credit: 0, flaggedCount: 1, collectionRate: 0 },
+      aging: {
+        buckets: [{ key: '5plus', label: '5+ weeks', count: 1, amount: 5000 }],
+        totalOutstanding: 5000,
+        oldest: { studentName: 'Amina', className: 'Grade 7', weeks: 6, balance: 5000 },
+      },
+    })
+    expect(verdicts.some((v) => /worth a direct call/i.test(v))).toBe(true)
+  })
+})
+
+describe('buildCoachBrief projection', () => {
+  it('projects a month-end shortfall when collection is slow', () => {
+    const { insights } = brief({
+      rows: [row()],
+      trend: [
+        { label: 'Wk 1', expected: 1250, collected: 1250 },
+        { label: 'Wk 2', expected: 1250, collected: 500 },
+      ],
+    })
+    const insight = insights.find((i) => i.id === 'projection')
+    expect(insight).toBeDefined()
+    expect(insight!.title).toContain('month-end')
+    expect(insight!.title).toContain('1,500')
+  })
+
+  it('skips the projection when collection is strong', () => {
+    const { insights } = brief({
+      rows: [row()],
+      trend: [
+        { label: 'Wk 1', expected: 1250, collected: 1250 },
+        { label: 'Wk 2', expected: 1250, collected: 1250 },
+      ],
+    })
+    expect(insights.some((i) => i.id === 'projection')).toBe(false)
+  })
+})
+
+describe('buildCoachBrief navigation metadata', () => {
+  it('attaches the student name to flags for drill-down', () => {
+    const { flags } = brief({ rows: [row()] })
+    const flag = flags.find((f) => f.id === 'overdue-nopromise-Amina')
+    expect(flag).toBeDefined()
+    expect(flag!.studentName).toBe('Amina')
+  })
+
+  it('attaches the student name and trajectory to behavior insights', () => {
+    const { insights } = brief({
+      behaviors: [{
+        id: 'behavior-miss-Amina',
+        tone: 'red' as const,
+        title: 'Amina misses payments regularly',
+        detail: 'Nothing paid in 2 weeks',
+        studentName: 'Amina',
+        trajectory: 'worsening' as const,
+      }],
+    })
+    const insight = insights.find((i) => i.id === 'behavior-miss-Amina')
+    expect(insight).toBeDefined()
+    expect(insight!.studentName).toBe('Amina')
+    expect(insight!.trajectory).toBe('worsening')
+  })
+})

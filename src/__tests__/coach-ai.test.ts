@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildCoachSnapshot, parseCoachBrief, coachMoney, COACH_SYSTEM_PROMPT } from '@/lib/coach-ai'
+import { buildCoachSnapshot, parseCoachCommentary, coachMoney, COACH_SYSTEM_PROMPT } from '@/lib/coach-ai'
 import type { CoachInput } from '@/lib/weekly-insights'
 
 const input: CoachInput = {
@@ -10,7 +10,19 @@ const input: CoachInput = {
   trend: [{ label: 'Wk 1', expected: 1250, collected: 1250 }],
   methods: [{ method: 'M-Pesa', count: 2, amount: 1000 }],
   weekLabel: 'Week 2',
-  behaviors: [{ id: 'b', tone: 'red', title: 'Amina misses payments', detail: 'Nothing paid in 2 weeks' }],
+  behaviors: [{
+    id: 'behavior-miss-Amina',
+    tone: 'red',
+    title: 'Amina misses payments',
+    detail: 'Nothing paid in 2 weeks',
+    studentName: 'Amina',
+    trajectory: 'worsening',
+  }],
+  aging: {
+    buckets: [{ key: '5plus', label: '5+ weeks', count: 1, amount: 5000 }],
+    totalOutstanding: 5000,
+    oldest: { studentName: 'Amina', className: 'Grade 7', weeks: 6, balance: 5000 },
+  },
 }
 
 describe('coachMoney', () => {
@@ -21,12 +33,15 @@ describe('coachMoney', () => {
 })
 
 describe('buildCoachSnapshot', () => {
-  it('includes the week, totals, trend, methods and behaviors', () => {
+  it('includes the week, totals, trend, methods, aging and behaviors', () => {
     const snap = buildCoachSnapshot(input)
     expect(snap).toContain('WEEK: Week 2')
     expect(snap).toContain('KSh 1,250')
     expect(snap).toContain('M-Pesa')
+    expect(snap).toContain('AGING:')
+    expect(snap).toContain('oldest Amina 6 weeks')
     expect(snap).toContain('Amina misses payments')
+    expect(snap).toContain('(worsening)')
     expect(snap).toContain('Amina (Grade 7)')
   })
 
@@ -42,42 +57,33 @@ describe('buildCoachSnapshot', () => {
     expect(snap).toContain('WEEK: Week 1')
     expect(snap).not.toContain('TREND:')
     expect(snap).not.toContain('METHODS:')
+    expect(snap).not.toContain('AGING:')
     expect(snap).not.toContain('STUDENTS:')
   })
 })
 
-describe('parseCoachBrief', () => {
-  it('parses a valid JSON brief', () => {
-    const parsed = parseCoachBrief(`{"verdict":"3 accounts still owe.","flags":[{"tone":"red","title":"Amina owes","detail":"KSh 1,250"}]}`)
-    expect(parsed).not.toBeNull()
-    expect(parsed!.verdict).toBe('3 accounts still owe.')
-    expect(parsed!.flags).toHaveLength(1)
-    expect(parsed!.flags[0].tone).toBe('red')
+describe('parseCoachCommentary', () => {
+  it('returns trimmed plain text', () => {
+    expect(parseCoachCommentary('  Great week, three accounts need a nudge.  ')).toBe('Great week, three accounts need a nudge.')
   })
 
-  it('extracts JSON from surrounding noise', () => {
-    const parsed = parseCoachBrief('Here you go:\n```json\n{"verdict":"All good.","flags":[{"tone":"green","title":"Clean","detail":"Nothing owed"}]}\n```')
-    expect(parsed).not.toBeNull()
-    expect(parsed!.flags[0].tone).toBe('green')
+  it('extracts text from code fences', () => {
+    const c = parseCoachCommentary('Here you go:\n```text\nThree accounts still owe this week.\n```\nThanks!')
+    expect(c).toBe('Three accounts still owe this week.')
   })
 
-  it('coerces unknown tones to blue and drops empty titles', () => {
-    const parsed = parseCoachBrief(`{"verdict":"ok","flags":[{"tone":"purple","title":"X","detail":"d"},{"tone":"red","title":"","detail":"d"}]}`)
-    expect(parsed).not.toBeNull()
-    expect(parsed!.flags).toHaveLength(1)
-    expect(parsed!.flags[0].tone).toBe('blue')
+  it('flattens bullet lines into prose', () => {
+    const c = parseCoachCommentary('- First line\n- Second line')
+    expect(c).toBe('First line Second line')
   })
 
-  it('caps flags at three', () => {
-    const flags = Array.from({ length: 5 }, (_, i) => ({ tone: 'red', title: `F${i}`, detail: 'd' }))
-    const parsed = parseCoachBrief(JSON.stringify({ verdict: 'v', flags }))
-    expect(parsed!.flags).toHaveLength(3)
+  it('returns null for empty or whitespace content', () => {
+    expect(parseCoachCommentary('')).toBeNull()
+    expect(parseCoachCommentary('   \n ')).toBeNull()
   })
 
-  it('returns null for non-JSON or empty content', () => {
-    expect(parseCoachBrief('not json at all')).toBeNull()
-    expect(parseCoachBrief('{"verdict":"","flags":[]}')).toBeNull()
-    expect(parseCoachBrief('')).toBeNull()
+  it('returns null when only empty fences are present', () => {
+    expect(parseCoachCommentary('```\n```')).toBeNull()
   })
 
   it('has a coach system prompt mentioning Peak Coach', () => {

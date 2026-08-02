@@ -48,6 +48,8 @@ export interface CoachInput {
   today?: Date
   /** Per-student payment-behavior findings (see buildStudentBehaviors). */
   behaviors?: CoachBehavior[]
+  /** Debt aging across the roster (see computeAging). */
+  aging?: DebtAging
 }
 
 export interface CoachFlag {
@@ -55,6 +57,8 @@ export interface CoachFlag {
   tone: CoachTone
   title: string
   detail: string
+  /** Student this flag refers to, when the flag is about one account (used for drill-down). */
+  studentName?: string
 }
 
 export interface CoachInsight {
@@ -62,19 +66,51 @@ export interface CoachInsight {
   tone: CoachTone
   title: string
   detail: string
+  /** Student this insight refers to, when it is about one account (used for drill-down). */
+  studentName?: string
+  /** Direction of a student-behavior insight (see CoachBehavior). */
+  trajectory?: CoachTrajectory
 }
+
+export type CoachTrajectory = 'improving' | 'worsening' | 'stable'
 
 export interface CoachBehavior {
   id: string
   tone: CoachTone
   title: string
   detail: string
+  studentName: string
+  /** Whether the student is clearing up or slipping, measured across the history. */
+  trajectory: CoachTrajectory
 }
 
 export interface CoachBrief {
   verdicts: string[]
   flags: CoachFlag[]
   insights: CoachInsight[]
+}
+
+// ---------------------------------------------------------------------
+// Debt aging
+// ---------------------------------------------------------------------
+
+export type DebtAgingKey = 'current' | '2weeks' | '3to4' | '5plus'
+
+export interface DebtAgingBucket {
+  key: DebtAgingKey
+  /** Human label, e.g. "3–4 weeks". */
+  label: string
+  count: number
+  amount: number
+}
+
+export interface DebtAging {
+  /** Buckets of debt by age, oldest-first, only buckets with accounts. */
+  buckets: DebtAgingBucket[]
+  /** Outstanding across every account with a balance right now. */
+  totalOutstanding: number
+  /** The single oldest debt on the books, when any exists. */
+  oldest: { studentName: string; className: string; weeks: number; balance: number } | null
 }
 
 function money(n: number, currency: string): string {
@@ -122,6 +158,23 @@ export interface CoachStudentHistory {
  * so brand-new students are never mislabeled. Returns empty for too-little
  * history.
  */
+/**
+ * Names the direction of a student's payment behaviour: whether the last two
+ * active weeks clear their fee more often than the earlier ones. Requires at
+ * least three active weeks; with less history we stay conservative ("stable").
+ */
+export function behaviorTrajectory(weeks: CoachWeekHistory[]): CoachTrajectory {
+  const cleared = (w: CoachWeekHistory) => Number(w.expected) > 0 && Number(w.paid) >= Number(w.expected)
+  if (weeks.length < 3) return 'stable'
+  const recent = weeks.slice(-2)
+  const earlier = weeks.slice(0, -2)
+  const recentRate = recent.filter(cleared).length / recent.length
+  const earlierRate = earlier.filter(cleared).length / earlier.length
+  if (recentRate > earlierRate) return 'improving'
+  if (recentRate < earlierRate) return 'worsening'
+  return 'stable'
+}
+
 export function buildStudentBehaviors(histories: CoachStudentHistory[]): CoachBehavior[] {
   const behaviors: CoachBehavior[] = []
 
@@ -138,6 +191,7 @@ export function buildStudentBehaviors(histories: CoachStudentHistory[]): CoachBe
 
     const { name } = history
     const total = weeks.length
+    const trajectory = behaviorTrajectory(weeks)
 
     if (zeroPaid >= 2) {
       behaviors.push({
@@ -145,6 +199,8 @@ export function buildStudentBehaviors(histories: CoachStudentHistory[]): CoachBe
         tone: 'red',
         title: `${name} misses payments regularly`,
         detail: `Nothing paid in ${zeroPaid} of the last ${total} active weeks`,
+        studentName: name,
+        trajectory,
       })
     } else if (promisedWeeks.length >= 2 && promisesKept === 0) {
       behaviors.push({
@@ -152,6 +208,8 @@ export function buildStudentBehaviors(histories: CoachStudentHistory[]): CoachBe
         tone: 'amber',
         title: `${name} makes promises but rarely settles`,
         detail: `${promisedWeeks.length} promise${promisedWeeks.length > 1 ? 's' : ''} set, none cleared`,
+        studentName: name,
+        trajectory,
       })
     } else if (carried >= 2) {
       behaviors.push({
@@ -159,6 +217,8 @@ export function buildStudentBehaviors(histories: CoachStudentHistory[]): CoachBe
         tone: 'amber',
         title: `${name} carries debt across weeks`,
         detail: `Brought a balance forward in ${carried} of the last ${total} weeks`,
+        studentName: name,
+        trajectory,
       })
     } else if (installments >= 2) {
       behaviors.push({
@@ -166,6 +226,8 @@ export function buildStudentBehaviors(histories: CoachStudentHistory[]): CoachBe
         tone: 'blue',
         title: `${name} pays in installments`,
         detail: `Multiple payments logged in ${installments} of the last ${total} weeks`,
+        studentName: name,
+        trajectory,
       })
     } else if (settled >= 2) {
       behaviors.push({
@@ -173,12 +235,64 @@ export function buildStudentBehaviors(histories: CoachStudentHistory[]): CoachBe
         tone: 'green',
         title: `${name} settles in full each week`,
         detail: `Cleared the full fee in ${settled} of the last ${total} weeks`,
+        studentName: name,
+        trajectory,
       })
     }
   }
 
   behaviors.sort((a, b) => TONE_RANK[b.tone] - TONE_RANK[a.tone])
   return behaviors
+}
+
+/**
+ * Buckets the roster's outstanding balances by how many consecutive weeks the
+ * student has carried them (counting back from the most recent active week).
+ * Only weeks with a recorded expected fee count, matching the carry-over
+ * model: an untouched week breaks the chain, so pre-roster history never
+ * inflates an account's age. Returns oldest-first buckets with count + amount,
+ * the total outstanding, and the single oldest debt on the books.
+ */
+export function computeAging(histories: CoachStudentHistory[]): DebtAging {
+  const buckets: DebtAgingBucket[] = [
+    { key: 'current', label: 'This week', count: 0, amount: 0 },
+    { key: '2weeks', label: '2 weeks', count: 0, amount: 0 },
+    { key: '3to4', label: '3–4 weeks', count: 0, amount: 0 },
+    { key: '5plus', label: '5+ weeks', count: 0, amount: 0 },
+  ]
+  let oldest: DebtAging['oldest'] = null
+  let totalOutstanding = 0
+
+  for (const history of histories || []) {
+    const weeks = (history.weeks || []).filter((w) => Number(w.expected) > 0)
+    if (weeks.length === 0) continue
+
+    let age = 0
+    let balance = 0
+    for (let i = weeks.length - 1; i >= 0; i--) {
+      const b = Number(weeks[i].balance) || 0
+      if (b <= 0) break
+      age += 1
+      balance = b
+    }
+    if (age === 0) continue
+
+    totalOutstanding += balance
+    const key: DebtAgingKey = age === 1 ? 'current' : age === 2 ? '2weeks' : age <= 4 ? '3to4' : '5plus'
+    const bucket = buckets.find((bk) => bk.key === key)!
+    bucket.count += 1
+    bucket.amount += balance
+
+    if (!oldest || age > oldest.weeks || (age === oldest.weeks && balance > oldest.balance)) {
+      oldest = { studentName: history.name, className: history.className, weeks: age, balance }
+    }
+  }
+
+  return {
+    buckets: buckets.filter((b) => b.count > 0),
+    totalOutstanding,
+    oldest,
+  }
 }
 
 export function buildCoachBrief(input: CoachInput): CoachBrief {
@@ -199,6 +313,7 @@ export function buildCoachBrief(input: CoachInput): CoachBrief {
           tone: 'green',
           title: `${row.name} is in credit`,
           detail: `${money(-row.balance, currency)} ready to roll forward`,
+          studentName: row.name,
         })
       }
       continue
@@ -213,6 +328,7 @@ export function buildCoachBrief(input: CoachInput): CoachBrief {
         tone: 'red',
         title: `${row.name} owes ${owes} with no promise`,
         detail: `${row.className} · overdue with no payment date set`,
+        studentName: row.name,
       })
       continue
     }
@@ -223,6 +339,7 @@ export function buildCoachBrief(input: CoachInput): CoachBrief {
         tone: 'red',
         title: `${row.name}'s promise (${promised}) passed`,
         detail: `${owes} still owed in ${row.className}`,
+        studentName: row.name,
       })
       continue
     }
@@ -233,6 +350,7 @@ export function buildCoachBrief(input: CoachInput): CoachBrief {
         tone: 'amber',
         title: `${row.name} promised ${promised}`,
         detail: `Due within days · ${owes} in ${row.className}`,
+        studentName: row.name,
       })
       continue
     }
@@ -243,6 +361,7 @@ export function buildCoachBrief(input: CoachInput): CoachBrief {
         tone: 'amber',
         title: `${row.name} carried ${money(row.carryIn, currency)} from last week`,
         detail: `${owes} total balance in ${row.className}`,
+        studentName: row.name,
       })
       continue
     }
@@ -252,6 +371,7 @@ export function buildCoachBrief(input: CoachInput): CoachBrief {
       tone: 'amber',
       title: `${row.name} owes ${owes}`,
       detail: `${row.flagLabel} · ${row.className}`,
+      studentName: row.name,
     })
   }
 
@@ -317,6 +437,7 @@ export function buildCoachBrief(input: CoachInput): CoachBrief {
       tone: 'amber',
       title: `${largest.name} has the largest balance`,
       detail: `${money(largest.balance, currency)} outstanding in ${largest.className}`,
+      studentName: largest.name,
     })
   }
 
@@ -348,7 +469,56 @@ export function buildCoachBrief(input: CoachInput): CoachBrief {
       tone: behavior.tone,
       title: behavior.title,
       detail: behavior.detail,
+      studentName: behavior.studentName,
+      trajectory: behavior.trajectory,
     })
+  }
+
+  // Debt aging: how long the oldest balances have been carried
+  const aging = input.aging
+  if (aging) {
+    const deep = aging.buckets.find((b) => b.key === '5plus')
+    const mid = aging.buckets.find((b) => b.key === '3to4')
+    if (deep && deep.count > 0) {
+      insights.push({
+        id: 'aging-deep',
+        tone: 'red',
+        title: `${deep.count} account${deep.count > 1 ? 's' : ''} owing for 5+ weeks`,
+        detail: `${money(deep.amount, currency)} carried for 5+ weeks — direct follow-up`,
+      })
+    } else if (mid && mid.count > 0) {
+      insights.push({
+        id: 'aging-mid',
+        tone: 'amber',
+        title: `${mid.count} account${mid.count > 1 ? 's' : ''} owing for 3–4 weeks`,
+        detail: `${money(mid.amount, currency)} approaching a month of debt`,
+      })
+    }
+    if (aging.oldest && aging.oldest.weeks >= 3) {
+      insights.push({
+        id: 'aging-oldest',
+        tone: aging.oldest.weeks >= 5 ? 'red' : 'amber',
+        title: `${aging.oldest.studentName} carries the oldest balance — ${aging.oldest.weeks} weeks`,
+        detail: `${money(aging.oldest.balance, currency)} owed in ${aging.oldest.className}`,
+        studentName: aging.oldest.studentName,
+      })
+    }
+  }
+
+  // Forward look: what month-end may still be outstanding at the current pace
+  const recentTrend = trend.slice(-4).filter((t) => Number(t.expected) > 0)
+  if (recentTrend.length >= 2) {
+    const pace = recentTrend.reduce((sum, t) => sum + Math.min(1, Number(t.collected) / Number(t.expected)), 0) / recentTrend.length
+    const weeklyExpected = Number(recentTrend[recentTrend.length - 1].expected) || 0
+    const projectedOutstanding = Math.round(weeklyExpected * 4 * (1 - pace))
+    if (weeklyExpected > 0 && pace < 0.9 && projectedOutstanding > 0) {
+      insights.push({
+        id: 'projection',
+        tone: pace < 0.6 ? 'red' : 'amber',
+        title: `At this pace, ${money(projectedOutstanding, currency)} may be outstanding at month-end`,
+        detail: `Based on a ${Math.round(pace * 100)}% collection rate across recent weeks`,
+      })
+    }
   }
 
   insights.sort((a, b) => TONE_RANK[b.tone] - TONE_RANK[a.tone])
@@ -367,6 +537,10 @@ export function buildCoachBrief(input: CoachInput): CoachBrief {
     verdicts.push(`${money(totals.outstanding, currency)} outstanding for ${weekLabel}.`)
     if (totals.collectionRate < 60) verdicts.push(`Collection is at ${totals.collectionRate}% — time to follow up.`)
     else verdicts.push(`Collection is tracking at ${totals.collectionRate}%.`)
+    const oldest = input.aging?.oldest
+    if (oldest && oldest.weeks >= 5) {
+      verdicts.push(`${oldest.studentName} has carried a balance for ${oldest.weeks} weeks — worth a direct call.`)
+    }
     verdicts.push('Peak Coach is watching every payment as it comes in.')
     verdicts.push('Log each payment as it arrives to keep the flags fresh.')
   }

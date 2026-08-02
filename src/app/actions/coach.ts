@@ -5,10 +5,12 @@
  *
  * Takes the serializable CoachInput the admin page already computes, runs it
  * through the same five-provider AI chain used by the chat assistant
- * (Groq → Gemini → Hugging Face → NVIDIA → GitHub Models) and returns an
- * enriched CoachBrief. Every provider failure (and any invalid/non-JSON
- * output) falls back to the deterministic buildCoachBrief engine, so the
- * panel is always populated — AI is an enhancement, never a dependency.
+ * (Groq → Gemini → Hugging Face → NVIDIA → GitHub Models) and returns a short,
+ * clearly-labelled commentary paragraph. The deterministic brief (verdicts,
+ * flags, insights) is always computed client-side by buildCoachBrief — the AI
+ * only adds context and can never contradict the numbers or change flags.
+ * Returns null when every provider fails, so the panel simply shows the
+ * deterministic brief without AI commentary.
  */
 
 import { headers } from 'next/headers'
@@ -19,24 +21,21 @@ import { callGeminiChat, hasGeminiToken } from '@/lib/gemini-chat'
 import { callHuggingFaceChat, hasHuggingFaceToken } from '@/lib/huggingface-chat'
 import { callNvidiaChat, hasNvidiaToken } from '@/lib/nvidia-chat'
 import { callGitHubModelsChat, hasGitHubModelsToken } from '@/lib/github-models-chat'
-import { buildCoachBrief } from '@/lib/weekly-insights'
-import type { CoachBrief, CoachInput } from '@/lib/weekly-insights'
+import type { CoachInput } from '@/lib/weekly-insights'
 import {
   COACH_SYSTEM_PROMPT,
   buildCoachSnapshot,
-  parseCoachBrief,
+  parseCoachCommentary,
+  type CoachCommentary,
 } from '@/lib/coach-ai'
 
 type ProviderResult = { content: string; provider: string; model?: string }
 
-export async function generateCoachCommentary(input: CoachInput): Promise<CoachBrief> {
-  // Deterministic engine is always the safe default.
-  const fallback = buildCoachBrief(input)
-
+export async function generateCoachCommentary(input: CoachInput): Promise<CoachCommentary | null> {
   try {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return fallback
+    if (!user) return null
 
     const headerList = await headers()
     const identifier = user.id || getClientIp(headerList)
@@ -44,14 +43,14 @@ export async function generateCoachCommentary(input: CoachInput): Promise<CoachB
       limit: 10,
       windowMs: 60 * 1000,
     })
-    if (!success) return fallback
+    if (!success) return null
 
     const snapshot = buildCoachSnapshot(input)
     const messages = [
       { role: 'system' as const, content: COACH_SYSTEM_PROMPT },
       { role: 'user' as const, content: snapshot },
     ]
-    const options = { temperature: 0.35, maxTokens: 700 }
+    const options = { temperature: 0.35, maxTokens: 300 }
 
     const providers: { name: string; call: () => Promise<ProviderResult> }[] = []
 
@@ -89,29 +88,18 @@ export async function generateCoachCommentary(input: CoachInput): Promise<CoachB
     for (const provider of providers) {
       try {
         const response = await provider.call()
-        const parsed = parseCoachBrief(response.content)
-        if (!parsed) continue
-
-        const aiFlags = parsed.flags.map((f, i) => ({
-          id: `ai-flag-${i}-${provider.name}`,
-          tone: f.tone,
-          title: f.title,
-          detail: f.detail,
-        }))
-
-        return {
-          verdicts: parsed.verdict ? [parsed.verdict, ...fallback.verdicts.slice(1)] : fallback.verdicts,
-          flags: [...fallback.flags, ...aiFlags].slice(0, 6),
-          insights: fallback.insights,
-        }
+        const text = parseCoachCommentary(response.content)
+        if (!text) continue
+        return { text, provider: provider.name, model: response.model }
       } catch (error: any) {
         console.error(`[Coach] ${provider.name} failed, trying next provider:`, error?.message || error)
       }
     }
 
-    return fallback
+    return null
   } catch (error: any) {
     console.error('[Coach] generateCoachCommentary error:', error?.message || error)
-    return fallback
+    return null
   }
 }
+
