@@ -2,6 +2,7 @@
 
 import { motion, useScroll, useTransform, AnimatePresence } from 'framer-motion'
 import { useState, useEffect, useRef } from 'react'
+import { BarChart3, Target, TrendingUp, BadgeCheck, CheckCircle2 } from 'lucide-react'
 import Link from 'next/link'
 import Image from 'next/image'
 
@@ -58,11 +59,11 @@ export function PeakHero() {
       {/* Content */}
       <motion.div
         style={{ opacity, y, scale }}
-        className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 sm:pt-24 pb-10 sm:pb-16 min-h-0 lg:min-h-[90vh] flex flex-col justify-center"
+        className="relative z-10 landing-container pt-20 sm:pt-24 pb-10 sm:pb-16 min-h-0 lg:min-h-[90vh] flex flex-col justify-center"
       >
         <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
           {/* Left: Text */}
-          <div className="space-y-4">
+          <div className="space-y-5 lg:space-y-7">
             {/* Diagnostic label */}
             <motion.div
               initial={{ opacity: 0, x: -20 }}
@@ -147,61 +148,52 @@ export function PeakHero() {
                 Peak was established in 2022 with a simple belief:
                 <span className="font-semibold text-peak-green"> students can improve</span> when we find the real cause.
               </p>
-
-              <p className="text-slate-500 leading-relaxed" style={{ fontFamily: "'Caveat', cursive", fontSize: "18px" }}>
-                Sometimes it&apos;s a gap in understanding, sometimes a lack of practice, confidence, consistency, or the right support. Our job is to identify what&apos;s holding each student back and help them move forward.
-
-              </p>
-              {/* Why Peak? stamp */}
-              <div className="relative inline-block">
-                <div
-                  className="relative p-6 pr-8 border-[3px] border-peak-green/50"
-                  style={{ borderRadius: '6px', transform: 'rotate(-1deg)', filter: 'url(#stamp-rough)' }}
-                >
-                  <div
-                    className="text-base font-bold text-peak-green mb-3"
-                    style={{ fontFamily: "'Caveat', cursive", fontSize: '24px', letterSpacing: '0.02em' }}
-                  >
-                    Why Peak?
-                  </div>
-                  <div className="space-y-2">
-                    {[
-                      { text: 'We diagnose first', arrow: '→', color: 'text-peak-green' },
-                      { text: 'We fix the root cause', arrow: '→', color: 'text-peak-blue' },
-                      { text: 'Marks actually move', arrow: '✓', color: 'text-peak-green' },
-                    ].map((item, i) => (
-                      <div key={i} className="flex items-center gap-2">
-                        <div className="w-1.5 h-1.5 rounded-full bg-peak-green/40" />
-                        <span className="text-sm text-slate-600" style={{ fontFamily: "'Caveat', cursive", fontSize: '16px' }}>
-                          {item.text}
-                        </span>
-                        <span className={`text-xs font-bold ${item.color}`}>{item.arrow}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <svg className="absolute -top-2 -right-2 w-12 h-12 pointer-events-none" viewBox="0 0 60 60" fill="none" style={{ transform: 'rotate(12deg)', opacity: 0.35 }}>
-                    <circle cx="30" cy="30" r="26" stroke="#16A34A" strokeWidth="2.5" strokeDasharray="3 2" />
-                    <circle cx="30" cy="30" r="21" stroke="#16A34A" strokeWidth="1" />
-                    <path d="M30 12 L33 22 L30 20 L27 22 Z" fill="#16A34A" />
-                    <text x="30" y="35" textAnchor="middle" fontSize="6" fontWeight="bold" fill="#16A34A" fontFamily="'Caveat', cursive">PEAK</text>
-                  </svg>
-                  <div className="absolute inset-0 pointer-events-none rounded" style={{ background: 'radial-gradient(ellipse at 20% 80%, rgba(22,163,74,0.06) 0%, transparent 60%)', mixBlendMode: 'multiply' }} />
+              {/* Why Peak? — premium proof card */}
+              <div className="w-full rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50/90 via-white to-white p-5 sm:p-6 lg:p-8 shadow-[0_24px_60px_-24px_rgba(22,163,74,0.35)]">
+                <div className="flex items-center gap-3 mb-5">
+                  <span className="grid h-10 w-10 lg:h-12 lg:w-12 shrink-0 place-items-center rounded-xl bg-emerald-500 text-white shadow-lg shadow-emerald-500/25">
+                    <BadgeCheck size={20} />
+                  </span>
+                  <span>
+                    <span className="block text-lg sm:text-xl lg:text-2xl font-black tracking-tight text-slate-900 leading-tight">
+                      Why Peak?
+                    </span>
+                    <span className="block text-[11px] sm:text-xs font-semibold uppercase tracking-[0.12em] text-emerald-600">
+                      Diagnosis before tuition
+                    </span>
+                  </span>
                 </div>
-                <svg className="absolute -left-8 top-1/2 -translate-y-1/2 w-6 h-12 opacity-30 pointer-events-none" viewBox="0 0 24 48" fill="none" style={{ transform: 'rotate(5deg) translateY(-50%)' }}>
-                  <path d="M20 4 Q12 12 14 24 Q16 36 8 44" stroke="#94A3B8" strokeWidth="1.5" strokeLinecap="round" />
-                  <path d="M4 38 L8 44 L12 38" stroke="#94A3B8" strokeWidth="1.5" strokeLinecap="round" fill="none" />
-                </svg>
-                <div className="absolute -top-3 -right-4 text-[11px] text-slate-400 opacity-50 pointer-events-none" style={{ fontFamily: "'Caveat', cursive", transform: 'rotate(8deg)' }}>
-                  ← this is how
+                <div className="space-y-3 lg:space-y-4">
+                  {[
+                    { title: 'We diagnose first', desc: 'Every learner assessed before placement' },
+                    { title: 'We fix the root cause', desc: 'Causal repair, not topical revision' },
+                    { title: 'Marks actually move', desc: 'Tracked session by session' },
+                  ].map((item) => (
+                    <div key={item.title} className="flex items-start gap-3">
+                      <CheckCircle2 size={20} className="mt-0.5 shrink-0 text-emerald-500" />
+                      <span>
+                        <span className="block text-sm sm:text-base lg:text-lg font-bold text-slate-900 leading-snug">
+                          {item.title}
+                        </span>
+                        <span className="block text-xs sm:text-sm text-slate-500 leading-relaxed">
+                          {item.desc}
+                        </span>
+                      </span>
+                    </div>
+                  ))}
                 </div>
               </div>
 
-              <div className="mt-3 flex items-center gap-2">
-                <div className="w-6 h-px bg-slate-300" />
-                <span className="text-[11px] text-slate-400" style={{ fontFamily: "'Caveat', cursive", fontSize: '14px' }}>
+              <div className="mt-4 flex items-center gap-2">
+                <div className="w-8 h-[2px] bg-emerald-500" />
+                <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">
                   Est. 2022 · Nairobi
                 </span>
               </div>
+
+              <p className="leading-relaxed max-w-xl text-slate-600 text-xl sm:text-2xl pt-2" style={{ fontFamily: "'Caveat', cursive" }}>
+                Sometimes it&apos;s a gap in understanding, sometimes a lack of practice, confidence, consistency, or the right support. Our job is to identify what&apos;s holding each student back and help them move forward.
+              </p>
             </motion.div>
 
             {/* Second line */}
@@ -295,207 +287,94 @@ export function PeakHero() {
 
           </div>
 
-          {/* Right: Paper artifact classroom card */}
+          {/* Right: premium campus showcase */}
           <motion.div
-            initial={{ opacity: 0, x: 40, rotate: 1 }}
-            animate={{ opacity: 1, x: 0, rotate: 0 }}
+            initial={{ opacity: 0, x: 40 }}
+            animate={{ opacity: 1, x: 0 }}
             transition={{ delay: 0.8, duration: 1, ease: [0.25, 0.46, 0.45, 0.94] }}
-            className="relative flex justify-center lg:justify-end"
+            className="relative flex justify-center lg:justify-end lg:sticky lg:top-24 lg:self-start"
           >
-            {/* Shadow */}
+            {/* Ambient glow */}
             <div
-              className="absolute inset-0"
+              className="absolute -inset-6 sm:-inset-8 rounded-[48px] pointer-events-none"
+              aria-hidden="true"
               style={{
-                background: 'rgba(0,0,0,0.08)',
-                filter: 'blur(20px)',
-                transform: 'translate(6px, 12px) scale(0.97)',
+                background: 'linear-gradient(135deg, rgba(22,163,74,0.16), transparent 45%, rgba(37,99,235,0.16))',
+                filter: 'blur(32px)',
               }}
             />
 
-            {/* Main paper artifact */}
-            <div
-              className="relative w-full max-w-[320px] sm:max-w-[380px] lg:max-w-[520px]"
-              style={{
-                clipPath: `polygon(
-                  2% 0%, 8% 1%, 16% 0%, 24% 2%, 32% 0%, 40% 1%, 48% 0%, 56% 2%, 64% 0%, 72% 1%, 80% 0%, 88% 2%, 96% 0%, 100% 3%,
-                  99% 12%, 100% 24%, 99% 36%, 100% 48%, 99% 60%, 100% 72%, 99% 84%, 100% 95%, 97% 100%,
-                  90% 99%, 80% 100%, 70% 98%, 60% 100%, 50% 99%, 40% 100%, 30% 98%, 20% 100%, 10% 99%, 3% 100%, 0% 97%,
-                  1% 85%, 0% 72%, 1% 60%, 0% 48%, 1% 36%, 0% 24%, 1% 12%
-                )`,
-              }}
-            >
-              {/* SVG filters for stamp effect */}
-              <svg className="absolute w-0 h-0" aria-hidden="true">
-                <defs>
-                  <filter id="stamp-rough">
-                    <feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="4" result="noise" />
-                    <feDisplacementMap in="SourceGraphic" in2="noise" scale="1.5" xChannelSelector="R" yChannelSelector="G" />
-                  </filter>
-                </defs>
-              </svg>
-
-              <div
-                className="relative overflow-hidden bg-[#FDFCFA]"
-                style={{
-                  boxShadow: '0 8px 50px -12px rgba(0,0,0,0.1), 0 0 0 1px rgba(0,0,0,0.03), inset 0 1px 0 rgba(255,255,255,0.8)',
-                }}
-              >
-                {/* Paper grain */}
-                <div
-                  className="absolute inset-0 opacity-[0.03] pointer-events-none"
-                  style={{
-                    backgroundImage: `url("data:image/svg+xml,%3Csvg width='200' height='200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E")`,
-                  }}
+            {/* Showcase card */}
+            <div className="relative w-full max-w-[420px] sm:max-w-[500px] lg:max-w-[560px] xl:max-w-[640px] overflow-hidden rounded-[28px] bg-slate-950 shadow-[0_32px_80px_-24px_rgba(2,6,23,0.5)] ring-1 ring-slate-950/10">
+              {/* Image */}
+              <div className="relative">
+                <Image
+                  src="/peak-hero-classroom.png"
+                  alt="Students learning in a Peak Performance diagnostic classroom"
+                  className="w-full h-[280px] sm:h-[340px] lg:h-[430px] xl:h-[500px] object-cover"
+                  width={1000}
+                  height={750}
+                  priority
                 />
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/30 to-transparent" aria-hidden="true" />
 
-                {/* Tape strip */}
-                <div
-                  className="absolute top-0 left-1/2 -translate-x-1/2 w-20 h-5 z-10 opacity-40"
-                  style={{
-                    background: 'linear-gradient(180deg, rgba(255,255,255,0.95), rgba(255,255,255,0.5))',
-                    border: '1px solid rgba(200,200,200,0.3)',
-                  }}
-                />
-
-                {/* Red margin line */}
-                <div className="absolute top-0 bottom-0 left-[14%] w-px bg-red-300/20" />
-
-                {/* Ruled lines */}
-                {[...Array(6)].map((_, i) => (
-                  <div
-                    key={i}
-                    className="absolute left-[14%] right-4 h-px bg-slate-300/12"
-                    style={{ top: `${280 + i * 36}px` }}
-                  />
-                ))}
-
-                {/* Image */}
-                <div className="relative">
-                  <Image
-                    src="/peak-hero-classroom.png"
-                    alt="Peak Campus classroom learning environment"
-                    className="w-full h-[240px] sm:h-[300px] lg:h-[380px] object-cover"
-                    loading="eager"
-                    width={800}
-                    height={600}
-                    priority
-                  />
-                  {/* Photo grain overlay */}
-                  <div className="absolute inset-0 bg-slate-900/5 mix-blend-multiply pointer-events-none" />
-                  {/* Bottom fade into paper */}
-                  <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-[#FDFCFA] to-transparent" />
+                {/* Top badges */}
+                <div className="absolute top-4 left-4 right-4 flex items-start justify-between gap-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.15em] text-white backdrop-blur-md ring-1 ring-white/20">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                    Peak Campus
+                  </span>
+                  <span className="rounded-full bg-white/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.15em] text-white/90 backdrop-blur-md ring-1 ring-white/20">
+                    Est. 2022 · Nairobi
+                  </span>
                 </div>
 
-                {/* Info section — handwritten style */}
-                <div className="relative px-5 sm:px-6 lg:px-8 pb-6 sm:pb-8 pt-2">
-                  {/* Student record label */}
-                  <div className="flex items-center gap-2 mb-3">
-                    <div className="w-2 h-2 rounded-full bg-peak-green animate-pulse" />
-                    <span
-                      className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-500"
-                      style={{ fontFamily: "'JetBrains Mono', monospace" }}
-                    >
-                      PEAK CAMPUS
+                {/* Headline over image */}
+                <div className="absolute inset-x-0 bottom-0 p-6 sm:p-8">
+                  <p className="text-2xl sm:text-3xl xl:text-4xl font-bold tracking-tight text-white leading-tight">
+                    Diagnostic Learning Centre
+                  </p>
+                  <p className="mt-2 max-w-md text-sm sm:text-[15px] leading-relaxed text-slate-200/90">
+                    Small focused groups. Every lost mark traced to its cause — then fixed with a personal plan.
+                  </p>
+                </div>
+              </div>
+
+              {/* Proof bar */}
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-white/10 bg-slate-950 px-6 py-5 sm:px-8">
+                {[
+                  { icon: BarChart3, title: 'Real-time tracking', desc: 'Every session measured' },
+                  { icon: Target, title: 'Personalised plans', desc: 'Built per learner' },
+                  { icon: TrendingUp, title: 'Measurable results', desc: 'Marks actually move' },
+                ].map(({ icon: Icon, title, desc }) => (
+                  <div key={title} className="flex items-center gap-2.5">
+                    <span className="grid h-9 w-9 place-items-center rounded-xl bg-emerald-400/10 text-emerald-300 ring-1 ring-emerald-300/20">
+                      <Icon size={16} />
+                    </span>
+                    <span>
+                      <span className="block text-[13px] font-bold leading-tight text-white">{title}</span>
+                      <span className="block text-[11px] font-medium leading-tight text-slate-400">{desc}</span>
                     </span>
                   </div>
-
-                  {/* Handwritten caption */}
-                  <div
-                    className="text-lg sm:text-xl lg:text-2xl text-slate-800 leading-snug mb-3"
-                    style={{ fontFamily: "'Caveat', cursive", fontStyle: 'italic' }}
-                  >
-                    Diagnostic Learning Centre
-                  </div>
-
-                  {/* Subtitle */}
-                  <p className="text-sm text-slate-500 leading-relaxed mb-4 max-w-sm">
-                    They need the right support. Peak identifies the barriers behind lost marks, then builds a focused route to fix them.
-                  </p>
-
-                  {/* Data points */}
-                  <div className="flex flex-wrap gap-3 sm:gap-4">
-                    {[
-                      { icon: '📊', label: 'Real-time tracking' },
-                      { icon: '🎯', label: 'Personalised plans' },
-                      { icon: '📈', label: 'Measurable results' },
-                    ].map((item) => (
-                      <div
-                        key={item.label}
-                        className="flex items-center gap-1.5 text-[10px] sm:text-[11px] text-slate-500"
-                      >
-                        <span>{item.icon}</span>
-                        <span>{item.label}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Handwritten annotation — stamp */}
-                  <div
-                    className="absolute -right-1 sm:right-2 top-1/2 pointer-events-none"
-                    style={{
-                      transform: 'rotate(6deg)',
-                    }}
-                  >
-                    <div
-                      className="relative px-3 py-1.5 border-[3px] border-peak-green/60"
-                      style={{
-                        fontFamily: "'Caveat', cursive",
-                        fontStyle: 'italic',
-                        color: '#16A34A',
-                        fontSize: '16px',
-                        fontWeight: 'bold',
-                        letterSpacing: '0.05em',
-                        lineHeight: 1,
-                        borderRadius: '3px',
-                        opacity: 0.7,
-                        filter: 'url(#stamp-rough)',
-                      }}
-                    >
-                      THIS IS PEAK.
-                      {/* Ink bleed texture */}
-                      <div
-                        className="absolute inset-0 pointer-events-none"
-                        style={{
-                          background: 'radial-gradient(ellipse at 30% 50%, rgba(22,163,74,0.08) 0%, transparent 70%)',
-                          mixBlendMode: 'multiply',
-                        }}
-                      />
-                    </div>
-                  </div>
-                </div>
+                ))}
               </div>
             </div>
 
-            {/* Floating paper scraps — extending beyond */}
-            <div
-              className="absolute -top-3 -right-4 sm:-top-4 sm:-right-6 w-14 sm:w-20 h-6 sm:h-8 bg-[#FDFCFA] border border-slate-200/60 shadow-sm pointer-events-none"
-              style={{
-                clipPath: 'polygon(0% 0%, 85% 2%, 100% 15%, 95% 100%, 10% 98%, 0% 90%)',
-                transform: 'rotate(8deg)',
-                opacity: 0.5,
-              }}
-            />
-            <div
-              className="absolute -bottom-2 -left-3 sm:-bottom-3 sm:-left-5 w-10 sm:w-14 h-5 sm:h-6 bg-[#FDFCFA] border border-slate-200/40 shadow-sm pointer-events-none"
-              style={{
-                clipPath: 'polygon(5% 0%, 90% 5%, 100% 20%, 95% 100%, 0% 95%)',
-                transform: 'rotate(-14deg)',
-                opacity: 0.35,
-              }}
-            />
-            <div
-              className="absolute top-1/3 -right-5 sm:-right-7 w-3 sm:w-4 h-3 sm:h-4 bg-[#FDFCFA] border border-slate-200/30 pointer-events-none"
-              style={{
-                transform: 'rotate(22deg)',
-                opacity: 0.3,
-              }}
-            />
-
-            {/* Paper clip */}
-            <div
-              className="absolute -top-1 left-1/2 -translate-x-1/2 w-5 sm:w-6 h-7 sm:h-8 border-2 border-slate-300/40 rounded-b-full pointer-events-none"
-              style={{ transform: 'translateX(-50%) rotate(-3deg)' }}
-            />
+            {/* Floating result badge */}
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 1.6, duration: 0.6 }}
+              className="absolute -bottom-5 left-1/2 -translate-x-1/2 lg:left-auto lg:translate-x-0 lg:-right-4 flex items-center gap-2 rounded-2xl bg-white px-4 py-3 shadow-[0_16px_40px_-12px_rgba(2,6,23,0.35)] ring-1 ring-slate-900/5 whitespace-nowrap"
+            >
+              <span className="grid h-8 w-8 place-items-center rounded-xl bg-emerald-500 text-white">
+                <BadgeCheck size={16} />
+              </span>
+              <span>
+                <span className="block text-[13px] font-black leading-tight text-slate-900">This is Peak.</span>
+                <span className="block text-[11px] font-medium leading-tight text-slate-500">Diagnosis before tuition</span>
+              </span>
+            </motion.div>
           </motion.div>
         </div>
       </motion.div>

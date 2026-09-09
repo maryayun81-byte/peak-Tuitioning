@@ -55,7 +55,7 @@ export function UpcomingEvents() {
     <section id="events" ref={ref} className="relative py-12 md:py-16 overflow-hidden bg-white">
       <div className="absolute inset-0 bg-slate-50 opacity-30" />
 
-      <div className="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="relative z-10 landing-container">
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: 30 }}

@@ -82,6 +82,11 @@ export function PublicPortalMenu() {
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null
+      // The mobile menu is portalled to document.body (outside menuRef).
+      // Taps inside it must NOT close the menu on pointerdown — otherwise
+      // the Link unmounts before click fires and navigation never happens.
+      if (target?.closest?.('[data-public-portal-menu]')) return
       if (!menuRef.current?.contains(event.target as Node)) {
         setOpen(false)
       }
@@ -115,7 +120,7 @@ export function PublicPortalMenu() {
       </button>
 
       {open && mounted && createPortal(
-        <div className="sm:hidden fixed inset-0 z-[209] flex items-center justify-center p-4">
+        <div data-public-portal-menu className="sm:hidden fixed inset-0 z-[209] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/20" onClick={() => setOpen(false)} />
           <div className="relative w-full max-w-[390px] max-h-[calc(100svh-2rem)] flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-2xl">
             <div className="border-b border-slate-100 bg-slate-50 px-4 py-3 shrink-0">
@@ -173,7 +178,7 @@ export function PublicPortalMenu() {
       {open && (
           <>
           {/* Desktop: absolute positioned dropdown */}
-          <div className="hidden sm:block absolute right-0 z-[210] mt-3 w-[min(calc(100vw-2rem),390px)] max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-2xl">
+          <div data-public-portal-menu className="hidden sm:block absolute right-0 z-[210] mt-3 w-[min(calc(100vw-2rem),390px)] max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-2xl">
           <div className="border-b border-slate-100 bg-slate-50 px-4 py-3 sm:px-5 sm:py-4">
             <div className="text-sm font-black tracking-tight sm:text-base text-slate-900">Peak Navigation</div>
             <div className="mt-0.5 text-[11px] text-slate-500 sm:mt-1 sm:text-xs">Portals first. Explore Peak below.</div>

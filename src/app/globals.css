@@ -607,6 +607,22 @@ body {
   font-family: 'Playfair Display', Georgia, serif;
 }
 
+/*
+ * Shared landing container — one source of truth for horizontal measure.
+ * Fluid, edge-aware gutters instead of a narrow pinned column:
+ * gutters grow proportionally with the viewport (4vw, clamped between
+ * 1rem on phones and 5rem on ultrawide), and the content cap sits high
+ * (110rem) so large screens stay full and premium, not empty.
+ *   390px  →  16px gutters   |  1440px → ~58px gutters
+ *   1920px →  ~77px gutters  |  2560px →  80px gutters (capped)
+ */
+.premium-landing .landing-container {
+  width: 100%;
+  margin-inline: auto;
+  max-width: 110rem;
+  padding-inline: clamp(1rem, 4vw, 5rem);
+}
+
 .premium-landing h2 {
   letter-spacing: -0.035em;
   line-height: 1;

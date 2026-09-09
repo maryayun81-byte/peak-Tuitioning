@@ -49,7 +49,7 @@ export function PeakNavigation() {
         <div className="h-[3px] bg-gradient-to-r from-peak-green via-peak-blue to-peak-cyan" />
 
         {/* Main nav row */}
-        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="landing-container">
           <div className="flex items-center justify-between h-14">
             {/* Logo */}
             <Link href="/" className="flex items-center gap-2.5 group flex-shrink-0">
@@ -148,7 +148,7 @@ export function PeakNavigation() {
               {/* Top accent */}
               <div className="h-[3px] bg-gradient-to-r from-peak-green via-peak-blue to-peak-cyan" />
 
-              <div className="max-w-[1400px] mx-auto px-6 pt-4 pb-6">
+              <div className="landing-container pt-4 pb-6">
                 {/* Close button row */}
                 <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
                   <div className="flex items-center gap-2">

@@ -38,7 +38,7 @@ export function GalleryCarousel() {
     <section id="gallery" ref={ref} className="relative py-12 md:py-16 overflow-hidden bg-white">
       <div className="absolute inset-0 bg-slate-50 opacity-30" />
 
-      <div className="relative z-10 max-w-7xl mx-auto px-6">
+      <div className="relative z-10 landing-container">
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: 30 }}

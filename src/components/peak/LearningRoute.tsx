@@ -49,7 +49,7 @@ export function LearningRoute({ className = '' }: LearningRouteProps) {
       </motion.div>
 
       {/* Horizontal scrollable steps */}
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="landing-container">
         <div className="flex overflow-x-auto gap-3 pb-4 hide-scrollbar -mx-2 px-2">
           {ROUTE_STEPS.map((step, i) => (
             <RouteStep key={step.id} step={step} index={i} />
@@ -58,7 +58,7 @@ export function LearningRoute({ className = '' }: LearningRouteProps) {
       </div>
 
       {/* Connecting line below */}
-      <div className="max-w-6xl mx-auto px-6 mt-4">
+      <div className="landing-container mt-4">
         <div className="relative h-[2px] bg-slate-200 rounded-full overflow-hidden">
           <motion.div
             className="absolute inset-y-0 left-0 bg-gradient-to-r from-peak-green via-peak-blue to-peak-cyan rounded-full"

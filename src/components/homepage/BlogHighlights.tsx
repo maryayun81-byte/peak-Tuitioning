@@ -86,7 +86,7 @@ export function BlogHighlights() {
 
   return (
     <section id="blog" ref={ref} className="relative py-12 md:py-16 bg-white">
-      <div className="max-w-7xl mx-auto px-6">
+      <div className="landing-container">
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: 30 }}
