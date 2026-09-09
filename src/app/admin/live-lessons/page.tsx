@@ -105,12 +105,16 @@ export default function AdminLiveLessonsPage() {
     return { start:s.toISOString().split('T')[0], end:e.toISOString().split('T')[0] }
   },[selectedWeek])
 
-  // Load lessons — all filters are optional so lessons always surface
+  // Load lessons — all filters are optional so lessons always surface.
+  // NOTE: the live_lessons -> teachers FK embed is intentionally avoided here:
+  // the FK is missing in the remote schema cache, so `teacher:teachers(...)`
+  // errors the whole query ("Could not find a relationship"). Teacher names
+  // are batch-loaded below and joined in memory instead.
   const loadLessons = useCallback(async () => {
     setLoading(true)
     let q = supabase
       .from('live_lessons')
-      .select('*, class:classes(name), teacher:teachers(full_name)')
+      .select('*, class:classes(name)')
       .order('lesson_date')
       .order('start_time')
 
@@ -126,8 +130,24 @@ export default function AdminLiveLessonsPage() {
     if (selClass) q = q.eq('class_id', selClass)
 
     const { data, error } = await q
-    if (error) { console.error('[LiveLessons]', error); toast.error('Failed to load lessons') }
-    setLessons((data ?? []) as LiveLesson[])
+    if (error) {
+      console.error('[LiveLessons]', error)
+      toast.error('Failed to load lessons')
+      setLessons([])
+      setLoading(false)
+      return
+    }
+    const rows = (data ?? []) as any[]
+    const teacherIds = [...new Set(rows.map(r => r.teacher_id).filter(Boolean))] as string[]
+    let teacherMap: Record<string, string> = {}
+    if (teacherIds.length > 0) {
+      const { data: tData } = await supabase.from('teachers').select('id, full_name').in('id', teacherIds)
+      for (const t of ((tData ?? []) as any[])) teacherMap[t.id] = t.full_name
+    }
+    setLessons(rows.map(r => ({
+      ...r,
+      teacher: r.teacher_id ? { full_name: teacherMap[r.teacher_id] ?? 'Unknown teacher' } : null,
+    })) as LiveLesson[])
     setLoading(false)
   }, [selEvent, weekDates.start, weekDates.end, selClass])
 

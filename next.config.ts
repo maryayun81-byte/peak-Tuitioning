@@ -9,6 +9,7 @@ const withPWA = require('@ducanh2912/next-pwa').default({
 })
 
 const nextConfig: NextConfig = {
+  allowedDevOrigins: ['192.168.100.13'],
   serverExternalPackages: ['jsdom'],
   experimental: {
     serverActions: {

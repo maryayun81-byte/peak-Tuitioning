@@ -6,7 +6,7 @@ import { motion } from 'framer-motion'
 import {
   LayoutDashboard, BookOpen, FileText, BrainCircuit,
   Trophy, Calendar, Library, GraduationCap, Target, Users, Mic, Swords, FolderHeart,
-  Award, Settings, LogOut, Bell, Zap, Star, Clock, Receipt, MessageCircle
+  Award, Settings, LogOut, Bell, Zap, Star, Clock, Receipt, MessageCircle, Home
 } from 'lucide-react'
 import { Sidebar, BottomNav, MobileSidebarToggle } from '@/components/layout/Sidebar'
 import { useAuthStore } from '@/stores/authStore'
@@ -22,6 +22,7 @@ import { LevelUpManager } from '@/components/student/gamification/LevelUpManager
 import { QuickInfoModal } from '@/components/notifications/QuickInfoModal'
 import { NewSubjectsManager } from '@/components/student/subjects/NewSubjectsManager'
 import { calculateLevel } from '@/lib/gamification'
+import { isHomeschoolingEnabled } from '@/lib/homeschooling/feature-flag'
 import { isStudentFullyOnboarded } from '@/lib/onboarding'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { PageErrorBoundary } from '@/components/ui/PageErrorBoundary'
@@ -74,6 +75,7 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
   const { unreadCount } = useNotificationStore()
   const { count: messageUnreadCount } = useMessageUnreadCount()
   const [navCounts, setNavCounts] = useState({ assignments: 0, quizzes: 0, resources: 0 })
+  const [isHomeschoolStudent, setIsHomeschoolStudent] = useState(false)
   useRealtimeNotifications()
 
   const { signOut } = useAuth()
@@ -160,6 +162,20 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
   }, [student?.id, student?.xp, setStudent, supabase])
 
   useEffect(() => {
+    if (!student?.id) return
+    const checkHomeschool = async () => {
+      const { data } = await supabase
+        .from('homeschool_enrollments')
+        .select('id')
+        .eq('student_id', student.id)
+        .eq('status', 'ACTIVE')
+        .limit(1)
+      setIsHomeschoolStudent(!!data?.length)
+    }
+    checkHomeschool()
+  }, [student?.id])
+
+  useEffect(() => {
     const actorUserId = profile?.id || (student as any)?.user_id
     if (!actorUserId) {
       setNavCounts({ assignments: 0, quizzes: 0, resources: 0 })
@@ -207,12 +223,19 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
     return item
   }
 
+  const homeschoolItem = { label: 'Homeschooling', shortLabel: 'Learn', group: 'Learning', href: '/student/homeschooling', icon: <Home size={18} className="text-emerald-500" /> }
+  const homeschoolTimetableItem = { label: 'My Timetable', shortLabel: 'Timetable', group: 'Learning', href: '/student/homeschooling/timetable', icon: <Calendar size={18} className="text-emerald-500" /> }
+  const showHomeschoolNav = isHomeschoolStudent && isHomeschoolingEnabled()
+  const allNavItems = showHomeschoolNav
+    ? [...NAV_ITEMS.slice(0, 1), homeschoolItem, homeschoolTimetableItem, ...NAV_ITEMS.slice(1)]
+    : NAV_ITEMS
+
   return (
     <>
       <div className="min-h-screen transition-all" style={{ background: 'var(--bg)' }}>
         <SplashScreen storageKey="splash-student" role="student" />
         <Sidebar
-          items={studentHasOnboarded ? NAV_ITEMS.map(withNavBadge) : NAV_ITEMS.filter(i => i.label === 'Settings')}
+          items={studentHasOnboarded ? allNavItems.map(withNavBadge) : allNavItems.filter(i => i.label === 'Settings')}
           bottomItems={[
             { label: 'Sign Out', href: '#', icon: <LogOut size={18} />, onClick: () => signOut() },
           ]}
@@ -294,16 +317,16 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
         <BottomNav 
           items={studentHasOnboarded 
             ? [
-                withNavBadge(NAV_ITEMS[0]),
-                withNavBadge(NAV_ITEMS[1]),
-                NAV_ITEMS[2],
-                withNavBadge(NAV_ITEMS.find(item => item.href === '/student/messages')!),
+                withNavBadge(allNavItems[0]),
+                withNavBadge(allNavItems[1]),
+                allNavItems[2],
+                withNavBadge(allNavItems.find(item => item.href === '/student/messages')!),
               ]
-            : NAV_ITEMS.filter(i => i.label === 'Settings')
+            : allNavItems.filter(i => i.label === 'Settings')
           } 
           moreItems={studentHasOnboarded 
             ? [
-                ...NAV_ITEMS.filter(item => !['/student', '/student/assignments', '/student/schedule', '/student/messages'].includes(item.href)).map(withNavBadge),
+                ...allNavItems.filter(item => !['/student', '/student/assignments', '/student/schedule', '/student/messages'].includes(item.href)).map(withNavBadge),
                 { label: 'Sign Out', group: 'Account', href: '#', icon: <LogOut size={18} />, onClick: signOut }
               ]
             : [{ label: 'Sign Out', href: '#', icon: <LogOut size={18} />, onClick: signOut }]

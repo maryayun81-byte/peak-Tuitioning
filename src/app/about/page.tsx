@@ -1,221 +1,278 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { PublicPortalMenu } from '@/components/ui/PublicPortalMenu'
-import {
-  ArrowRight,
-  Award,
-  BookOpenCheck,
-  Brain,
-  CheckCircle2,
-  ClipboardCheck,
-  GraduationCap,
-  Lightbulb,
-  LineChart,
-  Target,
-  Users,
-} from 'lucide-react'
 
 export const metadata: Metadata = {
   title: 'About Peak Performance Tutoring Kenya | Diagnostic KCSE & CBC Support',
   description:
-    'Learn how Peak Performance Tutoring supports Kenyan KCSE and CBC learners through diagnostic placement, ability-matched groups, active recall and parent-visible progress.',
-  alternates: {
-    canonical: '/about',
-  },
+    'Learn how Peak Performance Tutoring supports Kenyan KCSE and CBC learners through diagnostic placement, ability-matched groups, and visible progress.',
+  alternates: { canonical: '/about' },
 }
-
-const principles = [
-  {
-    title: 'We guide before we teach',
-    body: 'Peak is built around the belief that a learner needs a guide who understands how they learn, where they lose marks, and what confidence looks like for them.',
-    icon: Lightbulb,
-  },
-  {
-    title: 'We diagnose the real problem',
-    body: 'Transcripts, habits, weak subjects, temperament, and behaviour patterns are reviewed before the first serious intervention begins.',
-    icon: ClipboardCheck,
-  },
-  {
-    title: 'We group by goal, not age alone',
-    body: 'Every student is placed where the strategy matches the gap: foundations, application, or high-grade precision.',
-    icon: Users,
-  },
-]
-
-const tiers = [
-  {
-    name: 'The Peak Performers',
-    movement: 'B to A',
-    role: 'Consultant',
-    focus: 'Deliberate pressure, examiner language, advanced rubrics, speed, and precision.',
-  },
-  {
-    name: 'The Momentum Builders',
-    movement: 'C to B',
-    role: 'Coach',
-    focus: 'Varied practice, active recall, Feynman explanations, and application in unfamiliar formats.',
-  },
-  {
-    name: 'The Climbers',
-    movement: 'D to C',
-    role: 'Mentor',
-    focus: 'High-yield fundamentals, scaffolded wins, mark hunting, and rebuilding confidence.',
-  },
-]
-
-const techniques = [
-  ['Socratic Shift', 'Guides answer questions with better questions so students learn how to think through the next step.'],
-  ['Active Recall', 'Students retrieve ideas without notes, then mark the true knowledge gap in front of them.'],
-  ['Feynman Technique', 'Learners explain a concept simply; confusion becomes visible and fixable.'],
-  ['Scaffolded Wins', 'Large concepts are broken into small correct steps so confidence grows with evidence.'],
-  ['Deliberate Practice', 'Strong learners train under time pressure and marking-scheme expectations.'],
-]
-
-const promises = [
-  'Move every learner at least one grade band upward within the programme.',
-  'Make the first diagnostic profile matter in every lesson.',
-  'Keep students producing more than they consume.',
-  'Never let a D-grade student finish without a C-minus floor as the target.',
-]
 
 export default function AboutPage() {
   return (
-    <main className="min-h-screen bg-[#f6f3ed] text-slate-950">
-      <section className="relative overflow-hidden bg-slate-950 text-white">
-        <img src="/media__1776964680330.jpg" alt="Peak Performance learners in a guided academic setting" className="absolute inset-0 h-full w-full object-cover" />
-        <div className="absolute inset-0 bg-slate-950/72" />
-        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(2,6,23,.94),rgba(2,6,23,.68),rgba(2,6,23,.2))]" />
+    <main className="min-h-screen bg-white text-slate-900">
+      <section className="relative overflow-hidden pt-20">
+        {/* Subtle grid pattern */}
+        <div
+          className="absolute inset-0 opacity-[0.03] pointer-events-none"
+          style={{
+            backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='60' height='60' filter='url(%23n)'/%3E%3C/svg%3E")`,
+          }}
+        />
 
-        <nav className="relative z-50 mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-          <Link href="/" className="flex items-center gap-3">
-            <img src="/logo.png" alt="Peak Performance logo" className="h-10 w-10 rounded-md bg-white object-contain p-1" />
-            <span className="text-sm font-black uppercase tracking-[0.24em]">Peak Performance</span>
-          </Link>
-          <PublicPortalMenu />
-        </nav>
+        {/* Top accent bar */}
+        <div
+          className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-peak-green via-peak-blue to-peak-cyan"
+        />
 
-        <div className="relative z-10 mx-auto grid max-w-7xl gap-10 px-4 pb-16 pt-20 sm:px-6 lg:grid-cols-[1fr_420px] lg:px-8 lg:pt-28">
-          <div>
-            <p className="text-sm font-black uppercase tracking-[0.24em] text-emerald-300">About Peak Performance</p>
-            <h1 className="mt-4 max-w-4xl text-5xl font-black leading-[0.98] tracking-tight sm:text-7xl">
-              We do not teach subjects. We build scholars.
-            </h1>
-            <p className="mt-6 max-w-2xl text-lg leading-8 text-white/78">
-              Founded in 2023, Peak Performance Tutoring exists for the learner who needs more than syllabus coverage. We diagnose, group, guide, and measure progress until potential becomes performance.
-            </p>
-          </div>
-          <div className="self-end rounded-lg border border-white/15 bg-white/10 p-6 backdrop-blur-md">
-            <div className="text-sm font-bold uppercase tracking-[0.2em] text-white/60">Peak promise</div>
-            <div className="mt-4 space-y-4">
-              {promises.map((promise) => (
-                <div key={promise} className="flex gap-3 text-sm leading-6 text-white/80">
-                  <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-300" />
-                  <span>{promise}</span>
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <nav className="relative z-10 flex items-center justify-between mb-12 pb-4 border-b border-slate-100">
+            <Link href="/" className="flex items-center gap-2.5">
+              <img src="/logo.png" alt="Peak Performance" className="w-7 h-7 rounded-md object-contain" />
+              <span className="hidden sm:inline text-sm font-bold tracking-tight text-slate-900">PEAK PERFORMANCE</span>
+            </Link>
+            <PublicPortalMenu />
+          </nav>
+
+          {/* Hero content */}
+          <div className="grid lg:grid-cols-2 gap-16 lg:gap-20 items-center">
+            {/* Left: text content */}
+            <div>
+              <p className="text-sm font-bold uppercase tracking-[0.2em] text-peak-green mb-4">About Peak Performance</p>
+
+              <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight text-slate-900 leading-[1.05] mb-6">
+                We do not teach subjects. We build scholars.
+              </h1>
+
+              <p className="text-base sm:text-lg text-slate-500 leading-relaxed mb-8 max-w-lg">
+                Founded in 2023, Peak Performance Tutoring exists for the learner who needs more than syllabus coverage. We diagnose, group, guide, and measure progress until potential becomes performance.
+              </p>
+
+              {/* Principles section */}
+              <div className="space-y-4 mb-12">
+                <h2 className="text-xl font-bold text-slate-800 mb-3">Our principles</h2>
+                <div className="grid grid-cols-2 gap-4">
+                  {[
+                    { title: 'We guide before we teach', desc: 'Peak is built around the belief that a learner needs a guide who understands how they learn, where they lose marks, and what confidence looks like for them.' },
+                    { title: 'We diagnose the real problem', desc: 'Transcripts, habits, weak subjects, temperament, and behaviour patterns are reviewed before the first serious intervention begins.' },
+                    { title: 'We group by goal, not age alone', desc: 'Every student is placed where the strategy matches the gap: foundations, application, or high-grade precision.' },
+                  ].map(({ title, desc }, i) => (
+                    <div key={i} className="p-4 rounded-lg bg-slate-50 border border-slate-100">
+                      <div className="font-bold text-slate-800">{title}</div>
+                      <p className="text-slate-500 text-sm leading-relaxed">{desc}</p>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="border-y border-slate-200 bg-white px-4 py-12 sm:px-6 lg:px-8">
-        <div className="mx-auto grid max-w-7xl gap-px overflow-hidden rounded-lg bg-slate-200 md:grid-cols-3">
-          {principles.map(({ title, body, icon: Icon }) => (
-            <div key={title} className="bg-white p-6">
-              <Icon className="h-7 w-7 text-emerald-700" />
-              <h2 className="mt-6 text-2xl font-black tracking-tight">{title}</h2>
-              <p className="mt-3 text-sm leading-6 text-slate-600">{body}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="px-4 py-14 sm:px-6 lg:px-8">
-        <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
-          <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-900">
-            <img src="/media__1776963140480.jpg" alt="Focused lesson at Peak Performance" className="h-[420px] w-full object-cover" />
-          </div>
-          <div>
-            <div className="mb-4 h-1 w-14 bg-emerald-600" />
-            <p className="text-sm font-black uppercase tracking-[0.24em] text-emerald-800">Why grouping changes everything</p>
-            <h2 className="mt-4 text-3xl font-black tracking-tight sm:text-5xl">The curriculum stays the same. The approach changes completely.</h2>
-            <p className="mt-5 text-lg leading-8 text-slate-600">
-              A crowded classroom must move one pace for everyone. Peak separates learners by performance pattern, then gives teachers a clear role, a clear goal, and a proven intervention for that group.
-            </p>
-            <div className="mt-7 grid gap-3">
-              {tiers.map((tier) => (
-                <div key={tier.name} className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <h3 className="text-xl font-black tracking-tight">{tier.name}</h3>
-                    <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-800">{tier.movement}</span>
-                  </div>
-                  <p className="mt-2 text-sm font-bold text-slate-500">Guide role: {tier.role}</p>
-                  <p className="mt-3 text-sm leading-6 text-slate-600">{tier.focus}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="border-y border-slate-200 bg-slate-950 px-4 py-14 text-white sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-7xl">
-          <div className="max-w-3xl">
-            <p className="text-sm font-black uppercase tracking-[0.24em] text-emerald-300">The pedagogy</p>
-            <h2 className="mt-4 text-3xl font-black tracking-tight sm:text-5xl">Students must produce more than they consume.</h2>
-            <p className="mt-5 text-lg leading-8 text-white/70">
-              Peak's classroom rule is direct: no guide speaks for more than 15 consecutive minutes without the student performing a task.
-            </p>
-          </div>
-          <div className="mt-9 grid gap-px overflow-hidden rounded-lg bg-white/10 md:grid-cols-5">
-            {techniques.map(([name, description]) => (
-              <div key={name} className="bg-slate-950 p-5">
-                <Brain className="h-6 w-6 text-emerald-300" />
-                <h3 className="mt-5 text-lg font-black tracking-tight">{name}</h3>
-                <p className="mt-3 text-sm leading-6 text-white/60">{description}</p>
               </div>
-            ))}
-          </div>
-        </div>
-      </section>
 
-      <section className="px-4 py-14 sm:px-6 lg:px-8">
-        <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-3">
-          <div className="lg:col-span-1">
-            <p className="text-sm font-black uppercase tracking-[0.24em] text-amber-700">What families feel</p>
-            <h2 className="mt-4 text-3xl font-black tracking-tight">Clearer goals. Calmer learners. Better evidence.</h2>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:col-span-2">
-            {[
-              [Target, 'Every lesson has a reason', 'Teachers know the student profile before entering the room.'],
-              [BookOpenCheck, 'Practice is not random', 'Tasks are matched to the learner tier and curriculum need.'],
-              [LineChart, 'Progress is visible', 'Mistake audits, timed drills, and rubric checks show movement.'],
-              [Award, 'Confidence is designed', 'Small wins are used deliberately, especially for anxious learners.'],
-            ].map(([Icon, title, body]) => {
-              const TypedIcon = Icon as typeof Target
-              return (
-                <div key={title as string} className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-                  <TypedIcon className="h-6 w-6 text-emerald-700" />
-                  <h3 className="mt-5 text-xl font-black tracking-tight">{title as string}</h3>
-                  <p className="mt-3 text-sm leading-6 text-slate-600">{body as string}</p>
+              {/* Promise section */}
+              <div className="pt-8 border-t border-slate-100">
+                <p className="text-sm font-bold uppercase tracking-[0.15em] text-peak-green mb-4">Our promise</p>
+                <div className="grid grid-cols-2 gap-3 text-sm text-slate-500">
+                  <div>Move every learner at least one grade band upward within the programme.</div>
+                  <div>Make the first diagnostic profile matter in every lesson.</div>
+                  <div>Keep students producing more than they consume.</div>
+                  <div>Never let a D-grade student finish without a C-minus floor as the target.</div>
                 </div>
-              )
-            })}
+              </div>
+            </div>
+
+            {/* Right: visual card */}
+            <div>
+              {/* Paper artifact card */}
+              <div
+                className="relative rounded-2xl bg-white shadow-sm overflow-hidden transform hover:scale-[1.02] transition-transform"
+                style={{
+                  clipPath: `polygon(
+                    0% 0%, 5% 1%, 15% 0%, 25% 2%, 35% 0%, 45% 1%, 55% 0%, 65% 2%, 75% 1%, 85% 0%, 95% 1%, 100% 0%,
+                    98% 8%, 100% 18%, 98% 28%, 100% 38%, 98% 48%, 100% 58%, 98% 68%, 100% 78%, 98% 88%, 100% 98%,
+                    95% 100%, 85% 99%, 75% 100%, 65% 99%, 55% 100%, 45% 99%, 35% 100%, 25% 99%, 15% 100%, 5% 99%, 0% 100%,
+                    1% 92%, 0% 82%, 1% 72%, 0% 62%, 1% 52%, 0% 42%, 1% 32%, 0% 22%, 1% 12%
+                  )`,
+                }}
+              >
+                {/* Shadow */}
+                <div
+                  className="absolute inset-0"
+                  style={{
+                    background: 'rgba(0,0,0,0.08)',
+                    filter: 'blur(16px)',
+                    transform: 'translate(4px, 8px) scale(0.98)',
+                  }}
+                />
+
+                {/* Paper grain */}
+                <div
+                  className="absolute inset-0 opacity-[0.02] pointer-events-none"
+                  style={{
+                    backgroundImage: `url("data:image/svg+xml,%3Csvg width='200' height='200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E")`,
+                  }}
+                />
+
+                {/* Red margin line */}
+                <div className="absolute top-0 bottom-0 left-[14%] w-px bg-red-300/20" />
+
+                {/* Corner fold */}
+                <div
+                  className="absolute top-0 right-0 w-10 h-10 bg-gradient-to-bl from-slate-100 to-transparent pointer-events-none"
+                  style={{ clipPath: 'polygon(100% 0, 0 0, 100% 100%)' }}
+                />
+
+                <div className="relative p-6 pt-0">
+                  {/* Icon */}
+                  <div className="w-12 h-12 rounded-xl bg-peak-green/10 flex items-center justify-center mb-6">
+                    <svg className="w-5 h-5 text-peak-green" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                    </svg>
+                  </div>
+
+                  {/* Headline */}
+                  <h2 className="text-2xl font-bold tracking-tight text-slate-900 mb-3">
+                    Potential becomes performance
+                  </h2>
+
+                  {/* Key stat */}
+                  <p className="text-sm text-slate-500">
+                    Since 2023, learners have moved up one full grade band on average.
+                  </p>
+
+                  {/* CTA */}
+                  <a
+                    href="/kcse-and-cbc-tutoring-kenya"
+                    className="mt-6 inline-flex items-center gap-2 px-6 py-3 bg-peak-green text-white text-sm font-bold uppercase tracking-wider rounded hover:shadow-lg transition-all"
+                  >
+                    Explore methodology
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l13 13l-13 13" />
+                    </svg>
+                  </a>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
 
-      <section className="bg-white px-4 py-12 sm:px-6 lg:px-8">
-        <div className="mx-auto flex max-w-7xl flex-col gap-6 rounded-lg border border-slate-200 bg-[#f8f6f1] p-6 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="flex items-center gap-2 text-sm font-bold text-emerald-800"><GraduationCap size={17} /> 8-4-4 and CBC programmes</div>
-            <h2 className="mt-2 text-3xl font-black tracking-tight">See how the model changes by curriculum.</h2>
+      {/* Curriculum comparison section */}
+      <section className="py-24">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid lg:grid-cols-2 gap-16 lg:gap-20 items-center">
+            {/* Left: text */}
+            <div>
+              <p className="text-sm font-bold uppercase tracking-[0.15em] text-peak-green mb-4">By curriculum</p>
+
+              <h2 className="text-4xl sm:text-5xl font-bold tracking-tight text-slate-900 leading-[1.05] mb-6">
+                See how the model changes by curriculum.
+              </h2>
+
+              <p className="text-base text-slate-500 leading-relaxed mb-8 max-w-lg">
+                Peak adapts its diagnostic, grouping, and teaching approach to match the unique structure of 8-4-4 and CBC curriculums. The core principles remain the same — but the pathways differ.
+              </p>
+
+              <div className="grid grid-cols-2 gap-3">
+                <a
+                  href="/8-4-4-tutoring-kenya"
+                  className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2.5 text-sm font-black uppercase tracking-wider text-white hover:bg-peak-green transition-colors"
+                >
+                  8-4-4 Programme
+                </a>
+                <a
+                  href="/cbc-tutoring-kenya"
+                  className="inline-flex items-center gap-2 rounded-full border border-slate-300 px-4 py-2.5 text-sm font-black uppercase tracking-wider text-slate-700 hover:border-peak-green hover:text-peak-green transition-all"
+                >
+                  CBC Programme
+                </a>
+              </div>
+            </div>
+
+            {/* Right: visual illustration */}
+            <div>
+              <div
+                className="relative rounded-2xl bg-slate-50 overflow-hidden shadow-sm"
+                style={{
+                  clipPath: `polygon(
+                    0% 2%, 8% 0%, 18% 2%, 28% 0%, 38% 1%, 48% 0%, 58% 2%, 68% 0%, 78% 1%, 88% 0%, 95% 2%, 100% 0%,
+                    99% 10%, 100% 25%, 98% 40%, 100% 55%, 99% 70%, 96% 85%, 90% 95%, 80% 100%, 65% 98%, 50% 100%, 35% 99%, 20% 100%, 5% 98%, 0% 95%,
+                    2% 82%, 0% 65%, 2% 48%, 0% 32%, 2% 15%
+                  )`,
+                }}
+              >
+                <iframe
+                  className="w-full h-[300px] sm:h-[350px] lg:h-[400px]"
+                  src="https://www.openstreetmap.org/export/embed.html?bbox=36.6810%2C-1.2580%2C36.7050%2C-1.2420&layer=mapnik&marker=-1.2500%2C36.6930"
+                  style={{ border: 'none' }}
+                  loading="lazy"
+                  referrerPolicy="no-referrer"
+                />
+                <div
+                  className="absolute inset-0"
+                  style={{
+                    background: 'rgba(0,0,0,0.04)',
+                    filter: 'blur(8px)',
+                    transform: 'translate(4px, 4px) scale(0.98)',
+                  }}
+                />
+              </div>
+            </div>
           </div>
-          <Link href="/kcse-and-cbc-tutoring-kenya" className="inline-flex items-center justify-center gap-2 rounded-full bg-slate-950 px-6 py-3 text-sm font-black uppercase tracking-[0.16em] text-white transition hover:bg-emerald-800">
-            Explore methodology <ArrowRight size={17} />
-          </Link>
         </div>
       </section>
+
+      {/* Footer CTA */}
+      <section className="py-16 bg-[#F5F3EF]">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+          <p className="text-sm font-bold uppercase tracking-[0.15em] text-peak-green mb-4">Ready to begin?</p>
+          <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-slate-900 mb-4">
+            Let's find the right path for your learner.
+          </h2>
+          <p className="text-slate-500 max-w-xl mx-auto mb-8">
+            Share their class, curriculum, and weak subjects — we'll diagnose and recommend the best pathway.
+          </p>
+          <a
+            href={`tel:0798971625`}
+            className="inline-flex items-center gap-2 px-8 py-3 bg-peak-green text-white text-sm font-bold uppercase tracking-wider rounded hover:shadow-lg transition-all"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 01-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z" />
+            </scal>
+          </a>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="py-8 border-t border-slate-100">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <img src="/logo.png" alt="Peak" className="w-5 h-5 rounded object-contain" />
+            <span className="text-slate-500">Peak Performance Tutoring · Est. 2023</span>
+          </div>
+          <div className="flex items-center gap-4 text-slate-400 text-sm">
+            <a href="/" className="hover:text-peak-green transition-colors">Home</a>
+            <a href="/about" className="hover:text-peak-green transition-colors">About</a>
+            <a href="/contact" className="hover:text-peak-green transition-colors">Contact</a>
+          </div>
+          <div className="relative">
+            <span className="text-slate-400 text-sm">Subscribe</span>
+            <form
+              action=""
+              className="mt-1 flex items-center gap-2 w-48"
+            >
+              <input
+                type="email"
+                placeholder="enter@email.com"
+                className="flex-1 bg-slate-100 border border-slate-200 rounded py-1.5 px-2 text-sm placeholder-slate-400 focus:outline-none focus:border-peak-green"
+              />
+              <button
+                type="submit"
+                className="bg-peak-green text-white py-1.5 px-3 rounded text-sm font-bold uppercase tracking-[0.1em] transition"
+              >
+                Subscribe
+              </button>
+            </form>
+          </div>
+        </div>
+      </footer>
     </main>
   )
 }

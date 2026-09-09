@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import Link from 'next/link'
 import { ArrowRight, BookOpenCheck, ChevronDown, DollarSign, GraduationCap, Home, LogIn, MessageSquareQuote, Phone, Shield, Sparkles, UserCheck, Users } from 'lucide-react'
 
@@ -72,7 +73,12 @@ const portalLinks = [
 
 export function PublicPortalMenu() {
   const [open, setOpen] = useState(false)
+  const [mounted, setMounted] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
@@ -85,6 +91,15 @@ export function PublicPortalMenu() {
     return () => document.removeEventListener('pointerdown', handlePointerDown)
   }, [])
 
+  useEffect(() => {
+    if (!open) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [open])
+
   return (
     <div ref={menuRef} className="relative z-[200]">
       <button
@@ -92,18 +107,76 @@ export function PublicPortalMenu() {
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
         aria-label="Open portal sign in menu"
-        className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-white/15 bg-white px-3 text-xs font-black uppercase tracking-[0.12em] text-[#073159] shadow-[0_10px_30px_rgba(0,0,0,0.18)] transition hover:-translate-y-0.5 hover:bg-[#eaf3f8] sm:h-11 sm:px-4 sm:text-sm sm:normal-case sm:tracking-normal"
+        className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-3 text-xs font-black uppercase tracking-[0.12em] text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-50 sm:h-11 sm:px-4 sm:text-sm sm:normal-case sm:tracking-normal"
       >
         <LogIn size={15} />
         <span className="hidden min-[360px]:inline">Portals</span>
         <ChevronDown size={14} className={`transition ${open ? 'rotate-180' : ''}`} />
       </button>
 
+      {open && mounted && createPortal(
+        <div className="sm:hidden fixed inset-0 z-[209] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/20" onClick={() => setOpen(false)} />
+          <div className="relative w-full max-w-[390px] max-h-[calc(100svh-2rem)] flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-2xl">
+            <div className="border-b border-slate-100 bg-slate-50 px-4 py-3 shrink-0">
+              <div className="text-sm font-black tracking-tight text-slate-900">Peak Navigation</div>
+              <div className="mt-0.5 text-[11px] text-slate-500">Portals first. Explore Peak below.</div>
+            </div>
+            <div className="overflow-y-auto overscroll-contain [scrollbar-width:thin]">
+              <div className="grid gap-px bg-slate-200">
+                {portalLinks.map(({ label, desc, href, icon: Icon }) => (
+                  <Link
+                    key={label}
+                    href={href}
+                    onClick={() => setOpen(false)}
+                    className="group flex items-start gap-2.5 bg-white px-3 py-2.5 transition hover:bg-[#f4f9fc]"
+                  >
+                    <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[#eaf3f8] text-[#145da0] transition group-hover:bg-[#145da0] group-hover:text-white">
+                      <Icon size={16} />
+                    </span>
+                    <span>
+                      <span className="block text-[13px] font-black leading-tight">{label}</span>
+                      <span className="mt-0.5 block text-[11px] leading-4 text-slate-600">{desc}</span>
+                    </span>
+                  </Link>
+                ))}
+              </div>
+              <div className="border-y border-slate-200 bg-white px-4 py-2.5">
+                <div className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Explore Peak</div>
+              </div>
+              <div className="bg-[#f4f9fc] p-2.5">
+                <div className="grid gap-1.5">
+                  {publicLinks.map(({ label, href, icon: Icon }) => (
+                    <Link
+                      key={label}
+                      href={href}
+                      onClick={() => setOpen(false)}
+                      className="group flex items-center gap-2.5 rounded-xl border border-[#145da0]/10 bg-white px-3 py-2 shadow-sm transition hover:border-[#7ed957]/50 hover:bg-white"
+                    >
+                      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[#eaf3f8] text-[#145da0] transition group-hover:bg-[#145da0] group-hover:text-white">
+                        <Icon size={15} />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[13px] font-black leading-tight">{label}</span>
+                      </span>
+                      <ArrowRight size={13} className="shrink-0 text-[#7ed957]" />
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
       {open && (
-        <div className="absolute right-0 z-[210] mt-3 w-[min(calc(100vw-1rem),390px)] overflow-hidden rounded-2xl border border-white/20 bg-white text-[#073159] shadow-[0_28px_80px_rgba(2,6,23,0.35)]">
-          <div className="border-b border-white/10 bg-[#071a2d] px-4 py-3 text-white sm:px-5 sm:py-4">
-            <div className="text-sm font-black tracking-tight sm:text-base">Peak navigation</div>
-            <div className="mt-0.5 text-[11px] text-white/60 sm:mt-1 sm:text-xs">Portals first. Explore Peak below.</div>
+          <>
+          {/* Desktop: absolute positioned dropdown */}
+          <div className="hidden sm:block absolute right-0 z-[210] mt-3 w-[min(calc(100vw-2rem),390px)] max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-2xl">
+          <div className="border-b border-slate-100 bg-slate-50 px-4 py-3 sm:px-5 sm:py-4">
+            <div className="text-sm font-black tracking-tight sm:text-base text-slate-900">Peak Navigation</div>
+            <div className="mt-0.5 text-[11px] text-slate-500 sm:mt-1 sm:text-xs">Portals first. Explore Peak below.</div>
           </div>
           <div className="max-h-[min(calc(100svh-8rem),430px)] overflow-y-auto overscroll-contain [scrollbar-width:thin]">
             <div className="grid gap-px bg-slate-200">
@@ -147,8 +220,9 @@ export function PublicPortalMenu() {
                 ))}
               </div>
             </div>
+            </div>
           </div>
-        </div>
+          </>
       )}
     </div>
   )

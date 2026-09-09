@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Users, UserCheck, GraduationCap, BookOpen,
   Calendar, CalendarDays, ClipboardList, BarChart3, Bell,
   Settings, LogOut, FileText, BookMarked,
-  TrendingUp, Library, Layers, Award, School, MapPin, DollarSign, FileCheck, ShieldCheck, Newspaper, MessageCircle, Bot, Video
+  TrendingUp, Library, Layers, Award, School, MapPin, DollarSign, FileCheck, ShieldCheck, Newspaper, MessageCircle, Bot, Video, Home
 } from 'lucide-react'
 import { Sidebar, BottomNav, MobileSidebarToggle } from '@/components/layout/Sidebar'
 import { useAuthStore } from '@/stores/authStore'
@@ -17,6 +17,7 @@ import { getInitials } from '@/lib/utils'
 import { GraduationCap as Logo } from 'lucide-react'
 import { SplashScreen } from '@/components/SplashScreen'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
+import { isHomeschoolingEnabled } from '@/lib/homeschooling/feature-flag'
 
 const NAV_ITEMS = [
   { label: 'Dashboard', href: '/admin', icon: <LayoutDashboard size={18} /> },
@@ -29,6 +30,7 @@ const NAV_ITEMS = [
   { label: 'Classes', href: '/admin/classes', icon: <School size={18} /> },
   { label: 'Subjects', href: '/admin/subjects', icon: <BookMarked size={18} /> },
   { label: 'Timetables', href: '/admin/timetables', icon: <Calendar size={18} /> },
+  { label: 'Homeschooling', href: '/admin/homeschooling', icon: <Home size={18} /> },
   { label: 'Live Lessons', href: '/admin/live-lessons', icon: <Video size={18} /> },
   { label: 'Tuition Events', href: '/admin/tuition-events', icon: <CalendarDays size={18} /> },
   { label: 'Event Registrations', href: '/admin/event-registrations', icon: <Users size={18} /> },
@@ -75,11 +77,18 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const supabase = getSupabaseBrowserClient()
   const [apexUnreadCount, setApexUnreadCount] = useState(0)
 
-  const navItems = useMemo(() => NAV_ITEMS.map((item) => (
-    item.href === '/admin/apex-messages' ? { ...item, badge: apexUnreadCount } : item
-  )), [apexUnreadCount])
+  const navItems = useMemo(() => NAV_ITEMS
+    .filter((item) => isHomeschoolingEnabled() || item.href !== '/admin/homeschooling')
+    .map((item) => (
+      item.href === '/admin/apex-messages' ? { ...item, badge: apexUnreadCount } : item
+    )), [apexUnreadCount])
 
-  const mobileBottom = navItems.slice(0, 4)
+  const mobileBottom = [
+    navItems[0],
+    navItems[1],
+    navItems.find((i) => i.href === '/admin/homeschooling')!,
+    navItems[3],
+  ].filter(Boolean)
   const mobileMore = [
     ...navItems.slice(4),
     { label: 'Sign Out', href: '#', icon: <LogOut size={18} /> },

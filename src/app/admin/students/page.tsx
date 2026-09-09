@@ -19,6 +19,10 @@ import {
 import type { Student, Class, Curriculum } from '@/types/database'
 import { createStudentUser } from '@/app/actions/student'
 import { deleteStudent as deleteStudentAction } from '@/app/actions/admin-users'
+import { attachTeacherAssignments } from '@/lib/homeschooling/enrollment-subjects'
+import HomeschoolEnrollmentManager from '@/components/admin/HomeschoolEnrollmentManager'
+import HomeschoolEnrollmentWizard from '@/components/admin/HomeschoolEnrollmentWizard'
+import type { HomeschoolEnrollment } from '@/types/homeschooling'
 
 const studentSchema = z.object({
   full_name: z.string().optional(),
@@ -38,6 +42,8 @@ export default function AdminStudents() {
   const [filterClass, setFilterClass] = useState('')
   const [filterCurriculum, setFilterCurriculum] = useState('')
   const [filterCenter, setFilterCenter] = useState('')
+  const [filterProgram, setFilterProgram] = useState<'All' | 'Homeschooling' | 'Group'>('All')
+  const [homeschoolMap, setHomeschoolMap] = useState<Record<string, string>>({})
   
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -48,6 +54,11 @@ export default function AdminStudents() {
   const [page, setPage] = useState(1)
   const PAGE_SIZE = 15
   const [isBackfilling, setIsBackfilling] = useState(false)
+  const [enrollment, setEnrollment] = useState<HomeschoolEnrollment | null>(null)
+  const [enrollmentLoading, setEnrollmentLoading] = useState(false)
+  const [wizardOpen, setWizardOpen] = useState(false)
+  const [subjects, setSubjects] = useState<any[]>([])
+  const [teachers, setTeachers] = useState<any[]>([])
 
   const { register, handleSubmit, reset, watch, formState: { errors } } = useForm<StudentForm>({
     resolver: zodResolver(studentSchema),
@@ -92,6 +103,12 @@ export default function AdminStudents() {
       console.log('Fetching centers...')
       const cenRes = await supabase.from('tuition_centers').select('*').order('name')
 
+      console.log('Fetching homeschool enrollments...')
+      const hsRes = await supabase
+        .from('homeschool_enrollments')
+        .select('student_id, status')
+        .not('status', 'in', '("CANCELLED","EXPIRED","COMPLETED")')
+
       if (sRes.error) {
         console.error('Students fetch error:', sRes.error)
         toast.error('DB Error: ' + sRes.error.message)
@@ -101,6 +118,15 @@ export default function AdminStudents() {
       setClasses(cRes.data ?? [])
       setCurriculums(curRes.data ?? [])
       setCenters(cenRes.data ?? [])
+      const priority: Record<string, number> = { ACTIVE: 0, PENDING: 1, PAUSED: 2 }
+      const hsMap: Record<string, string> = {}
+      for (const row of (hsRes.data ?? []) as any[]) {
+        const prev = hsMap[row.student_id]
+        if (!prev || (priority[row.status] ?? 9) < (priority[prev] ?? 9)) {
+          hsMap[row.student_id] = row.status
+        }
+      }
+      setHomeschoolMap(hsMap)
       console.log(`Loaded ${sRes.data?.length ?? 0} students.`)
       console.timeEnd('StudentsLoad')
     } catch (error) {
@@ -116,7 +142,9 @@ export default function AdminStudents() {
     const matchesClass = filterClass ? s.class_id === filterClass : true
     const matchesCurr = filterCurriculum ? s.curriculum_id === filterCurriculum : true
     const matchesCenter = filterCenter ? s.tuition_center_id === filterCenter : true
-    return matchesSearch && matchesClass && matchesCurr && matchesCenter
+    const isHs = !!homeschoolMap[s.id]
+    const matchesProgram = filterProgram === 'All' ? true : filterProgram === 'Homeschooling' ? isHs : !isHs
+    return matchesSearch && matchesClass && matchesCurr && matchesCenter && matchesProgram
   })
   const paginatedStudents = filteredStudents.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
   const totalPages = Math.max(1, Math.ceil(filteredStudents.length / PAGE_SIZE))
@@ -443,6 +471,73 @@ export default function AdminStudents() {
     }
   }
 
+  const loadEnrollmentData = async (studentId: string) => {
+    setEnrollmentLoading(true)
+    setEnrollment(null)
+    try {
+      const [enrollRes, studentRes] = await Promise.all([
+        supabase
+          .from('homeschool_enrollments')
+          .select(`
+            id, student_id, status, start_date, end_date, grade_level, academic_year,
+            program_name, notes, created_by, created_at, updated_at,
+            subjects:homeschool_subjects(
+              id, subject_id, is_active,
+              subject:subjects(id, name, code)
+            )
+          `)
+          .eq('student_id', studentId)
+          .order('created_at', { ascending: false })
+          .maybeSingle(),
+        supabase
+          .from('students')
+          .select('id, class_id, curriculum_id')
+          .eq('id', studentId)
+          .maybeSingle(),
+      ])
+
+      const enroll: any = (enrollRes as any).data
+      if (enroll) {
+        const { data: tas } = await supabase
+          .from('homeschool_teacher_assignments')
+          .select('id, enrollment_id, subject_id, teacher_id, assignment_type, teacher:teachers(id, full_name)')
+          .eq('enrollment_id', enroll.id)
+        attachTeacherAssignments([enroll], tas || [])
+      }
+      setEnrollment(enroll)
+
+      const classId = (studentRes as any).data?.class_id
+      const curriculumId = (studentRes as any).data?.curriculum_id
+
+      let subData: any[] | null = null
+      if (classId) {
+        const byClass = await supabase.from('subjects').select('*').eq('class_id', classId).order('name')
+        if ((byClass.data || []).length > 0) subData = byClass.data
+      }
+      if (!subData && curriculumId) {
+        const byCurr = await supabase.from('subjects').select('*').eq('curriculum_id', curriculumId).order('name')
+        if ((byCurr.data || []).length > 0) subData = byCurr.data
+      }
+      if (!subData) {
+        const all = await supabase.from('subjects').select('*').order('name')
+        subData = all.data || []
+      }
+      setSubjects(subData)
+
+      const { data: teachData } = await supabase.from('teachers').select('*').order('full_name')
+      setTeachers(teachData || [])
+    } catch {
+    } finally {
+      setEnrollmentLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (viewOpen && selected) {
+      loadEnrollmentData(selected.id)
+    }
+  }, [viewOpen, selected])
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
@@ -497,14 +592,25 @@ export default function AdminStudents() {
           {classes.filter(c => !filterCurriculum || c.curriculum_id === filterCurriculum).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
 
-        <select 
-          className="px-4 py-2.5 rounded-xl border-none outline-none font-medium text-sm sm:w-auto w-full" 
+        <select
+          className="px-4 py-2.5 rounded-xl border-none outline-none font-medium text-sm sm:w-auto w-full"
           style={{ background: 'var(--input)', color: 'var(--text)' }}
-          value={filterCenter} 
+          value={filterCenter}
           onChange={e => { setFilterCenter(e.target.value); setPage(1); }}
         >
           <option value="">All Centers</option>
           {centers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+
+        <select
+          className="px-4 py-2.5 rounded-xl border-none outline-none font-medium text-sm sm:w-auto w-full"
+          style={{ background: 'var(--input)', color: 'var(--text)' }}
+          value={filterProgram}
+          onChange={e => { setFilterProgram(e.target.value as any); setPage(1); }}
+        >
+          <option value="All">All Programs</option>
+          <option value="Homeschooling">Homeschooling</option>
+          <option value="Group">Group Tuition</option>
         </select>
       </div>
 
@@ -539,9 +645,22 @@ export default function AdminStudents() {
                                   </div>
                                   <div>
                                      <div className="font-black text-lg tracking-tight leading-tight" style={{ color: 'var(--text)' }}>{student.full_name}</div>
-                                     <Badge variant={student.user_id ? 'success' : 'warning'} className="mt-1 shadow-sm border-none text-[10px]">
-                                        {student.user_id ? 'Registered' : 'Pending'}
-                                     </Badge>
+                                      <Badge variant={student.user_id ? 'success' : 'warning'} className="mt-1 shadow-sm border-none text-[10px]">
+                                         {student.user_id ? 'Registered' : 'Pending'}
+                                      </Badge>
+                                      {homeschoolMap[student.id] && (
+                                        <span
+                                          className="ml-1 mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold"
+                                          style={
+                                            homeschoolMap[student.id] === 'ACTIVE'
+                                              ? { background: 'rgba(16,185,129,0.12)', color: '#10B981', border: '1px solid rgba(16,185,129,0.3)' }
+                                              : { background: 'var(--input)', color: 'var(--text-muted)', border: '1px solid var(--card-border)' }
+                                          }
+                                          title={`Homeschooling: ${homeschoolMap[student.id]}`}
+                                        >
+                                          🏠 {homeschoolMap[student.id] === 'ACTIVE' ? 'Homeschooling' : homeschoolMap[student.id]}
+                                        </span>
+                                      )}
                                      {isNewAccount && (
                                        <Badge variant="warning" className="ml-1 mt-1 shadow-sm border-none text-[10px]">
                                          New
@@ -779,6 +898,36 @@ export default function AdminStudents() {
                 </div>
               ))}
             </div>
+
+            <div className="pt-2">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <GraduationCap size={16} style={{ color: 'var(--primary)' }} />
+                  <h4 className="text-sm font-black uppercase tracking-wider" style={{ color: 'var(--text)' }}>Programs</h4>
+                </div>
+                {!enrollment && (
+                  <Button size="sm" variant="secondary" onClick={() => setWizardOpen(true)}>
+                    <Plus size={13} /> Add Homeschooling
+                  </Button>
+                )}
+              </div>
+
+              {enrollmentLoading ? (
+                <div className="p-4 rounded-xl text-center" style={{ background: 'var(--input)', border: '1px solid var(--card-border)' }}>
+                  <p className="text-xs font-semibold text-muted">Loading program data...</p>
+                </div>
+              ) : enrollment ? (
+                <HomeschoolEnrollmentManager
+                  enrollment={enrollment}
+                  studentId={selected.id}
+                  onUpdate={() => loadEnrollmentData(selected.id)}
+                />
+              ) : (
+                <div className="p-4 rounded-xl text-center" style={{ background: 'var(--input)', border: '1px solid var(--card-border)' }}>
+                  <p className="text-xs font-semibold text-muted">No additional programs enabled.</p>
+                </div>
+              )}
+            </div>
           </div>
         </Modal>
       )}
@@ -793,6 +942,18 @@ export default function AdminStudents() {
         confirmLabel="Delete"
         variant="danger"
       />
+
+      {selected && (
+        <HomeschoolEnrollmentWizard
+          isOpen={wizardOpen}
+          onClose={() => setWizardOpen(false)}
+          onSuccess={() => loadEnrollmentData(selected.id)}
+          student={selected}
+          subjects={subjects}
+          teachers={teachers}
+          classes={classes.map(c => ({ id: c.id, name: c.name }))}
+        />
+      )}
     </div>
   )
 }

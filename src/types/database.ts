@@ -97,3 +97,28 @@ export type AgeStyle = any
 export type PracticeQuestion = any
 export type Topic = any
 export type SchemeOfWork = any
+
+export type {
+  HomeschoolEnrollmentStatus,
+  HomeschoolWeekStatus,
+  LearningSessionStatus,
+  StudentSessionStatus,
+  LearningMode,
+  SubmissionType,
+  AssignmentType,
+  ResourceLinkType,
+  HomeschoolEnrollment,
+  HomeschoolSubject,
+  HomeschoolTeacherAssignment,
+  HomeschoolWeek,
+  LearningSession,
+  LearningObjective,
+  LearningResource,
+  LearningMission,
+  LearningReflection,
+  HomeschoolAuditLog,
+  HomeschoolDashboardData,
+  HomeschoolWeekView,
+  HomeschoolProgress,
+  SubjectProgress,
+} from './homeschooling'

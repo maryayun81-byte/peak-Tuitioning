@@ -28,6 +28,7 @@ import { SeasonalBackground } from '@/components/seasonal/SeasonalBackground'
 import { MotivationMessage } from '@/components/seasonal/MotivationMessage'
 import { useSeason, getSeasonTheme, getCurrentSeason, getSeasonOverride, setSeasonOverride, getReducedMotion, setReducedMotion } from '@/lib/seasonal-theme'
 import { LiveLessonsWidget } from '@/components/live/LiveLessonsWidget'
+import HomeschoolDashboardWidget from '@/components/student/HomeschoolDashboardWidget'
 
 // ── DAILY INSIGHTS COMPONENT ───────────────────────────────────────────────
 function DailyInsightsCard({ insight, isCBC }: { insight: any, isCBC: boolean }) {
@@ -1030,6 +1031,11 @@ function PremiumStudentHome({ student, profile, data, isCBC }: { student: any, p
             <LiveLessonsWidget role="student" classId={classId} />
           </div>
         )}
+
+        {/* ── Homeschooling Widget ──────────────────────────────── */}
+        <div className="mt-4">
+          <HomeschoolDashboardWidget />
+        </div>
 
         {/* ── Daily Quests ───────────────────────────────────── */}
         <motion.div

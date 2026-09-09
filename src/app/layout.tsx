@@ -9,6 +9,7 @@ import { NavigationProgress } from '@/components/ui/NavigationProgress'
 import { NetworkBanner } from '@/components/ui/NetworkBanner'
 import { NavigationRefetchManager } from '@/components/NavigationRefetchManager'
 import { FloatingSupportChat } from '@/components/public/FloatingSupportChat'
+import { ServiceWorkerUnregister } from '@/components/ServiceWorkerUnregister'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -129,44 +130,12 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=DM+Sans:wght@300;400;500;600;700&family=Playfair+Display:wght@500;600;700&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=DM+Sans:wght@300;400;500;600;700&family=Playfair+Display:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=Caveat:wght@400;500;600;700&display=swap"
           rel="stylesheet"
         />
-        {process.env.NODE_ENV === 'development' ? (
-          <script
-            dangerouslySetInnerHTML={{
-              __html: `
-                if ('serviceWorker' in navigator) {
-                  navigator.serviceWorker.getRegistrations().then(function(registrations) {
-                    for(let registration of registrations) {
-                      registration.unregister();
-                    }
-                  });
-                }
-              `,
-            }}
-          />
-        ) : (
-          <script
-            dangerouslySetInnerHTML={{
-              __html: `
-                if ('serviceWorker' in navigator) {
-                  if (!localStorage.getItem('ppt_pwa_patch_v1')) {
-                    navigator.serviceWorker.getRegistrations().then(function(registrations) {
-                      for(let registration of registrations) {
-                        registration.unregister();
-                      }
-                      localStorage.setItem('ppt_pwa_patch_v1', 'true');
-                      window.location.reload();
-                    });
-                  }
-                }
-              `,
-            }}
-          />
-        )}
       </head>
       <body>
+        <ServiceWorkerUnregister />
         <QueryProvider>
           <NavigationRefetchManager />
           <ThemeProvider>

@@ -4,9 +4,9 @@ import { useEffect, useState, useRef } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { motion } from 'framer-motion'
 import {
-  LayoutDashboard, BookOpen, ClipboardList, Calendar, 
+  LayoutDashboard, BookOpen, ClipboardList, Calendar, CalendarDays,
   Library, GraduationCap, Award, Settings, LogOut,
-  PlusCircle, FileText, Zap, Bell, Users, Layers, BrainCircuit, HelpCircle, Trophy, MessageCircle
+  PlusCircle, FileText, Zap, Bell, Users, Layers, BrainCircuit, HelpCircle, Trophy, MessageCircle, Home
 } from 'lucide-react'
 import { Sidebar, BottomNav, MobileSidebarToggle } from '@/components/layout/Sidebar'
 import { useAuthStore } from '@/stores/authStore'
@@ -44,6 +44,8 @@ const NAV_ITEMS = [
   { label: 'Exam Marks', href: '/teacher/exam-marks', icon: <Award size={18} /> },
   { label: 'Exam Desk', href: '/teacher/exam-desk', icon: <FileText size={18} /> },
   { label: 'Transcripts', href: '/teacher/transcripts', icon: <FileText size={18} /> },
+  { label: 'Homeschooling', href: '/teacher/homeschooling', icon: <Home size={18} /> },
+  { label: 'Teaching Timetable', href: '/teacher/homeschooling/timetable', icon: <CalendarDays size={18} /> },
   { label: 'Schedule', href: '/teacher/schedule', icon: <Calendar size={18} /> },
   { label: 'Study Monitor', href: '/teacher/study-monitor', icon: <BrainCircuit size={18} /> },
   { label: 'Students', href: '/teacher/students', icon: <Users size={18} /> },
