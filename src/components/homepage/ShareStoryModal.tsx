@@ -29,18 +29,19 @@ export function ShareStoryModal({ isOpen, onClose }: ShareStoryModalProps) {
       const { submitTestimonial } = await import('@/app/actions/testimonials')
       const res = await submitTestimonial({
         fullName: form.fullName,
-        email: form.email,
         role: form.role,
         relationshipLabel: form.relationship,
         quote: form.quote,
         rating: form.rating,
       })
-      setResult(res)
       if (res.success) {
+        setResult({ success: true, message: 'Thank you! Your story has been shared.' })
         setTimeout(() => {
           onClose()
           setForm({ fullName: '', email: '', role: '', relationship: '', quote: '', rating: 5 })
         }, 2000)
+      } else {
+        setResult({ success: false, message: (res as { error?: string }).error || 'Failed to submit. Please try again.' })
       }
     } catch {
       setResult({ success: false, message: 'Something went wrong. Please try again.' })

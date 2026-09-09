@@ -62,7 +62,7 @@ export default function TeacherHomeschoolStudentPage() {
       const activeEnrollment = enrollments?.find((e: any) => e.status === 'ACTIVE') || enrollments?.[0]
       const enrollmentIds = enrollments?.map((e: any) => e.id) || []
 
-      const [sessionsRes, submissionsRes, progressRes] = await Promise.all([
+      const [sessionsRes, submissionsRes] = await Promise.all([
         enrollmentIds.length > 0
           ? supabase
               .from('learning_sessions')
@@ -86,13 +86,17 @@ export default function TeacherHomeschoolStudentPage() {
           .eq('student_id', studentId)
           .order('submitted_at', { ascending: false })
           .limit(20),
-        supabase
-          .from('learning_objectives')
-          .select('id, is_completed')
-          .in('session_id', (sessionsRes?.data || []).map((s: any) => s.id))
       ])
 
-      const allSessions = sessionsRes?.data || []
+      const sessionList = ((sessionsRes as any)?.data || []) as any[]
+      const progressRes = sessionList.length > 0
+        ? await supabase
+            .from('learning_objectives')
+            .select('id, is_completed')
+            .in('session_id', sessionList.map((s: any) => s.id))
+        : { data: [] as any[] }
+
+      const allSessions = sessionList
       const subjectProgress = new Map<string, { name: string; total: number; completed: number; objectives: number; completedObjectives: number }>()
 
       for (const session of allSessions) {
@@ -128,8 +132,8 @@ export default function TeacherHomeschoolStudentPage() {
           submissions: submissionsRes.data || [],
           subjectProgress: Array.from(subjectProgress.values()),
           correctionsRequired,
-          totalObjectives: progressRes.data?.length || 0,
-          completedObjectives: (progressRes.data || []).filter((o: any) => o.is_completed).length,
+          totalObjectives: ((progressRes as any)?.data || []).length || 0,
+          completedObjectives: ((progressRes as any)?.data || []).filter((o: any) => o.is_completed).length,
         },
         error: null,
       }

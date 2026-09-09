@@ -74,7 +74,7 @@ export default function TeacherHomeschoolingDashboard() {
       ])
 
       const uniqueStudents = new Map<string, any>()
-      for (const a of assignments || []) {
+      for (const a of ((assignments || []) as any[])) {
         const e = a.enrollment
         if (!e?.student?.id) continue
         if (!uniqueStudents.has(e.student.id)) {
@@ -96,7 +96,7 @@ export default function TeacherHomeschoolingDashboard() {
       }
 
       const subjectMap = new Map<string, { name: string; count: number }>()
-      for (const a of assignments || []) {
+      for (const a of ((assignments || []) as any[])) {
         const key = a.subject_id
         if (!subjectMap.has(key)) {
           subjectMap.set(key, { name: a.subject?.name || 'Unknown', count: 0 })

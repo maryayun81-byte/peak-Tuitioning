@@ -4,6 +4,12 @@ import { createClient as createServerClient, createAdminClient } from '@/lib/sup
 import { requireAdmin } from '@/lib/auth-guards'
 import { can, denialMessage } from '@/lib/homeschooling/permissions'
 import { attachTeacherAssignments, TEACHER_ASSIGNMENT_SELECT } from '@/lib/homeschooling/enrollment-subjects'
+import type {
+  HomeschoolEnrollment,
+  HomeschoolWeek,
+  LearningSession,
+  SubjectProgress,
+} from '@/types/homeschooling'
 
 async function fetchTeacherAssignments(admin: any, enrollmentIds: string[]) {
   if (enrollmentIds.length === 0) return []
@@ -165,7 +171,7 @@ export async function getHomeschoolEnrollments(studentId?: string) {
     )
     attachTeacherAssignments(enrollments, tas)
 
-    return { success: true, data: enrollments }
+    return { success: true, data: enrollments as unknown as HomeschoolEnrollment[] }
   } catch (err: any) {
     return { success: false, error: err.message }
   }
@@ -489,7 +495,7 @@ export async function getHomeschoolWeeks(enrollmentId: string) {
 
     if (error) throw error
 
-    return { success: true, data }
+    return { success: true, data: (data || []) as unknown as HomeschoolWeek[] }
   } catch (err: any) {
     return { success: false, error: err.message }
   }
@@ -661,7 +667,7 @@ export async function getLearningSessions(weekId?: string, enrollmentId?: string
       }
     }
 
-    return { success: true, data: filtered }
+    return { success: true, data: filtered as unknown as LearningSession[] }
   } catch (err: any) {
     return { success: false, error: err.message }
   }
@@ -1254,7 +1260,15 @@ export async function getHomeschoolProgress(enrollmentId: string) {
 
     const { data: enrollment } = await admin
       .from('homeschool_enrollments')
-      .select('id, status, start_date, end_date, grade_level, academic_year')
+      .select(`
+        id, student_id, status, start_date, end_date, grade_level, academic_year,
+        program_name, notes, created_at,
+        student:students(id, full_name, admission_number),
+        subjects:homeschool_subjects(
+          id, subject_id, is_active,
+          subject:subjects(id, name, code)
+        )
+      `)
       .eq('id', enrollmentId)
       .maybeSingle()
 
@@ -1302,10 +1316,15 @@ export async function getHomeschoolProgress(enrollmentId: string) {
       ? Math.round((sessionProgress * 0.5 + objectiveProgress * 0.3 + submissionProgress * 0.2))
       : 0
 
+    if (enrollment) {
+      const tas = await fetchTeacherAssignments(admin, [enrollment.id])
+      attachTeacherAssignments([enrollment], tas)
+    }
+
     return {
       success: true,
       data: {
-        enrollment,
+        enrollment: enrollment as unknown as HomeschoolEnrollment | null,
         summary: {
           totalSessions,
           completedSessions,
@@ -1411,7 +1430,7 @@ export async function getSubjectProgress(enrollmentId: string) {
       }
     }
 
-    return { success: true, data: result }
+    return { success: true, data: result as SubjectProgress[] }
   } catch (err: any) {
     return { success: false, error: err.message }
   }
@@ -1502,7 +1521,7 @@ export async function getHomeschoolDashboardData(studentId: string) {
       todaySessions = todayRes.data || []
       weekOverview = weeksRes.data || []
 
-      const allObjectives = objectivesRes.data || []
+      const allObjectives = (objectivesRes || []) as any[]
 
       pendingItems = allSessions.filter(
         (s: any) =>

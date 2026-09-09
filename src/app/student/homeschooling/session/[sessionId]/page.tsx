@@ -596,7 +596,7 @@ export default function SessionDetailPage() {
 
         <div className="fixed bottom-0 left-0 right-0 z-50 border-t p-4" style={{ background: 'rgba(var(--card-rgb,255,255,255),0.95)', backdropFilter: 'blur(12px)', borderColor: 'var(--card-border)' }}>
           <div className="max-w-4xl mx-auto flex gap-3">
-            {session.student_status === 'UPCOMING' || session.student_status === 'READY' ? (
+            {session.student_status === 'UPCOMING' || (session.student_status as string) === 'READY' ? (
               <Button onClick={handleStartSession} isLoading={actionLoading} className="flex-1 rounded-xl h-12 font-black">
                 <PlayCircle size={18} /> Start Learning
               </Button>

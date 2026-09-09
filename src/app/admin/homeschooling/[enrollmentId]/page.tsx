@@ -121,12 +121,12 @@ export default function EnrollmentDetailPage({ params }: { params: Promise<{ enr
 
       if (weeksRes.success) setWeeks(weeksRes.data || [])
       if (sessionsRes.success) setSessions(sessionsRes.data || [])
-      if (progressRes.success) {
+      if (progressRes.success && progressRes.data) {
         setProgress(progressRes.data)
-        setEnrollment(progressRes.data.enrollment)
+        setEnrollment(progressRes.data.enrollment ?? null)
         setSettingsForm({
           grade_level: progressRes.data.enrollment?.grade_level || '',
-          notes: progressRes.data.enrollment?.notes || '',
+          notes: (progressRes.data.enrollment as any)?.notes || '',
           end_date: progressRes.data.enrollment?.end_date || '',
         })
       }

@@ -1,19 +1,24 @@
 import type { Student, Teacher, Subject, Assignment } from '@/types/database'
-
-// Canonical status/type unions live in constants (single source of truth,
-// matching the database CHECK constraints). Re-exported here under the
-// domain names used across the homeschooling feature.
-export type {
-  EnrollmentStatus as HomeschoolEnrollmentStatus,
-  WeekStatus as HomeschoolWeekStatus,
-  SessionStatus as LearningSessionStatus,
+import type {
+  EnrollmentStatus,
+  WeekStatus,
+  SessionStatus,
   StudentSessionStatus,
   LearningMode,
   SubmissionType,
-  ResourceType as ResourceLinkType,
-  TeacherAssignmentType as AssignmentType,
+  ResourceType,
+  TeacherAssignmentType,
   ConfidenceLevel,
 } from '@/lib/homeschooling/constants'
+
+// Local aliases under the domain names used across the feature
+// (`export ... from` alone does not create local bindings).
+export type HomeschoolEnrollmentStatus = EnrollmentStatus
+export type HomeschoolWeekStatus = WeekStatus
+export type LearningSessionStatus = SessionStatus
+export type { StudentSessionStatus, LearningMode, SubmissionType, ConfidenceLevel }
+export type ResourceLinkType = ResourceType
+export type AssignmentType = TeacherAssignmentType
 
 export interface HomeschoolEnrollment {
   id: string
@@ -191,11 +196,13 @@ export interface HomeschoolProgress {
 }
 
 export interface SubjectProgress {
-  subjectId: string
-  subjectName: string
-  totalSessions: number
-  completedSessions: number
-  totalObjectives: number
-  completedObjectives: number
-  percentage: number
+  subject_id: string
+  subject_name: string
+  subject_code?: string | null
+  total_sessions: number
+  completed_sessions: number
+  in_progress_sessions?: number
+  total_objectives?: number
+  completed_objectives?: number
+  progress_percent: number
 }
