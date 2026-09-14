@@ -1,10 +1,10 @@
 'use client'
 
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { 
-  Highlighter, ArrowRight, Circle, Minus, Type, 
+import {
+  Highlighter, ArrowRight, Circle, Minus, Type,
   Pen, Check, X, RotateCcw, Trash2, CheckCircle2,
-  Eraser, Palette, PaintBucket, Droplets
+  Eraser, Palette, PaintBucket, Droplets, ChevronDown, Hand
 } from 'lucide-react'
 
 interface AnnotationCanvasProps {
@@ -18,13 +18,20 @@ interface AnnotationCanvasProps {
   readOnly?: boolean
   defaultColor?: string
   height?: number
+  /**
+   * Pin the toolbar to the top of the scroll viewport (default true).
+   * Set false on the teacher marking canvases: a pinned bar permanently
+   * covers the top of the photo on small phones, so there the toolbar
+   * scrolls away with the content instead.
+   */
+  stickyToolbar?: boolean
 }
 
 type Tool = 'highlight' | 'line' | 'circle' | 'underline' | 'arrow' | 'text' | 'draw' | 'tick' | 'cross' | 'select' | 'pan' | 'ruler' | 'protractor' | 'eraser'
 
 const TOOL_CONFIG: { tool: Tool; icon: React.ReactNode; label: string; color?: string }[] = [
   { tool: 'select',     icon: <CheckCircle2 size={14} />, label: 'Select',     color: '#6366f1' },
-  { tool: 'pan',        icon: <RotateCcw size={14} className="rotate-90" />, label: 'Pan', color: '#64748b' },
+  { tool: 'pan',        icon: <Hand size={14} />, label: 'Move / Scroll page', color: '#64748b' },
   { tool: 'ruler',      icon: <Minus size={14} />, label: 'Ruler', color: '#94a3b8' },
   { tool: 'protractor', icon: <Circle size={14} />, label: 'Protractor', color: '#94a3b8' },
   { tool: 'draw',       icon: <Pen size={14} />,         label: 'Pen',         color: undefined },
@@ -64,7 +71,7 @@ const STROKE_WIDTHS = [1, 2, 3, 4, 5, 6, 8, 10, 15, 20]
 
 export function AnnotationCanvas({
   backgroundText, backgroundJson, backgroundImageUrl, initialJson, initialData,
-  onSave, readOnly, defaultColor = '#EF4444', height
+  onSave, readOnly, defaultColor = '#EF4444', height, stickyToolbar = true
 }: AnnotationCanvasProps) {
   const canvasRef  = useRef<HTMLCanvasElement>(null)
   const wrapperRef = useRef<HTMLDivElement>(null)
@@ -80,6 +87,12 @@ export function AnnotationCanvas({
   const [colorHistory, setColorHistory] = useState<string[]>(['#EF4444', '#3B82F6', '#10B981'])
   const [hexInput, setHexInput] = useState('')
   const [showColorPicker, setShowColorPicker] = useState(false)
+  // QC (mobile): the two-row sticky toolbar used to cover ~90px of the photo
+  // at all times (a "dark layer" over the work in dark mode). Fine controls
+  // start collapsed on phones; the essential tool row always stays.
+  const [toolbarOpen, setToolbarOpen] = useState<boolean>(
+    () => typeof window === 'undefined' || window.innerWidth >= 640
+  )
 
   useEffect(() => {
     if (color && !colorHistory.includes(color)) {
@@ -175,6 +188,8 @@ export function AnnotationCanvas({
 
   useEffect(() => {
     let cancelled = false
+    // Pinch-to-zoom listener handles (registered inside init, removed in cleanup).
+    let touchCleanup: (() => void) | null = null
     const init = async () => {
       if (!canvasRef.current || fabricRef.current) return
       const { Canvas, Textbox, PencilBrush } = await import('fabric')
@@ -394,6 +409,65 @@ export function AnnotationCanvas({
       })
 
 
+      // ── Touch: pinch-to-zoom (phones/tablets) ──────────────────────────
+      // Teachers zoom into handwriting with two fingers. The gesture is fully
+      // owned here: browser page-zoom is off app-wide (maximumScale=1), moves
+      // are preventDefaulted (non-passive), and drawing is suspended for the
+      // gesture so the first finger can't leave a stray stroke. Scroll/draw
+      // balance is untouched — single-finger behavior is exactly as before.
+      let pinch: { startDist: number; startZoom: number; baseline: number } | null = null
+      const touchDist = (a: Touch, b: Touch) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)
+      const onTouchStart = (e: TouchEvent) => {
+        if (e.touches.length === 2 && canvas) {
+          const d = touchDist(e.touches[0], e.touches[1])
+          if (d > 0) {
+            pinch = { startDist: d, startZoom: canvas.getZoom(), baseline: canvas.getObjects().length }
+            canvas.isDrawingMode = false
+          }
+        }
+      }
+      const onTouchMove = (e: TouchEvent) => {
+        if (!pinch || e.touches.length < 2 || !canvasRef.current) return
+        e.preventDefault() // own the gesture: no page scroll/zoom mid-pinch
+        const d = touchDist(e.touches[0], e.touches[1])
+        if (d <= 0) return
+        let nz = pinch.startZoom * (d / pinch.startDist)
+        if (nz > 5) nz = 5
+        if (nz < 1) nz = 1
+        const rect = canvasRef.current.getBoundingClientRect()
+        const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left
+        const my = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top
+        canvas.zoomToPoint(new Point(mx, my), nz)
+        setZoom(nz)
+      }
+      const onTouchEnd = (e: TouchEvent) => {
+        if (!pinch || e.touches.length >= 2) return
+        // Trim any path the first finger started before the second landed —
+        // only objects added during the gesture can be pinch artifacts.
+        try {
+          const objs = canvas.getObjects()
+          while (objs.length > pinch.baseline) canvas.remove(objs[objs.length - 1])
+          canvas.requestRenderAll()
+        } catch {}
+        // Restore the tool's drawing state (Move/Select stay non-drawing).
+        try { canvas.isDrawingMode = (fabricRef.current as any)?.activeTool === 'draw' } catch {}
+        pinch = null
+      }
+      const killGesture = (e: Event) => { try { e.preventDefault() } catch {} }
+      const wrapEl = wrapperRef.current
+      wrapEl?.addEventListener('touchstart', onTouchStart, { passive: true })
+      wrapEl?.addEventListener('touchmove', onTouchMove, { passive: false })
+      wrapEl?.addEventListener('touchend', onTouchEnd)
+      wrapEl?.addEventListener('touchcancel', onTouchEnd)
+      wrapEl?.addEventListener('gesturestart' as any, killGesture)
+      touchCleanup = () => {
+        wrapEl?.removeEventListener('touchstart', onTouchStart)
+        wrapEl?.removeEventListener('touchmove', onTouchMove)
+        wrapEl?.removeEventListener('touchend', onTouchEnd)
+        wrapEl?.removeEventListener('touchcancel', onTouchEnd)
+        wrapEl?.removeEventListener('gesturestart' as any, killGesture)
+      }
+
       let isPanning = false
       let isErasing = false
       let isDrawingShape = false
@@ -503,7 +577,14 @@ export function AnnotationCanvas({
       canvas.isDrawingMode = true
       const brush = new PencilBrush(canvas)
       brush.color = defaultColorRef.current
-      brush.width = widthRef.current
+      // QC (mobile pen): fabric's default decimate (0.4px) keeps every jitter
+      // point of a finger stroke — curves look shaky and renders crawl on
+      // low-end phones. 2px keeps the shape, drops the noise. Width scales
+      // with canvas size so the pen isn't a fat marker on phones.
+      try { (brush as any).decimate = 2 } catch {}
+      const scaledWidth = Math.max(3, Math.round(containerW / 180))
+      brush.width = scaledWidth
+      setStrokeWidth(scaledWidth)
       canvas.freeDrawingBrush = brush
 
       canvas.on('object:modified', () => save(canvas))
@@ -537,7 +618,16 @@ export function AnnotationCanvas({
     return () => {
       cancelled = true
       window.removeEventListener('keydown', handleKeyDown)
-      if (debRef.current) clearTimeout(debRef.current)
+      try { touchCleanup?.() } catch {}
+      touchCleanup = null
+      // QC (data loss): saves are debounced 500ms — switching workbook pages
+      // (which remounts this canvas per page) right after a stroke used to
+      // silently drop it. Flush synchronously before dispose.
+      if (debRef.current) {
+        clearTimeout(debRef.current)
+        debRef.current = null
+        try { if (fabricRef.current) onSaveRef.current(serialize(fabricRef.current)) } catch {}
+      }
       if (fabricRef.current) { fabricRef.current.dispose(); fabricRef.current = null }
     }
   }, [readOnly, height])
@@ -616,6 +706,7 @@ export function AnnotationCanvas({
         canvas.isDrawingMode = true
         const b = new PencilBrush(canvas)
         b.color = c; b.width = sw
+        try { (b as any).decimate = 2 } catch {}
         canvas.freeDrawingBrush = b
         return
       }
@@ -633,6 +724,11 @@ export function AnnotationCanvas({
     if (fabricRef.current) fabricRef.current.activeTool = t
     const canvas = fabricRef.current
     if (!canvas) return
+    // Move tool doubles as page-scroll mode on touch devices: fabric flips
+    // the canvas touch-action to `manipulation` so one finger scrolls the
+    // page instead of drawing; every marking tool pins it back to `none`.
+    // (The wrapper div uses pan-y so it never vetoes the gesture.)
+    try { canvas.allowTouchScrolling = (t === 'pan') } catch {}
     if (t === 'select' || t === 'pan' || t === 'eraser') {
       canvas.isDrawingMode = false
       canvas.selection = (t === 'select')
@@ -686,14 +782,20 @@ export function AnnotationCanvas({
       style={height ? { height: height + 52, overflow: 'hidden' } : {}}
     >
       {!readOnly && (
-        <div className="sticky top-0 z-20" style={{ touchAction: 'none' }}>
-          <div style={{
+        <div
+          className={stickyToolbar ? 'sticky top-0 z-20' : 'relative z-10'}
+          // pan-x pan-y (NOT none): the tool row itself must stay
+          // horizontally scrollable on touch — `none` here vetoes every
+          // scroll gesture and traps tools off-screen on phones. The fabric
+          // canvas element still pins its own touch-action while drawing.
+          style={{ touchAction: 'pan-x pan-y' }}
+        >          <div style={{
             background: 'var(--card)',
             backdropFilter: 'blur(16px)',
             WebkitBackdropFilter: 'blur(16px)',
             borderBottom: '1px solid var(--card-border)',
           }}>
-            {/* Row 1: Tools */}
+            {/* Row 1: Tools — always visible, slim so it never buries the photo */}
             <div className="flex items-center gap-0.5 px-1.5 py-1 overflow-x-auto no-scrollbar" style={{ color: 'var(--text)' }}>
               {/* Selection */}
               <div className="flex items-center gap-0.5">
@@ -702,7 +804,7 @@ export function AnnotationCanvas({
                   const active = activeTool === t
                   return (
                     <button key={t} onClick={() => setTool(t)}
-                      className="px-1.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all whitespace-nowrap flex items-center gap-1"
+                      className="px-1.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all whitespace-nowrap flex items-center justify-center gap-1 min-w-[38px] min-h-[38px]"
                       style={{
                         background: active ? (cfg.color || color) : 'transparent',
                         color: active ? 'white' : 'var(--text-muted)',
@@ -722,7 +824,7 @@ export function AnnotationCanvas({
                   const active = activeTool === t
                   return (
                     <button key={t} onClick={() => setTool(t)}
-                      className="px-1.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all whitespace-nowrap flex items-center gap-1"
+                      className="px-1.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all whitespace-nowrap flex items-center justify-center gap-1 min-w-[38px] min-h-[38px]"
                       style={{
                         background: active ? (cfg.color || color) : 'transparent',
                         color: active ? 'white' : 'var(--text-muted)',
@@ -743,7 +845,7 @@ export function AnnotationCanvas({
                   const active = activeTool === t
                   return (
                     <button key={t} onClick={() => setTool(t)}
-                      className="px-1.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all whitespace-nowrap flex items-center gap-1"
+                      className="px-1.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all whitespace-nowrap flex items-center justify-center gap-1 min-w-[38px] min-h-[38px]"
                       style={{
                         background: active ? (t === 'tick' ? '#10B981' : t === 'cross' ? '#EF4444' : '#FDE047') : 'transparent',
                         color: active ? (t === 'highlight' ? '#000' : 'white') : 'var(--text-muted)',
@@ -763,7 +865,7 @@ export function AnnotationCanvas({
                   const active = activeTool === t
                   return (
                     <button key={t} onClick={() => setTool(t)}
-                      className="px-1.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all whitespace-nowrap flex items-center gap-1"
+                      className="px-1.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all whitespace-nowrap flex items-center justify-center gap-1 min-w-[38px] min-h-[38px]"
                       style={{
                         background: active ? (cfg.color || color) : 'transparent',
                         color: active ? 'white' : 'var(--text-muted)',
@@ -783,7 +885,7 @@ export function AnnotationCanvas({
                   const active = activeTool === t
                   return (
                     <button key={t} onClick={() => setTool(t)}
-                      className="px-1.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all whitespace-nowrap flex items-center gap-1"
+                      className="px-1.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all whitespace-nowrap flex items-center justify-center gap-1 min-w-[38px] min-h-[38px]"
                       style={{
                         background: active ? 'rgba(239,68,68,0.15)' : 'transparent',
                         color: active ? '#EF4444' : 'var(--text-muted)',
@@ -803,7 +905,7 @@ export function AnnotationCanvas({
                   const active = activeTool === t
                   return (
                     <button key={t} onClick={() => setTool(t)}
-                      className="px-1.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all whitespace-nowrap flex items-center gap-1"
+                      className="px-1.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all whitespace-nowrap flex items-center justify-center gap-1 min-w-[38px] min-h-[38px]"
                       style={{
                         background: active ? '#94a3b8' : 'transparent',
                         color: active ? 'white' : 'var(--text-muted)',
@@ -814,12 +916,88 @@ export function AnnotationCanvas({
                   )
                 })}
               </div>
+
+              <div className="flex-1" />
+              {/* Quick color dot — stays available when fine controls collapse */}
+              <button
+                onClick={() => setShowColorPicker(v => !v)}
+                className="shrink-0 w-[38px] h-[38px] rounded-lg border-2 flex items-center justify-center transition-all hover:scale-105"
+                style={{
+                  background: color,
+                  borderColor: showColorPicker ? '#6366f1' : 'rgba(0,0,0,0.1)',
+                  boxShadow: showColorPicker ? '0 0 0 2px rgba(99,102,241,0.35)' : 'none',
+                }}
+                title={`Pen color: ${color} — tap to change`}
+                aria-label="Change pen color"
+              />
+              {/* Collapse fine controls — the overlay shrinks to one slim row */}
+              <button
+                onClick={() => setToolbarOpen(v => !v)}
+                className="shrink-0 w-[38px] h-[38px] rounded-lg flex items-center justify-center transition-colors"
+                style={{ background: toolbarOpen ? 'var(--input)' : 'transparent', color: 'var(--text-muted)' }}
+                title={toolbarOpen ? 'Hide pen controls' : 'Show pen controls (color, size)'}
+                aria-label={toolbarOpen ? 'Hide pen controls' : 'Show pen controls'}
+              >
+                <ChevronDown size={16} style={{ transform: toolbarOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+              </button>
             </div>
 
+            {/* Shared color picker — anchored to the toolbar root so it works
+                whether fine controls are open or collapsed */}
+            {showColorPicker && (
+              <div
+                className="absolute top-full right-2 mt-1.5 p-2.5 rounded-2xl border shadow-2xl z-30 min-w-[220px]"
+                style={{
+                  background: 'var(--card)',
+                  backdropFilter: 'blur(20px)',
+                  borderColor: 'var(--card-border)',
+                }}
+                onClick={e => e.stopPropagation()}
+              >
+                {colorHistory.length > 0 && (
+                  <div className="mb-2">
+                    <div className="text-[7px] font-black uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>Recent</div>
+                    <div className="flex gap-1 flex-wrap">
+                      {colorHistory.map(c => (
+                        <button key={c} onClick={() => { setColor(c); setShowColorPicker(false) }}
+                          className="w-5 h-5 rounded-md border transition-transform hover:scale-125"
+                          style={{ backgroundColor: c, borderColor: 'rgba(0,0,0,0.08)' }} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className="grid grid-cols-6 gap-1 mb-2">
+                  {COLORS.map(c => (
+                    <button key={c.hex} onClick={() => { setColor(c.hex); setShowColorPicker(false) }}
+                      className="w-6 h-6 rounded-lg border transition-all hover:scale-110"
+                      style={{
+                        backgroundColor: c.hex,
+                        borderColor: color === c.hex ? 'rgba(99,102,241,0.5)' : 'rgba(0,0,0,0.06)',
+                        outline: color === c.hex ? '2px solid #6366f1' : 'none',
+                        outlineOffset: '1px',
+                      }}
+                      title={c.name} />
+                  ))}
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[9px] font-mono font-black" style={{ color: 'var(--text-muted)' }}>#</span>
+                  <input value={hexInput} onChange={e => setHexInput(e.target.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 6))}
+                    onKeyDown={e => { if (e.key === 'Enter' && hexInput.length === 6) { setColor(`#${hexInput}`); setShowColorPicker(false) } }}
+                    className="flex-1 px-2 py-1 text-[10px] font-mono rounded-lg border focus:outline-none focus:ring-2"
+                    style={{ background: 'var(--input)', borderColor: 'var(--card-border)', color: 'var(--text)' }}
+                    placeholder="000000" maxLength={6} />
+                  {hexInput.length === 6 && (
+                    <div className="w-5 h-5 rounded border shrink-0" style={{ backgroundColor: `#${hexInput}`, borderColor: 'rgba(0,0,0,0.08)' }} />
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Row 2: Color, Width, Font Size, Opacity, Fill, Zoom, Undo, Clear */}
+            {toolbarOpen && (
             <div className="flex items-center gap-2 px-3 py-1.5 border-t flex-wrap" style={{ borderColor: 'var(--card-border)' }}>
               {/* Color Picker */}
-              <div className="relative">
+              <div>
                 <button
                   onClick={() => setShowColorPicker(v => !v)}
                   className="w-7 h-7 rounded-lg border-2 transition-all hover:scale-105"
@@ -830,54 +1008,6 @@ export function AnnotationCanvas({
                   }}
                   title={`Color: ${color}`}
                 />
-                {showColorPicker && (
-                  <div
-                    className="absolute top-full left-0 mt-1.5 p-2.5 rounded-2xl border shadow-2xl z-30 min-w-[220px]"
-                    style={{
-                      background: 'var(--card)',
-                      backdropFilter: 'blur(20px)',
-                      borderColor: 'var(--card-border)',
-                    }}
-                    onClick={e => e.stopPropagation()}
-                  >
-                    {colorHistory.length > 0 && (
-                      <div className="mb-2">
-                        <div className="text-[7px] font-black uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>Recent</div>
-                        <div className="flex gap-1 flex-wrap">
-                          {colorHistory.map(c => (
-                            <button key={c} onClick={() => { setColor(c); setShowColorPicker(false) }}
-                              className="w-5 h-5 rounded-md border transition-transform hover:scale-125"
-                              style={{ backgroundColor: c, borderColor: 'rgba(0,0,0,0.08)' }} />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    <div className="grid grid-cols-6 gap-1 mb-2">
-                      {COLORS.map(c => (
-                        <button key={c.hex} onClick={() => { setColor(c.hex); setShowColorPicker(false) }}
-                          className="w-6 h-6 rounded-lg border transition-all hover:scale-110"
-                          style={{
-                            backgroundColor: c.hex,
-                            borderColor: color === c.hex ? 'rgba(99,102,241,0.5)' : 'rgba(0,0,0,0.06)',
-                            outline: color === c.hex ? '2px solid #6366f1' : 'none',
-                            outlineOffset: '1px',
-                          }}
-                          title={c.name} />
-                      ))}
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[9px] font-mono font-black" style={{ color: 'var(--text-muted)' }}>#</span>
-                      <input value={hexInput} onChange={e => setHexInput(e.target.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 6))}
-                        onKeyDown={e => { if (e.key === 'Enter' && hexInput.length === 6) { setColor(`#${hexInput}`); setShowColorPicker(false) } }}
-                        className="flex-1 px-2 py-1 text-[10px] font-mono rounded-lg border focus:outline-none focus:ring-2"
-                        style={{ background: 'var(--input)', borderColor: 'var(--card-border)', color: 'var(--text)' }}
-                        placeholder="000000" maxLength={6} />
-                      {hexInput.length === 6 && (
-                        <div className="w-5 h-5 rounded border shrink-0" style={{ backgroundColor: `#${hexInput}`, borderColor: 'rgba(0,0,0,0.08)' }} />
-                      )}
-                    </div>
-                  </div>
-                )}
               </div>
 
               {/* Stroke Width */}
@@ -934,15 +1064,22 @@ export function AnnotationCanvas({
 
               <div className="flex-1" />
 
-              <button onClick={undo} className="w-7 h-7 rounded-lg flex items-center justify-center transition-all hover:bg-[var(--input)]" style={{ color: 'var(--text-muted)' }} title="Undo"><RotateCcw size={11} /></button>
-              <button onClick={clear} className="w-7 h-7 rounded-lg flex items-center justify-center transition-all hover:bg-rose-500/10" style={{ color: 'var(--text-muted)' }} title="Clear all annotations"><Trash2 size={11} /></button>
+              <button onClick={undo} className="min-w-[38px] min-h-[38px] rounded-lg flex items-center justify-center transition-all hover:bg-[var(--input)]" style={{ color: 'var(--text-muted)' }} title="Undo"><RotateCcw size={13} /></button>
+              <button onClick={clear} className="min-w-[38px] min-h-[38px] rounded-lg flex items-center justify-center transition-all hover:bg-rose-500/10" style={{ color: 'var(--text-muted)' }} title="Clear all annotations"><Trash2 size={13} /></button>
             </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* Canvas fills its natural height — no internal scroll */}
-      <div style={{ touchAction: readOnly ? 'auto' : 'none' }}>
+      {/* Canvas fills its natural height — no internal scroll.
+          Editable mode uses pan-y (not none): the fabric canvas itself still
+          pins touch to `none` while a marking tool is active (so the pen
+          draws), but switching to the Move tool flips fabric to
+          allowTouchScrolling, letting the finger scroll the page naturally.
+          A blanket `none` here would veto that and trap teachers inside the
+          photo on phones. */}
+      <div style={{ touchAction: readOnly ? 'auto' : 'pan-y' }}>
         <canvas ref={canvasRef} style={{ display: 'block', width: '100%' }} />
       </div>
     </div>

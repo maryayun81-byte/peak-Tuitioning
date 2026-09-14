@@ -257,6 +257,16 @@ export default function StudentWorksheetSolver() {
 
     if (error) { toast.error('Submission failed: ' + error.message); setSubmitting(false); return }
 
+    // From here the submission is safely stored. Everything below is
+    // best-effort side effects (notifications, XP, push) — none of it may
+    // ever block or abort the redirect. QC: an unguarded `profile!.id` and
+    // uncaught push failures used to throw here, stranding the student on
+    // this page where every resubmit re-awarded +20 XP and re-spammed the
+    // teacher. hasExistingSubmission flips immediately so even an in-page
+    // resubmit can never re-farm the first-submit bonus.
+    const wasFirstSubmit = !hasExistingSubmission
+    setHasExistingSubmission(true)
+
     // Notify teacher via DB notification + push
     try {
       const teacherUserId = (assignment as any)?.teacher?.user_id
@@ -280,33 +290,43 @@ export default function StudentWorksheetSolver() {
       console.warn('[Push] Teacher notification failed:', pushErr)
     }
 
-    // Award Completion XP (+20 XP) - Only if first time submitting
-    if (!hasExistingSubmission) {
-      const { data: updatedStudent } = await supabase
-        .from('students')
-        .update({ xp: (student?.xp || 0) + 20 })
-        .eq('id', student?.id)
-        .select('*')
-        .single()
-      
-      if (updatedStudent) {
-        useAuthStore.getState().setStudent(updatedStudent as Student)
-        await supabase.from('notifications').insert({
-          user_id: profile?.id,
-          title: 'Quest Submitted!',
-          body: 'You earned +20 XP for submitting your worksheet.',
-          type: 'info',
-          data: { xp: 20, category: 'assignment_completion' }
-        })
-        const { sendPushNotification: sendPush2 } = await import('@/app/actions/push')
-        await sendPush2([profile!.id], {
-          title: 'Quest Submitted! +20 XP',
-          body: 'You earned +20 XP for submitting your worksheet.',
-          href: '/student/assignments',
-          tag: 'xp-submission',
-        })
-        toast.success('✅ Worksheet submitted! +20 XP earned!', { icon: '🚀' })
-      } else {
+    // Award Completion XP (+20 XP) - Only if first time submitting.
+    // `wasFirstSubmit` was captured before the flip above, so one successful
+    // submit earns the bonus exactly once even if the student resubmits.
+    if (wasFirstSubmit) {
+      try {
+        const { data: updatedStudent } = await supabase
+          .from('students')
+          .update({ xp: (student?.xp || 0) + 20 })
+          .eq('id', student?.id)
+          .select('*')
+          .single()
+
+        if (updatedStudent) {
+          useAuthStore.getState().setStudent(updatedStudent as Student)
+          await supabase.from('notifications').insert({
+            user_id: profile?.id,
+            title: 'Quest Submitted!',
+            body: 'You earned +20 XP for submitting your worksheet.',
+            type: 'info',
+            data: { xp: 20, category: 'assignment_completion' }
+          })
+          if (profile?.id) {
+            const { sendPushNotification: sendPush2 } = await import('@/app/actions/push')
+            await sendPush2([profile.id], {
+              title: 'Quest Submitted! +20 XP',
+              body: 'You earned +20 XP for submitting your worksheet.',
+              href: '/student/assignments',
+              tag: 'xp-submission',
+            })
+          }
+          toast.success('✅ Worksheet submitted! +20 XP earned!', { icon: '🚀' })
+        } else {
+          toast.success('✅ Worksheet submitted successfully!')
+        }
+      } catch (xpErr) {
+        // XP/notification side effects must never fail the submission flow.
+        console.warn('[Submit] XP award failed:', xpErr)
         toast.success('✅ Worksheet submitted successfully!')
       }
     } else {
@@ -314,6 +334,7 @@ export default function StudentWorksheetSolver() {
     }
 
     clearPageDataCache()
+    setSubmitting(false)
     router.push('/student/assignments')
   }
 

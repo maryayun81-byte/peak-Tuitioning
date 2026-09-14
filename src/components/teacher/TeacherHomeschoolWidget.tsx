@@ -3,13 +3,28 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
-import { Home, Clock, ChevronRight, AlertTriangle, CalendarDays } from 'lucide-react'
+import { Home, Clock, ChevronRight, AlertTriangle, CalendarDays, Users, Video, BookOpen, Sparkles } from 'lucide-react'
 import { Card, Badge } from '@/components/ui/Card'
 import { getTeacherHomeschoolDigest } from '@/app/actions/homeschool-learning'
 import { formatTimeRange, getSessionModeLabel } from '@/lib/homeschooling/constants'
 
 // Teacher dashboard: today's + upcoming ALLOCATED homeschool sessions
 // plus work awaiting review. Same data as the homeschool timetable.
+const MODE_ACCENT: Record<string, { color: string; Icon: typeof Users }> = {
+  TEACHER_LED: { color: '#4F8CFF', Icon: Users },
+  SELF_STUDY: { color: '#10B981', Icon: BookOpen },
+  AI_SUPPORTED: { color: '#A855F7', Icon: Sparkles },
+  HYBRID: { color: '#F59E0B', Icon: Video },
+}
+
+function modeAccent(mode?: string) {
+  return MODE_ACCENT[mode || ''] || { color: '#4F8CFF', Icon: Video }
+}
+
+function isDone(s: any) {
+  return s.status === 'COMPLETED' || s.student_status === 'COMPLETED'
+}
+
 export default function TeacherHomeschoolWidget() {
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -81,29 +96,50 @@ export default function TeacherHomeschoolWidget() {
       )}
 
       {data.today.length > 0 ? (
-        <div className="space-y-2">
-          {data.today.map((s: any) => (
-            <Link key={s.id} href={`/teacher/homeschooling/session/${s.id}`} className="block">
-              <motion.span whileTap={{ scale: 0.98 }} className="flex items-center gap-3 rounded-xl border p-3 cursor-pointer hover:border-[var(--primary)] transition-colors" style={{ background: 'var(--input)', borderColor: 'var(--card-border)' }}>
-                <span className="text-xs font-black whitespace-nowrap" style={{ color: 'var(--text)' }}>
-                  {formatTimeRange(s.start_time, s.end_time)}
-                </span>
-                <span className="flex-1 min-w-0">
-                  <span className="block text-sm font-black truncate" style={{ color: 'var(--text)' }}>
-                    {s.topic || s.subject?.name}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          {data.today.map((s: any, i: number) => {
+            const accent = modeAccent(s.learning_mode)
+            const AccentIcon = accent.Icon
+            const done = isDone(s)
+            return (
+              <motion.div key={s.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
+                <Link
+                  href={`/teacher/homeschooling/session/${s.id}`}
+                  className="group flex items-center gap-3 rounded-2xl border p-3.5 min-h-[76px] transition-all hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0"
+                  style={{ background: 'var(--card)', borderColor: 'var(--card-border)', borderLeft: `4px solid ${accent.color}` }}
+                >
+                  <span
+                    className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-white shadow-md"
+                    style={{ background: `linear-gradient(135deg, ${accent.color}, ${accent.color}99)` }}
+                  >
+                    <AccentIcon size={19} />
                   </span>
-                  <span className="block text-[11px] font-semibold truncate" style={{ color: 'var(--text-muted)' }}>
-                    {s.student_name} · {getSessionModeLabel(s.learning_mode)}
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-sm font-black truncate" style={{ color: 'var(--text)' }}>
+                      {s.topic || s.subject?.name}
+                    </span>
+                    <span className="mt-0.5 block truncate text-[11px] font-semibold" style={{ color: 'var(--text-muted)' }}>
+                      {s.student_name} · {getSessionModeLabel(s.learning_mode)}
+                    </span>
+                    <span
+                      className="mt-1 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-black tabular-nums"
+                      style={{ background: `${accent.color}14`, color: accent.color }}
+                    >
+                      <Clock size={10} /> {formatTimeRange(s.start_time, s.end_time)}
+                    </span>
                   </span>
-                </span>
-                {s.status === 'COMPLETED' || s.student_status === 'COMPLETED' ? (
-                  <Badge variant="success" className="text-[9px]">Done</Badge>
-                ) : (
-                  <Badge variant="info" className="text-[9px]">Today</Badge>
-                )}
-              </motion.span>
-            </Link>
-          ))}
+                  <span className="flex shrink-0 flex-col items-end gap-1.5">
+                    {done ? (
+                      <Badge variant="success" className="text-[9px]">Done</Badge>
+                    ) : (
+                      <Badge variant="info" className="text-[9px]">Today</Badge>
+                    )}
+                    <ChevronRight size={14} className="opacity-30 transition-transform group-hover:translate-x-0.5 group-hover:opacity-70" />
+                  </span>
+                </Link>
+              </motion.div>
+            )
+          })}
         </div>
       ) : (
         <p className="flex items-center gap-1.5 text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>
@@ -116,14 +152,40 @@ export default function TeacherHomeschoolWidget() {
           <p className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider mb-2" style={{ color: 'var(--text-muted)' }}>
             <CalendarDays size={12} /> Up next
           </p>
-          <div className="space-y-1.5">
-            {data.upcoming.slice(0, 3).map((s: any) => (
-              <Link key={s.id} href={`/teacher/homeschooling/session/${s.id}`} className="flex items-center gap-2 text-xs font-bold" style={{ color: 'var(--text)' }}>
-                <span style={{ color: 'var(--primary)' }}>{s.day_label}</span>
-                <span style={{ color: 'var(--text-muted)' }}>{formatTimeRange(s.start_time, s.end_time)}</span>
-                <span className="truncate">{s.topic || s.subject?.name} · {s.student_name}</span>
-              </Link>
-            ))}
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5">
+            {data.upcoming.slice(0, 3).map((s: any, i: number) => {
+              const accent = modeAccent(s.learning_mode)
+              return (
+                <motion.div key={s.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 + i * 0.05 }}>
+                  <Link
+                    href={`/teacher/homeschooling/session/${s.id}`}
+                    className="group block rounded-2xl border p-3.5 min-h-[76px] transition-all hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0"
+                    style={{ background: 'var(--input)', borderColor: 'var(--card-border)' }}
+                  >
+                    <span className="flex items-center justify-between gap-2">
+                      <span
+                        className="inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[10px] font-black uppercase tracking-wider"
+                        style={{ background: `${accent.color}14`, color: accent.color }}
+                      >
+                        <CalendarDays size={10} /> {s.day_label || s.day}
+                      </span>
+                      <span className="text-[10px] font-bold tabular-nums" style={{ color: 'var(--text-muted)' }}>
+                        {formatTimeRange(s.start_time, s.end_time)}
+                      </span>
+                    </span>
+                    <span className="mt-1.5 block truncate text-sm font-black" style={{ color: 'var(--text)' }}>
+                      {s.topic || s.subject?.name}
+                    </span>
+                    <span className="mt-0.5 flex items-center justify-between gap-2">
+                      <span className="truncate text-[11px] font-semibold" style={{ color: 'var(--text-muted)' }}>
+                        {s.student_name} · {getSessionModeLabel(s.learning_mode)}
+                      </span>
+                      <ChevronRight size={14} className="shrink-0 opacity-30 transition-transform group-hover:translate-x-0.5 group-hover:opacity-70" />
+                    </span>
+                  </Link>
+                </motion.div>
+              )
+            })}
           </div>
         </div>
       )}

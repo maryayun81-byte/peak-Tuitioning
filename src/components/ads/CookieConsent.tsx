@@ -75,7 +75,17 @@ export function resetAdsConsent() {
       window.localStorage.removeItem(CONSENT_KEY)
     } catch { /* storage blocked */ }
     try {
+      // Clear host-only cookie…
       document.cookie = `${CONSENT_KEY}=; Max-Age=0; Path=/; SameSite=Lax`
+      // …and any apex-domain variant set by writeCookie (best-effort:
+      // invalid Domain attributes are silently ignored by the browser).
+      const host = window.location.hostname.toLowerCase().split(':')[0]
+      const parts = host.split('.')
+      if (parts.length >= 3 && host !== 'localhost') {
+        const last = parts[parts.length - 1]
+        const apex = last.length === 2 ? parts.slice(-3).join('.') : parts.slice(-2).join('.')
+        document.cookie = `${CONSENT_KEY}=; Max-Age=0; Path=/; Domain=.${apex}; SameSite=Lax`
+      }
     } catch { /* cookies blocked */ }
     window.location.reload()
   }

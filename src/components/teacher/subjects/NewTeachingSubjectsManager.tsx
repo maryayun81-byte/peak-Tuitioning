@@ -166,7 +166,12 @@ export function NewTeachingSubjectsManager() {
     }
 
     const visible = eligible.filter((s) => !dismissedRef.current.has(s.subject.id))
-    const eligibleIds = new Set(visible.map((s) => s.subject.id))
+    // QC FIX: prune against the FULL eligible set, not the post-dismissal
+    // `visible` list. The old code built eligibleIds from `visible`, so every
+    // dismissed id failed the filter and dismissals were rewritten to [] on
+    // every load — Dismiss worked for the session but the modal returned on
+    // every refresh. Stale ids (no longer eligible) are still pruned.
+    const eligibleIds = new Set(eligible.map((s) => s.subject.id))
     setSubjects(visible)
     pruneStorage(eligibleIds)
 

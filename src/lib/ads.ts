@@ -27,12 +27,54 @@ function readCookie(): ConsentValue | null {
   }
 }
 
-function writeCookie(v: ConsentValue) {
+// QC FIX (banner reappearing after Accept): consent accepted on one host
+// (e.g. the apex landing page) was invisible on another (e.g. the www
+// portal) because both localStorage and the cookie are host-bound. The
+// cookie is now ALSO written at the apex domain so one Accept covers all
+// subdomains. Heuristic eTLD handling: 2-letter TLDs (co.ke, co.uk…)
+// imply a 3-label apex, otherwise 2 labels. Public-suffix / IP /
+// localhost hosts fall back to host-only (verified by read-back).
+function apexDomain(hostname: string): string | null {
   try {
-    const year = 60 * 60 * 24 * 365
-    document.cookie = `${CONSENT_KEY}=${encodeURIComponent(v)}; Max-Age=${year}; Path=/; SameSite=Lax`
+    if (!hostname) return null
+    const host = hostname.toLowerCase().split(':')[0]
+    if (host === 'localhost' || /^\d+\.\d+\.\d+\.\d+$/.test(host) || !host.includes('.')) return null
+    const parts = host.split('.')
+    const last = parts[parts.length - 1]
+    const apex = last.length === 2 && parts.length >= 3
+      ? parts.slice(-3).join('.')
+      : parts.slice(-2).join('.')
+    if (apex === host) return null
+    return `.${apex}`
   } catch {
-    /* cookies blocked — memory + localStorage (if any) still apply */
+    return null
+  }
+}
+
+function cookieString(v: ConsentValue, domain: string | null): string {
+  const year = 60 * 60 * 24 * 365
+  return `${CONSENT_KEY}=${encodeURIComponent(v)}; Max-Age=${year}; Path=/${domain ? `; Domain=${domain}` : ''}; SameSite=Lax`
+}
+
+function writeCookie(v: ConsentValue): boolean {
+  try {
+    // 1) Try apex-domain cookie so consent spans subdomains.
+    const apex = typeof window !== 'undefined' ? apexDomain(window.location.hostname) : null
+    if (apex) {
+      try {
+        document.cookie = cookieString(v, apex)
+      } catch { /* invalid Domain — fall through to host-only */ }
+      if (readCookie() === v) return true
+    }
+    // 2) Host-only cookie (localhost, IPs, previews, or apex rejected above).
+    try {
+      document.cookie = cookieString(v, null)
+    } catch {
+      return false
+    }
+    return readCookie() === v
+  } catch {
+    return false
   }
 }
 
@@ -52,15 +94,17 @@ export function getConsent(): ConsentValue | null {
   return c ?? memoryConsent
 }
 
-export function setConsent(v: ConsentValue) {
-  if (typeof window === 'undefined') return
+export function setConsent(v: ConsentValue): boolean {
+  if (typeof window === 'undefined') return false
   memoryConsent = v
+  let stored = false
   try {
     window.localStorage.setItem(CONSENT_KEY, v)
+    stored = window.localStorage.getItem(CONSENT_KEY) === v
   } catch {
     /* storage blocked — cookie fallback below still persists */
   }
-  if (typeof document !== 'undefined') writeCookie(v)
+  if (typeof document !== 'undefined') stored = writeCookie(v) || stored
   // Google Consent Mode v2
   ;(window as any).gtag?.('consent', 'update', {
     ad_storage: v === 'granted' ? 'granted' : 'denied',
@@ -72,6 +116,7 @@ export function setConsent(v: ConsentValue) {
     // Fire the queued page view once consent is given
     trackPageView()
   }
+  return stored
 }
 
 declare global {

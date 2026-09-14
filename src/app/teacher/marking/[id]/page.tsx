@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   ArrowLeft, Check, Send, MessageSquare, Star,
-  ChevronLeft, ChevronRight, User, BookOpen, CheckCircle2,
+  ChevronLeft, ChevronRight, ChevronDown, User, BookOpen, CheckCircle2,
   BarChart3, Users, AlertCircle, Clock, Zap, Trophy,
   Maximize2, Minimize2
 } from 'lucide-react'
@@ -55,6 +55,13 @@ export default function WorksheetGraderPage() {
   // workspaceMode is always true — the layout bypasses sidebar/header for this page
   const workspaceMode = true
   const prevAwardedRef = useRef(0)
+  // Latest-value refs for the keyboard-shortcut handler (registered once).
+  const activeBlockRef = useRef<any>(null)
+  const questionBlocksRef = useRef<WorksheetBlock[]>([])
+  const navQuestionRef = useRef<(dir: number) => void>(() => {})
+  // Question column scroller (mobile scroll-to-top on question change).
+  const qColRef = useRef<HTMLDivElement>(null)
+  const firstQuestionMount = useRef(true)
 
   useEffect(() => {
     const onFSChange = () => {
@@ -204,6 +211,8 @@ export default function WorksheetGraderPage() {
     ? (Number(questionMarks['__total__']) || 0)
     : Object.values(questionMarks).reduce((s, v) => s + (v || 0), 0)
   const percentage = totalMarks > 0 ? Math.round((awardedMarks / totalMarks) * 100) : 0
+  const markedCount = questionBlocks.filter(b => questionMarks[b.id] !== undefined).length
+  const nextUnmarkedId = questionBlocks.find(b => questionMarks[b.id] === undefined)?.id ?? null
 
   // Persist an edited paper total for manual-total (workbook) assignments so
   // the student's result screen shows a correct denominator instead of 0.
@@ -275,6 +284,16 @@ export default function WorksheetGraderPage() {
         })
       }
       toast.success(isHighPerf ? '✅ Returned with Mastery Bonus!' : '✅ Submission returned!')
+      // The talk-about moment: a burst of confetti when work goes back.
+      try {
+        const confetti = (await import('canvas-confetti')).default
+        confetti({
+          particleCount: isHighPerf ? 150 : 70,
+          spread: isHighPerf ? 90 : 65,
+          origin: { y: 0.7 },
+          disableForReducedMotion: true,
+        })
+      } catch {}
       router.push('/teacher/marking')
     } else {
       toast.error('Return failed: ' + error.message)
@@ -287,12 +306,59 @@ export default function WorksheetGraderPage() {
 
   const setMark = (blockId: string, value: number) => {
     setQuestionMarks(p => ({ ...p, [blockId]: value }))
+    // Subtle haptic tick on phones — marking feels tactile and fast.
+    try { (navigator as any)?.vibrate?.(8) } catch {}
   }
 
   const navQuestion = (dir: number) => {
     const next = questionBlocks[activeIndex + dir]
     if (next) setActiveBlockId(next.id)
   }
+
+  // Keep shortcut-handler refs on latest values (assignment during render is
+  // intentional here — readers only).
+  activeBlockRef.current = activeBlock ?? null
+  questionBlocksRef.current = questionBlocks
+  navQuestionRef.current = navQuestion
+
+  // Phones: when the question changes (tap mark → auto-advance, arrows,
+  // bubbles), bring the new question to the top — no manual scroll hunt.
+  useEffect(() => {
+    if (firstQuestionMount.current) { firstQuestionMount.current = false; return }
+    if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+      qColRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+  }, [activeBlockId])
+
+  // Desktop power flow: 0–9 awards (clamped to the question max),
+  // ← → moves. Never hijacks typing in inputs, textareas or the
+  // annotation text editor.
+  useEffect(() => {
+    if (isManualTotal) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+      const block = activeBlockRef.current
+      if (!block) return
+      if (e.key >= '0' && e.key <= '9') {
+        const v = Number(e.key)
+        if (v <= block.marks) {
+          setMark(block.id, v)
+          const idx = questionBlocksRef.current.findIndex(b => b.id === block.id)
+          if (idx >= 0 && idx < questionBlocksRef.current.length - 1) {
+            setTimeout(() => setActiveBlockId(questionBlocksRef.current[idx + 1].id), 350)
+          }
+        }
+      } else if (e.key === 'ArrowRight') {
+        navQuestionRef.current(1)
+      } else if (e.key === 'ArrowLeft') {
+        navQuestionRef.current(-1)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [isManualTotal])
 
   const getScoreColor = (pct: number) => {
     if (pct === 100) return '#10B981'
@@ -384,6 +450,9 @@ export default function WorksheetGraderPage() {
         </div>
 
         {/* Actions */}
+        <span className="hidden md:block text-[11px] font-black tabular-nums shrink-0" style={{ color: 'var(--text-muted)' }}>
+          {questionBlocks.length > 0 ? `${markedCount}/${questionBlocks.length} marked` : ''}
+        </span>
         <Button size="sm" variant="secondary" onClick={saveProgress} isLoading={saving} className="shrink-0 px-3">
           <Check size={14} />
           <span className="hidden sm:inline ml-1">Save</span>
@@ -401,10 +470,10 @@ export default function WorksheetGraderPage() {
             }
           }}
           className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 hover:opacity-70 transition-opacity"
-          style={{ background: workspaceMode ? 'var(--primary)' : 'var(--input)', color: workspaceMode ? 'white' : 'var(--text-muted)' }}
+          style={{ background: 'var(--input)', color: 'var(--text-muted)' }}
           title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
         >
-          {workspaceMode ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+          {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
         </button>
       </div>
 
@@ -532,12 +601,7 @@ export default function WorksheetGraderPage() {
                           <ChevronLeft size={14} /> Prev
                         </button>
                         <div className="flex items-center gap-2">
-                          {displayImages.map((_, i) => (
-                            <button key={i} onClick={() => setCurrentPageIndex(i)}
-                              className="w-2 h-2 rounded-full transition-all"
-                              style={{ background: i === safeIdx ? 'var(--primary)' : 'var(--card-border)', transform: i === safeIdx ? 'scale(1.4)' : 'scale(1)' }} />
-                          ))}
-                          <span className="ml-1 text-[11px] font-black tabular-nums" style={{ color: 'var(--text-muted)' }}>
+                          <span className="text-[11px] font-black tabular-nums" style={{ color: 'var(--text-muted)' }}>
                             {safeIdx + 1} / {totalPages}
                           </span>
                         </div>
@@ -548,6 +612,43 @@ export default function WorksheetGraderPage() {
                           style={{ background: 'var(--input)', color: 'var(--text)' }}>
                           Next <ChevronRight size={14} />
                         </button>
+                      </div>
+                    )}
+
+                    {/* Per-photo thumbnails — tap to jump (replaces fiddly dots
+                        for multi-page workbooks; same cached URLs, lazy) */}
+                    {totalPages > 1 && (
+                      <div
+                        className="shrink-0 flex gap-2 px-3 py-2 overflow-x-auto border-b"
+                        style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}
+                      >
+                        {displayImages.map((src, i) => (
+                          <button
+                            key={`${i}-${src.slice(-24)}`}
+                            onClick={() => setCurrentPageIndex(i)}
+                            aria-label={`Go to page ${i + 1}`}
+                            className="relative shrink-0 w-12 h-[68px] rounded-lg overflow-hidden border-2 transition-all"
+                            style={{
+                              borderColor: i === safeIdx ? 'var(--primary)' : 'var(--card-border)',
+                              transform: i === safeIdx ? 'scale(1.06)' : 'scale(1)',
+                              opacity: i === safeIdx ? 1 : 0.75,
+                            }}
+                          >
+                            <img
+                              src={src}
+                              alt={`Page ${i + 1}`}
+                              loading="lazy"
+                              className="w-full h-full object-cover pointer-events-none"
+                              draggable={false}
+                            />
+                            <span
+                              className="absolute bottom-0.5 left-0.5 min-w-[18px] h-[18px] px-1 rounded-md flex items-center justify-center text-[9px] font-black"
+                              style={{ background: i === safeIdx ? 'var(--primary)' : 'rgba(0,0,0,0.55)', color: 'white' }}
+                            >
+                              {i + 1}
+                            </span>
+                          </button>
+                        ))}
                       </div>
                     )}
 
@@ -576,12 +677,14 @@ export default function WorksheetGraderPage() {
                 </p>
               </div>
             )}
-            {/* Extra padding so floating panel doesn't overlap */}
-            <div className="h-64 lg:hidden" />
+            {/* QC (mobile): a leftover h-64 spacer from an old floating-panel
+                era used to eat 256px of the viewport and crush the photo to a
+                slit. Removed — the panel below is now height-capped instead. */}
           </div>
 
-          {/* SCORING PANEL — Always visible at bottom on mobile, right sidebar on desktop */}
-          <div className="shrink-0 lg:w-80 xl:w-96 border-t lg:border-t-0 lg:border-l overflow-y-auto"
+          {/* SCORING PANEL — bottom sheet on mobile (capped so the photo keeps
+              most of the screen), right sidebar on desktop */}
+          <div className="shrink-0 lg:w-80 xl:w-96 border-t lg:border-t-0 lg:border-l overflow-y-auto max-h-[38dvh] lg:max-h-none"
             style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}>
             <DocScoringPanel
               questionBlocks={questionBlocks}
@@ -603,8 +706,9 @@ export default function WorksheetGraderPage() {
         /* WORKSHEET MARKING — Question viewer + always-visible bottom marking bar */
         <div className="flex-1 flex flex-col overflow-hidden">
 
-          {/* Question number bubbles nav */}
-          <div className="shrink-0 border-b" style={{ display: workspaceMode ? 'none' : undefined, background: 'var(--card)', borderColor: 'var(--card-border)' }}>
+          {/* Question number bubbles nav — hidden on phones where the
+              sticky bottom bar + strip prev/next take over */}
+          <div className="shrink-0 border-b hidden sm:block" style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}>
             <div className="flex items-center gap-2 px-3 py-2 overflow-x-auto no-scrollbar">
               <button onClick={() => navQuestion(-1)} disabled={activeIndex <= 0}
                 className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition-opacity disabled:opacity-30 font-black text-lg"
@@ -692,7 +796,7 @@ export default function WorksheetGraderPage() {
             </div>
 
             {/* Progress bar across full width */}
-          <div className="h-1" style={{ display: workspaceMode ? 'none' : undefined, background: 'var(--card-border)' }}>
+          <div className="h-1" style={{ background: 'var(--card-border)' }}>
             <motion.div
               className="h-full rounded-full"
               style={{ background: getScoreColor(percentage) }}
@@ -706,7 +810,7 @@ export default function WorksheetGraderPage() {
           <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
 
             {/* Left: Question content */}
-            <div className="flex-1 overflow-y-auto" style={{ paddingBottom: '0' }}>
+            <div ref={qColRef} className="flex-1 overflow-y-auto" style={{ paddingBottom: '0' }}>
               <div className={`p-4 space-y-4 ${isFullscreen ? '' : 'max-w-2xl mx-auto'}`}>
                 {activeBlock ? (
                   <>
@@ -766,8 +870,8 @@ export default function WorksheetGraderPage() {
                       </div>
                     </div>
 
-                    {/* spacer so content doesn't hide under marking strip on mobile */}
-                    <div className="lg:hidden h-4" />
+                    {/* spacer so content doesn't hide under the sticky bar on mobile */}
+                    <div className="lg:hidden h-2" />
                   </>
                 ) : (
                   <div className="py-20 text-center" style={{ color: 'var(--text-muted)' }}>
@@ -775,6 +879,108 @@ export default function WorksheetGraderPage() {
                   </div>
                 )}
               </div>
+
+              {/* ── STICKY ONE-THUMB MARK BAR (phones only) ──
+                  Read the question above, tap a mark here — no scrolling to
+                  the strip and back. Thumb-reachable, 44px targets. */}
+              {activeBlock && (
+                <div
+                  className="lg:hidden sticky bottom-0 z-20 border-t px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+                  style={{
+                    background: 'var(--card)',
+                    borderColor: 'var(--card-border)',
+                    backdropFilter: 'blur(14px)',
+                    WebkitBackdropFilter: 'blur(14px)',
+                  }}
+                >
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => navQuestion(-1)}
+                      disabled={activeIndex <= 0}
+                      aria-label="Previous question"
+                      className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 transition-opacity disabled:opacity-30"
+                      style={{ background: 'var(--input)', color: 'var(--text)' }}
+                    >
+                      <ChevronLeft size={18} />
+                    </button>
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-baseline justify-between px-0.5 mb-1">
+                        <span className="text-[11px] font-black" style={{ color: 'var(--text)' }}>
+                          Q{activeIndex + 1}/{questionBlocks.length}
+                        </span>
+                        <span className="text-[11px] font-black tabular-nums" style={{ color: getScoreColor(activeBlock.marks > 0 ? ((questionMarks[activeBlock.id] ?? 0) / activeBlock.marks) * 100 : 0) }}>
+                          {questionMarks[activeBlock.id] ?? '–'}/{activeBlock.marks}
+                        </span>
+                      </div>
+                      {activeBlock.marks <= 10 ? (
+                        <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+                          {Array.from({ length: activeBlock.marks + 1 }, (_, v) => {
+                            const cur = questionMarks[activeBlock.id]
+                            const sel = cur === v
+                            return (
+                              <button
+                                key={v}
+                                onClick={() => {
+                                  setMark(activeBlock.id, v)
+                                  if (activeIndex < questionBlocks.length - 1) {
+                                    setTimeout(() => navQuestion(1), 350)
+                                  }
+                                }}
+                                className="min-w-[44px] h-11 rounded-xl font-black text-base shrink-0 transition-all border-2"
+                                style={{
+                                  background: sel
+                                    ? (v === activeBlock.marks ? '#10B981' : v === 0 ? '#EF4444' : 'var(--primary)')
+                                    : 'var(--input)',
+                                  color: sel ? 'white' : 'var(--text)',
+                                  borderColor: sel ? 'transparent' : 'var(--card-border)',
+                                }}
+                              >
+                                {v}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => setMark(activeBlock.id, Math.max(0, (questionMarks[activeBlock.id] ?? 0) - 1))}
+                            aria-label="One mark less"
+                            className="w-11 h-11 rounded-xl font-black text-lg shrink-0"
+                            style={{ background: 'var(--input)', color: 'var(--text)' }}
+                          >
+                            −
+                          </button>
+                          <div className="flex-1 h-11 rounded-xl flex items-center justify-center font-black text-lg tabular-nums"
+                            style={{ background: 'var(--input)', color: 'var(--text)' }}>
+                            {questionMarks[activeBlock.id] ?? '–'}
+                          </div>
+                          <button
+                            onClick={() => {
+                              setMark(activeBlock.id, Math.min(activeBlock.marks, (questionMarks[activeBlock.id] ?? 0) + 1))
+                            }}
+                            aria-label="One mark more"
+                            className="w-11 h-11 rounded-xl font-black text-lg shrink-0"
+                            style={{ background: 'var(--primary)', color: 'white' }}
+                          >
+                            +
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    <button
+                      onClick={() => navQuestion(1)}
+                      disabled={activeIndex >= questionBlocks.length - 1}
+                      aria-label="Next question"
+                      className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 transition-opacity disabled:opacity-30"
+                      style={{ background: 'var(--primary)', color: 'white' }}
+                    >
+                      <ChevronRight size={18} />
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* ── ALWAYS-VISIBLE MARKING STRIP (Mobile bottom / Desktop right) ── */}
@@ -946,6 +1152,27 @@ export default function WorksheetGraderPage() {
                     </button>
                   </div>
 
+                  {/* Skip straight to the next unmarked question */}
+                  {nextUnmarkedId && nextUnmarkedId !== activeBlock.id && (
+                    <button
+                      onClick={() => setActiveBlockId(nextUnmarkedId)}
+                      className="w-full py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all hover:opacity-80 flex items-center justify-center gap-1.5"
+                      style={{ background: 'var(--primary-dim)', color: 'var(--primary)' }}>
+                      <Zap size={13} /> Next unmarked ({markedCount}/{questionBlocks.length} done)
+                    </button>
+                  )}
+                  {questionBlocks.length > 0 && !nextUnmarkedId && (
+                    <div className="p-3 rounded-2xl text-center text-xs font-black"
+                      style={{ background: 'rgba(16,185,129,0.08)', color: '#10B981' }}>
+                      All questions marked — add feedback & return 🎉
+                    </div>
+                  )}
+
+                  {/* Desktop shortcut hints */}
+                  <p className="hidden lg:block text-center text-[10px] font-semibold" style={{ color: 'var(--text-muted)' }}>
+                    Tip: press <Kbd>0</Kbd>–<Kbd>{Math.min(9, activeBlock.marks)}</Kbd> to award · <Kbd>←</Kbd><Kbd>→</Kbd> to move
+                  </p>
+
                   {/* Overall Feedback — always visible in strip */}
                   <div className="border-t pt-3" style={{ borderColor: 'var(--card-border)' }}>
                     <div className="text-[10px] font-black uppercase tracking-widest mb-1.5 flex items-center gap-1" style={{ color: 'var(--text-muted)' }}>
@@ -1061,6 +1288,20 @@ export default function WorksheetGraderPage() {
 }
 
 /* ─────────────────────────────────────────────────────────
+   Keyboard-hint chip (desktop marking shortcuts)
+───────────────────────────────────────────────────────── */
+function Kbd({ children }: { children: React.ReactNode }) {
+  return (
+    <kbd
+      className="inline-block px-1.5 py-0.5 rounded-md text-[9px] font-black border"
+      style={{ background: 'var(--input)', borderColor: 'var(--card-border)', color: 'var(--text)' }}
+    >
+      {children}
+    </kbd>
+  )
+}
+
+/* ─────────────────────────────────────────────────────────
    Document/Workbook Scoring Panel (shared sub-component)
 ───────────────────────────────────────────────────────── */
 function DocScoringPanel({
@@ -1084,16 +1325,33 @@ function DocScoringPanel({
   // is set, otherwise at a generous 1000; the paper total itself is editable
   // so the teacher can repair legacy assignments inline.
   const awardedCap = totalMarks > 0 ? totalMarks : 1000
+  // UX (mobile): the score sheet starts collapsed on phones so the photo
+  // owns the screen; the score header stays visible as the expand handle.
+  // Desktop always shows the full panel.
+  const [sheetOpen, setSheetOpen] = useState<boolean>(
+    () => typeof window === 'undefined' || window.innerWidth >= 1024
+  )
   return (
     <div className="p-4 space-y-5">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      {/* Header — doubles as the expand handle on mobile */}
+      <button
+        onClick={() => setSheetOpen(v => !v)}
+        className="w-full flex items-center justify-between text-left"
+        aria-expanded={sheetOpen}
+        aria-label={sheetOpen ? 'Collapse scoring panel' : 'Expand scoring panel'}
+      >
         <div className="text-[11px] font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Award Marks</div>
-        <div className="font-black text-base" style={{ color: getScoreColor(percentage) }}>
-          {awardedMarks} / {totalMarks > 0 ? totalMarks : '—'} <span className="text-xs">({percentage}%)</span>
+        <div className="flex items-center gap-2">
+          <div className="font-black text-base" style={{ color: getScoreColor(percentage) }}>
+            {awardedMarks} / {totalMarks > 0 ? totalMarks : '—'} <span className="text-xs">({percentage}%)</span>
+          </div>
+          <span className="lg:hidden w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'var(--input)', color: 'var(--text-muted)' }}>
+            <ChevronDown size={16} style={{ transform: sheetOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+          </span>
         </div>
-      </div>
-
+      </button>
+      <div className={sheetOpen ? '' : 'hidden lg:block'}>
+      
       {questionBlocks.length > 0 ? (
         <div className="space-y-3">
           {questionBlocks.map((b, i) => {
@@ -1198,6 +1456,7 @@ function DocScoringPanel({
           onChange={e => setFeedback(e.target.value)}
           placeholder="Write encouraging feedback…"
         />
+      </div>
       </div>
     </div>
   )
