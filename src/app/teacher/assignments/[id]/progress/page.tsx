@@ -92,7 +92,7 @@ export default function AssignmentProgressPage() {
       // Keep a student when: audience is explicit, OR they take this subject,
       // OR they have no subject mappings at all (legacy/unmapped — show,
       // don't hide), OR they submitted (orphan safety net).
-      let roster = (students ?? []).filter((st: any) => {
+      let roster: any[] = (students ?? []).filter((st: any) => {
         if (assignmentData.audience === 'selected_students') return true
         const subjectIds = (st.student_subjects ?? []).map((ss: any) => ss.subject_id)
         if (subjectIds.includes(assignmentData.subject_id)) return true

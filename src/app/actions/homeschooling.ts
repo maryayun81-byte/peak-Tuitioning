@@ -960,8 +960,24 @@ export async function updateLearningSession(
   }>
 ) {
   try {
-    const { user } = await requireAdmin()
+    // QC FIX: this used to requireAdmin(), so every teacher using the Mission
+    // Builder's first step ("Topic, goal… saved onto the session when you
+    // continue") got "Forbidden: Admin access required" — silently swallowed
+    // client-side. The teacher believed the mission was saved while the
+    // student saw an empty session. Teachers with session access
+    // (owner or assigned — same gate as all other content actions) may now
+    // update mission content fields.
+    const { user } = await getAuthUser()
+    const role = getUserRole(user)
     const admin = await createAdminClient()
+
+    if (role === 'teacher') {
+      await verifySessionAccess(sessionId, user.id, role)
+    } else if (role === 'admin') {
+      // admins pass through
+    } else {
+      throw new Error('Access denied.')
+    }
 
     const { data: before } = await admin
       .from('learning_sessions')
@@ -1102,6 +1118,22 @@ export async function createLearningObjective(
     await verifySessionAccess(sessionId, user.id, role)
 
     const admin = await createAdminClient()
+
+    // QC FIX (double-entry): the same "add objective" action is reachable from
+    // two forms on the teacher session page (guided Mission Builder step 2
+    // AND the Session Content Builder list), and double-clicks/retries also
+    // land here. A same-session, same-title objective is idempotent — return
+    // the existing row instead of creating a visible duplicate.
+    const normalized = title.trim().toLowerCase()
+    const { data: dupes } = await admin
+      .from('learning_objectives')
+      .select('id, title, description, order_index, is_completed, completed_at')
+      .eq('session_id', sessionId)
+    const dupe = (dupes || []).find((o: any) => (o.title || '').trim().toLowerCase() === normalized)
+    if (dupe) {
+      return { success: true, data: dupe, deduped: true } as any
+    }
+
     const { data: existing } = await admin
       .from('learning_objectives')
       .select('order_index')

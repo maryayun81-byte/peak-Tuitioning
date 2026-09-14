@@ -1,11 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronLeft, ChevronRight, Rocket } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input, Select, Textarea } from '@/components/ui/Input'
-import { createLearningObjective } from '@/app/actions/homeschooling'
+import { createLearningObjective, getLearningObjectives } from '@/app/actions/homeschooling'
 import { createActivity, createQuestion, publishMission, getSessionPreparation } from '@/app/actions/homeschool-learning'
 import toast from 'react-hot-toast'
 
@@ -24,9 +24,11 @@ const ACTIVITY_TYPES = [
 export default function TeacherMissionBuilder({
   sessionId,
   onPublished,
+  onObjectivesChanged,
 }: {
   sessionId: string
   onPublished?: () => void
+  onObjectivesChanged?: () => void
 }) {
   const [step, setStep] = useState(0)
   const [saving, setSaving] = useState(false)
@@ -62,6 +64,22 @@ export default function TeacherMissionBuilder({
     if (res.success) setPrep(res.data)
   }
 
+  // QC FIX (double-entry): this builder used to keep objectives in LOCAL state
+  // only, while the Session Content Builder below it lists the SAME table from
+  // the DB. Teachers added an objective here, didn't see it "below", and added
+  // it again. Seed from the DB so both views show the same truth.
+  useEffect(() => {
+    let cancelled = false
+    getLearningObjectives(sessionId).then((res) => {
+      if (!cancelled && res.success && Array.isArray(res.data)) {
+        setObjectives(
+          (res.data as any[]).map((o: any) => ({ id: o.id, title: o.title, description: o.description || '' }))
+        )
+      }
+    })
+    return () => { cancelled = true }
+  }, [sessionId])
+
   const addObjective = async () => {
     if (!objTitle.trim()) {
       toast.error('Give the objective a title')
@@ -74,10 +92,25 @@ export default function TeacherMissionBuilder({
       toast.error(res.error || 'Failed to add objective')
       return
     }
+    if ((res as any).deduped) {
+      // Same title already on this session (added via the other form or a
+      // double-click) — surface it instead of silently duplicating.
+      setObjectives((o) =>
+        o.some((x) => x.id === (res.data as any).id)
+          ? o
+          : [...o, { id: (res.data as any).id, title: (res.data as any).title, description: (res.data as any).description || '' }]
+      )
+      setObjTitle('')
+      setObjDesc('')
+      toast.success('That objective is already on this session — kept the original')
+      onObjectivesChanged?.()
+      return
+    }
     setObjectives((o) => [...o, { id: (res.data as any).id, title: objTitle.trim(), description: objDesc.trim() }])
     setObjTitle('')
     setObjDesc('')
     toast.success('Objective added')
+    onObjectivesChanged?.()
   }
 
   const addActivity = async () => {
@@ -298,12 +331,23 @@ export default function TeacherMissionBuilder({
             disabled={!canNext}
             onClick={async () => {
               if (step === 0 && (topic || goal)) {
-                const { updateLearningSession } = await import('@/app/actions/homeschooling')
-                await updateLearningSession(sessionId, {
-                  topic: topic || undefined,
-                  learning_goal: goal || undefined,
-                  instructions: why ? `Why it matters: ${why}` : undefined,
-                } as any)
+                // QC: this save used to fail silently (teachers got access-denied
+                // here while believing the mission saved). Surface the result.
+                try {
+                  const { updateLearningSession } = await import('@/app/actions/homeschooling')
+                  const saved = await updateLearningSession(sessionId, {
+                    topic: topic || undefined,
+                    learning_goal: goal || undefined,
+                    instructions: why ? `Why it matters: ${why}` : undefined,
+                  } as any)
+                  if (!(saved as any).success) {
+                    toast.error((saved as any).error || 'Could not save mission details')
+                    return
+                  }
+                } catch (err: any) {
+                  toast.error(err.message || 'Could not save mission details')
+                  return
+                }
               }
               if (step === STEPS.length - 2) await refreshPrep()
               setStep((s) => s + 1)

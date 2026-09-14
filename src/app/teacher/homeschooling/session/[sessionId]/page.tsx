@@ -46,6 +46,10 @@ export default function TeacherSessionPage({ params }: { params: Promise<{ sessi
   const [showBuilder, setShowBuilder] = useState(false)
   const [publishing, setPublishing] = useState(false)
   const [markingFor, setMarkingFor] = useState<string | null>(null)
+  // QC: the Mission Builder and the Content Builder below write to the SAME
+  // objectives table. Bumping contentKey remounts the content list whenever
+  // the builder changes objectives, so both views always agree.
+  const [contentKey, setContentKey] = useState(0)
 
   const handleRequestCorrections = async (submissionId: string) => {
     setReviewBusy(submissionId)
@@ -257,10 +261,17 @@ export default function TeacherSessionPage({ params }: { params: Promise<{ sessi
         </div>
         {showBuilder && (
           <div className="mb-4">
-            <TeacherMissionBuilder sessionId={sessionId} onPublished={load} />
+            <TeacherMissionBuilder
+              sessionId={sessionId}
+              onPublished={load}
+              onObjectivesChanged={() => {
+                setContentKey((k) => k + 1)
+                load()
+              }}
+            />
           </div>
         )}
-        <SessionContentBuilder sessionId={sessionId} onChanged={load} />
+        <SessionContentBuilder key={contentKey} sessionId={sessionId} onChanged={load} />
       </Card>
 
       {signals.length > 0 && (

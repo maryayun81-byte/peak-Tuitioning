@@ -88,7 +88,7 @@ export default function SessionContentBuilder({ sessionId, onChanged }: Props) {
     try {
       const res = await createLearningObjective(sessionId, objTitle.trim(), objDesc.trim() || undefined)
       if (!res.success) throw new Error(res.error)
-      toast.success('Objective added')
+      toast.success((res as any).deduped ? 'That objective is already on this session — kept the original' : 'Objective added')
       setObjTitle('')
       setObjDesc('')
       refresh()

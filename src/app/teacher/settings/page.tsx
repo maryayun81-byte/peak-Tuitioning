@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { 
-  User, Bell, Shield, Palette, 
-  Mail, Phone, Save, Camera, 
-  MapPin, BookOpen, School, BookMarked, AlertCircle
+import {
+  User, Bell, Shield, Palette,
+  Mail, Phone, Save, Camera,
+  MapPin, BookOpen, School, BookMarked, AlertCircle,
+  Lock, Eye, EyeOff, KeyRound
 } from 'lucide-react'
 import { Card, Badge } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -26,6 +27,13 @@ export default function TeacherSettings() {
   
   const [saving, setSaving] = useState(false)
   const [activeTab, setActiveTab] = useState('profile')
+  const [phone, setPhone] = useState<string | null>(null)
+
+  // Security tab state
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [showPw, setShowPw] = useState(false)
+  const [pwSaving, setPwSaving] = useState(false)
 
   const { 
     data: teacherData, 
@@ -109,16 +117,58 @@ export default function TeacherSettings() {
   })
 
   const handleSave = async () => {
+    if (!teacher?.id) {
+      toast.error('Teacher profile not loaded yet')
+      return
+    }
     setSaving(true)
-    // In a real app we'd save to DB here. For now, we simulate.
-    setTimeout(() => {
-       setSaving(false)
-       toast.success('Settings updated successfully!')
-    }, 1000)
+    try {
+      // QC: this used to be a fake setTimeout "success". Persist for real —
+      // phone is the only editable identity-adjacent field here.
+      const { error } = await supabase
+        .from('teachers')
+        .update({ phone: phone ?? teacherData?.phone ?? null })
+        .eq('id', teacher.id)
+      if (error) throw error
+      toast.success('Profile updated successfully!')
+      refetch()
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save profile')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Seed the controlled phone field once the record loads.
+  useEffect(() => {
+    if (phone === null && teacherData?.phone) setPhone(teacherData.phone)
+  }, [teacherData?.phone, phone])
+
+  const handlePasswordUpdate = async () => {    if (newPassword.length < 8) {
+      toast.error('New password must be at least 8 characters')
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error("Passwords don't match")
+      return
+    }
+    setPwSaving(true)
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword })
+      if (error) throw error
+      setNewPassword('')
+      setConfirmPassword('')
+      toast.success('Password updated successfully!')
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update password')
+    } finally {
+      setPwSaving(false)
+    }
   }
 
   const TABS = [
     { id: 'profile', label: 'My Profile', icon: <User size={16} /> },
+    { id: 'security', label: 'Security', icon: <Shield size={16} /> },
     { id: 'preferences', label: 'Preferences', icon: <BookMarked size={16} /> },
     { id: 'notifications', label: 'Notifications', icon: <Bell size={16} /> },
     { id: 'theme', label: 'Appearance', icon: <Palette size={16} /> },
@@ -178,12 +228,12 @@ export default function TeacherSettings() {
                           </div>
                        </div>
 
-                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <Input label="Full Name" value={profile?.full_name} disabled placeholder="Full Name" className="rounded-xl" />
-                          <Input label="Email Address" value={profile?.email} disabled placeholder="Email" className="rounded-xl" />
-                          <Input label="Phone Number" defaultValue={teacherData?.phone} placeholder="+254 7XX XXX XXX" className="rounded-xl" />
-                          <Input label="Staff ID" value={teacher?.id.slice(0, 8).toUpperCase()} disabled placeholder="Staff ID" className="rounded-xl" />
-                       </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                           <Input label="Full Name" value={profile?.full_name} disabled placeholder="Full Name" className="rounded-xl" />
+                           <Input label="Email Address" value={profile?.email} disabled placeholder="Email" className="rounded-xl" />
+                           <Input label="Phone Number" value={phone ?? teacherData?.phone ?? ''} onChange={e => setPhone(e.target.value)} placeholder="+254 7XX XXX XXX" className="rounded-xl" />
+                           <Input label="Staff ID" value={teacher?.id.slice(0, 8).toUpperCase()} disabled placeholder="Staff ID" className="rounded-xl" />
+                        </div>
                        <Textarea label="Professional Philosophy" placeholder="Your approach to education..." className="rounded-2xl" />
                        
                        <div className="pt-4 flex justify-end">
@@ -245,6 +295,80 @@ export default function TeacherSettings() {
                              <option>Disabled</option>
                           </Select>
                        </section>
+                    </motion.div>
+                  )}
+
+                  {activeTab === 'security' && (
+                    <motion.div key="security" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} className="space-y-6">
+                        <div>
+                           <h3 className="font-black text-lg flex items-center gap-2" style={{ color: 'var(--text)' }}>
+                              <KeyRound size={18} /> Update Password
+                           </h3>
+                           <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
+                              Signed in as <span className="font-bold" style={{ color: 'var(--text)' }}>{profile?.email}</span>. Choose a new password below — it takes effect immediately.
+                           </p>
+                        </div>
+
+                        <Input
+                          label="New Password"
+                          type={showPw ? 'text' : 'password'}
+                          placeholder="Minimum 8 characters"
+                          leftIcon={<Lock size={16} />}
+                          rightIcon={
+                            <button type="button" onClick={() => setShowPw(v => !v)} aria-label={showPw ? 'Hide password' : 'Show password'}>
+                              {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
+                            </button>
+                          }
+                          value={newPassword}
+                          onChange={e => setNewPassword(e.target.value)}
+                          className="rounded-xl"
+                        />
+                        <Input
+                          label="Confirm New Password"
+                          type={showPw ? 'text' : 'password'}
+                          placeholder="Repeat the new password"
+                          leftIcon={<Lock size={16} />}
+                          value={confirmPassword}
+                          onChange={e => setConfirmPassword(e.target.value)}
+                          className="rounded-xl"
+                        />
+
+                        <div className="pt-2 flex justify-end">
+                           <Button onClick={handlePasswordUpdate} isLoading={pwSaving} className="rounded-xl px-8 py-6 font-black">
+                              <Shield size={16} className="mr-2" /> Update Password
+                           </Button>
+                        </div>
+
+                        <div className="p-5 rounded-[1.5rem] bg-amber-500/5 border border-amber-500/10 flex gap-4">
+                           <AlertCircle className="text-amber-500 shrink-0" size={20} />
+                           <p className="text-[11px] text-amber-700/80 font-medium leading-relaxed">
+                              Forgot your current password and can't sign in? Use the "Forgot Password" link on the login page to reset it by email instead.
+                           </p>
+                        </div>
+                    </motion.div>
+                  )}
+
+                  {activeTab === 'notifications' && (
+                    <motion.div key="notifications" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} className="space-y-6">
+                        <div>
+                           <h3 className="font-black text-lg flex items-center gap-2" style={{ color: 'var(--text)' }}>
+                              <Bell size={18} /> Notifications
+                           </h3>
+                           <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
+                              Submission alerts, marking reminders and announcements live in your inbox.
+                           </p>
+                        </div>
+                        <a href="/teacher/notifications" className="block p-5 rounded-[1.5rem] border transition-all hover:shadow-lg" style={{ background: 'var(--input)', borderColor: 'var(--card-border)' }}>
+                           <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white shrink-0" style={{ background: 'var(--primary)' }}>
+                                 <Bell size={18} />
+                              </div>
+                              <div>
+                                 <p className="text-sm font-black" style={{ color: 'var(--text)' }}>Open Notification Inbox</p>
+                                 <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>Read, mark and manage all your alerts →</p>
+                              </div>
+                           </div>
+                        </a>
                     </motion.div>
                   )}
 

@@ -169,7 +169,7 @@ export async function publishMission(sessionId: string) {
 
     const { data: session } = await admin
       .from('learning_sessions')
-      .select('id, enrollment_id, mission_version')
+      .select('id, enrollment_id, mission_version, topic, learning_goal, instructions')
       .eq('id', sessionId)
       .maybeSingle()
     if (!session) throw new Error('Session not found.')
@@ -183,9 +183,47 @@ export async function publishMission(sessionId: string) {
 
     const nextVersion = (session.mission_version || 1)
 
-    if (mission) {
+    // QC FIX: publish used to only snapshot an EXISTING mission row and never
+    // created one — so a teacher could add topic, goal, objectives and press
+    // "Publish" (success toast included), yet no learning_missions row ever
+    // existed and the student's Begin button always failed with
+    // "Mission not found." Create the mission row on first publish.
+    let missionRow = mission as any
+    if (!missionRow) {
+      const { data: created, error: createError } = await admin
+        .from('learning_missions')
+        .insert({
+          session_id: sessionId,
+          title: (session as any).topic || 'Session mission',
+          description: (session as any).learning_goal || (session as any).instructions || null,
+          is_started: false,
+          is_completed: false,
+        })
+        .select()
+        .single()
+      if (createError || !created) {
+        // Rare double-publish race (UNIQUE on session_id): fall back to the
+        // row the concurrent publish created instead of failing.
+        if ((createError as any)?.code === '23505') {
+          const { data: raced } = await admin
+            .from('learning_missions')
+            .select('*')
+            .eq('session_id', sessionId)
+            .maybeSingle()
+          if (raced) {
+            missionRow = raced
+          } else {
+            throw new Error(createError?.message || 'Failed to create mission.')
+          }
+        } else {
+          throw new Error(createError?.message || 'Failed to create mission.')
+        }
+      } else {
+        missionRow = created
+      }
+    } else {
       await admin.from('learning_mission_versions').insert({
-        mission_id: mission.id,
+        mission_id: missionRow.id,
         session_id: sessionId,
         version_number: nextVersion,
         snapshot: mission,
