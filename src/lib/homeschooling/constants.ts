@@ -51,6 +51,7 @@ export const LEARNING_MODE = {
   TEACHER_LED: 'TEACHER_LED',
   SELF_STUDY: 'SELF_STUDY',
   AI_SUPPORTED: 'AI_SUPPORTED',
+  HYBRID: 'HYBRID',
 } as const
 
 export type LearningMode = typeof LEARNING_MODE[keyof typeof LEARNING_MODE]
@@ -275,6 +276,7 @@ export function getSessionModeLabel(mode: string): string {
     TEACHER_LED: 'Teacher-Led',
     SELF_STUDY: 'Self-Study',
     AI_SUPPORTED: 'AI-Supported',
+    HYBRID: 'Hybrid',
   }
   return labels[mode] ?? mode
 }
@@ -287,6 +289,7 @@ export function getSessionModeIcon(mode: string): string {
     TEACHER_LED: 'Users',
     SELF_STUDY: 'BookOpen',
     AI_SUPPORTED: 'Sparkles',
+    HYBRID: 'Layers',
   }
   return icons[mode] ?? 'HelpCircle'
 }

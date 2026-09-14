@@ -9,6 +9,8 @@ import { NavigationProgress } from '@/components/ui/NavigationProgress'
 import { NetworkBanner } from '@/components/ui/NetworkBanner'
 import { NavigationRefetchManager } from '@/components/NavigationRefetchManager'
 import { FloatingSupportChat } from '@/components/public/FloatingSupportChat'
+import { AdsTracking } from '@/components/ads/AdsTracking'
+import { CookieConsent } from '@/components/ads/CookieConsent'
 import { ServiceWorkerUnregister } from '@/components/ServiceWorkerUnregister'
 import './globals.css'
 
@@ -55,10 +57,10 @@ export const metadata: Metadata = {
     type: 'website',
     images: [
       {
-        url: '/logo.png',
-        width: 800,
-        height: 600,
-        alt: 'Peak Performance Tutoring Logo',
+        url: 'https://www.peakcampus.co.ke/logo.png',
+        width: 1200,
+        height: 630,
+        alt: 'Peak Performance Tutoring — Peak Campus Kenya',
       },
     ],
   },
@@ -66,7 +68,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'Peak Performance Tutoring Kenya | KCSE & CBC Tuition Centre',
     description: 'Diagnostic-first tutoring that helps students move from potential to performance.',
-    images: ['/logo.png'],
+    images: ['https://www.peakcampus.co.ke/logo.png'],
   },
   robots: {
     index: true,
@@ -147,6 +149,8 @@ export default function RootLayout({
               {children}
             </HydrationGuard>
             <FloatingSupportChat />
+            <CookieConsent />
+            <AdsTracking />
             <Toaster
               position="top-right"
               toastOptions={{

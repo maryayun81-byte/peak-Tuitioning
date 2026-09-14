@@ -24,6 +24,7 @@ const MODE_CONFIG: Record<string, { color: string; bg: string; border: string; I
   TEACHER_LED: { color: '#4F8CFF', bg: 'rgba(79,140,255,0.12)', border: 'rgba(79,140,255,0.3)', Icon: Users },
   SELF_STUDY: { color: '#10B981', bg: 'rgba(16,185,129,0.12)', border: 'rgba(16,185,129,0.3)', Icon: BookOpen },
   AI_SUPPORTED: { color: '#A855F7', bg: 'rgba(168,85,247,0.12)', border: 'rgba(168,85,247,0.3)', Icon: Sparkles },
+  HYBRID: { color: '#F59E0B', bg: 'rgba(245,158,11,0.12)', border: 'rgba(245,158,11,0.3)', Icon: Users },
 }
 
 const STATUS_DOT: Record<string, string> = {

@@ -15,8 +15,32 @@ import { useTeacherIdentity } from '@/hooks/useTeacherIdentity'
 import { usePageData } from '@/hooks/usePageData'
 import { ShimmerSkeleton } from '@/components/ui/ShimmerSkeleton'
 import { formatDate, getLocalISODate } from '@/lib/utils'
-import { SESSION_STATUS_COLORS } from '@/lib/homeschooling/constants'
+import { SESSION_STATUS_COLORS, formatTimeRange, getSessionModeLabel } from '@/lib/homeschooling/constants'
+import { sessionTimeRelation, isHappeningNow, isEndedUnfinished } from '@/lib/homeschooling/session-time'
 import Link from 'next/link'
+
+// §17 — Preparation at a glance, derived honestly from what exists.
+// EMPTY (nothing prepared) → DRAFT (content exists) → LIVE (mission started).
+function preparationState(s: any): { label: string; color: string } {
+  const objectives = s.objectives || []
+  const resources = s.resources || []
+  const mission = s.mission as any
+  if (mission?.is_started || mission?.is_completed) return { label: 'Live', color: '#10B981' }
+  if (objectives.length > 0 || resources.length > 0) return { label: 'Draft', color: '#F59E0B' }
+  return { label: 'Empty', color: '#9CA3AF' }
+}
+
+function timeLabel(s: any): { text: string; color: string } | null {
+  if (s.student_status === 'COMPLETED' || s.status === 'COMPLETED') return { text: 'Done', color: '#10B981' }
+  if (isHappeningNow(s)) return { text: 'Happening now', color: '#10B981' }
+  if (s.status === 'MISSED' || isEndedUnfinished(s)) return { text: 'Ended', color: '#F59E0B' }
+  if (s.status === 'CORRECTIONS_REQUIRED') return { text: 'Corrections sent', color: '#EF4444' }
+  if (s.status === 'SUBMISSION_PENDING' || s.status === 'UNDER_REVIEW' || s.student_status === 'SUBMITTED') {
+    return { text: 'Under review', color: '#4F8CFF' }
+  }
+  if (sessionTimeRelation(s) === 'upcoming') return { text: 'Upcoming', color: '#6B7280' }
+  return null
+}
 
 export default function TeacherHomeschoolingDashboard() {
   const supabase = getSupabaseBrowserClient()
@@ -59,7 +83,9 @@ export default function TeacherHomeschoolingDashboard() {
                 learning_mode, topic, status, student_status, submission_required,
                 subject:subjects(id, name),
                 enrollment:homeschool_enrollments(id, student_id, student:students(id, full_name)),
-                objectives:learning_objectives(id, is_completed)
+                objectives:learning_objectives(id, is_completed),
+                resources:learning_resources(id),
+                mission:learning_missions(id, is_started, is_completed)
               `)
               .in('enrollment_id', enrollmentIds)
               .eq('day', dayName)
@@ -150,7 +176,14 @@ export default function TeacherHomeschoolingDashboard() {
     )
   }
 
-  const todaySessions = dashboardData?.todaySessions || []
+  const todaySessions = [...(dashboardData?.todaySessions || [])].sort((a: any, b: any) => {
+    // Live first, then upcoming by time, then the rest.
+    const rank = (s: any) =>
+      s.student_status === 'COMPLETED' || s.status === 'COMPLETED' ? 3 :
+      isHappeningNow(s) ? 0 :
+      sessionTimeRelation(s) === 'upcoming' ? 1 : 2
+    return rank(a) - rank(b) || String(a.start_time || '').localeCompare(String(b.start_time || ''))
+  })
   const students = dashboardData?.students || []
   const submissions = dashboardData?.submissions || []
   const subjects = dashboardData?.subjects || []
@@ -206,7 +239,7 @@ export default function TeacherHomeschoolingDashboard() {
           className="border-none shadow-xl shadow-amber-50/5"
         />
         <StatCard
-          title="Submissions Today"
+          title="Recent Submissions"
           value={submissions.length}
           icon={<FileText size={20} />}
           className="border-none shadow-xl shadow-indigo-50/5"
@@ -236,33 +269,57 @@ export default function TeacherHomeschoolingDashboard() {
                   <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>No sessions scheduled for today</p>
                 </div>
               ) : (
-                todaySessions.map((session: any) => (
-                  <Link key={session.id} href={`/teacher/homeschooling/student/${session.enrollment?.student_id}`}>
-                    <div className="p-4 rounded-2xl bg-[var(--input)] border border-[var(--card-border)] hover:border-primary/30 transition-all">
+                todaySessions.map((session: any) => {
+                  const prep = preparationState(session)
+                  const time = timeLabel(session)
+                  const done = (session.objectives || []).filter((o: any) => o.is_completed).length
+                  const total = (session.objectives || []).length
+                  const live = isHappeningNow(session)
+                  return (
+                  <Link key={session.id} href={`/teacher/homeschooling/session/${session.id}`}>
+                    <div
+                      className="p-4 rounded-2xl bg-[var(--input)] border hover:border-primary/40 transition-all"
+                      style={{ borderLeft: live ? '3px solid #10B981' : undefined }}
+                    >
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
-                              {session.start_time} - {session.end_time}
+                          <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
+                            <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: live ? '#10B981' : 'var(--text-muted)' }}>
+                              {formatTimeRange(session.start_time, session.end_time)}
                             </span>
-                            <Badge variant={
-                              session.status === 'IN_PROGRESS' ? 'warning' :
-                              session.status === 'SUBMISSION_PENDING' || session.status === 'UNDER_REVIEW' ? 'info' :
-                              'secondary'
-                            } className="text-[9px] uppercase">
-                              {session.status.replace(/_/g, ' ')}
-                            </Badge>
+                            {time && (
+                              <span
+                                className="px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase"
+                                style={{ background: `${time.color}15`, color: time.color }}
+                              >
+                                {time.text}
+                              </span>
+                            )}
+                            <span
+                              className="px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase"
+                              style={{ background: `${prep.color}15`, color: prep.color }}
+                              title={prep.label === 'Empty' ? 'This session is waiting for its learning mission.' : `Mission ${prep.label.toLowerCase()}`}
+                            >
+                              {prep.label === 'Empty' ? 'Needs prep' : `Mission ${prep.label.toLowerCase()}`}
+                            </span>
                           </div>
                           <p className="text-sm font-black truncate" style={{ color: 'var(--text)' }}>{session.topic || session.subject?.name}</p>
                           <p className="text-[11px] font-bold mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                            {session.enrollment?.student?.full_name} · {session.subject?.name}
+                            {session.enrollment?.student?.full_name || 'Student'} · {session.subject?.name} · {getSessionModeLabel(session.learning_mode)}
+                          </p>
+                          <p className="text-[10px] font-semibold mt-0.5 opacity-60" style={{ color: 'var(--text-muted)' }}>
+                            {total > 0 ? `${done}/${total} objectives done` : 'No objectives yet'}
+                            {(session.resources || []).length > 0 ? ` · ${session.resources.length} resource${session.resources.length !== 1 ? 's' : ''}` : ''}
                           </p>
                         </div>
-                        <ChevronRight size={16} style={{ color: 'var(--text-muted)' }} className="shrink-0 mt-1" />
+                        <span className="flex items-center gap-1 text-[10px] font-black uppercase shrink-0 mt-1" style={{ color: 'var(--primary)' }}>
+                          Open <ChevronRight size={14} style={{ color: 'var(--text-muted)' }} />
+                        </span>
                       </div>
                     </div>
                   </Link>
-                ))
+                  )
+                })
               )}
             </div>
           </Card>

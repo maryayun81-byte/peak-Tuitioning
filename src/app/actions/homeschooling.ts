@@ -21,14 +21,54 @@ async function fetchTeacherAssignments(admin: any, enrollmentIds: string[]) {
   return data || []
 }
 
-async function getAuthUser() {
+// Entitlement writes are best-effort until the learning-engine migration
+// (student_entitlements) is applied: a missing table must never break
+// enrollment management. Other errors still roll back.
+function isMissingTableError(err: any) {
+  const msg = String(err?.message || err || '')
+  return msg.includes('Could not find the table') || msg.includes('PGRST205') || msg.includes('does not exist')
+}
+
+async function upsertHomeschoolEntitlement(admin: any, studentId: string, status: string) {
+  try {
+    if (status === 'ACTIVE') {
+      const { error } = await admin.from('student_entitlements').upsert(
+        {
+          student_id: studentId,
+          feature: 'HOMESCHOOLING',
+          status: 'ACTIVE',
+          source: 'ENROLLMENT',
+          starts_at: new Date().toISOString(),
+          ends_at: null,
+        },
+        { onConflict: 'student_id,feature' }
+      )
+      if (error) throw error
+    } else {
+      const { error } = await admin
+        .from('student_entitlements')
+        .update({ status, ends_at: status === 'ACTIVE' ? null : new Date().toISOString() })
+        .eq('student_id', studentId)
+        .eq('feature', 'HOMESCHOOLING')
+      if (error) throw error
+    }
+  } catch (err: any) {
+    if (isMissingTableError(err)) {
+      console.warn('[homeschooling] student_entitlements unavailable, skipping sync:', err.message)
+      return
+    }
+    throw err
+  }
+}
+
+export async function getAuthUser() {
   const supabase = await createServerClient()
   const { data: { user }, error } = await supabase.auth.getUser()
   if (error || !user) throw new Error('Unauthorized: Please log in.')
   return { user, supabase }
 }
 
-async function getStudentForUser(userId: string) {
+export async function getStudentForUser(userId: string) {
   const admin = await createAdminClient()
   const { data: student, error } = await admin
     .from('students')
@@ -39,7 +79,7 @@ async function getStudentForUser(userId: string) {
   return student
 }
 
-async function verifyStudentOwnership(studentId: string, userId: string) {
+export async function verifyStudentOwnership(studentId: string, userId: string) {
   const admin = await createAdminClient()
   const { data: student, error } = await admin
     .from('students')
@@ -51,11 +91,11 @@ async function verifyStudentOwnership(studentId: string, userId: string) {
   return student
 }
 
-async function verifyEnrollmentAccess(enrollmentId: string, userId: string, role: string) {
+export async function verifyEnrollmentAccess(enrollmentId: string, userId: string, role: string) {
   const admin = await createAdminClient()
   const { data: enrollment, error } = await admin
     .from('homeschool_enrollments')
-    .select('id, student_id, status')
+    .select('id, student_id, status, start_date, end_date')
     .eq('id', enrollmentId)
     .maybeSingle()
   if (error || !enrollment) throw new Error('Enrollment not found.')
@@ -69,15 +109,24 @@ async function verifyEnrollmentAccess(enrollmentId: string, userId: string, role
   }
 
   if (role === 'teacher') {
-    const adminClient = await createAdminClient()
-    const { data: teacher } = await adminClient
+    const { data: teacher } = await admin
       .from('teachers')
       .select('id')
       .eq('user_id', userId)
       .maybeSingle()
     if (!teacher) throw new Error('Teacher profile not found.')
 
-    const { data: assignment } = await adminClient
+    // Teacher may access via direct session ownership OR subject assignment
+    // (§09 subject owner vs availability kept separate; §126 assigned students/subjects/sessions).
+    const { data: session } = await admin
+      .from('learning_sessions')
+      .select('id')
+      .eq('enrollment_id', enrollmentId)
+      .eq('teacher_id', teacher.id)
+      .limit(1)
+      .maybeSingle()
+    if (session) return enrollment
+    const { data: assignment } = await admin
       .from('homeschool_teacher_assignments')
       .select('id')
       .eq('enrollment_id', enrollmentId)
@@ -87,7 +136,56 @@ async function verifyEnrollmentAccess(enrollmentId: string, userId: string, role
     return enrollment
   }
 
+  if (role === 'parent') {
+    const { data: link } = await admin
+      .from('students')
+      .select('id')
+      .eq('id', enrollment.student_id)
+      .eq('parent_id', userId)
+      .maybeSingle()
+    // Fallback: parents table linkage via user_id
+    if (!link) {
+      const { data: parent } = await admin.from('parents').select('id').eq('user_id', userId).maybeSingle()
+      if (parent) {
+        const { data: plink } = await admin
+          .from('students')
+          .select('id')
+          .eq('id', enrollment.student_id)
+          .eq('parent_id', parent.id)
+          .maybeSingle()
+        if (!plink) throw new Error('Access denied: not your child.')
+        return enrollment
+      }
+      throw new Error('Access denied: not your child.')
+    }
+    return enrollment
+  }
+
   throw new Error('Access denied.')
+}
+
+// §05–07: single source of truth — ACTIVE enrollment + ACTIVE entitlement.
+// Never trust a badge/flag; always check DB. Used by mutating student actions.
+export async function requireActiveHomeschoolAccess(studentId: string, feature = 'HOMESCHOOLING') {
+  const admin = await createAdminClient()
+  const { data: enrollment } = await admin
+    .from('homeschool_enrollments')
+    .select('id, status, start_date, end_date')
+    .eq('student_id', studentId)
+    .eq('status', 'ACTIVE')
+    .maybeSingle()
+  if (!enrollment) throw new Error('This homeschooling program is not currently active.')
+  if (enrollment.end_date && new Date(enrollment.end_date) < new Date(new Date().toISOString().split('T')[0])) {
+    throw new Error('This homeschooling enrollment has expired.')
+  }
+  const { data: ent } = await admin
+    .from('student_entitlements')
+    .select('status')
+    .eq('student_id', studentId)
+    .eq('feature', feature)
+    .maybeSingle()
+  if (!ent || ent.status !== 'ACTIVE') throw new Error('This homeschooling program is not currently active.')
+  return enrollment
 }
 
 async function verifySessionAccess(sessionId: string, userId: string, role: string) {
@@ -118,7 +216,33 @@ async function verifySessionAccess(sessionId: string, userId: string, role: stri
       .select('id')
       .eq('user_id', userId)
       .maybeSingle()
-    if (!teacher || session.teacher_id !== teacher.id) throw new Error('Access denied: not assigned.')
+    if (!teacher) throw new Error('Teacher profile not found.')
+    // Session owner OR subject-assigned teacher for this enrollment (§126).
+    if (session.teacher_id && session.teacher_id === teacher.id) return session
+    const { data: assignment } = await admin
+      .from('homeschool_teacher_assignments')
+      .select('id')
+      .eq('enrollment_id', session.enrollment_id)
+      .eq('teacher_id', teacher.id)
+      .maybeSingle()
+    if (!assignment) throw new Error('Access denied: not assigned.')
+    return session
+  }
+
+  if (role === 'parent') {
+    const { data: enrollment } = await admin
+      .from('homeschool_enrollments')
+      .select('student_id')
+      .eq('id', session.enrollment_id)
+      .maybeSingle()
+    if (!enrollment) throw new Error('Access denied.')
+    const { data: link } = await admin
+      .from('students')
+      .select('id')
+      .eq('id', enrollment.student_id)
+      .eq('parent_id', userId)
+      .maybeSingle()
+    if (!link) throw new Error('Access denied: not your child.')
     return session
   }
 
@@ -307,6 +431,13 @@ export async function createHomeschoolEnrollment(data: {
       subjects_count: data.subjects?.length || 0,
     })
 
+    try {
+      await upsertHomeschoolEntitlement(admin, data.student_id, 'ACTIVE')
+    } catch (entError: any) {
+      await admin.from('homeschool_enrollments').delete().eq('id', enrollment.id)
+      throw new Error(`Enrollment rolled back: entitlement failed (${entError.message})`)
+    }
+
     return { success: true, data: enrollment }
   } catch (err: any) {
     return { success: false, error: err.message }
@@ -337,6 +468,8 @@ export async function activateHomeschoolEnrollment(enrollmentId: string) {
     if (error) throw error
 
     await logHomeschoolAudit(user.id, 'activate', 'enrollment', enrollmentId, before, updated)
+
+    await upsertHomeschoolEntitlement(admin, (updated as any).student_id, 'ACTIVE')
 
     return { success: true, data: updated }
   } catch (err: any) {
@@ -377,6 +510,19 @@ export async function updateHomeschoolEnrollment(
       updated_fields: Object.keys(updates),
     })
 
+    // §07/§122–123: status changes must sync entitlement (ACTIVE ↔ SUSPENDED/REVOKED).
+    if (data.status !== undefined && data.status !== (before as any)?.status) {
+      const statusMap: Record<string, string> = {
+        ACTIVE: 'ACTIVE',
+        PAUSED: 'SUSPENDED',
+        COMPLETED: 'EXPIRED',
+        EXPIRED: 'EXPIRED',
+        CANCELLED: 'REVOKED',
+        PENDING: 'SUSPENDED',
+      }
+      await upsertHomeschoolEntitlement(admin, (updated as any).student_id, statusMap[data.status] || 'SUSPENDED')
+    }
+
     return { success: true, data: updated }
   } catch (err: any) {
     return { success: false, error: err.message }
@@ -406,6 +552,8 @@ export async function pauseHomeschoolEnrollment(enrollmentId: string) {
     if (!updated) throw new Error('Enrollment is not in ACTIVE status.')
 
     await logHomeschoolAudit(user.id, 'pause', 'enrollment', enrollmentId, before, updated)
+
+    await upsertHomeschoolEntitlement(admin, (updated as any).student_id, 'SUSPENDED')
 
     return { success: true, data: updated }
   } catch (err: any) {
@@ -437,6 +585,8 @@ export async function resumeHomeschoolEnrollment(enrollmentId: string) {
 
     await logHomeschoolAudit(user.id, 'resume', 'enrollment', enrollmentId, before, updated)
 
+    await upsertHomeschoolEntitlement(admin, (updated as any).student_id, 'ACTIVE')
+
     return { success: true, data: updated }
   } catch (err: any) {
     return { success: false, error: err.message }
@@ -466,6 +616,12 @@ export async function cancelHomeschoolEnrollment(enrollmentId: string) {
     if (!updated) throw new Error('Enrollment cannot be cancelled.')
 
     await logHomeschoolAudit(user.id, 'cancel', 'enrollment', enrollmentId, before, updated)
+
+    await upsertHomeschoolEntitlement(
+      admin,
+      (updated as any).student_id || (before as any)?.student_id,
+      'REVOKED'
+    )
 
     return { success: true, data: updated }
   } catch (err: any) {
@@ -628,7 +784,7 @@ export async function getLearningSessions(weekId?: string, enrollmentId?: string
         subject:subjects(id, name, code),
         teacher:teachers(id, full_name),
         objectives:learning_objectives(id, title, description, order_index, is_completed, completed_at),
-        resources:learning_resources(id, title, type, url, file_path, is_required, order_index),
+        resources:learning_resources(id, title, type, url, file_path, is_required, estimated_minutes, order_index),
         mission:learning_missions(id, title, description, is_started, is_completed, started_at, completed_at),
         week:homeschool_weeks(id, week_number, title, status),
         enrollment:homeschool_enrollments(id, student_id, student:students(id, full_name))
@@ -692,7 +848,7 @@ export async function getTodaySessions(enrollmentId: string) {
         subject:subjects(id, name, code),
         teacher:teachers(id, full_name),
         objectives:learning_objectives(id, title, is_completed),
-        resources:learning_resources(id, title, type, is_required),
+        resources:learning_resources(id, title, type, is_required, estimated_minutes),
         mission:learning_missions(id, title, is_started, is_completed),
         week:homeschool_weeks(id, week_number, title)
       `)
@@ -1019,7 +1175,7 @@ export async function getLearningResources(sessionId: string) {
     const admin = await createAdminClient()
     const { data, error } = await admin
       .from('learning_resources')
-      .select('id, session_id, title, description, type, url, file_path, file_name, file_size, mime_type, is_required, order_index, created_at')
+      .select('id, session_id, title, description, type, url, file_path, file_name, file_size, mime_type, is_required, estimated_minutes, order_index, created_at')
       .eq('session_id', sessionId)
       .order('order_index', { ascending: true })
 
@@ -1033,7 +1189,7 @@ export async function getLearningResources(sessionId: string) {
 
 export async function createLearningResource(
   sessionId: string,
-  data: { title: string; description?: string; type: string; url?: string; file_path?: string; is_required?: boolean }
+  data: { title: string; description?: string; type: string; url?: string; file_path?: string; is_required?: boolean; estimated_minutes?: number | null }
 ) {
   try {
     const { user } = await getAuthUser()
@@ -1053,20 +1209,31 @@ export async function createLearningResource(
 
     const nextIndex = existing && existing.length > 0 ? existing[0].order_index + 1 : 0
 
-    const { data: resource, error } = await admin
+    const minutes = Number(data.estimated_minutes)
+    const payload: Record<string, any> = {
+      session_id: sessionId,
+      title: data.title,
+      description: data.description || null,
+      type: data.type,
+      url: data.url || null,
+      file_path: data.file_path || null,
+      is_required: data.is_required || false,
+      estimated_minutes: Number.isFinite(minutes) && minutes > 0 ? Math.round(minutes) : null,
+      order_index: nextIndex,
+    }
+    let { data: resource, error } = await admin
       .from('learning_resources')
-      .insert({
-        session_id: sessionId,
-        title: data.title,
-        description: data.description || null,
-        type: data.type,
-        url: data.url || null,
-        file_path: data.file_path || null,
-        is_required: data.is_required || false,
-        order_index: nextIndex,
-      })
+      .insert(payload)
       .select()
       .single()
+
+    // Graceful until the estimated_minutes migration is applied.
+    if (error && /estimated_minutes/i.test(error.message || '')) {
+      delete payload.estimated_minutes
+      const retry = await admin.from('learning_resources').insert(payload).select().single()
+      resource = retry.data
+      error = retry.error
+    }
 
     if (error) throw error
 
@@ -1485,9 +1652,10 @@ export async function getHomeschoolDashboardData(studentId: string) {
         admin
           .from('learning_sessions')
           .select(`
-            id, subject_id, day, start_time, end_time, learning_mode, topic, status, student_status,
+            id, subject_id, day, start_time, end_time, learning_mode, topic, learning_goal, instructions, status, student_status,
             subject:subjects(id, name),
-            objectives:learning_objectives(id, is_completed),
+            teacher:teachers(id, full_name),
+            objectives:learning_objectives(id, title, is_completed),
             mission:learning_missions(id, is_started, is_completed)
           `)
           .eq('enrollment_id', enrollment.id)
@@ -1505,7 +1673,7 @@ export async function getHomeschoolDashboardData(studentId: string) {
           .limit(5),
         admin
           .from('learning_sessions')
-          .select('id, status, student_status, submission_required')
+          .select('id, subject_id, day, start_time, end_time, learning_mode, topic, status, student_status, submission_required, subject:subjects(id, name), teacher:teachers(id, full_name)')
           .eq('enrollment_id', enrollment.id),
       ])
 
@@ -2173,12 +2341,20 @@ export async function submitSessionWork(
     const admin = await createAdminClient()
     const { data: enrollment } = await admin
       .from('homeschool_enrollments')
-      .select('id, status')
+      .select('id, status, student_id, end_date')
       .eq('id', (session as any).enrollment_id)
       .maybeSingle()
     if (!can('assignment.submit', role, { enrollmentStatus: enrollment?.status, isOwner: true })) {
       throw new Error(denialMessage('assignment.submit'))
     }
+    // §05–07: entitlement is the source of truth, not a badge. Enforce ACTIVE entitlement.
+    const { data: ent } = await admin
+      .from('student_entitlements')
+      .select('status')
+      .eq('student_id', student.id)
+      .eq('feature', 'HOMESCHOOLING')
+      .maybeSingle()
+    if (!ent || ent.status !== 'ACTIVE') throw new Error(denialMessage('assignment.submit'))
 
     const { data: assignment } = await admin
       .from('assignments')

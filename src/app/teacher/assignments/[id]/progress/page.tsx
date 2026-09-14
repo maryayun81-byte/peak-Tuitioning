@@ -52,42 +52,89 @@ export default function AssignmentProgressPage() {
       }
       setAssignment(assignmentData)
 
-      // 2. Determine Audience & Fetch Students with Subject Filter
-      // We only want students in this class/center who are actually taking this subject
+      // 2. Determine Audience & Fetch Students.
+      // QC FIX: the old query used `student_subjects!inner` + a server-side
+      // subject equality, which SILENTLY DROPPED every student without a
+      // student_subjects row for this subject (e.g. Form 3 / 844 students —
+      // the backfill script only covers CBC + onboarded=FALSE). A teacher
+      // opening Progress then saw an empty roster and concluded the
+      // (physical-workbook) submissions "disappeared", even though the
+      // submissions existed. We now LEFT-JOIN, filter in code, and UNION any
+      // orphan submissions so a submitted workbook is ALWAYS visible.
       let studentsQuery = supabase
         .from('students')
-        .select(`
-          id, 
-          full_name, 
-          admission_number, 
-          student_subjects!inner(subject_id)
-        `)
+        .select('id, full_name, admission_number, student_subjects(subject_id)')
         .eq('class_id', assignmentData.class_id)
-        .eq('student_subjects.subject_id', assignmentData.subject_id)
 
-      // NOTE: We filter by class_id and student_subjects!inner. 
-      // Filtering by tuition_center_id on the students table here was excluding students 
-      // who might not have had that field populated yet but were clearly in the class.
-      // Since class_id is specific to a center, the counts will now be accurate (26/26).
+      // NOTE: We filter by class_id only. Filtering by tuition_center_id on
+      // the students table here was excluding students who might not have
+      // had that field populated yet. Since class_id is specific to a
+      // center, the counts stay accurate.
 
       if (assignmentData.audience === 'selected_students' && assignmentData.selected_student_ids?.length > 0) {
         studentsQuery = studentsQuery.in('id', assignmentData.selected_student_ids)
       }
 
-      const { data: students, error: sError } = await studentsQuery
+      const [{ data: students, error: sError }, { data: submissions, error: subError }] = await Promise.all([
+        studentsQuery,
+        // 3. Fetch Submissions (independent of the roster so orphans survive)
+        supabase
+          .from('submissions')
+          .select('id, student_id, status, marks, submitted_at')
+          .eq('assignment_id', assignmentId),
+      ])
       if (sError) throw sError
-
-      // 3. Fetch Submissions
-      const { data: submissions, error: subError } = await supabase
-        .from('submissions')
-        .select('id, student_id, status, marks, submitted_at')
-        .eq('assignment_id', assignmentId)
-      
       if (subError) throw subError
 
+      const submissionsList = submissions ?? []
+      const submissionByStudent = new Map(submissionsList.map((s: any) => [s.student_id, s]))
+
+      // Keep a student when: audience is explicit, OR they take this subject,
+      // OR they have no subject mappings at all (legacy/unmapped — show,
+      // don't hide), OR they submitted (orphan safety net).
+      let roster = (students ?? []).filter((st: any) => {
+        if (assignmentData.audience === 'selected_students') return true
+        const subjectIds = (st.student_subjects ?? []).map((ss: any) => ss.subject_id)
+        if (subjectIds.includes(assignmentData.subject_id)) return true
+        if (subjectIds.length === 0) return true
+        if (submissionByStudent.has(st.id)) return true
+        return false
+      })
+
+      // Orphan union: a submission whose student wasn't in the roster
+      // (RLS gap, moved class, missing subject row) must still be markable.
+      const rosterIds = new Set(roster.map((st: any) => st.id))
+      const orphanStudentIds = submissionsList
+        .map((s: any) => s.student_id)
+        .filter((id: string) => id && !rosterIds.has(id))
+      if (orphanStudentIds.length > 0) {
+        const { data: orphans } = await supabase
+          .from('students')
+          .select('id, full_name, admission_number')
+          .in('id', orphanStudentIds)
+        for (const o of orphans ?? []) {
+          if (!rosterIds.has((o as any).id)) {
+            roster.push(o as any)
+            rosterIds.add((o as any).id)
+          }
+        }
+        // If RLS hid the student row entirely, still render a placeholder row
+        // so the submission can be opened from Progress.
+        for (const s of submissionsList) {
+          if (!rosterIds.has(s.student_id)) {
+            roster.push({
+              id: s.student_id,
+              full_name: 'Student (record unavailable)',
+              admission_number: '',
+            })
+            rosterIds.add(s.student_id)
+          }
+        }
+      }
+
       // 4. Map Progress
-      const statusMap = (students ?? []).map(st => {
-        const sub = (submissions ?? []).find(s => s.student_id === st.id)
+      const statusMap = roster.map((st: any) => {
+        const sub = submissionByStudent.get(st.id)
         return {
           ...st,
           submissionId: sub?.id,
@@ -95,7 +142,7 @@ export default function AssignmentProgressPage() {
           marks: sub?.marks,
           submittedAt: sub?.submitted_at
         }
-      }).sort((a, b) => a.full_name.localeCompare(b.full_name))
+      }).sort((a: any, b: any) => a.full_name.localeCompare(b.full_name))
 
       setClassStatus(statusMap)
     } catch (err: any) {

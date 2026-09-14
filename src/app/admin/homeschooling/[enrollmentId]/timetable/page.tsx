@@ -434,6 +434,7 @@ export default function AdminTimetablePage({ params }: { params: Promise<{ enrol
             <option value="TEACHER_LED">Teacher-led</option>
             <option value="SELF_STUDY">Self-study</option>
             <option value="AI_SUPPORTED">AI-supported</option>
+            <option value="HYBRID">Hybrid</option>
           </Select>
           <Input label="Topic" placeholder="e.g. Quadratic equations" value={sessionForm.topic} onChange={e => setSessionForm({ ...sessionForm, topic: e.target.value })} />
           <Textarea label="Learning Goal" rows={2} value={sessionForm.learning_goal} onChange={e => setSessionForm({ ...sessionForm, learning_goal: e.target.value })} />

@@ -51,6 +51,9 @@ export default function NewWorksheetPage() {
   const [attachmentUrl, setAttachmentUrl] = useState<string | null>(null)
   const [responseMode, setResponseMode] = useState<'draw' | 'type' | 'both'>('draw')
   const [isWorkbook, setIsWorkbook] = useState(false)
+  // Workbook assignments usually have no structured question blocks, so the
+  // paper total can't be derived from blocks — the teacher must set it.
+  const [manualTotalMarks, setManualTotalMarks] = useState('')
 
   // UI state
   const [typeSheetOpen, setTypeSheetOpen] = useState(false)
@@ -74,8 +77,8 @@ export default function NewWorksheetPage() {
   const formData = useMemo(() => ({
     title, classId, subjectId, centerId, dueDate, passage, passageType,
     showTimer, timeLimit, shuffleQ, blocks, attachmentUrl, responseMode,
-    audience, selectedStudentIds, isWorkbook, lockAfterDeadline
-  }), [title, classId, subjectId, centerId, dueDate, passage, passageType, showTimer, timeLimit, shuffleQ, blocks, attachmentUrl, responseMode, audience, selectedStudentIds, isWorkbook, lockAfterDeadline])
+    audience, selectedStudentIds, isWorkbook, lockAfterDeadline, manualTotalMarks
+  }), [title, classId, subjectId, centerId, dueDate, passage, passageType, showTimer, timeLimit, shuffleQ, blocks, attachmentUrl, responseMode, audience, selectedStudentIds, isWorkbook, lockAfterDeadline, manualTotalMarks])
 
   const { hasSavedDraft, restore, clear, draftAge } = useAutoSave('new_assignment', formData, (saved) => {
     // This callback is for manual restoration
@@ -95,6 +98,7 @@ export default function NewWorksheetPage() {
     setAudience(saved.audience)
     setSelectedStudentIds(saved.selectedStudentIds)
     setIsWorkbook(saved.isWorkbook ?? false)
+    setManualTotalMarks(saved.manualTotalMarks ?? '')
     setLockAfterDeadline(saved.lockAfterDeadline ?? false)
     toast.success('Draft restored!')
   })
@@ -228,10 +232,15 @@ export default function NewWorksheetPage() {
     ).values()
   )
 
-  const totalMarks = useMemo(
+  const blocksTotalMarks = useMemo(
     () => blocks.reduce((sum, b) => sum + (b.marks || 0), 0),
     [blocks]
   )
+  // Workbook work is marked against a paper total, not per-question blocks.
+  const parsedManualTotal = parseInt(manualTotalMarks, 10)
+  const totalMarks = isWorkbook && !isNaN(parsedManualTotal) && parsedManualTotal > 0
+    ? parsedManualTotal
+    : blocksTotalMarks
 
   const addBlock = (type: QuestionType) => {
     setBlocks(prev => [...prev, createBlock(type)])
@@ -256,7 +265,10 @@ export default function NewWorksheetPage() {
     if (!title.trim()) { toast.error('Please enter a worksheet title'); return }
     if (!classId) { toast.error('Please select a class'); return }
     if (!subjectId) { toast.error('Please select a subject'); return }
-    if (blocks.length === 0 && !attachmentUrl) { toast.error('Add at least one question or upload a document'); return }
+    if (blocks.length === 0 && !attachmentUrl && !isWorkbook) { toast.error('Add at least one question or upload a document'); return }
+    // A workbook with total_marks = 0 cannot be marked (awarding is clamped
+    // to the paper total), so require an explicit total up front.
+    if (isWorkbook && totalMarks <= 0) { toast.error('Physical Workbook needs a Total Marks value (e.g. 20)'); return }
 
     setSaving(true)
 
@@ -472,6 +484,19 @@ export default function NewWorksheetPage() {
                 <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${isWorkbook ? 'left-7' : 'left-1'}`} />
               </button>
             </div>
+
+            {isWorkbook && (
+              <div className="mt-3">
+                <Input
+                  label="Total Marks (paper total — required for marking)"
+                  type="number"
+                  min={1}
+                  placeholder="e.g. 20"
+                  value={manualTotalMarks}
+                  onChange={e => setManualTotalMarks(e.target.value)}
+                />
+              </div>
+            )}
 
             <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
               <Select label="Tuition Center/Scope *" value={centerId} onChange={e => { setCenterId(e.target.value); setClassId(''); setSubjectId('') }}>

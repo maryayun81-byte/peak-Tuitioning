@@ -13,9 +13,13 @@ import { SkeletonDashboard } from '@/components/ui/Skeleton'
 import { useTeacherIdentity } from '@/hooks/useTeacherIdentity'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import SessionContentBuilder from '@/components/homeschooling/SessionContentBuilder'
+import TeacherMissionBuilder from '@/components/homeschooling/TeacherMissionBuilder'
+import AiMarkingReview from '@/components/homeschooling/AiMarkingReview'
+import PreparationBadge from '@/components/homeschooling/LearningBits'
 import { RescheduleSessionModal, CancelSessionModal } from '@/components/homeschooling/SessionLifecycleModals'
 import { requestSessionCorrections, acceptSessionWork } from '@/app/actions/homeschooling'
 import { getLinkedAssignmentSubmissions } from '@/app/actions/homeschooling'
+import { getSessionPreparation, publishMission, getLearningSignals } from '@/app/actions/homeschool-learning'
 import { formatTimeRange, getSessionModeLabel } from '@/lib/homeschooling/constants'
 import toast from 'react-hot-toast'
 
@@ -23,6 +27,7 @@ const MODE_COLORS: Record<string, string> = {
   TEACHER_LED: '#4F8CFF',
   SELF_STUDY: '#10B981',
   AI_SUPPORTED: '#A855F7',
+  HYBRID: '#F59E0B',
 }
 
 export default function TeacherSessionPage({ params }: { params: Promise<{ sessionId: string }> }) {
@@ -36,6 +41,11 @@ export default function TeacherSessionPage({ params }: { params: Promise<{ sessi
   const [rescheduleOpen, setRescheduleOpen] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
   const [reviewBusy, setReviewBusy] = useState<string | null>(null)
+  const [prep, setPrep] = useState<any>(null)
+  const [signals, setSignals] = useState<any[]>([])
+  const [showBuilder, setShowBuilder] = useState(false)
+  const [publishing, setPublishing] = useState(false)
+  const [markingFor, setMarkingFor] = useState<string | null>(null)
 
   const handleRequestCorrections = async (submissionId: string) => {
     setReviewBusy(submissionId)
@@ -93,6 +103,21 @@ export default function TeacherSessionPage({ params }: { params: Promise<{ sessi
 
       const res = await getLinkedAssignmentSubmissions(sessionId)
       if (res.success) setReview(res.data as any)
+
+      const prepRes = await getSessionPreparation(sessionId)
+      if (prepRes.success) setPrep(prepRes.data)
+
+      const enrollmentId = (data as any)?.enrollment?.id
+      if (enrollmentId) {
+        const sigRes = await getLearningSignals(enrollmentId)
+        if (sigRes.success) {
+          setSignals(
+            (sigRes.data as any[]).filter(
+              (s) => s.session_id === sessionId || !s.session_id
+            ).slice(0, 5)
+          )
+        }
+      }
     } catch (err: any) {
       toast.error(err.message || 'Failed to load session')
     } finally {
@@ -196,11 +221,67 @@ export default function TeacherSessionPage({ params }: { params: Promise<{ sessi
       )}
 
       <Card className="p-4 md:p-5">
-        <h3 className="text-xs font-black uppercase tracking-wider mb-4" style={{ color: 'var(--text-muted)' }}>
-          Prepare This Session
-        </h3>
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <h3 className="text-xs font-black uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+            Prepare This Session
+          </h3>
+          <span className="flex items-center gap-2">
+            {prep && <PreparationBadge state={prep.state} />}
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setShowBuilder((v) => !v)}
+            >
+              {showBuilder ? 'Hide builder' : '+ Mission builder'}
+            </Button>
+            {prep && prep.state !== 'PUBLISHED' && (
+              <Button
+                size="sm"
+                isLoading={publishing}
+                onClick={async () => {
+                  setPublishing(true)
+                  const res = await publishMission(sessionId)
+                  setPublishing(false)
+                  if (!res.success) {
+                    toast.error(res.error || 'Cannot publish yet')
+                  } else {
+                    toast.success('Mission published — student can access it')
+                  }
+                  load()
+                }}
+              >
+                Publish
+              </Button>
+            )}
+          </span>
+        </div>
+        {showBuilder && (
+          <div className="mb-4">
+            <TeacherMissionBuilder sessionId={sessionId} onPublished={load} />
+          </div>
+        )}
         <SessionContentBuilder sessionId={sessionId} onChanged={load} />
       </Card>
+
+      {signals.length > 0 && (
+        <Card className="p-4 md:p-5">
+          <h3 className="text-xs font-black uppercase tracking-wider mb-3 flex items-center gap-2" style={{ color: 'var(--text-muted)' }}>
+            <AlertTriangle size={13} /> Learning signals
+          </h3>
+          <div className="space-y-2">
+            {signals.map((s: any) => (
+              <div
+                key={s.id}
+                className="rounded-xl border p-3"
+                style={{ background: 'rgba(245,158,11,0.05)', borderColor: 'rgba(245,158,11,0.3)' }}
+              >
+                <p className="text-xs font-black" style={{ color: 'var(--text)' }}>{s.title}</p>
+                <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-muted)' }}>{s.detail}</p>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
 
       <Card className="p-4 md:p-5">
         <div className="flex items-center justify-between mb-4">
@@ -221,7 +302,8 @@ export default function TeacherSessionPage({ params }: { params: Promise<{ sessi
         ) : (
           <div className="space-y-2">
             {(review.submissions || []).map((s: any) => (
-              <div key={s.id} className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'var(--input)', border: '1px solid var(--card-border)' }}>
+              <div key={s.id} className="space-y-2">
+              <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'var(--input)', border: '1px solid var(--card-border)' }}>
                 {s.status === 'submitted'
                   ? <AlertTriangle size={15} style={{ color: '#F59E0B' }} className="shrink-0" />
                   : <CheckCircle2 size={15} style={{ color: '#10B981' }} className="shrink-0" />}
@@ -234,7 +316,13 @@ export default function TeacherSessionPage({ params }: { params: Promise<{ sessi
                     {s.submitted_at ? ` · ${new Date(s.submitted_at).toLocaleDateString()}` : ''}
                   </p>
                 </div>
-                <div className="flex items-center gap-1.5 shrink-0">
+                <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                  <Button
+                    variant="ghost" size="sm"
+                    onClick={() => setMarkingFor((m) => (m === s.id ? null : s.id))}
+                  >
+                    ✨ AI Mark
+                  </Button>
                   <Link href={`/teacher/marking/${s.id}`}>
                     <Button variant="ghost" size="sm">Review</Button>
                   </Link>
@@ -253,6 +341,14 @@ export default function TeacherSessionPage({ params }: { params: Promise<{ sessi
                     <CheckCircle2 size={13} /> Accept
                   </Button>
                 </div>
+              </div>
+              {markingFor === s.id && (
+                <AiMarkingReview
+                  submissionId={s.id}
+                  maxMarks={review?.assignment?.max_marks}
+                  onChanged={load}
+                />
+              )}
               </div>
             ))}
           </div>

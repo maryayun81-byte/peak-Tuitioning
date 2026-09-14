@@ -118,9 +118,18 @@ export function PeakFooter() {
             <div>
               <div className="peak-label text-slate-500 mb-3">CONTACT</div>
               <div className="space-y-2">
-                <div className="text-xs text-slate-500">Nairobi, Kenya</div>
+                <div className="text-xs text-slate-500">St Ignatius, Kinoo, Nairobi, Kenya</div>
                 <div className="text-xs text-slate-500">info@peakcampus.co.ke</div>
-                <div className="text-xs text-slate-500">+254 700 000 000</div>
+                <div className="text-xs text-slate-500">+254 798 971 625</div>
+              </div>
+            </div>
+
+            <div>
+              <div className="peak-label text-slate-500 mb-3">LEGAL</div>
+              <div className="space-y-2">
+                <div><Link href="/privacy" className="text-xs text-slate-600 hover:text-peak-green transition-colors">Privacy Policy</Link></div>
+                <div><Link href="/terms" className="text-xs text-slate-600 hover:text-peak-green transition-colors">Terms of Service</Link></div>
+                <div><Link href="/cookies" className="text-xs text-slate-600 hover:text-peak-green transition-colors">Cookie Policy</Link></div>
               </div>
             </div>
 

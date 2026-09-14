@@ -23,6 +23,7 @@ import { TimetableWidget } from '@/components/dashboard/TimetableWidget'
 import Link from 'next/link'
 import { ClassPulse, ClassInterventionPanel } from '@/components/teacher/ClassHub'
 import { LiveLessonsWidget } from '@/components/live/LiveLessonsWidget'
+import TeacherHomeschoolWidget from '@/components/teacher/TeacherHomeschoolWidget'
 
 import { usePageData } from '@/hooks/usePageData'
 import { ShimmerSkeleton } from '@/components/ui/ShimmerSkeleton'
@@ -278,6 +279,11 @@ export default function TeacherDashboard() {
       {/* Live Lessons */}
       {teacher?.id && (
         <LiveLessonsWidget role="teacher" teacherId={teacher.id} />
+      )}
+
+      {/* Homeschooling — allocated sessions, today + upcoming + reviews */}
+      {teacher?.id && (
+        <TeacherHomeschoolWidget />
       )}
 
       {/* Command Center */}

@@ -97,10 +97,12 @@ export default function WorksheetGraderPage() {
       const ws: WorksheetBlock[] = a?.worksheet ?? []
       setBlocks(ws)
 
-      // Load Class Progress
+      // Load Class Progress. QC FIX: filter by class_id only — filtering by
+      // tuition_center_id as well hid students whose center field was never
+      // populated, and any submission whose student missed the roster became
+      // unopenable from the progress tab. Orphan submissions are unioned in.
       let studentsQuery = supabase.from('students')
         .select('id, full_name, admission_number')
-        .eq('tuition_center_id', a.tuition_center_id)
 
       if (a.audience === 'selected_students' && a.selected_student_ids?.length > 0) {
         studentsQuery = studentsQuery.in('id', a.selected_student_ids)
@@ -115,7 +117,23 @@ export default function WorksheetGraderPage() {
 
       const students = studentsRes.data ?? []
       const allSubs = subsRes.data ?? []
-      const statusMap = students.map(st => {
+      const rosterIds = new Set(students.map((st: any) => st.id))
+      const orphanSubs = allSubs.filter((s: any) => s.student_id && !rosterIds.has(s.student_id))
+      let orphanStudents: any[] = []
+      if (orphanSubs.length > 0) {
+        const { data } = await supabase
+          .from('students')
+          .select('id, full_name, admission_number')
+          .in('id', orphanSubs.map((s: any) => s.student_id))
+        orphanStudents = data ?? []
+        const foundIds = new Set(orphanStudents.map((st: any) => st.id))
+        for (const s of orphanSubs) {
+          if (!foundIds.has(s.student_id)) {
+            orphanStudents.push({ id: s.student_id, full_name: 'Student (record unavailable)', admission_number: '' })
+          }
+        }
+      }
+      const statusMap = [...students, ...orphanStudents].map(st => {
         const sub = allSubs.find(s => s.student_id === st.id)
         return { ...st, submissionId: sub?.id, status: sub?.status || 'missing', marks: sub?.marks }
       }).sort((a, b) => a.full_name.localeCompare(b.full_name))
@@ -175,8 +193,27 @@ export default function WorksheetGraderPage() {
 
   const questionBlocks = blocks.filter(b => b.type !== 'section_header' && b.type !== 'reading_passage')
   const totalMarks = assignment?.total_marks ?? questionBlocks.reduce((s, b) => s + b.marks, 0)
-  const awardedMarks = Object.values(questionMarks).reduce((s, v) => s + (v || 0), 0)
+  // Workbook/document assignments have no structured question blocks, so the
+  // teacher awards a single manual total stored under '__total__'. QC FIX:
+  // the old code summed ALL keys (fine) but the scoring panel clamped entry
+  // to max={totalMarks} — and legacy workbooks were saved with total_marks=0,
+  // making it impossible to award anything but 0. Awarded is now read
+  // explicitly in manual mode and the panel allows entry beyond a 0 total.
+  const isManualTotal = questionBlocks.length === 0
+  const awardedMarks = isManualTotal
+    ? (Number(questionMarks['__total__']) || 0)
+    : Object.values(questionMarks).reduce((s, v) => s + (v || 0), 0)
   const percentage = totalMarks > 0 ? Math.round((awardedMarks / totalMarks) * 100) : 0
+
+  // Persist an edited paper total for manual-total (workbook) assignments so
+  // the student's result screen shows a correct denominator instead of 0.
+  const persistManualTotal = async () => {
+    if (!isManualTotal || !assignment?.id) return
+    const t = Number(totalMarks) || 0
+    if (t <= 0) return
+    if ((assignment as any).total_marks === t && (assignment as any).max_marks === t) return
+    await supabase.from('assignments').update({ total_marks: t, max_marks: t }).eq('id', assignment.id)
+  }
 
   const saveProgress = async () => {
     setSaving(true)
@@ -188,7 +225,7 @@ export default function WorksheetGraderPage() {
       status: 'marked',
     }).eq('id', submissionId)
     if (error) toast.error('Save failed: ' + error.message)
-    else { toast.success('Progress saved!'); clear() }
+    else { await persistManualTotal(); toast.success('Progress saved!'); clear() }
     setSaving(false)
   }
 
@@ -205,19 +242,26 @@ export default function WorksheetGraderPage() {
     }).eq('id', submissionId)
 
     if (!error) {
+      await persistManualTotal()
       const numericAwarded = Number(awardedMarks) || 0
-      const numericTotal = Number(totalMarks) || 1
-      const isHighPerf = (numericAwarded / numericTotal) >= 0.8
+      const numericTotal = Number(totalMarks) || 0
+      // With no paper total (legacy workbook saved with 0), mastery % is
+      // meaningless — never award the mastery bonus on an unknown denominator.
+      const isHighPerf = numericTotal > 0 && (numericAwarded / numericTotal) >= 0.8
       const xpAwarded = isHighPerf ? 50 : 10
       const { data: st } = await supabase.from('students').select('xp').eq('id', submission.student_id).single()
       await supabase.from('students').update({ xp: (st?.xp || 0) + xpAwarded }).eq('id', submission.student_id)
+      const scoreText = numericTotal > 0
+        ? `${numericAwarded}/${numericTotal}`
+        : `${numericAwarded} marks`
+      const pctText = numericTotal > 0 ? ` (${Math.round((numericAwarded / numericTotal) * 100)}%)` : ''
       await supabase.from('notifications').insert({
         user_id: submission?.student?.user_id ?? null,
         type: 'assignment_returned',
         title: isHighPerf ? 'Mastery Achievement! +50 XP' : 'Assignment Returned (+10 XP)',
         body: isHighPerf
           ? `Incredible! You scored ${Math.round((numericAwarded / numericTotal) * 100)}% on "${assignment?.title}".`
-          : `Your worksheet "${assignment?.title}" has been marked. Score: ${numericAwarded}/${numericTotal}`,
+          : `Your worksheet "${assignment?.title}" has been marked. Score: ${scoreText}`,
         related_id: assignment?.id,
         data: { xp: xpAwarded, marks: numericAwarded, total: numericTotal, mastery: isHighPerf, assignment_id: assignment?.id }
       })
@@ -226,7 +270,7 @@ export default function WorksheetGraderPage() {
           title: isHighPerf ? 'Mastery Achievement! +50 XP' : 'Assignment Returned (+10 XP)',
           body: isHighPerf
             ? `Incredible! You scored ${Math.round((numericAwarded / numericTotal) * 100)}% on "${assignment?.title}".`
-            : `Your worksheet "${assignment?.title}" has been marked. Score: ${numericAwarded}/${numericTotal}`,
+            : `Your worksheet "${assignment?.title}" has been marked. Score: ${scoreText}${pctText}`,
           href: `/student/assignments/${assignment?.id}`,
         })
       }
@@ -549,6 +593,7 @@ export default function WorksheetGraderPage() {
               setFeedback={setFeedback}
               setMark={setMark}
               getScoreColor={getScoreColor}
+              onTotalChange={(v) => setAssignment((prev: any) => prev ? ({ ...prev, total_marks: v, max_marks: v }) : prev)}
             />
           </div>
         </div>
@@ -1020,7 +1065,7 @@ export default function WorksheetGraderPage() {
 ───────────────────────────────────────────────────────── */
 function DocScoringPanel({
   questionBlocks, questionMarks, totalMarks, awardedMarks, percentage,
-  feedback, setFeedback, setMark, getScoreColor
+  feedback, setFeedback, setMark, getScoreColor, onTotalChange
 }: {
   questionBlocks: WorksheetBlock[]
   questionMarks: Record<string, number>
@@ -1031,14 +1076,21 @@ function DocScoringPanel({
   setFeedback: (v: string) => void
   setMark: (id: string, v: number) => void
   getScoreColor: (pct: number) => string
+  onTotalChange: (v: number) => void
 }) {
+  // QC FIX: when the paper total is 0 (legacy workbook saved with no
+  // structured questions), clamping entry to max={0} made awarding marks
+  // impossible. The awarded input is now capped at the paper total when one
+  // is set, otherwise at a generous 1000; the paper total itself is editable
+  // so the teacher can repair legacy assignments inline.
+  const awardedCap = totalMarks > 0 ? totalMarks : 1000
   return (
     <div className="p-4 space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="text-[11px] font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Award Marks</div>
         <div className="font-black text-base" style={{ color: getScoreColor(percentage) }}>
-          {awardedMarks} / {totalMarks} <span className="text-xs">({percentage}%)</span>
+          {awardedMarks} / {totalMarks > 0 ? totalMarks : '—'} <span className="text-xs">({percentage}%)</span>
         </div>
       </div>
 
@@ -1090,23 +1142,46 @@ function DocScoringPanel({
         </div>
       ) : (
         /* No structured questions — manual total entry */
-        <div className="p-5 rounded-3xl border text-center" style={{ background: 'var(--input)', borderColor: 'var(--card-border)' }}>
-          <div className="text-[10px] font-black uppercase tracking-widest mb-3" style={{ color: 'var(--text-muted)' }}>
-            Total Marks Awarded
+        <div className="p-5 rounded-3xl border text-center space-y-4" style={{ background: 'var(--input)', borderColor: 'var(--card-border)' }}>
+          <div>
+            <div className="text-[10px] font-black uppercase tracking-widest mb-3" style={{ color: 'var(--text-muted)' }}>
+              Paper Total {totalMarks <= 0 && <span className="text-amber-500">· not set — please set it</span>}
+            </div>
+            <input
+              type="number" min={1} max={1000}
+              value={totalMarks > 0 ? totalMarks : ''}
+              onChange={e => {
+                const raw = e.target.value
+                if (raw === '') return
+                const v = Math.min(1000, Math.max(1, Number(raw)))
+                if (!isNaN(v)) onTotalChange(v)
+              }}
+              className="text-2xl font-black w-28 text-center rounded-xl border-2 focus:outline-none focus:border-primary block mx-auto py-1"
+              style={{ background: 'var(--card)', borderColor: 'var(--card-border)', color: 'var(--text)' }}
+              placeholder="e.g. 20"
+            />
           </div>
-          <input
-            type="number" min={0} max={totalMarks}
-            value={awardedMarks || ''}
-            onChange={e => {
-              const raw = e.target.value
-              if (raw === '') return
-              const v = Math.min(totalMarks, Math.max(0, Number(raw)))
-              if (!isNaN(v)) setMark('__total__', v)
-            }}
-            className="text-4xl font-black w-32 text-center bg-transparent focus:outline-none block mx-auto"
-            style={{ color: 'var(--primary)' }}
-          />
-          <div className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>out of {totalMarks}</div>
+          <div>
+            <div className="text-[10px] font-black uppercase tracking-widest mb-3" style={{ color: 'var(--text-muted)' }}>
+              Total Marks Awarded
+            </div>
+            <input
+              type="number" min={0} max={awardedCap}
+              value={questionMarks['__total__'] ?? ''}
+              onChange={e => {
+                const raw = e.target.value
+                if (raw === '') return
+                const v = Math.min(awardedCap, Math.max(0, Number(raw)))
+                if (!isNaN(v)) setMark('__total__', v)
+              }}
+              className="text-4xl font-black w-32 text-center bg-transparent focus:outline-none block mx-auto"
+              style={{ color: 'var(--primary)' }}
+              placeholder="0"
+            />
+            <div className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>
+              out of {totalMarks > 0 ? totalMarks : '— (set paper total above)'}
+            </div>
+          </div>
         </div>
       )}
 

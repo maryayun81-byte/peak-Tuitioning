@@ -5,12 +5,20 @@ export type GeminiMessage = {
   content: string
 }
 
+// Vision input: base64-encoded image bytes with their MIME type.
+// Sent as inlineData parts on the (single) user turn.
+export type GeminiImageInput = {
+  base64: string
+  mimeType: string
+}
+
 export type GeminiProvider = 'gemini'
 
 type GeminiOptions = {
   temperature?: number
   maxTokens?: number
   responseFormat?: { type: 'json_object' }
+  images?: GeminiImageInput[]
 }
 
 type GeminiResult = {
@@ -23,7 +31,7 @@ type GeminiResult = {
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
 
-function buildGeminiContents(messages: GeminiMessage[]) {
+function buildGeminiContents(messages: GeminiMessage[], images: GeminiImageInput[] = []) {
   const systemMessages = messages.filter(m => m.role === 'system')
   const conversationMessages = messages.filter(m => m.role !== 'system')
 
@@ -31,6 +39,18 @@ function buildGeminiContents(messages: GeminiMessage[]) {
     role: m.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: m.content }],
   }))
+
+  // Attach vision parts to the last user turn (Gemini inlineData).
+  if (images.length > 0) {
+    let target = [...contents].reverse().find(c => c.role === 'user')
+    if (!target) {
+      target = { role: 'user', parts: [] }
+      contents.push(target)
+    }
+    for (const img of images.slice(0, 8)) {
+      target.parts.push({ inlineData: { mimeType: img.mimeType, data: img.base64 } } as any)
+    }
+  }
 
   const systemInstruction = systemMessages.map(m => ({ text: m.content })).join('\n')
 
@@ -55,7 +75,7 @@ export async function callGeminiChat(
 
   for (const model of models) {
     try {
-      const { contents, systemInstruction } = buildGeminiContents(messages)
+      const { contents, systemInstruction } = buildGeminiContents(messages, options.images)
 
       const body: Record<string, any> = {
         contents,

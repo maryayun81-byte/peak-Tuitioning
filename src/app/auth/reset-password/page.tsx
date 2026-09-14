@@ -39,18 +39,65 @@ function ResetPasswordForm() {
   const [completed, setCompleted] = useState(false)
   
   const selectedRole = (searchParams.get('role') as keyof typeof ROLE_CONFIG) || 'teacher'
+  const linkError = searchParams.get('error')
+
+  // Recovery link state machine:
+  //  - 'verifying': we are exchanging ?code= (PKCE) or waiting for the
+  //    #access_token hash session to be picked up.
+  //  - 'ready': a session exists — the form is usable.
+  //  - 'invalid': no session and no code — link expired/used/wrong.
+  const [linkState, setLinkState] = useState<'verifying' | 'ready' | 'invalid'>('verifying')
 
   const { register, handleSubmit, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
   })
 
-  // Verify we actually have a session (Supabase should have set it from the recovery link)
+  // Establish a session from the recovery link, then unlock the form.
+  // Normal path: /auth/confirm already exchanged ?code= server-side, so a
+  // session exists on arrival. Fallback: very old emails (sent before the
+  // confirm route existed) land here directly with ?code= — exchange it
+  // client-side so those links still work.
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      // If no session but we are on reset-password, it might be an invalid or expired link
-      // However, usually Supabase takes care of this via the fragment/hash.
+    let cancelled = false
+    const establish = async () => {
+      // Supabase dashboard redirects here with ?error=expired when the
+      // code exchange failed server-side.
+      if (linkError === 'expired') {
+        if (!cancelled) setLinkState('invalid')
+        return
+      }
+      try {
+        const url = new URL(window.location.href)
+        const code = url.searchParams.get('code')
+        if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code)
+          if (error) {
+            if (!cancelled) setLinkState('invalid')
+            return
+          }
+          // Remove the single-use code from the address bar.
+          url.searchParams.delete('code')
+          window.history.replaceState({}, '', url.toString())
+        }
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!cancelled) setLinkState(session ? 'ready' : 'invalid')
+      } catch {
+        if (!cancelled) setLinkState('invalid')
+      }
+    }
+    establish()
+
+    // If the user opens a legacy implicit link (#access_token=...), the
+    // client picks the session up asynchronously — unlock when it arrives.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (cancelled) return
+      if (event === 'PASSWORD_RECOVERY' || event === 'SIGNED_IN') setLinkState('ready')
     })
-  }, [supabase.auth])
+    return () => {
+      cancelled = true
+      subscription.unsubscribe()
+    }
+  }, [supabase.auth, linkError])
 
   const onSubmit = async (data: FormData) => {
     setLoading(true)
@@ -66,6 +113,9 @@ function ResetPasswordForm() {
 
       setCompleted(true)
       toast.success('Password updated successfully!')
+      // End the recovery session so the user lands on login cleanly
+      // (otherwise the active session can auto-bounce them to a dashboard).
+      await supabase.auth.signOut()
       
       // Delay redirect to show success state
       setTimeout(() => {
@@ -106,7 +156,44 @@ function ResetPasswordForm() {
             </p>
           </div>
 
-          {!completed ? (
+          {completed ? (
+            <div className="text-center space-y-6 py-4">
+              <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-sm font-medium">
+                Success! Your password has been reset. Redirecting you to login...
+              </div>
+              <Button
+                onClick={async () => {
+                  await supabase.auth.signOut()
+                  router.push(`/auth/login?role=${selectedRole}`)
+                }}
+                className="w-full h-12 rounded-xl"
+                style={{ background: config.color }}
+              >
+                Go to Login Now
+              </Button>
+            </div>
+          ) : linkState === 'verifying' ? (
+            <div className="text-center space-y-6 py-8">
+              <div className="w-10 h-10 border-2 border-t-transparent rounded-full animate-spin mx-auto" style={{ borderColor: config.color }} />
+              <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                Verifying your reset link…
+              </p>
+            </div>
+          ) : linkState === 'invalid' ? (
+            <div className="text-center space-y-6 py-4">
+              <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-500 text-sm font-medium">
+                This reset link is invalid or has expired (links are single-use and time-limited).
+                Please request a fresh one.
+              </div>
+              <Button
+                onClick={() => router.push(`/auth/forgot-password?role=${selectedRole}`)}
+                className="w-full h-12 rounded-xl"
+                style={{ background: config.color }}
+              >
+                Request New Link
+              </Button>
+            </div>
+          ) : (
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
               <Input
                 label="New Password"
@@ -140,19 +227,6 @@ function ResetPasswordForm() {
                 Update Password
               </Button>
             </form>
-          ) : (
-            <div className="text-center space-y-6 py-4">
-              <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-sm font-medium">
-                Success! Your password has been reset. Redirecting you to login...
-              </div>
-              <Button
-                onClick={() => router.push(`/auth/login?role=${selectedRole}`)}
-                className="w-full h-12 rounded-xl"
-                style={{ background: config.color }}
-              >
-                Go to Login Now
-              </Button>
-            </div>
           )}
         </div>
       </motion.div>

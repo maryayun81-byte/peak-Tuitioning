@@ -129,6 +129,7 @@ export interface LearningResource {
   file_size: number | null
   mime_type: string | null
   is_required: boolean
+  estimated_minutes: number | null
   order_index: number
   created_at: string
 }

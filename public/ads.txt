@@ -1,0 +1,3 @@
+# Google AdSense / Ad Manager sellers file.
+# Replace with your publisher ID when running Google display ads:
+# google.com, pub-0000000000000000, DIRECT, f08c47fec0942fa0

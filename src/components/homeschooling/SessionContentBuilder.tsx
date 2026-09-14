@@ -47,6 +47,7 @@ export default function SessionContentBuilder({ sessionId, onChanged }: Props) {
   const [resType, setResType] = useState('document')
   const [resUrl, setResUrl] = useState('')
   const [resRequired, setResRequired] = useState(false)
+  const [resMinutes, setResMinutes] = useState('')
   const [resSaving, setResSaving] = useState(false)
 
   const [linkSearch, setLinkSearch] = useState('')
@@ -121,18 +122,21 @@ export default function SessionContentBuilder({ sessionId, onChanged }: Props) {
     setResSaving(true)
     try {
       const isLink = resType === 'link' || resType === 'video'
+      const minutes = parseInt(resMinutes, 10)
       const res = await createLearningResource(sessionId, {
         title: resTitle.trim(),
         type: resType,
         url: isLink ? resUrl.trim() : undefined,
         file_path: !isLink ? resUrl.trim() : undefined,
         is_required: resRequired,
+        estimated_minutes: Number.isFinite(minutes) && minutes > 0 ? minutes : null,
       })
       if (!res.success) throw new Error(res.error)
       toast.success('Resource attached')
       setResTitle('')
       setResUrl('')
       setResRequired(false)
+      setResMinutes('')
       refresh()
     } catch (err: any) {
       toast.error(err.message || 'Failed to attach resource')
@@ -256,7 +260,7 @@ export default function SessionContentBuilder({ sessionId, onChanged }: Props) {
                   <TypeIcon size={14} style={{ color: 'var(--primary)' }} className="shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-bold truncate" style={{ color: 'var(--text)' }}>{r.title}</p>
-                    <p className="text-[10px] opacity-50">{typeInfo?.label || r.type}{r.is_required ? ' · Required' : ''}</p>
+                    <p className="text-[10px] opacity-50">{typeInfo?.label || r.type}{r.is_required ? ' · Required' : ''}{(r as any).estimated_minutes ? ` · ~${(r as any).estimated_minutes} min` : ''}</p>
                   </div>
                   {r.is_required && <Badge variant="warning" className="text-[9px] shrink-0">Required</Badge>}
                   <button onClick={() => handleDeleteResource(r.id)} className="p-1.5 rounded-lg hover:opacity-70 shrink-0" style={{ color: '#EF4444' }} aria-label="Remove resource">
@@ -285,11 +289,23 @@ export default function SessionContentBuilder({ sessionId, onChanged }: Props) {
               acceptDocs
             />
           )}
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" className="w-4 h-4 rounded" checked={resRequired} onChange={e => setResRequired(e.target.checked)} />
               <span className="text-xs font-semibold" style={{ color: 'var(--text)' }}>Required</span>
             </label>
+            <input
+              type="number"
+              min={1}
+              max={180}
+              value={resMinutes}
+              onChange={e => setResMinutes(e.target.value)}
+              placeholder="~ min"
+              aria-label="Estimated minutes"
+              title="Estimated time for the student (minutes, optional)"
+              className="w-20 rounded-lg border px-2 py-1.5 text-xs font-semibold outline-none"
+              style={{ background: 'var(--card)', borderColor: 'var(--card-border)', color: 'var(--text)' }}
+            />
             <Button size="sm" onClick={handleAddResource} isLoading={resSaving}><Plus size={13} /> Attach</Button>
           </div>
         </Card>

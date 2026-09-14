@@ -13,6 +13,7 @@ import toast from 'react-hot-toast'
 import { Button } from '../../../components/ui/Button'
 import { Input } from '../../../components/ui/Input'
 import { generateParentCode } from '../../../lib/utils'
+import { trackCompleteRegistration } from '@/lib/ads'
 
 type Role = 'teacher' | 'parent'
 
@@ -188,6 +189,7 @@ function RegisterForm() {
       }
 
       toast.success('Account created! Please check your email to verify.')
+      trackCompleteRegistration(`auth_register_${selectedRole}`)
       router.push(`/auth/login?role=${selectedRole}`)
     } finally {
       setLoading(false)

@@ -16,6 +16,7 @@ const MODE_COLORS: Record<string, string> = {
   TEACHER_LED: '#4F8CFF',
   SELF_STUDY: '#10B981',
   AI_SUPPORTED: '#A855F7',
+  HYBRID: '#F59E0B',
 }
 
 const STATUS_COLORS: Record<string, string> = {

@@ -186,6 +186,18 @@ export default function TeacherTimetablePage() {
 
   const currentWeek = displayWeeks[Math.min(displayWeekIndex, displayWeeks.length - 1)]
 
+  const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' })
+  const DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+  const todayIdx = DAY_ORDER.indexOf(todayName)
+  const todaySessions = allSessions
+    .filter((s) => s.day === todayName)
+    .sort((a, b) => String(a.start_time).localeCompare(String(b.start_time)))
+  const upcomingSessions = allSessions
+    .map((s) => ({ ...s, _distance: (DAY_ORDER.indexOf(s.day) - todayIdx + 7) % 7 }))
+    .filter((s) => (s as any)._distance > 0)
+    .sort((a, b) => (a as any)._distance - (b as any)._distance || String(a.start_time).localeCompare(String(b.start_time)))
+    .slice(0, 3)
+
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto">
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
@@ -239,6 +251,54 @@ export default function TeacherTimetablePage() {
       </motion.div>
 
       <Card className="p-4 overflow-hidden">
+        {(todaySessions.length > 0 || upcomingSessions.length > 0) && (
+          <div className="grid sm:grid-cols-2 gap-3 mb-4">
+            <div className="rounded-xl p-3" style={{ background: 'rgba(79,140,255,0.06)', border: '1px solid rgba(79,140,255,0.25)' }}>
+              <p className="text-[10px] font-black uppercase tracking-wider mb-2" style={{ color: '#4F8CFF' }}>
+                Teaching today ({todaySessions.length})
+              </p>
+              {todaySessions.length === 0 ? (
+                <p className="text-[11px] font-semibold" style={{ color: 'var(--text-muted)' }}>Nothing today.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {todaySessions.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => handleSessionClick(s)}
+                      className="w-full text-left text-xs font-bold truncate hover:underline"
+                      style={{ color: 'var(--text)' }}
+                    >
+                      {String(s.start_time).slice(0, 5)} · {s.topic || (s.subject as any)?.name} · {(s as any).enrollment?.student?.full_name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="rounded-xl p-3" style={{ background: 'var(--input)', border: '1px solid var(--card-border)' }}>
+              <p className="text-[10px] font-black uppercase tracking-wider mb-2" style={{ color: 'var(--text-muted)' }}>
+                Up next
+              </p>
+              {upcomingSessions.length === 0 ? (
+                <p className="text-[11px] font-semibold" style={{ color: 'var(--text-muted)' }}>Nothing upcoming this week.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {upcomingSessions.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => handleSessionClick(s)}
+                      className="w-full text-left text-xs font-bold truncate hover:underline"
+                      style={{ color: 'var(--text)' }}
+                    >
+                      {(s as any)._distance === 1 ? 'Tomorrow' : s.day} · {String(s.start_time).slice(0, 5)} · {s.topic || (s.subject as any)?.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
         {allSessions.length === 0 ? (
           <div className="py-16 text-center">
             <CalendarDays size={32} className="mx-auto mb-3 opacity-20" />

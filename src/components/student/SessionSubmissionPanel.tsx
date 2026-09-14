@@ -40,10 +40,27 @@ export default function SessionSubmissionPanel({ sessionId, submissionRequired, 
   const [answerText, setAnswerText] = useState('')
   const [files, setFiles] = useState<PendingFile[]>([])
   const [submitting, setSubmitting] = useState(false)
+  const [hasDraft, setHasDraft] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
+  const draftKey = `hs-submission:${sessionId}`
 
   useEffect(() => { load() }, [sessionId])
+
+  // Draft persistence (§68, §115): text + already-uploaded URLs survive
+  // leaving the page. Chosen-but-unuploaded photos cannot survive a
+  // reload (binary data) and must be re-attached.
+  useEffect(() => {
+    if (loading) return
+    try {
+      const doneUrls = files.filter((f) => f.status === 'done' && f.url).map((f) => f.url!)
+      if (answerText.trim() || doneUrls.length > 0) {
+        localStorage.setItem(draftKey, JSON.stringify({ text: answerText, urls: doneUrls }))
+      } else {
+        localStorage.removeItem(draftKey)
+      }
+    } catch { /* draft persistence is best-effort */ }
+  }, [answerText, files, loading, draftKey])
 
   const load = async () => {
     setLoading(true)
@@ -65,6 +82,25 @@ export default function SessionSubmissionPanel({ sessionId, submissionRequired, 
               status: 'done' as const, url,
             })))
           } catch { /* legacy TipTap content — start fresh */ }
+        } else {
+          // No server submission — restore an unfinished local draft (§68)
+          try {
+            const raw = localStorage.getItem(`hs-submission:${sessionId}`)
+            if (raw) {
+              const draft = JSON.parse(raw)
+              if (draft.text) setAnswerText(draft.text)
+              const urls: string[] = draft.urls || []
+              if (urls.length > 0) {
+                setFiles(urls.map((url, i) => ({
+                  id: `draft-${i}`, file: null as any, preview: url,
+                  status: 'done' as const, url,
+                })))
+                setHasDraft(true)
+              } else if (draft.text) {
+                setHasDraft(true)
+              }
+            }
+          } catch { /* start fresh */ }
         }
       }
     } finally {
@@ -149,6 +185,10 @@ export default function SessionSubmissionPanel({ sessionId, submissionRequired, 
       })
       if (!res.success) throw new Error(res.error)
       toast.success(submission ? 'Work resubmitted!' : 'Work submitted!')
+      try {
+        localStorage.removeItem(`hs-submission:${sessionId}`)
+      } catch { /* ignore */ }
+      setHasDraft(false)
       const subRes = await getSessionSubmission(sessionId)
       if (subRes.success) setSubmission(subRes.data)
       onSubmitted?.()
@@ -211,6 +251,11 @@ export default function SessionSubmissionPanel({ sessionId, submissionRequired, 
             </Badge>
           )}
         </div>
+        {hasDraft && !submission && (
+          <div className="rounded-xl border p-3 text-xs font-bold" style={{ background: 'rgba(79,140,255,0.06)', borderColor: 'rgba(79,140,255,0.3)', color: 'var(--text)' }}>
+            You have an unfinished submission — pick up where you left off.
+          </div>
+        )}
 
         {isReviewed && (
           <div className="p-4 rounded-xl space-y-2" style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.3)' }}>

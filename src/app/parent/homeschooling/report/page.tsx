@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/Button'
 import { SkeletonDashboard } from '@/components/ui/Skeleton'
 import { useAuthStore } from '@/stores/authStore'
 import { getCurrentWeekIndex, formatTimeRange } from '@/lib/homeschooling/constants'
+import WeeklyStoryCard from '@/components/homeschooling/WeeklyStoryCard'
 
 const DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
@@ -215,6 +216,13 @@ export default function ParentReportPage() {
             </Card>
           ) : (
             <>
+              {enrollment && week && (
+                <WeeklyStoryCard
+                  enrollmentId={enrollment.id}
+                  weekId={week.id}
+                  weekTitle={week.title || `Week ${week.week_number}`}
+                />
+              )}
               <Card className="p-5 hs-report-card">
                 <h2 className="text-sm font-black uppercase tracking-wider mb-3" style={{ color: 'var(--text)' }}>
                   This Week · {week.start_date} → {week.end_date}

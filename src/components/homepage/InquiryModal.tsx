@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { trackLead } from '@/lib/ads'
 
 export function InquiryModal() {
   const [submitted, setSubmitted] = useState(false)
@@ -50,7 +51,10 @@ export function InquiryModal() {
           onSubmit={(e) => {
             e.preventDefault()
             setLoading(true)
-            setTimeout(() => setSubmitted(true), 1200)
+            setTimeout(() => {
+              setSubmitted(true)
+              trackLead('homepage_inquiry')
+            }, 1200)
           }}
           className="space-y-4"
         >

@@ -41,10 +41,16 @@ function ForgotPasswordForm() {
   const onSubmit = async (data: FormData) => {
     setLoading(true)
     try {
-      const origin = typeof window !== 'undefined' && window.location.origin.includes('localhost') 
-        ? 'https://www.peakcampus.co.ke' 
-        : window.location.origin
-        
+      // Single redirectTo that works with BOTH Supabase email templates:
+      // - Recommended token-hash template
+      //   ({{ .SiteURL }}/auth/confirm?token_hash=...&type=recovery&next={{ .RedirectTo }}):
+      //   /auth/confirm verifies the token then unwraps this same-origin URL
+      //   to its path, preserving ?role=.
+      // - Default {{ .ConfirmationURL }} template: Supabase appends ?code=
+      //   to this URL and /auth/reset-password exchanges it client-side.
+      // Keep it to ONE query param (?role=, no raw &) so it survives being
+      // embedded inside the template's ?next= value.
+      const origin = window.location.origin
       const { error } = await supabase.auth.resetPasswordForEmail(data.email, {
         redirectTo: `${origin}/auth/reset-password?role=${selectedRole}`,
       })

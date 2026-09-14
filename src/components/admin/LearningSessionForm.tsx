@@ -141,6 +141,7 @@ export default function LearningSessionForm({
           <option value="teacher_led">Teacher-led</option>
           <option value="self_study">Self-study</option>
           <option value="ai_supported">AI-supported</option>
+          <option value="hybrid">Hybrid</option>
         </Select>
 
         <Input label="Topic" placeholder="Session topic" {...register('topic')} />

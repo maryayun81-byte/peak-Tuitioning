@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { trackLead } from '@/lib/ads'
 
 export function ContactForm() {
   const [submitted, setSubmitted] = useState(false)
@@ -25,7 +26,10 @@ export function ContactForm() {
       onSubmit={(e) => {
         e.preventDefault()
         setLoading(true)
-        setTimeout(() => setSubmitted(true), 1200)
+        setTimeout(() => {
+          setSubmitted(true)
+          trackLead('contact_page')
+        }, 1200)
       }}
       className="space-y-4"
     >

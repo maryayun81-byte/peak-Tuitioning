@@ -49,6 +49,8 @@ export default function EditWorksheetPage() {
   const [attachmentUrl, setAttachmentUrl] = useState<string | null>(null)
   const [responseMode, setResponseMode] = useState<'draw' | 'type' | 'both'>('draw')
   const [isWorkbook, setIsWorkbook] = useState(false)
+  // Workbook paper total (can't be derived from blocks when there are none).
+  const [manualTotalMarks, setManualTotalMarks] = useState('')
 
   // UI state
   const [loading, setLoading] = useState(true)
@@ -88,14 +90,15 @@ export default function EditWorksheetPage() {
   const formData = useMemo(() => ({
     title, classId, subjectId, centerId, dueDate, passage, passageType,
     showTimer, timeLimit, shuffleQ, blocks, attachmentUrl, response_mode: responseMode,
-    audience, selectedStudentIds, isWorkbook, lockAfterDeadline
-  }), [title, classId, subjectId, centerId, dueDate, passage, passageType, showTimer, timeLimit, shuffleQ, blocks, attachmentUrl, responseMode, audience, selectedStudentIds, isWorkbook, lockAfterDeadline])
+    audience, selectedStudentIds, isWorkbook, lockAfterDeadline, manualTotalMarks
+  }), [title, classId, subjectId, centerId, dueDate, passage, passageType, showTimer, timeLimit, shuffleQ, blocks, attachmentUrl, responseMode, audience, selectedStudentIds, isWorkbook, lockAfterDeadline, manualTotalMarks])
 
   const { hasSavedDraft, restore, clear } = useAutoSave(`edit_assignment_${id}`, formData, (saved) => {
     setTitle(saved.title)
     setBlocks(saved.blocks)
     setAttachmentUrl(saved.attachmentUrl)
     setIsWorkbook(saved.isWorkbook ?? false)
+    setManualTotalMarks(saved.manualTotalMarks ?? '')
     setLockAfterDeadline(saved.lockAfterDeadline ?? false)
     toast.success('Draft restored!')
   })
@@ -128,6 +131,11 @@ export default function EditWorksheetPage() {
         setAudience(data.audience === 'selected_students' ? 'students' : 'class')
         setSelectedStudentIds(data.selected_student_ids || [])
         setIsWorkbook(data.is_workbook || false)
+        // Pre-fill the workbook total from the saved paper total so editing
+        // never silently resets it to 0.
+        setManualTotalMarks(
+          data.is_workbook && (data.total_marks ?? 0) > 0 ? String(data.total_marks) : ''
+        )
         setLockAfterDeadline(data.lock_after_deadline || false)
       }
     } catch (e: any) {
@@ -213,7 +221,11 @@ export default function EditWorksheetPage() {
     ).values()
   )
 
-  const totalMarks = useMemo(() => blocks.reduce((sum, b) => sum + (b.marks || 0), 0), [blocks])
+  const blocksTotalMarks = useMemo(() => blocks.reduce((sum, b) => sum + (b.marks || 0), 0), [blocks])
+  const parsedManualTotal = parseInt(manualTotalMarks, 10)
+  const totalMarks = isWorkbook && !isNaN(parsedManualTotal) && parsedManualTotal > 0
+    ? parsedManualTotal
+    : blocksTotalMarks
 
   const addBlock = (type: QuestionType) => setBlocks(prev => [...prev, createBlock(type)])
   const updateBlock = (index: number, updated: WorksheetBlock) => setBlocks(prev => prev.map((b, i) => (i === index ? updated : b)))
@@ -223,7 +235,8 @@ export default function EditWorksheetPage() {
     if (!title.trim()) { toast.error('Please enter a worksheet title'); return }
     if (!classId) { toast.error('Please select a class'); return }
     if (!subjectId) { toast.error('Please select a subject'); return }
-    if (blocks.length === 0 && !attachmentUrl) { toast.error('Add at least one question or upload a document'); return }
+    if (blocks.length === 0 && !attachmentUrl && !isWorkbook) { toast.error('Add at least one question or upload a document'); return }
+    if (isWorkbook && totalMarks <= 0) { toast.error('Physical Workbook needs a Total Marks value (e.g. 20)'); return }
 
     setSaving(true)
     try {
@@ -354,13 +367,24 @@ export default function EditWorksheetPage() {
                    <div className="text-[10px] uppercase font-bold text-muted">Student submits a photo of their book</div>
                  </div>
                </div>
-               <button 
-                 onClick={() => setIsWorkbook(!isWorkbook)}
-                 className={`w-12 h-6 rounded-full relative transition-colors ${isWorkbook ? 'bg-primary' : 'bg-slate-200'}`}
-               >
-                 <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${isWorkbook ? 'left-7' : 'left-1'}`} />
-               </button>
-             </div>
+                <button 
+                  onClick={() => setIsWorkbook(!isWorkbook)}
+                  className={`w-12 h-6 rounded-full relative transition-colors ${isWorkbook ? 'bg-primary' : 'bg-slate-200'}`}
+                >
+                  <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${isWorkbook ? 'left-7' : 'left-1'}`} />
+                </button>
+              </div>
+
+              {isWorkbook && (
+                <Input
+                  label="Total Marks (paper total — required for marking)"
+                  type="number"
+                  min={1}
+                  placeholder="e.g. 20"
+                  value={manualTotalMarks}
+                  onChange={e => setManualTotalMarks(e.target.value)}
+                />
+              )}
 
              <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
                <Select label="Tuition Center scope" value={centerId} onChange={e => setCenterId(e.target.value)}>

@@ -9,6 +9,7 @@ import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { getPublicRegistrationCounts, processPublicRegistration } from '@/app/actions/event-registration'
+import { trackCompleteRegistration, trackLead } from '@/lib/ads'
 
 type CurriculumOption = { id: string; name: string }
 type ClassOption = { id: string; name: string; curriculum_id: string; level?: number | null }
@@ -312,6 +313,8 @@ export default function EventRegistrationPage() {
       .map((item) => ({ learnerName: item.learner.student_full_name, ...item.result.account }))
 
     toast.success(`Registered ${results.length} learner${results.length === 1 ? '' : 's'} successfully.`, { duration: 6000 })
+    trackLead('event_registration')
+    trackCompleteRegistration('event_registration')
     if (accounts.length > 0) {
       setCreatedCredentials(accounts)
       return
