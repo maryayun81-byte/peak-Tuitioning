@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   ChevronLeft, ChevronRight, Send, Clock, BookOpen,
   ChevronDown, ChevronUp, CheckCircle2, AlertCircle, Save, MessageSquare,
-  Plus, X, Camera, Image as ImageIcon
+  Plus, X, Camera, Image as ImageIcon, ExternalLink, Download, FileText
 } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
@@ -21,6 +21,7 @@ import toast from 'react-hot-toast'
 import type { WorksheetBlock, WorksheetAnswers, Student } from '@/types/database'
 import Link from 'next/link'
 import { FileUploadZone } from '@/components/worksheet/FileUploadZone'
+import { attachmentKindOf, attachmentLabelOf } from '@/lib/attachmentView'
 import { clearPageDataCache } from '@/hooks/usePageData'
 import { spotlightData } from '@/lib/spotlight'
 
@@ -121,8 +122,12 @@ export default function StudentWorksheetSolver() {
       }
     }
 
-    // Multi-page PDF logic
-    if (a.attachment_url?.toLowerCase().endsWith('.pdf')) {
+    // Multi-page PDF logic. Office docs (Word/Excel/PowerPoint) can NOT be
+    // rendered inline — they get a file-access card in the view below.
+    // (Feeding them to the canvas produced a blank page with no way to open
+    // the questions.)
+    const kind = attachmentKindOf(a.attachment_url)
+    if (kind === 'pdf') {
        setRenderingPdf(true)
        try {
           const imgs = await renderPdfToImages(a.attachment_url)
@@ -134,9 +139,11 @@ export default function StudentWorksheetSolver() {
        } finally {
           setRenderingPdf(false)
        }
-    } else if (a.attachment_url) {
-       setPageImages([a.attachment_url])
-    }
+     } else if (kind === 'image' && a.attachment_url) {
+        setPageImages([a.attachment_url])
+     }
+     // Office/other attachments: pageImages stays empty and the document
+     // view renders a file-access card (Open / Download) instead.
 
     // Strict Deadline Guard
     const isOverdue = a.due_date && new Date(a.due_date) < new Date()
@@ -360,9 +367,13 @@ export default function StudentWorksheetSolver() {
   const totalPages = isDocumentAssignment ? 1 : Math.ceil(questionBlocks.length / QUESTIONS_PER_PAGE)
   const pageBlocks = isDocumentAssignment ? [] : questionBlocks.slice(currentPage * QUESTIONS_PER_PAGE, (currentPage + 1) * QUESTIONS_PER_PAGE)
 
+  // De-duplicated (order-preserving): re-taps / bulk re-selects can store
+  // the same photo URL twice — without this the same page renders twice.
   const workbookPhotos: string[] = [
-    ...(Array.isArray(answers.__workbook_photos__) ? answers.__workbook_photos__ as string[] : []),
-    ...(answers.__workbook_photo__ && !(answers.__workbook_photos__ as any)?.length ? [answers.__workbook_photo__ as string] : []),
+    ...new Set([
+      ...(Array.isArray(answers.__workbook_photos__) ? answers.__workbook_photos__ as string[] : []),
+      ...(answers.__workbook_photo__ && !(answers.__workbook_photos__ as any)?.length ? [answers.__workbook_photo__ as string] : []),
+    ]),
   ]
   const hasWorkbookPhotos = workbookPhotos.length > 0
 
@@ -588,12 +599,24 @@ export default function StudentWorksheetSolver() {
                      </div>
                   </div>
 
-                  <div className="flex items-center gap-2 p-3 rounded-xl" style={{ background: 'rgba(255,255,255,0.5)', border: '1px solid rgba(var(--primary-rgb, 99,102,241),0.15)' }}>
-                     <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: 'var(--primary)' }} />
-                     <p className="text-[11px] font-medium" style={{ color: 'var(--text)' }}>
-                        📝 Solve in your physical workbook, then upload {workbookPhotos.length === 0 ? 'photos' : 'more pages'} here.
-                     </p>
-                  </div>
+                   <div className="flex items-center gap-2 p-3 rounded-xl" style={{ background: 'rgba(255,255,255,0.5)', border: '1px solid rgba(var(--primary-rgb, 99,102,241),0.15)' }}>
+                      <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: 'var(--primary)' }} />
+                      <p className="text-[11px] font-medium" style={{ color: 'var(--text)' }}>
+                         📝 Solve in your physical workbook, then upload {workbookPhotos.length === 0 ? 'photos' : 'more pages'} here.
+                      </p>
+                   </div>
+
+                   {/* Teacher's "which questions to do" instructions */}
+                   {(assignment as any)?.description && (
+                      <div className="p-4 rounded-2xl border-2" style={{ background: 'var(--card)', borderColor: 'var(--primary)' }}>
+                         <p className="text-[10px] font-black uppercase tracking-widest mb-1.5" style={{ color: 'var(--primary)' }}>
+                            What to do
+                         </p>
+                         <p className="text-sm font-medium leading-relaxed whitespace-pre-wrap" style={{ color: 'var(--text)' }}>
+                            {(assignment as any).description}
+                         </p>
+                      </div>
+                   )}
 
                   {/* Uploaded photos grid */}
                   {workbookPhotos.length > 0 && (
@@ -637,7 +660,8 @@ export default function StudentWorksheetSolver() {
                            </motion.div>
                         ))}
 
-                        {/* Add more button — up to 8 pages */}
+                        {/* Add more button — up to 8 pages, multi-select to
+                            add several photos at once */}
                         {workbookPhotos.length < 8 && (
                            <motion.div
                               layout
@@ -648,9 +672,9 @@ export default function StudentWorksheetSolver() {
                                 ? <div className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: 'var(--primary)' }} />
                                 : <Plus size={24} />}
                               <span className="text-[10px] font-black uppercase tracking-wider">
-                                {addingPage ? 'Uploading…' : 'Add Page'}
+                                {addingPage ? 'Uploading…' : 'Add Pages'}
                               </span>
-                              <span className="text-[9px] opacity-60">{workbookPhotos.length}/8</span>
+                              <span className="text-[9px] opacity-60">{workbookPhotos.length}/8 · tap to select many</span>
                            </motion.div>
                         )}
                      </div>
@@ -671,32 +695,53 @@ export default function StudentWorksheetSolver() {
                      />
                   )}
 
-                  {/* Hidden native file input for 'Add Page' — avoids FileUploadZone id prop error */}
+                  {/* Hidden native file input — `multiple` so students can
+                      select a whole run of pages in one go (bulk upload). */}
                   <input
                      ref={addPageInputRef}
                      type="file"
                      accept="image/*"
+                     multiple
                      className="hidden"
                      onChange={async e => {
-                        const file = e.target.files?.[0]
-                        if (!file) return
+                        const files = Array.from(e.target.files || []).filter(f => f.type.startsWith('image/'))
+                        // Reset so the same files can be re-selected if needed
+                        e.target.value = ''
+                        if (files.length === 0) return
+                        const room = 8 - workbookPhotos.length
+                        const batch = files.slice(0, Math.max(room, 0))
+                        if (batch.length === 0) {
+                           toast.error('You already have 8 pages — remove one to add more.')
+                           return
+                        }
+                        if (files.length > batch.length) {
+                           toast(`Only ${batch.length} more fit (8-page limit).`, { icon: 'ℹ️' })
+                        }
                         setAddingPage(true)
-                        const url = await uploadFileToStorage(file)
-                        if (url) {
-                           const updated = [...workbookPhotos, url]
+                        const uploaded: string[] = []
+                        try {
+                           for (let i = 0; i < batch.length; i++) {
+                              if (batch.length > 1) toast.loading(`Uploading page ${workbookPhotos.length + uploaded.length + 1} of ${workbookPhotos.length + batch.length}…`, { id: 'bulk-pages' })
+                              const url = await uploadFileToStorage(batch[i])
+                              if (url) uploaded.push(url)
+                              else toast.error(`One photo failed (${batch[i].name}). The rest continued.`)
+                           }
+                        } finally {
+                           toast.dismiss('bulk-pages')
+                        }
+                        if (uploaded.length > 0) {
+                           const updated = [...workbookPhotos, ...uploaded].slice(0, 8)
                            updateAnswer('__workbook_photos__', updated)
-                           if (workbookPhotos.length === 0) updateAnswer('__workbook_photo__', url)
-                           toast.success(`Page ${updated.length} added!`)
+                           if (workbookPhotos.length === 0) updateAnswer('__workbook_photo__', updated[0])
+                           toast.success(`${uploaded.length} page${uploaded.length > 1 ? 's' : ''} added!`)
                         }
                         setAddingPage(false)
-                        // Reset so same file can be re-selected if needed
-                        e.target.value = ''
                      }}
                   />
 
                   {workbookPhotos.length > 0 && (
                      <p className="text-[10px] text-center" style={{ color: 'var(--text-muted)' }}>
-                        ✅ {workbookPhotos.length} page{workbookPhotos.length > 1 ? 's' : ''} ready · tap a page to remove · tap + to add more
+                        ✅ {workbookPhotos.length} page{workbookPhotos.length > 1 ? 's' : ''} ready · tap + to select one or many more photos at once
                      </p>
                   )}
                </Card>
@@ -709,15 +754,18 @@ export default function StudentWorksheetSolver() {
                         <BookOpen size={16} style={{ color: 'var(--primary)' }} />
                         <span className="text-xs font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Your Marked Workbook</span>
                      </div>
-                     {workbookPhotos.length > 0 ? (
-                        workbookPhotos.map((photo, idx) => {
-                           let teacherAnn: string | undefined
-                           try {
-                              const ann = typeof returnedSub?.annotations === 'string'
-                                 ? JSON.parse(returnedSub.annotations)
-                                 : (returnedSub?.annotations ?? {})
-                              teacherAnn = ann[`doc_${idx}`] || ann[idx.toString()] || ann['doc_0'] || ann['0']
-                           } catch { teacherAnn = undefined }
+                      {workbookPhotos.length > 0 ? (
+                         workbookPhotos.map((photo, idx) => {
+                            // QC: each photo shows ONLY its own page's marks.
+                            // The old fallback (`|| ann['doc_0']`) repeated the
+                            // teacher's page-1 ink on every later page.
+                            let teacherAnn: string | undefined
+                            try {
+                               const ann = typeof returnedSub?.annotations === 'string'
+                                  ? JSON.parse(returnedSub.annotations)
+                                  : (returnedSub?.annotations ?? {})
+                               teacherAnn = ann[`doc_${idx}`] ?? ann[idx.toString()] ?? undefined
+                            } catch { teacherAnn = undefined }
                            return (
                               <div key={idx} className="space-y-2">
                                  <div className="text-[10px] font-black uppercase tracking-widest px-1" style={{ color: 'var(--text-muted)' }}>Page {idx + 1}</div>
@@ -761,6 +809,11 @@ export default function StudentWorksheetSolver() {
                               <span className="text-xs font-black uppercase tracking-widest text-slate-500">Document Assignment</span>
                            </div>
                            <div className="flex items-center gap-2">
+                              {/* Workbook reference mode: the paper is read-only —
+                                  photos of the physical book are the submission. */}
+                              {isWorkbook && (assignment as any)?.response_mode === 'blocks' && (
+                                 <span className="text-[10px] font-black px-2 py-1 rounded-lg bg-slate-100 text-slate-500">Reference — solve in your book</span>
+                              )}
                               {assignment.response_mode === 'both' && (
                                  <span className="text-[10px] font-black px-2 py-1 rounded-lg bg-amber-100 text-amber-600">Free Form Mode</span>
                               )}
@@ -780,7 +833,55 @@ export default function StudentWorksheetSolver() {
                                  <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
                                  <p className="text-sm font-bold text-slate-500">Preparing worksheet pages...</p>
                               </div>
-                           ) : pageImages.map((img, idx) => {
+                           ) : null}
+
+                           {/* Office/Word/Excel/PowerPoint attachments can't render
+                               inline — open them to read the questions, then
+                               solve in your workbook below. */}
+                           {(() => {
+                              const kind = attachmentKindOf(assignment?.attachment_url)
+                              if (kind === 'pdf' || kind === 'image' || !assignment?.attachment_url) return null
+                              const { label, ext } = attachmentLabelOf(assignment.attachment_url)
+                              return (
+                                 <div className="rounded-[2rem] border-4 border-white shadow-xl bg-white p-5 sm:p-6">
+                                    <div className="flex items-center gap-4">
+                                       <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-white shrink-0" style={{ background: 'var(--primary)' }}>
+                                          <FileText size={26} />
+                                       </div>
+                                       <div className="flex-1 min-w-0">
+                                          <p className="text-sm font-black truncate" style={{ color: 'var(--text)' }}>{label}</p>
+                                          <p className="text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+                                             {ext ? `.${ext} attached` : 'File attached'} · opens in a new tab
+                                          </p>
+                                       </div>
+                                    </div>
+                                    <p className="text-xs mt-3 leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                                       Open the file to read the questions{isWorkbook ? ', solve each one in your physical workbook, then upload photos of your pages below' : ', then work on them here'}.
+                                    </p>
+                                    <div className="flex flex-col sm:flex-row gap-2 mt-4">
+                                       <a
+                                          href={assignment.attachment_url}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl text-xs font-black uppercase tracking-widest text-white min-h-[48px]"
+                                          style={{ background: 'var(--primary)' }}
+                                       >
+                                          <ExternalLink size={15} /> Open {label}
+                                       </a>
+                                       <a
+                                          href={assignment.attachment_url}
+                                          download
+                                          className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl text-xs font-black uppercase tracking-widest min-h-[48px] border-2"
+                                          style={{ borderColor: 'var(--card-border)', color: 'var(--text)' }}
+                                       >
+                                          <Download size={15} /> Download
+                                       </a>
+                                    </div>
+                                 </div>
+                              )
+                           })()}
+
+                           {pageImages.map((img, idx) => {
                               const studentAnnMap = typeof answers.__annotation__ === 'string' 
                                  ? { "0": answers.__annotation__ } 
                                  : (answers.__annotation__ as any || {})
@@ -794,15 +895,15 @@ export default function StudentWorksheetSolver() {
                                     <div className="flex items-center justify-between px-4">
                                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Page {idx + 1}</span>
                                     </div>
-                                    <Card className="p-0 overflow-hidden border-4 border-white shadow-xl rounded-[2rem] bg-white">
+                                     <Card className="p-0 overflow-hidden border-4 border-white shadow-xl rounded-[2rem] bg-white">
                                        <AnnotationCanvas
                                           backgroundImageUrl={img}
                                           backgroundJson={resultMode ? studentAnnMap[idx.toString()] : undefined}
-                                          initialJson={resultMode 
+                                          initialJson={resultMode
                                              ? teacherAnnMap[`doc_${idx}`] || teacherAnnMap[idx.toString()] // check both formats
                                              : studentAnnMap[idx.toString()]
                                           }
-                                          readOnly={resultMode}
+                                          readOnly={resultMode || (isWorkbook && (assignment as any)?.response_mode === 'blocks')}
                                           onSave={json => updateAnnotation(json, idx)}
                                           defaultColor={assignment.response_mode === 'type' ? '#000000' : '#2563eb'}
                                        />

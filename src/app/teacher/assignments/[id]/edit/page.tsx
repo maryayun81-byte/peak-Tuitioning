@@ -51,6 +51,8 @@ export default function EditWorksheetPage() {
   const [isWorkbook, setIsWorkbook] = useState(false)
   // Workbook paper total (can't be derived from blocks when there are none).
   const [manualTotalMarks, setManualTotalMarks] = useState('')
+  // Workbook "which questions to do" instructions (stored in description).
+  const [instructions, setInstructions] = useState('')
 
   // UI state
   const [loading, setLoading] = useState(true)
@@ -90,8 +92,8 @@ export default function EditWorksheetPage() {
   const formData = useMemo(() => ({
     title, classId, subjectId, centerId, dueDate, passage, passageType,
     showTimer, timeLimit, shuffleQ, blocks, attachmentUrl, response_mode: responseMode,
-    audience, selectedStudentIds, isWorkbook, lockAfterDeadline, manualTotalMarks
-  }), [title, classId, subjectId, centerId, dueDate, passage, passageType, showTimer, timeLimit, shuffleQ, blocks, attachmentUrl, responseMode, audience, selectedStudentIds, isWorkbook, lockAfterDeadline, manualTotalMarks])
+    audience, selectedStudentIds, isWorkbook, lockAfterDeadline, manualTotalMarks, instructions
+  }), [title, classId, subjectId, centerId, dueDate, passage, passageType, showTimer, timeLimit, shuffleQ, blocks, attachmentUrl, responseMode, audience, selectedStudentIds, isWorkbook, lockAfterDeadline, manualTotalMarks, instructions])
 
   const { hasSavedDraft, restore, clear } = useAutoSave(`edit_assignment_${id}`, formData, (saved) => {
     setTitle(saved.title)
@@ -99,6 +101,7 @@ export default function EditWorksheetPage() {
     setAttachmentUrl(saved.attachmentUrl)
     setIsWorkbook(saved.isWorkbook ?? false)
     setManualTotalMarks(saved.manualTotalMarks ?? '')
+    setInstructions(saved.instructions ?? '')
     setLockAfterDeadline(saved.lockAfterDeadline ?? false)
     toast.success('Draft restored!')
   })
@@ -136,6 +139,7 @@ export default function EditWorksheetPage() {
         setManualTotalMarks(
           data.is_workbook && (data.total_marks ?? 0) > 0 ? String(data.total_marks) : ''
         )
+        setInstructions((data as any).description || '')
         setLockAfterDeadline(data.lock_after_deadline || false)
       }
     } catch (e: any) {
@@ -237,6 +241,10 @@ export default function EditWorksheetPage() {
     if (!subjectId) { toast.error('Please select a subject'); return }
     if (blocks.length === 0 && !attachmentUrl && !isWorkbook) { toast.error('Add at least one question or upload a document'); return }
     if (isWorkbook && totalMarks <= 0) { toast.error('Physical Workbook needs a Total Marks value (e.g. 20)'); return }
+    if (isWorkbook && !attachmentUrl && blocks.length === 0 && !instructions.trim()) {
+      toast.error('Add a question-paper photo, type reference questions, or write which questions to do');
+      return
+    }
 
     setSaving(true)
     try {
@@ -252,6 +260,7 @@ export default function EditWorksheetPage() {
           worksheet: blocks,
           passage: passage || null,
           passage_type: passageType,
+          description: instructions.trim() || null,
           total_marks: totalMarks,
           shuffle_questions: shuffleQ,
           show_timer: showTimer,
@@ -376,14 +385,49 @@ export default function EditWorksheetPage() {
               </div>
 
               {isWorkbook && (
-                <Input
-                  label="Total Marks (paper total — required for marking)"
-                  type="number"
-                  min={1}
-                  placeholder="e.g. 20"
-                  value={manualTotalMarks}
-                  onChange={e => setManualTotalMarks(e.target.value)}
-                />
+                <div className="space-y-3">
+                  <Input
+                    label="Total Marks (paper total — required for marking)"
+                    type="number"
+                    min={1}
+                    placeholder="e.g. 20"
+                    value={manualTotalMarks}
+                    onChange={e => setManualTotalMarks(e.target.value)}
+                  />
+                  {/* Workbook guide: live checklist + how it works. Question
+                      source sections below stay visible — workbooks need them
+                      most (that's what students solve in their books). */}
+                  <div className="p-4 rounded-2xl border-2" style={{ borderColor: 'var(--primary)', background: 'var(--primary-dim)' }}>
+                    <div className="text-[10px] font-black uppercase tracking-widest mb-2" style={{ color: 'var(--primary)' }}>
+                      How workbook assignments work
+                    </div>
+                    <p className="text-[11px] leading-relaxed mb-3" style={{ color: 'var(--text-muted)' }}>
+                      Students solve in their <strong>physical books</strong>, photograph each page and upload the photos here. You mark the photos. PDFs, Word docs, textbook photos or typed questions below all work as the question source.
+                    </p>
+                    <div className="text-[10px] font-black uppercase tracking-widest mb-3" style={{ color: 'var(--primary)' }}>
+                      Workbook setup — 3 steps, nothing else needed
+                    </div>
+                    <div className="space-y-2">
+                      {[
+                        { done: !!(title.trim() && classId && subjectId), label: 'Name it + pick class & subject below' },
+                        { done: totalMarks > 0, label: 'Set the paper total above' },
+                        { done: audience === 'students' ? selectedStudentIds.length > 0 : !!classId, label: audience === 'students' ? 'Choose the students below' : 'Target the whole class below' },
+                      ].map((s, i) => (
+                        <div key={i} className="flex items-center gap-2.5">
+                          <span
+                            className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black shrink-0"
+                            style={{ background: s.done ? '#10B981' : 'var(--card-border)', color: s.done ? 'white' : 'var(--text-muted)' }}
+                          >
+                            {s.done ? '✓' : i + 1}
+                          </span>
+                          <span className="text-xs font-bold" style={{ color: s.done ? 'var(--text-muted)' : 'var(--text)', textDecoration: s.done ? 'line-through' : 'none' }}>
+                            {s.label}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               )}
 
              <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
@@ -433,13 +477,45 @@ export default function EditWorksheetPage() {
                 )}
              </div>
 
-             {/* Document Upload */}
-             <FileUploadZone value={attachmentUrl} onChange={setAttachmentUrl} acceptDocs={true} />
-           </div>
+             {/* Question source: photo, PDF or Word (.doc/.docx) — workbooks
+                 need it most, since it is what students solve in their books. */}
+             <div>
+               <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-muted)' }}>
+                 {isWorkbook ? '📸 Question Source — photo, PDF or Word (.doc/.docx)' : '📎 Source Document (Optional)'}
+               </label>
+               <p className="text-[11px] mb-2" style={{ color: 'var(--text-muted)' }}>
+                 {isWorkbook
+                   ? 'Upload a photo/scan of the question paper, a PDF, or a Word document — hand-drawn pages work too, just photograph them.'
+                   : 'Upload a PDF or image (e.g. a scanned question paper). Students will work directly on it.'}
+               </p>
+               <FileUploadZone value={attachmentUrl} onChange={setAttachmentUrl} acceptDocs={true} />
+             </div>
 
+             {/* Which questions to do — workbook only, shown to students */}
+             {isWorkbook && (
+               <div>
+                 <label className="block text-xs font-semibold mb-2" style={{ color: 'var(--text-muted)' }}>
+                   📝 Which questions should students do?
+                 </label>
+                 <textarea
+                   className="w-full rounded-xl p-3 text-sm resize-none"
+                   style={{ background: 'var(--input)', color: 'var(--text)', border: '1px solid var(--card-border)' }}
+                   rows={3}
+                   value={instructions}
+                   onChange={e => setInstructions(e.target.value)}
+                   placeholder="e.g. Answer questions 1–5 on page 42. Show all working in your book."
+                 />
+               </div>
+             )}
+            </div>
+
+           {/* Typed reference questions — optional in workbook mode
+               (shown read-only; students answer in their books). */}
            <div className="p-4 md:p-6 space-y-4">
               <div className="flex items-center justify-between">
-                <h2 className="text-xs font-black uppercase tracking-widest text-muted">Questions ({blocks.length})</h2>
+                <h2 className="text-xs font-black uppercase tracking-widest text-muted">
+                  {isWorkbook ? 'Reference Questions (optional — read-only for students)' : `Questions (${blocks.length})`}
+                </h2>
                 <Badge variant="primary">{totalMarks} Marks</Badge>
               </div>
 
@@ -454,8 +530,8 @@ export default function EditWorksheetPage() {
               <button onClick={() => setTypeSheetOpen(true)} className="w-full py-4 rounded-2xl border-2 border-dashed border-card-border text-primary font-bold hover:bg-primary/5 transition-all">
                 + Add Question
               </button>
-           </div>
-        </div>
+            </div>
+          </div>
 
         {/* Preview Panel */}
         {showPreviewPanel && (
@@ -468,6 +544,9 @@ export default function EditWorksheetPage() {
                 passage={passage}
                 passage_type={passageType}
                 total_marks={totalMarks}
+                attachmentUrl={attachmentUrl}
+                description={isWorkbook ? instructions : null}
+                isWorkbook={isWorkbook}
              />
           </div>
         )}

@@ -24,9 +24,28 @@ const FEATURES = [
 
 const STORAGE_KEY = 'peak_homeschool_onboarding_done'
 
+// In-memory fallback so a storage failure (private browsing, blocked
+// cookies) can never cause an infinite nag loop within a session.
+let memorySeen = false
+
 export function hasSeenOnboarding(): boolean {
+  if (memorySeen) return true
   if (typeof window === 'undefined') return false
-  return localStorage.getItem(STORAGE_KEY) === 'true'
+  try {
+    return localStorage.getItem(STORAGE_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+export function markOnboardingSeen(): void {
+  memorySeen = true
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(STORAGE_KEY, 'true')
+  } catch {
+    // Storage blocked — memorySeen above still holds for this session.
+  }
 }
 
 export function HomeschoolOnboardingModal({ isOpen, onClose }: Props) {
@@ -39,7 +58,7 @@ export function HomeschoolOnboardingModal({ isOpen, onClose }: Props) {
   }, [isOpen])
 
   const handleClose = () => {
-    localStorage.setItem(STORAGE_KEY, 'true')
+    markOnboardingSeen()
     onClose()
   }
 

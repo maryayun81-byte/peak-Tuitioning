@@ -7,8 +7,9 @@ import {
   ArrowLeft, Check, Send, MessageSquare, Star,
   ChevronLeft, ChevronRight, ChevronDown, User, BookOpen, CheckCircle2,
   BarChart3, Users, AlertCircle, Clock, Zap, Trophy,
-  Maximize2, Minimize2
+  Maximize2, Minimize2, FileText, ExternalLink, Download
 } from 'lucide-react'
+import { attachmentKindOf, isInlineRenderable, attachmentLabelOf } from '@/lib/attachmentView'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { Card, Badge } from '@/components/ui/Card'
@@ -168,7 +169,10 @@ export default function WorksheetGraderPage() {
       const first = ws.find((b: WorksheetBlock) => b.type !== 'section_header' && b.type !== 'reading_passage')
       if (first) setActiveBlockId(first.id)
 
-      if (a.attachment_url?.toLowerCase().endsWith('.pdf')) {
+      // Office docs (Word/Excel/…) can't render inline — the canvas below
+      // shows a file-access card for them instead of a blank page.
+      const attachKind = attachmentKindOf(a.attachment_url)
+      if (attachKind === 'pdf') {
         setRenderingPdf(true)
         try {
           const imgs = await renderPdfToImages(a.attachment_url)
@@ -179,7 +183,7 @@ export default function WorksheetGraderPage() {
         } finally {
           setRenderingPdf(false)
         }
-      } else if (a.attachment_url) {
+      } else if (attachKind === 'image' && a.attachment_url) {
         setPageImages([a.attachment_url])
       }
 
@@ -586,7 +590,59 @@ export default function WorksheetGraderPage() {
                 <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />
                 <div className="text-sm font-bold opacity-50" style={{ color: 'var(--text)' }}>Rendering PDF…</div>
               </div>
-            ) : (answers?.__workbook_photos__ as any)?.length > 0 || answers?.__workbook_photo__ || pageImages.length > 0 ? (
+            ) : (
+              (() => {
+                // Office attachments (Word/Excel/…) can't render on a canvas —
+                // open them to read the questions; marking happens on the
+                // student work below.
+                const attachKind = attachmentKindOf(assignment?.attachment_url)
+                if (
+                  attachKind !== null && !isInlineRenderable(attachKind) &&
+                  assignment?.attachment_url &&
+                  !(answers?.__workbook_photos__ as any)?.length && !answers?.__workbook_photo__
+                ) {
+                  const { label, ext } = attachmentLabelOf(assignment.attachment_url)
+                  return (
+                    <div className="flex-1 overflow-y-auto p-4">
+                      <div className="rounded-2xl border p-5 max-w-lg mx-auto" style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}>
+                        <div className="flex items-center gap-3">
+                          <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-white shrink-0" style={{ background: 'var(--primary)' }}>
+                            <FileText size={24} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-black truncate" style={{ color: 'var(--text)' }}>{label}</p>
+                            <p className="text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+                              {ext ? `.${ext} question paper` : 'Question paper'} · opens in a new tab
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex flex-col sm:flex-row gap-2 mt-4">
+                          <a
+                            href={assignment.attachment_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl text-xs font-black uppercase tracking-widest text-white min-h-[48px]"
+                            style={{ background: 'var(--primary)' }}
+                          >
+                            <ExternalLink size={15} /> Open {label}
+                          </a>
+                          <a
+                            href={assignment.attachment_url}
+                            download
+                            className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl text-xs font-black uppercase tracking-widest min-h-[48px] border-2"
+                            style={{ borderColor: 'var(--card-border)', color: 'var(--text)' }}
+                          >
+                            <Download size={15} /> Download
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                }
+                return null
+              })()
+            )}
+            {(answers?.__workbook_photos__ as any)?.length > 0 || answers?.__workbook_photo__ || pageImages.length > 0 ? (
               (() => {
                 const wbPhotos: string[] = [
                   ...((answers?.__workbook_photos__ as string[]) || []),

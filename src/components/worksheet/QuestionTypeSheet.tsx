@@ -44,14 +44,19 @@ export function QuestionTypeSheet({ isOpen, onClose, onSelect }: QuestionTypeShe
             style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
             onClick={onClose}
           />
-          {/* Sheet — slides up on mobile, appears as modal on desktop */}
+          {/* Sheet — slides up on mobile, centered modal on desktop.
+              QC: centering is done with flexbox on a wrapper, NOT Tailwind
+              translate classes — framer-motion writes inline `transform`,
+              which silently kills `-translate-x/y-1/2` and left the sheet
+              stranded at the bottom on large screens. */}
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 pointer-events-none">
           <motion.div
-            initial={{ y: '100%', opacity: 0 }}
+            initial={{ y: '60px', opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
-            exit={{ y: '100%', opacity: 0 }}
+            exit={{ y: '60px', opacity: 0 }}
             transition={{ type: 'spring', damping: 28, stiffness: 350 }}
-            className="fixed bottom-0 left-0 right-0 md:inset-auto md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-[540px] z-50 rounded-t-3xl md:rounded-2xl overflow-hidden"
-            style={{ background: 'var(--card)', maxHeight: '80vh' }}
+            className="pointer-events-auto w-full sm:max-w-[540px] sm:w-[540px] rounded-t-3xl sm:rounded-2xl overflow-hidden shadow-2xl"
+            style={{ background: 'var(--card)', border: '1px solid var(--card-border)', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}
           >
             {/* Handle bar (mobile) */}
             <div className="flex md:hidden justify-center pt-3 pb-1">
@@ -73,7 +78,7 @@ export function QuestionTypeSheet({ isOpen, onClose, onSelect }: QuestionTypeShe
                 <button
                   key={t.type}
                   onClick={() => { onSelect(t.type); onClose() }}
-                  className="flex items-start gap-3 p-4 rounded-2xl text-left transition-all hover:scale-[1.02] active:scale-[0.98]"
+                  className="flex items-start gap-3 p-4 rounded-2xl text-left transition-all hover:scale-[1.02] active:scale-[0.98] min-h-[76px]"
                   style={{ background: `${t.color}10`, border: `1px solid ${t.color}25` }}
                 >
                   <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: t.color, color: 'white' }}>
@@ -87,6 +92,7 @@ export function QuestionTypeSheet({ isOpen, onClose, onSelect }: QuestionTypeShe
               ))}
             </div>
           </motion.div>
+          </div>
         </>
       )}
     </AnimatePresence>

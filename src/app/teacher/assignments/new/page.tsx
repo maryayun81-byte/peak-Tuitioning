@@ -51,10 +51,15 @@ export default function NewWorksheetPage() {
   // Document upload state
   const [attachmentUrl, setAttachmentUrl] = useState<string | null>(null)
   const [responseMode, setResponseMode] = useState<'draw' | 'type' | 'both'>('draw')
+  // Workbook mode keeps annotation tools OFF unless the teacher explicitly
+  // opts in — the photos are the submission, not pen marks on the paper.
+  const [annotateDoc, setAnnotateDoc] = useState(false)
   const [isWorkbook, setIsWorkbook] = useState(false)
   // Workbook assignments usually have no structured question blocks, so the
   // paper total can't be derived from blocks — the teacher must set it.
   const [manualTotalMarks, setManualTotalMarks] = useState('')
+  // Workbook "which questions to do" instructions (stored in description).
+  const [instructions, setInstructions] = useState('')
 
   // UI state
   const [typeSheetOpen, setTypeSheetOpen] = useState(false)
@@ -77,9 +82,9 @@ export default function NewWorksheetPage() {
   // Auto-save integration
   const formData = useMemo(() => ({
     title, classId, subjectId, centerId, dueDate, passage, passageType,
-    showTimer, timeLimit, shuffleQ, blocks, attachmentUrl, responseMode,
-    audience, selectedStudentIds, isWorkbook, lockAfterDeadline, manualTotalMarks
-  }), [title, classId, subjectId, centerId, dueDate, passage, passageType, showTimer, timeLimit, shuffleQ, blocks, attachmentUrl, responseMode, audience, selectedStudentIds, isWorkbook, lockAfterDeadline, manualTotalMarks])
+    showTimer, timeLimit, shuffleQ, blocks, attachmentUrl, responseMode, annotateDoc,
+    audience, selectedStudentIds, isWorkbook, lockAfterDeadline, manualTotalMarks, instructions
+  }), [title, classId, subjectId, centerId, dueDate, passage, passageType, showTimer, timeLimit, shuffleQ, blocks, attachmentUrl, responseMode, annotateDoc, audience, selectedStudentIds, isWorkbook, lockAfterDeadline, manualTotalMarks, instructions])
 
   const { hasSavedDraft, restore, clear, draftAge } = useAutoSave('new_assignment', formData, (saved) => {
     // This callback is for manual restoration
@@ -96,10 +101,12 @@ export default function NewWorksheetPage() {
     setBlocks(saved.blocks)
     setAttachmentUrl(saved.attachmentUrl)
     setResponseMode(saved.responseMode)
+    setAnnotateDoc(saved.annotateDoc ?? false)
     setAudience(saved.audience)
     setSelectedStudentIds(saved.selectedStudentIds)
     setIsWorkbook(saved.isWorkbook ?? false)
     setManualTotalMarks(saved.manualTotalMarks ?? '')
+    setInstructions(saved.instructions ?? '')
     setLockAfterDeadline(saved.lockAfterDeadline ?? false)
     toast.success('Draft restored!')
   })
@@ -270,6 +277,13 @@ export default function NewWorksheetPage() {
     // A workbook with total_marks = 0 cannot be marked (awarding is clamped
     // to the paper total), so require an explicit total up front.
     if (isWorkbook && totalMarks <= 0) { toast.error('Physical Workbook needs a Total Marks value (e.g. 20)'); return }
+    // A workbook with no question source leaves students with nothing to
+    // solve — require a photo/scan, typed reference questions, or written
+    // instructions on what to do.
+    if (isWorkbook && !attachmentUrl && blocks.length === 0 && !instructions.trim()) {
+      toast.error('Add a question-paper photo, type reference questions, or write which questions to do');
+      return
+    }
 
     setSaving(true)
 
@@ -297,13 +311,15 @@ export default function NewWorksheetPage() {
       worksheet: blocks,
       passage: passage || null,
       passage_type: passageType,
+      description: instructions.trim() || null,
       total_marks: totalMarks,
       shuffle_questions: shuffleQ,
       show_timer: showTimer,
       time_limit: showTimer ? timeLimit : null,
       max_marks: totalMarks,
       attachment_url: attachmentUrl || null,
-      response_mode: attachmentUrl ? responseMode : 'blocks',
+      // Workbook mode keeps annotation tools off unless opted in above.
+      response_mode: attachmentUrl ? (isWorkbook && !annotateDoc ? 'blocks' : responseMode) : 'blocks',
       content: JSON.stringify(blocks),
       audience: audience === 'students' ? 'selected_students' : 'class',
       selected_student_ids: audience === 'students' ? selectedStudentIds : [],
@@ -316,9 +332,12 @@ export default function NewWorksheetPage() {
       toast.error('Failed to save: ' + error.message)
     } else {
       toast.success(status === 'published' ? '🎉 Worksheet published!' : '✅ Draft saved!')
-      
-      // SEND NOTIFICATIONS
-      if (status === 'published') {
+
+      // SEND NOTIFICATIONS — best-effort only. The assignment is already
+      // saved; a notify failure must never strand the teacher here instead
+      // of redirecting to the assignments list.
+      try {
+        if (status === 'published') {
         const studentIds = audience === 'students' ? selectedStudentIds : []
         let targetUserIds: string[] = []
 
@@ -358,10 +377,14 @@ export default function NewWorksheetPage() {
             href: `/student/assignments/${newAssign?.id}`,
           })
         }
+        } // end if (status === 'published')
+      } catch (notifyErr) {
+        console.warn('[Assignment] Publish notifications failed (assignment is saved):', notifyErr)
       }
 
       clear() // Clear auto-save draft on successful save
       clearPageDataCache() // Invalidate list cache
+      setSaving(false)
       router.push('/teacher/assignments')
     }
     setSaving(false)
@@ -499,7 +522,7 @@ export default function NewWorksheetPage() {
             </div>
 
             {isWorkbook && (
-              <div className="mt-3">
+              <div className="mt-3 space-y-3">
                 <Input
                   label="Total Marks (paper total — required for marking)"
                   type="number"
@@ -508,6 +531,39 @@ export default function NewWorksheetPage() {
                   value={manualTotalMarks}
                   onChange={e => setManualTotalMarks(e.target.value)}
                 />
+                {/* Workbook guide: 3 steps, live checklist. Students solve in
+                    their physical books, photograph each page and upload —
+                    no typed answers needed. */}
+                <div className="p-4 rounded-2xl border-2" style={{ borderColor: 'var(--primary)', background: 'var(--primary-dim)' }}>
+                  <div className="text-[10px] font-black uppercase tracking-widest mb-2" style={{ color: 'var(--primary)' }}>
+                    How workbook assignments work
+                  </div>
+                  <p className="text-[11px] leading-relaxed mb-3" style={{ color: 'var(--text-muted)' }}>
+                    Students solve in their <strong>physical books</strong>, photograph each page and upload the photos here. You mark the photos. PDFs, Word docs, textbook photos or typed questions below all work as the question source.
+                  </p>
+                  <div className="text-[10px] font-black uppercase tracking-widest mb-3" style={{ color: 'var(--primary)' }}>
+                    Workbook setup — 3 steps, nothing else needed
+                  </div>
+                  <div className="space-y-2">
+                    {[
+                      { done: !!(title.trim() && classId && subjectId), label: 'Name it + pick class & subject below' },
+                      { done: totalMarks > 0, label: 'Set the paper total above' },
+                      { done: audience === 'students' ? selectedStudentIds.length > 0 : !!classId, label: audience === 'students' ? 'Choose the students below' : 'Target the whole class below' },
+                    ].map((s, i) => (
+                      <div key={i} className="flex items-center gap-2.5">
+                        <span
+                          className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black shrink-0"
+                          style={{ background: s.done ? '#10B981' : 'var(--card-border)', color: s.done ? 'white' : 'var(--text-muted)' }}
+                        >
+                          {s.done ? '✓' : i + 1}
+                        </span>
+                        <span className="text-xs font-bold" style={{ color: s.done ? 'var(--text-muted)' : 'var(--text)', textDecoration: s.done ? 'line-through' : 'none' }}>
+                          {s.label}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
 
@@ -670,7 +726,9 @@ export default function NewWorksheetPage() {
               )}
             </div>
 
-            {/* Passage toggle */}
+            {/* Passage — digital worksheets only (workbooks use the
+                "which questions" instructions + question source below). */}
+            {!isWorkbook && (
             <div>
               <label className="block text-xs font-semibold mb-2" style={{ color: 'var(--text-muted)' }}>Reading Passage / Poem (Optional)</label>
               <div className="flex gap-2 mb-3">
@@ -692,20 +750,70 @@ export default function NewWorksheetPage() {
                 />
               )}
             </div>
+            )}
 
-            {/* Document Upload Section */}
+            {/* Question source — BOTH modes. Workbooks need it most: this is
+                what students solve in their physical books. */}
             <div>
-              <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-muted)' }}>
-                📎 Source Document (Optional)
-              </label>
-              <p className="text-[11px] mb-2" style={{ color: 'var(--text-muted)' }}>
-                Upload a PDF or image (e.g. a scanned question paper). Students will work directly on it.
-              </p>
+                <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-muted)' }}>
+                  {isWorkbook ? '📸 Question Source — photo, PDF or Word (.doc/.docx)' : '📎 Source Document (Optional)'}
+                </label>
+                <p className="text-[11px] mb-2" style={{ color: 'var(--text-muted)' }}>
+                  {isWorkbook
+                    ? 'Upload a photo or scan of the question paper / textbook page, a PDF, or a Word document — hand-drawn pages work too, just photograph them. Students open it to see the questions.'
+                    : 'Upload a PDF or image (e.g. a scanned question paper). Students will work directly on it.'}
+                </p>
               <FileUploadZone value={attachmentUrl} onChange={setAttachmentUrl} acceptDocs={true} />
             </div>
 
-            {/* Student Response Mode — only shown when a document is uploaded */}
-            {attachmentUrl && (
+            {/* Workbook opt-in: annotation tools on the document */}
+            {isWorkbook && attachmentUrl && (
+              <div
+                className="p-3.5 rounded-2xl border flex items-center justify-between gap-3"
+                style={{ background: 'var(--input)', borderColor: 'var(--card-border)' }}
+              >
+                <div>
+                  <div className="text-xs font-black" style={{ color: 'var(--text)' }}>
+                    Let students draw / type on the document?
+                  </div>
+                  <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                    Off by default — workbook photos are the submission.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={annotateDoc}
+                  onClick={() => setAnnotateDoc(v => !v)}
+                  className="w-12 h-6 rounded-full relative transition-colors shrink-0"
+                  style={{ background: annotateDoc ? 'var(--primary)' : '#CBD5E1' }}
+                >
+                  <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${annotateDoc ? 'left-7' : 'left-1'}`} />
+                </button>
+              </div>
+            )}
+
+            {/* Which questions to do — workbook only, shown to students */}
+            {isWorkbook && (
+              <div>
+                <label className="block text-xs font-semibold mb-2" style={{ color: 'var(--text-muted)' }}>
+                  📝 Which questions should students do?
+                </label>
+                <textarea
+                  className="w-full rounded-xl p-3 text-sm resize-none"
+                  style={{ background: 'var(--input)', color: 'var(--text)', border: '1px solid var(--card-border)' }}
+                  rows={3}
+                  value={instructions}
+                  onChange={e => setInstructions(e.target.value)}
+                  placeholder="e.g. Answer questions 1–5 on page 42. Show all working in your book."
+                />
+              </div>
+            )}
+
+            {/* Student Response Mode — digital worksheets show it with any
+                document; workbooks keep it OFF unless the teacher opts in
+                (photos are the submission, not pen marks on the paper). */}
+            {attachmentUrl && (!isWorkbook || annotateDoc) && (
               <div>
                 <label className="block text-xs font-semibold mb-2" style={{ color: 'var(--text-muted)' }}>
                   Student Response Mode
@@ -737,16 +845,19 @@ export default function NewWorksheetPage() {
           </div>
 
 
-          {/* Questions */}
+          {/* Typed reference questions — optional in workbook mode (shown
+              read-only; students answer in their books), required otherwise
+              unless a document is attached. */}
           <div className="p-4 md:p-6 space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-xs font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
-                Questions ({blocks.length})
+                {isWorkbook ? 'Reference Questions (optional — read-only for students)' : `Questions (${blocks.length})`}
               </h2>
               <div className="flex items-center gap-2">
                 <span className="text-xs font-black px-2 py-1 rounded-lg" style={{ background: 'var(--primary-dim)', color: 'var(--primary)' }}>
                   {totalMarks} marks
                 </span>
+                {!isWorkbook && (
                 <button
                   type="button"
                   onClick={() => setShuffleQ(s => !s)}
@@ -755,6 +866,7 @@ export default function NewWorksheetPage() {
                 >
                   Shuffle
                 </button>
+                )}
               </div>
             </div>
 
@@ -762,7 +874,11 @@ export default function NewWorksheetPage() {
               <div className="py-16 text-center rounded-2xl" style={{ border: '2px dashed var(--card-border)' }}>
                 <div className="text-4xl mb-3">📋</div>
                 <p className="font-bold" style={{ color: 'var(--text)' }}>No questions yet</p>
-                <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>Tap the + button below to add your first question</p>
+                <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
+                  {isWorkbook
+                    ? 'Optional — the photo above can carry the questions. Tap + to type reference questions.'
+                    : 'Tap the + button below to add your first question'}
+                </p>
               </div>
             )}
 
@@ -807,13 +923,17 @@ export default function NewWorksheetPage() {
                 passage={passage}
                 passage_type={passageType}
                 total_marks={totalMarks}
+                attachmentUrl={attachmentUrl}
+                description={isWorkbook ? instructions : null}
+                isWorkbook={isWorkbook}
               />
             </div>
           </div>
         )}
       </div>
 
-      {/* Mobile FAB */}
+      {/* Mobile FAB — hidden in workbook mode (no questions to add) */}
+      {!isWorkbook && (
       <motion.button
         type="button"
         onClick={() => setTypeSheetOpen(true)}
@@ -824,6 +944,7 @@ export default function NewWorksheetPage() {
       >
         <Plus size={24} />
       </motion.button>
+      )}
 
       {/* Question Type Bottom Sheet */}
       <QuestionTypeSheet
@@ -843,6 +964,9 @@ export default function NewWorksheetPage() {
             passage={passage}
             passage_type={passageType}
             total_marks={totalMarks}
+            attachmentUrl={attachmentUrl}
+            description={isWorkbook ? instructions : null}
+            isWorkbook={isWorkbook}
           />
         </div>
       </Modal>

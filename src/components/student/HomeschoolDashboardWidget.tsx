@@ -6,7 +6,7 @@ import { GraduationCap, Clock, ChevronRight, CheckCircle2, PlayCircle, AlertTria
 import { Card, Badge } from '@/components/ui/Card'
 import { useAuthStore } from '@/stores/authStore'
 import { formatTimeRange, getSessionModeLabel } from '@/lib/homeschooling/constants'
-import { HomeschoolOnboardingModal, hasSeenOnboarding } from '@/components/student/HomeschoolOnboardingModal'
+import { HomeschoolOnboardingModal, hasSeenOnboarding, markOnboardingSeen } from '@/components/student/HomeschoolOnboardingModal'
 import { getHomeschoolDashboardData, getHomeschoolWeeks } from '@/app/actions/homeschooling'
 import Link from 'next/link'
 
@@ -89,7 +89,12 @@ export default function HomeschoolDashboardWidget() {
 
       setStatus('active')
 
+      // QC: "shown once" must be recorded at SHOW time, not close time.
+      // Students who back-button/gesture away without tapping anything never
+      // run the close handler — recording only on close is why the modal
+      // returned on every visit.
       if (!hasSeenOnboarding()) {
+        markOnboardingSeen()
         setShowOnboarding(true)
       }
 

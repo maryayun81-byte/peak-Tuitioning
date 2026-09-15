@@ -1330,13 +1330,53 @@ export async function startMission(sessionId: string) {
     await verifySessionAccess(sessionId, user.id, 'student')
 
     const admin = await createAdminClient()
-    const { data: mission, error: fetchError } = await admin
+    const { data: session } = await admin
+      .from('learning_sessions')
+      .select('id, topic, learning_goal, instructions')
+      .eq('id', sessionId)
+      .maybeSingle()
+    if (!session) throw new Error('Session not found.')
+
+    let { data: mission, error: fetchError } = await admin
       .from('learning_missions')
       .select('id, is_started')
       .eq('session_id', sessionId)
       .maybeSingle()
 
-    if (fetchError || !mission) throw new Error('Mission not found.')
+    // QC SELF-HEAL: teachers often add objectives/content without pressing
+    // Publish (and publishes before the auto-create fix left no row), so the
+    // student's Begin button died with "Mission not found." even though the
+    // session was fully prepared. The mission row is an implementation
+    // detail — create it on first Begin instead of punishing the student.
+    // Race-safe: UNIQUE(session_id) + 23505 fallback, same as publish.
+    if (fetchError || !mission) {
+      const { data: created, error: createError } = await admin
+        .from('learning_missions')
+        .insert({
+          session_id: sessionId,
+          title: (session as any).topic || 'Session mission',
+          description: (session as any).learning_goal || (session as any).instructions || null,
+          is_started: false,
+          is_completed: false,
+        })
+        .select('id, is_started')
+        .single()
+      if (createError || !created) {
+        if ((createError as any)?.code === '23505') {
+          const { data: raced } = await admin
+            .from('learning_missions')
+            .select('id, is_started')
+            .eq('session_id', sessionId)
+            .maybeSingle()
+          if (!raced) throw new Error('Mission not found.')
+          mission = raced
+        } else {
+          throw new Error(createError?.message || 'Mission not found.')
+        }
+      } else {
+        mission = created
+      }
+    }
     if (mission.is_started) return { success: true, data: mission }
 
     const { data, error } = await admin

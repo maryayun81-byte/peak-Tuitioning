@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 import type { WorksheetBlock } from '@/types/database'
 import { cn } from '@/lib/utils'
 import { sanitizeHTML } from '@/lib/sanitize'
+import { attachmentKindOf, attachmentLabelOf } from '@/lib/attachmentView'
 
 interface WorksheetPreviewProps {
   title: string
@@ -13,12 +14,20 @@ interface WorksheetPreviewProps {
   passage?: string
   passage_type?: string
   total_marks: number
+  /** Attached question source (photo/scan/PDF/Word) — previewed below. */
+  attachmentUrl?: string | null
+  /** "Which questions to do" instructions (workbook mode). */
+  description?: string | null
+  /** Workbook mode: students solve in physical books. */
+  isWorkbook?: boolean
 }
 
 const DIFF_COLORS = { easy: '#10B981', medium: '#F59E0B', hard: '#EF4444' }
 const OPTION_LABELS = ['A', 'B', 'C', 'D', 'E', 'F']
 
-export function WorksheetPreview({ title, subject, class_name, blocks, passage, passage_type, total_marks }: WorksheetPreviewProps) {
+export function WorksheetPreview({ title, subject, class_name, blocks, passage, passage_type, total_marks, attachmentUrl, description, isWorkbook }: WorksheetPreviewProps) {
+  const attachKind = attachmentKindOf(attachmentUrl ?? null)
+  const attachLabel = attachmentUrl ? attachmentLabelOf(attachmentUrl) : null
   return (
     <div
       className="h-full overflow-y-auto"
@@ -66,6 +75,63 @@ export function WorksheetPreview({ title, subject, class_name, blocks, passage, 
             >
               {passage}
             </div>
+          </div>
+        )}
+
+        {/* Workbook instructions ("which questions to do") */}
+        {isWorkbook && description && (
+          <div className="px-10 py-6" style={{ background: '#f0fdf4', borderBottom: '1px solid #e5e7eb' }}>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-1 h-5 rounded-full" style={{ background: '#10B981' }} />
+              <span className="text-xs font-black uppercase tracking-widest text-emerald-700">
+                What to do
+              </span>
+            </div>
+            <div className="text-sm whitespace-pre-wrap leading-relaxed" style={{ color: '#374151' }}>
+              {description}
+            </div>
+          </div>
+        )}
+
+        {/* Attached question source — photo, PDF or Office doc */}
+        {attachmentUrl && (
+          <div className="px-10 py-6" style={{ background: '#f8fafc', borderBottom: '1px solid #e5e7eb' }}>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-1 h-5 rounded-full" style={{ background: '#0EA5E9' }} />
+              <span className="text-xs font-black uppercase tracking-widest text-sky-700">
+                Attached {attachLabel?.label || 'file'}
+              </span>
+            </div>
+            {attachKind === 'image' ? (
+              <div className="rounded-xl overflow-hidden border border-gray-200 bg-white shadow-sm">
+                <img
+                  src={attachmentUrl}
+                  alt="Attached question source"
+                  className="w-full max-h-[420px] object-contain bg-white"
+                />
+              </div>
+            ) : attachKind === 'pdf' ? (
+              <div className="rounded-xl overflow-hidden border border-gray-200 bg-white shadow-sm h-[420px] w-full">
+                <iframe
+                  src={attachmentUrl}
+                  className="w-full h-full border-none"
+                  title="Attached PDF preview"
+                />
+              </div>
+            ) : (
+              <div className="rounded-xl border border-gray-200 bg-white shadow-sm p-4 flex items-center gap-3">
+                <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 text-white font-black text-xs"
+                  style={{ background: '#0EA5E9' }}>
+                  {attachLabel?.ext ? `.${attachLabel.ext}` : 'FILE'}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-bold text-gray-900 truncate">{attachLabel?.label || 'Attached file'}</div>
+                  <a href={attachmentUrl} target="_blank" rel="noreferrer" className="text-xs underline text-sky-700">
+                    Open / download to verify
+                  </a>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
