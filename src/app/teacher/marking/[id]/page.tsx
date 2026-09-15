@@ -22,6 +22,7 @@ import type { WorksheetBlock, WorksheetAnswers } from '@/types/database'
 import Link from 'next/link'
 import { useAutoSave } from '@/hooks/useAutoSave'
 import { sendPushNotification } from '@/app/actions/push'
+import { spotlightData } from '@/lib/spotlight'
 
 export default function WorksheetGraderPage() {
   const params = useParams()
@@ -264,15 +265,27 @@ export default function WorksheetGraderPage() {
         ? `${numericAwarded}/${numericTotal}`
         : `${numericAwarded} marks`
       const pctText = numericTotal > 0 ? ` (${Math.round((numericAwarded / numericTotal) * 100)}%)` : ''
+      const pct = numericTotal > 0 ? Math.round((numericAwarded / numericTotal) * 100) : 0
       await supabase.from('notifications').insert({
         user_id: submission?.student?.user_id ?? null,
         type: 'assignment_returned',
         title: isHighPerf ? 'Mastery Achievement! +50 XP' : 'Assignment Returned (+10 XP)',
         body: isHighPerf
-          ? `Incredible! You scored ${Math.round((numericAwarded / numericTotal) * 100)}% on "${assignment?.title}".`
+          ? `Incredible! You scored ${pct}% on "${assignment?.title}".`
           : `Your worksheet "${assignment?.title}" has been marked. Score: ${scoreText}`,
         related_id: assignment?.id,
-        data: { xp: xpAwarded, marks: numericAwarded, total: numericTotal, mastery: isHighPerf, assignment_id: assignment?.id }
+        data: {
+          xp: xpAwarded, marks: numericAwarded, total: numericTotal, mastery: isHighPerf, assignment_id: assignment?.id,
+          ...spotlightData('assignment_returned', `/student/assignments/${assignment?.id}`, {
+            title: assignment?.title || 'Assignment',
+            subject: (assignment as any)?.subject?.name || (assignment as any)?.subject_name || null,
+            score: numericAwarded,
+            total: numericTotal,
+            pct,
+            xp: `+${xpAwarded} XP`,
+            feedback: (feedback || '').slice(0, 220) || null,
+          }),
+        }
       })
       if (submission?.student?.user_id) {
         await sendPushNotification([submission.student.user_id], {

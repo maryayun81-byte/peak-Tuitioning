@@ -16,9 +16,53 @@ import { PeakFooter } from '../components/homepage/PeakFooter'
 import { PeakEasterEggs } from '../components/homepage/PeakEasterEggs'
 import { LearningRoute } from '../components/peak/LearningRoute'
 
+// Brand-entity structured data: this is what teaches Google that
+// peakcampus.co.ke IS "Peak Performance Tutoring" (knowledge panel +
+// sitelinks eligibility). Facts mirror the public footer/contact details.
+const ORGANIZATION_JSON_LD = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'EducationalOrganization',
+      '@id': 'https://www.peakcampus.co.ke/#organization',
+      name: 'Peak Performance Tutoring',
+      alternateName: 'Peak Campus',
+      url: 'https://www.peakcampus.co.ke/',
+      logo: 'https://www.peakcampus.co.ke/logo.png',
+      description:
+        'Diagnostic, tiered tutoring for Kenyan 8-4-4 and CBC learners — KCSE revision, holiday tuition and parent-visible progress.',
+      address: {
+        '@type': 'PostalAddress',
+        streetAddress: 'St Ignatius, Kinoo',
+        addressLocality: 'Nairobi',
+        addressCountry: 'KE',
+      },
+      contactPoint: {
+        '@type': 'ContactPoint',
+        email: 'info@peakcampus.co.ke',
+        telephone: '+254 798 971 625',
+        contactType: 'admissions',
+        areaServed: 'KE',
+      },
+    },
+    {
+      '@type': 'WebSite',
+      '@id': 'https://www.peakcampus.co.ke/#website',
+      url: 'https://www.peakcampus.co.ke/',
+      name: 'Peak Performance Tutoring',
+      publisher: { '@id': 'https://www.peakcampus.co.ke/#organization' },
+      inLanguage: 'en-KE',
+    },
+  ],
+}
+
 export default function HomePage() {
   return (
     <main className="premium-landing overflow-x-hidden">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(ORGANIZATION_JSON_LD) }}
+      />
       <InquiryModal />
       <PeakNavigation />
       <PeakHero />

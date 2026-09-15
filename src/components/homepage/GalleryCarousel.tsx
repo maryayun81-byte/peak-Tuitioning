@@ -8,6 +8,17 @@ const CAMPUS_IMAGES = [
   '11', '12', '13', '14', '15', '16', '17', '18', '19', '20',
 ]
 
+// Verified captions for reviewed photos; the rest stay neutral so no image
+// is ever mislabelled.
+const IMAGE_CAPTIONS: Record<string, string> = {
+  '01': 'Exam-prep classroom with chemistry practical · Form 3–4',
+  '04': 'Small-group practical session · Peak Campus',
+  '08': 'Hands-on titration practical · Holiday tuition',
+  '15': 'CBC practical tasks with close tutor guidance',
+  '19': 'One-on-one practical guidance · Peak Campus',
+  '22': 'Teacher-led classroom session · Peak Campus',
+}
+
 export function GalleryCarousel() {
   const ref = useRef<HTMLDivElement>(null)
   const isInView = useInView(ref, { once: true, margin: '-50px' })
@@ -16,7 +27,8 @@ export function GalleryCarousel() {
 
   const images = CAMPUS_IMAGES.map((num) => ({
     src: `/campus-gallery-${num}.jpeg`,
-    alt: `Peak Campus - Session ${num}`,
+    alt: IMAGE_CAPTIONS[num] ? `${IMAGE_CAPTIONS[num]} — Peak Performance Tutoring, Kinoo Nairobi` : `Life at Peak Campus — photo ${num}`,
+    caption: IMAGE_CAPTIONS[num] ?? 'Life at Peak Campus',
   }))
 
   const goTo = useCallback((i: number) => {
@@ -87,6 +99,13 @@ export function GalleryCarousel() {
               {activeIndex + 1} / {images.length}
             </div>
 
+            {/* Caption */}
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 max-w-[70%] hidden sm:block">
+              <p key={activeIndex} className="text-center text-xs font-bold text-white bg-black/50 backdrop-blur-sm px-4 py-1.5 rounded-full truncate">
+                {images[activeIndex].caption}
+              </p>
+            </div>
+
             {/* Nav arrows */}
             <button
               onClick={prev}
@@ -135,6 +154,15 @@ export function GalleryCarousel() {
 
           {/* Controls */}
           <div className="flex items-center justify-center gap-4 mt-4">
+            <a
+              href="#fees"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-bold text-white bg-peak-green hover:shadow-lg transition-all"
+            >
+              See programmes & fees
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 13.5L12 21m0 0l-7.5-7.5M12 21V3" />
+              </svg>
+            </a>
             <button
               onClick={() => setIsPaused(!isPaused)}
               className="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors

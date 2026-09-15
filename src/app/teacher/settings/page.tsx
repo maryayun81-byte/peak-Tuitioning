@@ -6,7 +6,7 @@ import {
   User, Bell, Shield, Palette,
   Mail, Phone, Save, Camera,
   MapPin, BookOpen, School, BookMarked, AlertCircle,
-  Lock, Eye, EyeOff, KeyRound
+  Lock, Eye, EyeOff, KeyRound, Send
 } from 'lucide-react'
 import { Card, Badge } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -34,6 +34,53 @@ export default function TeacherSettings() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
   const [pwSaving, setPwSaving] = useState(false)
+
+  // Push self-test state
+  const [pushPermission, setPushPermission] = useState<string>(() =>
+    typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'unsupported'
+  )
+  const [pushTesting, setPushTesting] = useState(false)
+
+  const refreshPushPermission = () => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      setPushPermission(Notification.permission)
+    }
+  }
+
+  const handlePushTest = async () => {
+    setPushTesting(true)
+    try {
+      // If the browser hasn't asked yet, ask now — no permission, no push.
+      if ('Notification' in window && Notification.permission === 'default') {
+        const result = await Notification.requestPermission()
+        setPushPermission(result)
+        if (result !== 'granted') {
+          toast.error('Notifications blocked — allow them in your browser to receive alerts.')
+          return
+        }
+      }
+      const res = await fetch('/api/push/test', { method: 'POST' })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data) {
+        toast.error(data?.error || 'Push test failed. Please try again.')
+        return
+      }
+      if (data.ok) {
+        toast.success('Test sent! Check your device notification shade now.')
+      } else if (data.reason === 'no-subscriptions') {
+        toast.error('This browser has no push subscription yet — tap "Enable notifications" in the banner up top, then test again.')
+      } else if (data.reason === 'missing-vapid-keys') {
+        toast.error('Push is not configured on the server yet. Contact support with code VAPID-MISSING.')
+      } else {
+        toast.error('Push test failed. Contact support with what you see here.')
+      }
+    } catch {
+      toast.error('Push test failed. Check your connection and try again.')
+    } finally {
+      refreshPushPermission()
+      setPushTesting(false)
+    }
+  }
 
   const { 
     data: teacherData, 
@@ -369,6 +416,39 @@ export default function TeacherSettings() {
                               </div>
                            </div>
                         </a>
+
+                        {/* Push delivery self-test — proves this device receives alerts */}
+                        <div className="p-5 rounded-[1.5rem] border space-y-4" style={{ background: 'var(--input)', borderColor: 'var(--card-border)' }}>
+                           <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white shrink-0" style={{ background: '#F59E0B' }}>
+                                 <Send size={18} />
+                              </div>
+                              <div className="flex-1">
+                                 <p className="text-sm font-black" style={{ color: 'var(--text)' }}>Push Alerts On This Device</p>
+                                 <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                                    Browser permission: <span className="font-black" style={{ color: pushPermission === 'granted' ? '#10B981' : pushPermission === 'denied' ? '#EF4444' : 'var(--text)' }}>{pushPermission}</span>
+                                 </p>
+                              </div>
+                           </div>
+                           {pushPermission === 'denied' && (
+                              <p className="text-[11px] font-medium leading-relaxed" style={{ color: '#EF4444' }}>
+                                 Notifications are blocked in this browser. Open your browser's site settings for this site, allow Notifications, then come back and test.
+                              </p>
+                           )}
+                           {pushPermission === 'unsupported' && (
+                              <p className="text-[11px] font-medium leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                                 This browser does not support push notifications. Use Chrome, Edge or Firefox — or install the app on your phone.
+                              </p>
+                           )}
+                           <div className="flex gap-2">
+                              <Button onClick={handlePushTest} isLoading={pushTesting} size="sm" className="rounded-xl">
+                                 <Send size={14} className="mr-2" /> Send Test Notification
+                              </Button>
+                              <Button onClick={refreshPushPermission} variant="secondary" size="sm" className="rounded-xl">
+                                 Recheck
+                              </Button>
+                           </div>
+                        </div>
                     </motion.div>
                   )}
 

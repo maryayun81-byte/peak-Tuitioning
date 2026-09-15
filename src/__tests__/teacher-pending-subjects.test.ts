@@ -150,3 +150,49 @@ describe('isSubjectApplicableToClass', () => {
     expect(isSubjectApplicableToClass(maths, '', 'cur-cbc')).toBe(false)
   })
 })
+
+describe('72h auto-prompt freshness', () => {
+  const NOW = new Date('2026-09-14T12:00:00Z').getTime()
+  const hoursAgo = (h: number) => new Date(NOW - h * 60 * 60 * 1000).toISOString()
+  const freshSub = { ...maths, created_at: hoursAgo(24) }
+  const staleSub = { ...english, created_at: hoursAgo(100) }
+  const agelessSub = { ...agriculture, created_at: null }
+
+  it('flags recently-added subjects fresh and older ones stale', () => {
+    const pending = computeEligibleTeacherPendingSubjects({
+      ...base,
+      curriculumSubjects: [freshSub, staleSub],
+      now: NOW,
+    })
+    expect(pending.find((p) => p.subject.id === 's-math')!.isFresh).toBe(true)
+    expect(pending.find((p) => p.subject.id === 's-eng')!.isFresh).toBe(false)
+  })
+
+  it('keeps stale subjects eligible (manual Manage path) while fresh ones prompt', () => {
+    const pending = computeEligibleTeacherPendingSubjects({
+      ...base,
+      curriculumSubjects: [freshSub, staleSub],
+      now: NOW,
+    })
+    // Both still listed for on-demand opening; only fresh auto-prompts.
+    expect(pending.map((p) => p.subject.id).sort()).toEqual(['s-eng', 's-math'])
+    expect(pending.filter((p) => p.isFresh).map((p) => p.subject.id)).toEqual(['s-math'])
+  })
+
+  it('treats unknown-age subjects as non-fresh and honours a custom window', () => {
+    const pending = computeEligibleTeacherPendingSubjects({
+      ...base,
+      curriculumSubjects: [{ ...agriculture, class_id: 'c-1', created_at: null }],
+      now: NOW,
+    })
+    expect(pending[0].isFresh).toBe(false)
+
+    const wide = computeEligibleTeacherPendingSubjects({
+      ...base,
+      curriculumSubjects: [staleSub],
+      now: NOW,
+      autoPromptHours: 200,
+    })
+    expect(wide[0].isFresh).toBe(true)
+  })
+})

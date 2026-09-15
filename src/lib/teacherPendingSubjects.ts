@@ -31,6 +31,7 @@ export interface TeacherPendingSubjectSource {
   category?: string | null
   class_id?: string | null
   curriculum_id?: string | null
+  created_at?: string | null
 }
 
 export interface TeacherPendingSubject {
@@ -39,6 +40,10 @@ export interface TeacherPendingSubject {
   curriculumName: string
   curriculumCode: 'CBC' | '844'
   applicableClasses: TeacherClassSource[]
+  /** When the subject was added (drives the 72h auto-prompt window). */
+  addedAt: string | null
+  /** True while the subject is inside the auto-prompt window. */
+  isFresh: boolean
 }
 
 export interface ComputeEligibleTeacherPendingSubjectsInput {
@@ -52,7 +57,18 @@ export interface ComputeEligibleTeacherPendingSubjectsInput {
   assignedSubjects: TeacherPendingSubjectSource[]
   /** `${subjectId}:${classId}` combos already registered/taught. */
   registeredKeys: string[]
+  /**
+   * Auto-prompt window in hours (default 72). The modal only pops up on its
+   * own for subjects added within this window; older eligible subjects stay
+   * available through the manual "Manage" entry point.
+   */
+  autoPromptHours?: number
+  /** Reference time for freshness (defaults to now; injectable for tests). */
+  now?: number
 }
+
+/** Default: only subjects added in the last 72 hours auto-prompt. */
+export const TEACHER_SUBJECT_AUTO_PROMPT_HOURS = 72
 
 export const teacherSubjectKey = (subjectId: string, classId: string) => `${subjectId}:${classId}`
 
@@ -67,8 +83,16 @@ export function computeEligibleTeacherPendingSubjects({
   classLinkSubjects,
   assignedSubjects,
   registeredKeys,
+  autoPromptHours = TEACHER_SUBJECT_AUTO_PROMPT_HOURS,
+  now = Date.now(),
 }: ComputeEligibleTeacherPendingSubjectsInput): TeacherPendingSubject[] {
   const registered = new Set((registeredKeys || []).filter(Boolean))
+  const freshCutoff = now - autoPromptHours * 60 * 60 * 1000
+  const isFreshSubject = (s: TeacherPendingSubjectSource) => {
+    if (!s?.created_at) return false
+    const t = new Date(s.created_at).getTime()
+    return Number.isFinite(t) && t >= freshCutoff
+  }
   const classMap = new Map<string, TeacherClassSource>((teacherClasses || []).map((c) => [c.id, c]))
   const bySubject = new Map<string, { subject: TeacherPendingSubjectSource; classes: TeacherClassSource[] }>()
 
@@ -112,6 +136,8 @@ export function computeEligibleTeacherPendingSubjects({
         curriculumName,
         curriculumCode: curriculumCodeFor(curriculumName),
         applicableClasses: entry.classes.sort((a, b) => String(a.name).localeCompare(String(b.name))),
+        addedAt: entry.subject.created_at || null,
+        isFresh: isFreshSubject(entry.subject),
       }
     })
     .filter((entry) => entry.applicableClasses.length > 0)

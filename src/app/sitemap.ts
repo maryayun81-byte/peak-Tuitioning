@@ -1,10 +1,10 @@
 import { MetadataRoute } from 'next';
 
-export default function sitemap(): MetadataRoute.Sitemap {
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const baseUrl = 'https://www.peakcampus.co.ke';
   const now = new Date();
 
-  return [
+  const staticRoutes: MetadataRoute.Sitemap = [
     {
       url: baseUrl,
       lastModified: now,
@@ -72,4 +72,26 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 0.3,
     },
   ];
+
+  // Published blog articles as indexable URLs. Best-effort: if the database
+  // is unreachable at build time, the static routes above still ship and the
+  // build never fails.
+  try {
+    const { getPublicBlogPosts } = await import('@/app/actions/blog');
+    const result = await getPublicBlogPosts(100);
+    if (result.success && result.posts.length > 0) {
+      const articleRoutes: MetadataRoute.Sitemap = result.posts.map((post) => ({
+        url: `${baseUrl}/blog/${post.slug}`,
+        lastModified: post.publishedAt ? new Date(post.publishedAt) : now,
+        changeFrequency: 'monthly',
+        priority: 0.7,
+      }));
+      return [...staticRoutes, ...articleRoutes];
+    }
+  } catch {
+    // Fall through to static routes only.
+  }
+
+  return staticRoutes;
 }
+

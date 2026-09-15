@@ -23,6 +23,7 @@ import Link from 'next/link'
 import { useAutoSave } from '@/hooks/useAutoSave'
 import { DraftBanner } from '@/components/ui/DraftBanner'
 import { clearPageDataCache } from '@/hooks/usePageData'
+import { spotlightData } from '@/lib/spotlight'
 import { useAIFormStore } from '@/stores/aiFormStore'
 import { sendPushNotification } from '@/app/actions/push'
 
@@ -330,18 +331,30 @@ export default function NewWorksheetPage() {
         }
 
         if (targetUserIds.length > 0) {
+          const subjectName = derivedSubjects.find(s => s.id === subjectId)?.name || 'your class'
+          const format = isWorkbook ? 'Physical workbook' : attachmentUrl ? 'Document' : `Worksheet · ${blocks.length} question${blocks.length === 1 ? '' : 's'}`
           const notifications = targetUserIds.map(uid => ({
             user_id: uid,
             type: 'new_assignment',
             title: 'New Assignment Posted',
-            body: `A new assignment "${title}" has been posted in ${derivedSubjects.find(s => s.id === subjectId)?.name || 'your class'}.`,
+            body: `A new assignment "${title}" has been posted in ${subjectName}.`,
             related_id: newAssign?.id,
-            data: { assignment_id: newAssign?.id, subject_id: subjectId }
+            data: {
+              assignment_id: newAssign?.id,
+              subject_id: subjectId,
+              ...spotlightData('assignment_published', `/student/assignments/${newAssign?.id}`, {
+                title,
+                subject: subjectName,
+                due: dueDate ? new Date(dueDate).toLocaleDateString('en-KE', { day: 'numeric', month: 'short' }) : 'No due date',
+                marks: `${totalMarks} marks`,
+                format,
+              }),
+            }
           }))
           await supabase.from('notifications').insert(notifications)
           await sendPushNotification(targetUserIds, {
             title: 'New Assignment Posted',
-            body: `A new assignment "${title}" has been posted in ${derivedSubjects.find(s => s.id === subjectId)?.name || 'your class'}.`,
+            body: `A new assignment "${title}" has been posted in ${subjectName}.`,
             href: `/student/assignments/${newAssign?.id}`,
           })
         }

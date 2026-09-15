@@ -8,6 +8,9 @@ const PROGRAMMES = [
     name: 'Holiday Group Tuition',
     tag: 'MOST POPULAR',
     tagColor: 'bg-peak-green text-white',
+    // Real Peak chemistry practical: small groups, hands-on titration.
+    image: '/campus-gallery-08.jpeg',
+    imageAlt: 'Peak Campus students running a chemistry titration practical during holiday tuition in Kinoo, Nairobi',
     desc: 'Intensive small-group tuition every school holiday — April, August and November. Diagnosis, targeted teaching and exam technique in one focused block.',
     points: ['April intake', 'August intake', 'November intake', 'Small focused groups'],
     cta: 'Book Holiday Slot',
@@ -16,6 +19,9 @@ const PROGRAMMES = [
     name: 'Homeschooling',
     tag: 'PERSONALISED',
     tagColor: 'bg-peak-blue text-white',
+    // Real Peak close-guidance moment: tutor leaning in with learners.
+    image: '/campus-gallery-15.jpeg',
+    imageAlt: 'A Peak Campus tutor giving close personal guidance to homeschool learners during a practical task',
     desc: 'A full personal learning programme: weekly timetable, teacher-led and self-study sessions, Peak Coach AI support and parent reporting.',
     points: ['Personal timetable', 'Teacher + AI support', 'Weekly parent reports', 'Own pace, real evidence'],
     cta: 'Ask About Homeschooling',
@@ -24,6 +30,9 @@ const PROGRAMMES = [
     name: 'Home Tuition',
     tag: '1-ON-1',
     tagColor: 'bg-slate-900 text-white',
+    // Real Peak 1-on-1 attention: teacher guiding a learner hands-on.
+    image: '/campus-gallery-19.jpeg',
+    imageAlt: 'A Peak Campus teacher giving one-on-one practical guidance to a learner',
     desc: 'A tutor at your home, fully focused on your child. Flexible scheduling, all subjects, all levels.',
     points: ['One-on-one attention', 'At your home', 'Flexible hours', 'All subjects'],
     cta: 'Request a Tutor',
@@ -68,11 +77,25 @@ export function ProgrammesAndFees() {
               initial={{ opacity: 0, y: 30 }}
               animate={isInView ? { opacity: 1, y: 0 } : {}}
               transition={{ delay: 0.15 + i * 0.12 }}
-              className="relative bg-white border border-slate-200 rounded-2xl p-6 sm:p-7 flex flex-col hover:shadow-xl hover:-translate-y-1 transition-all duration-300"
+              className="relative bg-white border border-slate-200 rounded-2xl overflow-hidden flex flex-col hover:shadow-xl hover:-translate-y-1 transition-all duration-300"
             >
-              <span className={`absolute -top-3 left-6 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${prog.tagColor}`}>
-                {prog.tag}
-              </span>
+              {/* Real classroom photo — proof, not decoration */}
+              <div className="relative h-44 sm:h-48 shrink-0 overflow-hidden">
+                <img
+                  src={prog.image}
+                  alt={prog.imageAlt}
+                  loading="lazy"
+                  className="w-full h-full object-cover"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/45 via-black/5 to-transparent" />
+                <span className={`absolute top-3 left-4 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider shadow-lg ${prog.tagColor}`}>
+                  {prog.tag}
+                </span>
+                <span className="absolute bottom-3 left-4 text-[10px] font-bold uppercase tracking-widest text-white/90">
+                  Real Peak classes · Kinoo, Nairobi
+                </span>
+              </div>
+              <div className="p-6 sm:p-7 flex flex-col flex-1">
               <h3 className="text-lg font-bold text-slate-900 mt-1 mb-2">{prog.name}</h3>
               <p className="text-sm text-slate-500 leading-relaxed mb-4">{prog.desc}</p>
               <ul className="space-y-2 mb-6 flex-1">
@@ -91,8 +114,18 @@ export function ProgrammesAndFees() {
               >
                 {prog.cta}
               </a>
+              </div>
             </motion.div>
           ))}
+        </div>
+
+        <div className="text-center mb-8 md:mb-10">
+          <a href="#gallery" className="inline-flex items-center gap-2 text-sm font-bold text-peak-green hover:underline">
+            See these programmes in action — real classes, real practicals
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 13.5L12 21m0 0l-7.5-7.5M12 21V3" />
+            </svg>
+          </a>
         </div>
 
         <motion.div

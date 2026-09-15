@@ -259,6 +259,55 @@ export async function publishMission(sessionId: string) {
     await logHomeschoolAudit(user.id, 'publish', 'mission', sessionId, { version: nextVersion - 1 }, { version: nextVersion }, {
       objectives: objectives.length,
     })
+
+    // Notify the student: mission published spotlight (snapshot + deep link)
+    // plus push. Best-effort — publish itself already succeeded.
+    try {
+      const [{ data: enrollment }, { data: sessionFull }] = await Promise.all([
+        admin
+          .from('homeschool_enrollments')
+          .select('id, student:students(id, full_name, user_id)')
+          .eq('id', session.enrollment_id)
+          .maybeSingle(),
+        admin
+          .from('learning_sessions')
+          .select('topic, subject:subjects(name), teacher:teachers(full_name)')
+          .eq('id', sessionId)
+          .maybeSingle(),
+      ])
+      const studentUserId = (enrollment as any)?.student?.user_id
+      if (studentUserId) {
+        const topic = (session as any).topic || 'Learning mission'
+        const subjectName = (sessionFull as any)?.subject?.name || 'Homeschooling'
+        const teacherName = (sessionFull as any)?.teacher?.full_name || 'your teacher'
+        const { spotlightData } = await import('@/lib/spotlight')
+        await admin.from('notifications').insert({
+          user_id: studentUserId,
+          type: 'mission',
+          title: 'New mission ready 🚀',
+          body: `${teacherName} published "${topic}" — ${objectives.length} objective${objectives.length === 1 ? '' : 's'} to conquer.`,
+          data: {
+            session_id: sessionId,
+            enrollment_id: session.enrollment_id,
+            ...spotlightData('mission_published', `/student/homeschooling/session/${sessionId}`, {
+              title: topic,
+              subject: subjectName,
+              objectives: `${objectives.length} objective${objectives.length === 1 ? '' : 's'}`,
+              teacher: teacherName,
+            }),
+          },
+        })
+        const { sendPushNotification } = await import('@/app/actions/push')
+        await sendPushNotification([studentUserId], {
+          title: 'New mission ready 🚀',
+          body: `${teacherName} published "${topic}". Tap to begin.`,
+          href: `/student/homeschooling/session/${sessionId}`,
+        })
+      }
+    } catch (notifyErr) {
+      console.warn('[publishMission] Student notification failed:', notifyErr)
+    }
+
     return { success: true, data: { version: nextVersion, objectives: objectives.length } }
   } catch (err: any) {
     return { success: false, error: err.message }

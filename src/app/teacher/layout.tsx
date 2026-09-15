@@ -24,6 +24,7 @@ import { NewTeachingSubjectsManager } from '@/components/teacher/subjects/NewTea
 import { SessionHeartbeat } from '@/components/shared/SessionHeartbeat'
 import { useMessageUnreadCount } from '@/hooks/useMessageUnreadCount'
 import { PushNotificationSetup } from '@/components/PushNotificationSetup'
+import { QuickInfoModal } from '@/components/notifications/QuickInfoModal'
 
 import { useNotificationStore } from '@/stores/notificationStore'
 import { useRealtimeNotifications } from '@/hooks/useRealtimeNotifications'
@@ -393,6 +394,7 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
         } 
       />
       <PushNotificationSetup />
+      <QuickInfoModal />
       <TeacherAIAssistant />
       <SessionHeartbeat />
       <NewTeachingSubjectsManager />

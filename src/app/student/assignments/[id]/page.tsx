@@ -22,6 +22,7 @@ import type { WorksheetBlock, WorksheetAnswers, Student } from '@/types/database
 import Link from 'next/link'
 import { FileUploadZone } from '@/components/worksheet/FileUploadZone'
 import { clearPageDataCache } from '@/hooks/usePageData'
+import { spotlightData } from '@/lib/spotlight'
 
 const AUTOSAVE_MS = 4000
 
@@ -271,12 +272,23 @@ export default function StudentWorksheetSolver() {
     try {
       const teacherUserId = (assignment as any)?.teacher?.user_id
       if (teacherUserId) {
+        const submittedLabel = new Date().toLocaleDateString('en-KE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
         await supabase.from('notifications').insert({
           user_id: teacherUserId,
           title: '📝 New Submission',
           body: `${profile?.full_name || 'A student'} submitted "${assignment.title}"`,
           type: 'submission',
-          data: { assignment_id: assignmentId, student_id: student?.id, student_name: profile?.full_name },
+          data: {
+            assignment_id: assignmentId,
+            student_id: student?.id,
+            student_name: profile?.full_name,
+            ...spotlightData('submission_received', `/teacher/marking?assignment_id=${assignmentId}`, {
+              title: assignment.title,
+              student: profile?.full_name || 'A student',
+              assignment: assignment.title,
+              submitted: submittedLabel,
+            }),
+          },
         })
         const { sendPushNotification } = await import('@/app/actions/push')
         await sendPushNotification([teacherUserId], {

@@ -76,7 +76,7 @@ export function PeakFooter() {
       {/* Practical footer */}
       <div className="bg-slate-50 border-t border-slate-200/30 py-12">
         <div className="landing-container">
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-8 mb-12">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-8 mb-12">
             {/* Brand */}
             <div className="col-span-2 md:col-span-1">
               <div className="flex items-center gap-2 mb-4">
@@ -88,14 +88,21 @@ export function PeakFooter() {
               </p>
             </div>
 
-            {/* Links */}
+            {/* Links — every entry resolves to a real, indexable page.
+                Dead ends (404s) and homepage loops waste crawl equity and
+                actively block sitelinks. */}
             <div className="col-span-2 md:col-span-1">
               <div className="peak-label text-slate-500 mb-3">PROGRAMMES</div>
               <div className="space-y-2">
-                {['Junior (Grades 4–9)', 'Senior (Grade 10)', '8-4-4 (Form 3–4)', 'Holiday Tuition'].map((link) => (
-                  <div key={link}>
-                    <Link href="/programmes" className="text-xs text-slate-600 hover:text-peak-green transition-colors">
-                      {link}
+                {[
+                  { label: 'Junior (Grades 4–9)', href: '/kcse-and-cbc-tutoring-kenya' },
+                  { label: 'Senior (Grade 10)', href: '/kcse-and-cbc-tutoring-kenya' },
+                  { label: '8-4-4 (Form 3–4)', href: '/kcse-and-cbc-tutoring-kenya' },
+                  { label: 'Holiday Tuition', href: '/holiday-tuition-kenya' },
+                ].map((link) => (
+                  <div key={link.label}>
+                    <Link href={link.href} className="text-xs text-slate-600 hover:text-peak-green transition-colors">
+                      {link.label}
                     </Link>
                   </div>
                 ))}
@@ -105,10 +112,33 @@ export function PeakFooter() {
             <div>
               <div className="peak-label text-slate-500 mb-3">PORTALS</div>
               <div className="space-y-2">
-                {['Student Portal', 'Parent Portal', 'Teacher Studio'].map((link) => (
-                  <div key={link}>
-                    <Link href="/" className="text-xs text-slate-600 hover:text-peak-green transition-colors">
-                      {link}
+                {[
+                  { label: 'Student Portal', href: '/auth/login?role=student' },
+                  { label: 'Parent Portal', href: '/auth/login?role=parent' },
+                  { label: 'Teacher Studio', href: '/auth/login?role=teacher' },
+                ].map((link) => (
+                  <div key={link.label}>
+                    <Link href={link.href} className="text-xs text-slate-600 hover:text-peak-green transition-colors">
+                      {link.label}
+                    </Link>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <div className="peak-label text-slate-500 mb-3">EXPLORE</div>
+              <div className="space-y-2">
+                {[
+                  { label: 'About Us', href: '/about' },
+                  { label: 'Blog & Insights', href: '/blog' },
+                  { label: 'Nairobi Tuition Centre', href: '/tuition-center-nairobi' },
+                  { label: 'Events & Registration', href: '/events/register' },
+                  { label: 'Contact Us', href: '/contact' },
+                ].map((link) => (
+                  <div key={link.label}>
+                    <Link href={link.href} className="text-xs text-slate-600 hover:text-peak-green transition-colors">
+                      {link.label}
                     </Link>
                   </div>
                 ))}

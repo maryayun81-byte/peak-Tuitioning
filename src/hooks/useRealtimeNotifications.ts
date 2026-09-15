@@ -57,7 +57,9 @@ export function useRealtimeNotifications() {
 
         // Check for unread priority notification on initial load (Login/Refresh)
         const priorityTypes = ['broadcast', 'alert', 'info', 'warning']
-        const latestUnreadPriority = data.find(n => !n.read && priorityTypes.includes(n.type))
+        const latestUnreadPriority = data.find(
+          (n) => !n.read && (priorityTypes.includes(n.type) || n.data?.spotlight === true)
+        )
         if (latestUnreadPriority) {
            useNotificationStore.getState().setActivePriorityNotification(latestUnreadPriority)
         }
@@ -92,9 +94,12 @@ export function useRealtimeNotifications() {
             data: newNotif.data,
           })
 
-          // Trigger priority modal if it's an admin broadcast
+          // Trigger priority modal for admin broadcasts AND spotlight
+          // snapshots (rich assignment/quiz/mission/timetable/return cards).
+          // NOTE: `data` must travel with the payload — the snapshot card
+          // renders from it.
           const adminTypes = ['broadcast', 'alert', 'info', 'warning']
-          if (adminTypes.includes(newNotif.type)) {
+          if (adminTypes.includes(newNotif.type) || newNotif.data?.spotlight === true) {
              useNotificationStore.getState().setActivePriorityNotification({
                 id: newNotif.id,
                 user_id: actorUserId,
@@ -102,7 +107,8 @@ export function useRealtimeNotifications() {
                 body: newNotif.body,
                 type: newNotif.type,
                 read: false,
-                created_at: newNotif.created_at
+                created_at: newNotif.created_at,
+                data: newNotif.data,
              })
           }
 

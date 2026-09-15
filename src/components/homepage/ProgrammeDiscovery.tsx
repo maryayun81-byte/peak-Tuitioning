@@ -39,12 +39,33 @@ const TIERS = [
   },
 ]
 
+// Real Peak classroom per level — the discovery section shows the room,
+// not just the syllabus.
+const LEVEL_IMAGES: Record<string, { src: string; alt: string; caption: string }> = {
+  junior: {
+    src: '/campus-gallery-15.jpeg',
+    alt: 'CBC learners doing hands-on practical tasks in a Peak Campus classroom',
+    caption: 'CBC practical tasks · Real Peak class',
+  },
+  senior: {
+    src: '/campus-gallery-19.jpeg',
+    alt: 'A Peak Campus teacher guiding a senior learner one-on-one during a practical',
+    caption: 'Personal guidance · Real Peak class',
+  },
+  '844': {
+    src: '/campus-gallery-01.jpeg',
+    alt: 'Form 3 and Form 4 learners in a Peak Campus exam-prep classroom with a chemistry practical',
+    caption: '8-4-4 exam prep · Real Peak class',
+  },
+}
+
 export function ProgrammeDiscovery() {
   const [selectedGrade, setSelectedGrade] = useState(0)
   const ref = useRef<HTMLDivElement>(null)
   const isInView = useInView(ref, { once: true, margin: '-100px' })
 
   const currentGrade = GRADES[selectedGrade]
+  const levelImage = LEVEL_IMAGES[currentGrade.level] ?? LEVEL_IMAGES['844']
 
   return (
     <section id="programmes" ref={ref} className="relative py-12 md:py-16 overflow-hidden bg-white">
@@ -101,19 +122,29 @@ export function ProgrammeDiscovery() {
             className="grid lg:grid-cols-2 gap-8 lg:gap-12 mb-10"
           >
             {/* Subjects */}
-            <div className="bg-white border border-slate-200 rounded-2xl p-8">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="w-10 h-10 rounded-full bg-peak-green/10 border border-peak-green/20 flex items-center justify-center">
-                  <span className="text-lg">📚</span>
-                </div>
-                <div>
-                  <div className="text-lg font-bold text-slate-900">{currentGrade.grade}</div>
-                  <div className="peak-label text-slate-500">
-                    {currentGrade.level === 'junior' ? 'CBC CURRICULUM' : currentGrade.level === '844' ? '8-4-4 CURRICULUM' : 'SENIOR PROGRAMME'}
+            <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+              <div className="relative h-44 sm:h-52 shrink-0 overflow-hidden">
+                <img
+                  key={levelImage.src}
+                  src={levelImage.src}
+                  alt={levelImage.alt}
+                  loading="lazy"
+                  className="w-full h-full object-cover"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/10 to-transparent" />
+                <div className="absolute bottom-3 left-4 right-4 flex items-end justify-between gap-3">
+                  <div>
+                    <div className="text-lg font-bold text-white leading-tight">{currentGrade.grade}</div>
+                    <div className="text-[10px] font-bold uppercase tracking-widest text-white/80">
+                      {currentGrade.level === 'junior' ? 'CBC CURRICULUM' : currentGrade.level === '844' ? '8-4-4 CURRICULUM' : 'SENIOR PROGRAMME'}
+                    </div>
                   </div>
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-white/80 text-right shrink-0">
+                    {levelImage.caption}
+                  </span>
                 </div>
               </div>
-
+              <div className="p-8">
               <div className="space-y-2">
                 {currentGrade.subjects.map((subject, i) => (
                   <motion.div
@@ -127,6 +158,7 @@ export function ProgrammeDiscovery() {
                     <span className="text-sm text-slate-900">{subject}</span>
                   </motion.div>
                 ))}
+              </div>
               </div>
             </div>
 

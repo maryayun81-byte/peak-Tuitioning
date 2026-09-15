@@ -22,6 +22,7 @@ import { TimetablePDF } from '@/components/admin/TimetablePDF'
 import { exportTimetableToPDF, exportTimetableAsImage } from '@/lib/export/timetableExport'
 import { usePageData } from '@/hooks/usePageData'
 import { useQueryClient } from '@tanstack/react-query'
+import { spotlightData } from '@/lib/spotlight'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
 const DAY_COLORS: Record<string, string> = {
@@ -264,6 +265,82 @@ export default function AdminTimetables() {
     const labels: Record<string, string> = { published: 'Published ✅', draft: 'Moved to Draft', unpublished: 'Unpublished' }
     toast.success(labels[status])
     queryClient.invalidateQueries({ queryKey: ['admin', 'timetables'] })
+
+    // Publishing notifies the class + the teacher with snapshot cards.
+    // Best-effort: the status change above already succeeded.
+    if (status === 'published') {
+      try {
+        const entry: any = timetables.find((t: any) => t.id === id)
+        if (entry) {
+          const className = entry.class?.name || (classes.find((c: any) => c.id === entry.class_id) as any)?.name || 'your class'
+          const subjectName = entry.subject?.name || (subjects.find((s: any) => s.id === entry.subject_id) as any)?.name || 'Lesson'
+          const teacherName = entry.teacher?.full_name || (teachers.find((t: any) => t.id === entry.teacher_id) as any)?.full_name || 'Your teacher'
+          const timeLabel = `${entry.start_time || ''} – ${entry.end_time || ''}`.trim()
+          const [{ data: stUsers }, { data: teacherRow }] = await Promise.all([
+            entry.class_id
+              ? supabase.from('students').select('user_id').eq('class_id', entry.class_id)
+              : Promise.resolve({ data: [] as any[] }),
+            entry.teacher_id
+              ? supabase.from('teachers').select('user_id').eq('id', entry.teacher_id).maybeSingle()
+              : Promise.resolve({ data: null as any }),
+          ])
+          const studentUserIds = (stUsers || []).map((s: any) => s.user_id).filter(Boolean)
+          if (studentUserIds.length > 0) {
+            await supabase.from('notifications').insert(studentUserIds.map((uid: string) => ({
+              user_id: uid,
+              type: 'timetable',
+              title: 'Timetable Updated 🗓️',
+              body: `${subjectName} with ${teacherName} — ${entry.day} ${timeLabel}.`,
+              data: {
+                timetable_id: id,
+                class_id: entry.class_id,
+                ...spotlightData('timetable_published', '/student/schedule', {
+                  title: `${subjectName} · ${className}`,
+                  day: entry.day,
+                  time: timeLabel,
+                  subject: subjectName,
+                  teacher: teacherName,
+                }),
+              },
+            })))
+            const { sendPushNotification } = await import('@/app/actions/push')
+            await sendPushNotification(studentUserIds, {
+              title: 'Timetable Updated 🗓️',
+              body: `${subjectName} with ${teacherName} — ${entry.day} ${timeLabel}.`,
+              href: '/student/schedule',
+            })
+          }
+          const teacherUserId = (teacherRow as any)?.user_id
+          if (teacherUserId) {
+            await supabase.from('notifications').insert({
+              user_id: teacherUserId,
+              type: 'timetable',
+              title: 'You Have a Class 🗓️',
+              body: `${subjectName} · ${className} — ${entry.day} ${timeLabel}.`,
+              data: {
+                timetable_id: id,
+                class_id: entry.class_id,
+                ...spotlightData('timetable_published', '/teacher/schedule', {
+                  title: `${subjectName} · ${className}`,
+                  day: entry.day,
+                  time: timeLabel,
+                  subject: subjectName,
+                  teacher: teacherName,
+                }),
+              },
+            })
+            const { sendPushNotification } = await import('@/app/actions/push')
+            await sendPushNotification([teacherUserId], {
+              title: 'You Have a Class 🗓️',
+              body: `${subjectName} · ${className} — ${entry.day} ${timeLabel}.`,
+              href: '/teacher/schedule',
+            })
+          }
+        }
+      } catch (notifyErr) {
+        console.warn('[Timetable] Publish notifications failed:', notifyErr)
+      }
+    }
   }
 
   const del = async (id: string) => {

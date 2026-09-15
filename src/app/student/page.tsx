@@ -22,7 +22,6 @@ import { getReferralSummary } from '@/app/actions/referrals'
 import { getApprovedCreatorReel } from '@/app/actions/flashcards'
 import { calculateLevel } from '@/lib/gamification'
 import toast from 'react-hot-toast'
-import confetti from 'canvas-confetti'
 import Link from 'next/link'
 import { SeasonalBackground } from '@/components/seasonal/SeasonalBackground'
 import { MotivationMessage } from '@/components/seasonal/MotivationMessage'
@@ -840,16 +839,22 @@ function PremiumStudentHome({ student, profile, data, isCBC }: { student: any, p
   }, [classId])
 
   useEffect(() => {
+    let cancelled = false
     const timer = setTimeout(() => {
-      confetti({
-        particleCount: 30,
-        spread: 60,
-        origin: { y: 0.6 },
-        colors: ['#8b5cf6', '#f59e0b', '#22c55e', '#ef4444'],
-        disableForReducedMotion: true,
-      })
+      if (cancelled) return
+      // Dynamic import: confetti never blocks the homepage's first paint.
+      import('canvas-confetti').then(({ default: confetti }) => {
+        if (cancelled) return
+        confetti({
+          particleCount: 30,
+          spread: 60,
+          origin: { y: 0.6 },
+          colors: ['#8b5cf6', '#f59e0b', '#22c55e', '#ef4444'],
+          disableForReducedMotion: true,
+        })
+      }).catch(() => { /* decorative only */ })
     }, 800)
-    return () => clearTimeout(timer)
+    return () => { cancelled = true; clearTimeout(timer) }
   }, [])
 
   const quests = [
@@ -1985,8 +1990,14 @@ export default function StudentHomepageRouter() {
     return () => window.removeEventListener('peak:subjects-updated', onSubjectsUpdated)
   }, [student?.id])
 
+  // Generation guard: overlapping loads (remounts, subject updates) must not
+  // overwrite newer state or setState after unmount.
+  const loadGenRef = useRef(0)
+
   const loadData = async () => {
     if (!student?.id) return
+    const gen = ++loadGenRef.current
+    const alive = () => loadGenRef.current === gen
     const supabase = getSupabaseBrowserClient()
     const classId = (student as any).class_id
     const curriculumId = (student as any).curriculum_id
@@ -2028,24 +2039,42 @@ export default function StudentHomepageRouter() {
         .slice(0, 10)
     }
 
+    // Daily-insight day cache is synchronous — seed it instantly so the card
+    // can paint on first paint for return visits instead of awaiting the AI.
+    const dateKey = new Date().toISOString().split('T')[0]
+    const insightCacheKey = `peak_insight_${student.id}_${dateKey}`
+    let cachedInsight: any = null
     try {
-      const [feeds, vids, referralSummary, creatorReel, resourceReel] = await Promise.all([
-        safeLoad('feeds', getStudentHomepageFeeds(classId), fallbackFeeds),
-        safeLoad('videos', getStudentYouTubeSuggestions(classId), []),
-        safeLoad('referrals', getReferralSummary(student.id), { referralCode: '', completedCount: 0, pendingCount: 0 }),
-        safeLoad('creator reel', getApprovedCreatorReel(student.id, classId, curriculumId), []),
-        safeLoad('teacher video reel', loadTeacherVideoReel(), []),
-      ])
-      
-      const { count: duelsCount } = await supabase
-        .from('classroom_duels')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'waiting')
-        .eq('class_id', classId)
+      const raw = localStorage.getItem(insightCacheKey)
+      if (raw) cachedInsight = JSON.parse(raw)
+    } catch { /* corrupted cache — refetch below */ }
 
-      // Daily login XP + streak (idempotent server-side: one award per day).
-      const loginReward = await safeLoad('daily login reward', claimDailyLoginReward(), null)
-      const reward = loginReward && loginReward.success ? loginReward : null
+    try {
+      // ── STAGE 1 (critical path, parallel): first paint ──────────────
+      // Only the above-the-fold essentials gate `loading`. Everything else
+      // streams in afterwards (Stage 2) without ever blocking interaction.
+      const [feeds, duelsRes, loginReward, currRes, clsRes] = await Promise.all([
+        safeLoad('feeds', getStudentHomepageFeeds(classId), fallbackFeeds),
+        (async () => {
+          try {
+            return await supabase
+              .from('classroom_duels')
+              .select('*', { count: 'exact', head: true })
+              .eq('status', 'waiting')
+              .eq('class_id', classId)
+          } catch { return { count: 0 } as any }
+        })(),
+        safeLoad('daily login reward', claimDailyLoginReward(), null),
+        curriculumId
+          ? supabase.from('curriculums').select('name').eq('id', curriculumId).single()
+          : Promise.resolve({ data: null } as any),
+        classId
+          ? supabase.from('classes').select('name').eq('id', classId).single()
+          : Promise.resolve({ data: null } as any),
+      ])
+      if (!alive()) return
+
+      const reward = loginReward && (loginReward as any).success ? loginReward as any : null
       if (reward) {
         if (reward.xpAwarded > 0) {
           toast.success(
@@ -2062,63 +2091,62 @@ export default function StudentHomepageRouter() {
         }
       }
 
-      // Fetch or Generate Daily Insights
-      let currName = curriculumName
-      let className = 'Student'
-      if (curriculumId) {
-        const { data: curr } = await supabase.from('curriculums').select('name').eq('id', curriculumId).single()
-        if (curr) {
-          setCurriculumName(curr.name)
-          currName = curr.name
-        }
-      }
-
-      if (classId) {
-        const { data: cls } = await supabase.from('classes').select('name').eq('id', classId).single()
-        if (cls) className = cls.name
-      }
-
-      let nationalExam = null
-      const examType = inferNationalExamType(currName, className)
-      if (examType) {
-        nationalExam = await safeLoad('national exam', getStudentNationalExam(student.id, examType, expectedUserId), null)
-      }
-
-      let insightData = null
-      const dateKey = new Date().toISOString().split('T')[0]
-      const cacheKey = `peak_insight_${student.id}_${dateKey}`
-      const cached = localStorage.getItem(cacheKey)
-      
-      if (cached) {
-        try { insightData = JSON.parse(cached) } catch(e) {}
-      } else {
-        insightData = await safeLoad('daily insight', generateDailyInsights(currName, className), getLocalDailyInsight(!currName.includes('8-4')))
-        if (insightData) {
-          localStorage.setItem(cacheKey, JSON.stringify(insightData))
-        }
-      }
+      const currName = (currRes as any)?.data?.name || curriculumName
+      const className = (clsRes as any)?.data?.name || 'Student'
+      setCurriculumName(currName)
 
       setData({
-        youtubeVideos: vids || [],
-        activeDuelsCount: duelsCount || 0,
+        youtubeVideos: [],
+        activeDuelsCount: (duelsRes as any)?.count || 0,
         brainGymStreak: useAuthStore.getState().student?.streak_count || student?.streak_count || 0,
         recentAssignments: feeds.recentAssignments,
         recentQuizzes: feeds.recentQuizzes,
         upcomingSessions: feeds.upcomingSessions,
-        dailyInsight: insightData,
-        nationalExam,
-        referralSummary,
-        creatorReel,
-        resourceReel
+        dailyInsight: cachedInsight,
+        nationalExam: null,
+        referralSummary: null,
+        creatorReel: [],
+        resourceReel: []
       })
+      setLoading(false)
+
+      // ── STAGE 2 (deferred): stream sections in as they resolve ───────
+      // Fire-and-forget per slice; each merges independently. A slow AI or
+      // YouTube call can no longer hold the page hostage.
+      const merge = (slice: Record<string, any>) => {
+        if (alive()) setData((prev) => ({ ...prev, ...slice }))
+      }
+      safeLoad('videos', getStudentYouTubeSuggestions(classId), [])
+        .then((vids) => merge({ youtubeVideos: vids || [] }))
+      safeLoad('referrals', getReferralSummary(student.id), { referralCode: '', completedCount: 0, pendingCount: 0 })
+        .then((referralSummary) => merge({ referralSummary }))
+      safeLoad('creator reel', getApprovedCreatorReel(student.id, classId, curriculumId), [])
+        .then((creatorReel) => merge({ creatorReel: creatorReel || [] }))
+      safeLoad('teacher video reel', loadTeacherVideoReel(), [])
+        .then((resourceReel) => merge({ resourceReel: resourceReel || [] }))
+
+      const examType = inferNationalExamType(currName, className)
+      if (examType) {
+        safeLoad('national exam', getStudentNationalExam(student.id, examType, expectedUserId), null)
+          .then((nationalExam) => merge({ nationalExam }))
+      }
+
+      if (!cachedInsight) {
+        safeLoad('daily insight', generateDailyInsights(currName, className), getLocalDailyInsight(!currName.includes('8-4')))
+          .then((insightData) => {
+            if (!insightData) return
+            try { localStorage.setItem(insightCacheKey, JSON.stringify(insightData)) } catch { /* private mode */ }
+            merge({ dailyInsight: insightData })
+          })
+      }
 
     } catch (e: any) {
+      if (!alive()) return
       console.warn(`[StudentHome] Dashboard loaded with fallbacks: ${e?.message || e?.code || 'unknown issue'}`)
       setData((previous) => ({
         ...previous,
         dailyInsight: previous.dailyInsight || getLocalDailyInsight(!curriculumName.includes('8-4')),
       }))
-    } finally {
       setLoading(false)
     }
   }

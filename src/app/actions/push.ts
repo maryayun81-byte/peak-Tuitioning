@@ -14,11 +14,12 @@ function configureWebPush() {
 export async function sendPushNotification(
   userIds: string[],
   payload: { title: string; body: string; href?: string; icon?: string; badge?: string; tag?: string }
-) {
-  if (!userIds || userIds.length === 0) return
+): Promise<{ attempted: number; sent: number; failed: number; reason?: string }> {
+  const empty = (reason: string) => ({ attempted: 0, sent: 0, failed: 0, reason });
+  if (!userIds || userIds.length === 0) return empty('no-recipients');
   if (!configureWebPush()) {
     console.warn('[Peak Push] Missing VAPID keys, push notifications disabled.')
-    return
+    return empty('missing-vapid-keys');
   }
 
   const adminClient = await createAdminClient()
@@ -30,7 +31,11 @@ export async function sendPushNotification(
     .in('user_id', userIds)
 
   if (error || !subscriptions || subscriptions.length === 0) {
-    return
+    // QC: this used to fail SILENTLY, so "push not working" was undebuggable
+    // (no subscriptions = user never enabled notifications on any device).
+    // Vercel logs now say exactly that, naming the affected users.
+    console.warn(`[Peak Push] No subscriptions for user(s): ${userIds.join(',')}${error ? ` (lookup: ${error.message})` : ''}`)
+    return empty(error ? 'lookup-failed' : 'no-subscriptions');
   }
 
   const notificationPayload = JSON.stringify({
@@ -42,6 +47,8 @@ export async function sendPushNotification(
     tag: payload.tag || 'peak-update',
   })
 
+  let sent = 0
+  let failed = 0
   await Promise.all(
     subscriptions.map(async (subscription) => {
       try {
@@ -52,14 +59,18 @@ export async function sendPushNotification(
           },
           notificationPayload
         )
+        sent += 1
       } catch (error: any) {
         if (error?.statusCode === 404 || error?.statusCode === 410) {
           // Subscription expired or invalid, remove it
           await adminClient.from('peak_push_subscriptions').delete().eq('id', subscription.id)
+          failed += 1
         } else {
           console.warn('[Peak Push] Delivery failed', error)
+          failed += 1
         }
       }
     })
   )
+  return { attempted: subscriptions.length, sent, failed }
 }

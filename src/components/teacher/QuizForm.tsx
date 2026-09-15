@@ -27,6 +27,7 @@ import { useMemo } from 'react'
 import toast from 'react-hot-toast'
 import type { Class, Subject } from '@/types/database'
 import { sendPushNotification } from '@/app/actions/push'
+import { spotlightData } from '@/lib/spotlight'
 
 type QuestionType = 'multiple_choice' | 'multiple_answer' | 'true_false' | 'short_answer'
 type GradingMethod = 'exact' | 'keyword' | 'similarity'
@@ -299,6 +300,8 @@ export function QuizForm({ initialData, isEditing = false }: QuizFormProps) {
         const { data: stUsers } = await supabase.from('students').select('user_id').eq('class_id', form.class_id)
         const targetUserIds = stUsers?.map(s => s.user_id).filter(Boolean) as string[] || []
         if (targetUserIds.length > 0) {
+          const { data: subj } = await supabase.from('subjects').select('name').eq('id', form.subject_id).maybeSingle()
+          const subjectName = (subj as any)?.name || 'your class'
           await supabase.from('notifications').insert(targetUserIds.map(userId => ({
             user_id: userId,
             title: 'New Quiz Posted',
@@ -308,6 +311,11 @@ export function QuizForm({ initialData, isEditing = false }: QuizFormProps) {
             data: {
               class_id: form.class_id,
               subject_id: form.subject_id,
+              ...spotlightData('quiz_published', '/student/quizzes', {
+                title: form.title,
+                subject: subjectName,
+                questions: `${questions.length} question${questions.length === 1 ? '' : 's'}`,
+              }),
             },
           })))
           await sendPushNotification(targetUserIds, {

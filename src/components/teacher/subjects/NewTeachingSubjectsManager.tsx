@@ -155,7 +155,7 @@ export function NewTeachingSubjectsManager() {
     writeDismissedIds(dismissKey(teacherId), nextDismissed)
   }, [teacherId])
 
-  const load = useCallback(async (args?: { manual?: boolean }): Promise<TeacherPendingSubject[]> => {
+  const load = useCallback(async (_args?: { manual?: boolean }): Promise<TeacherPendingSubject[]> => {
     if (!teacherId) return []
     let eligible: TeacherPendingSubject[] = []
     try {
@@ -182,13 +182,20 @@ export function NewTeachingSubjectsManager() {
     }
 
     if (!isModalOpenRef.current && !isSubmittingRef.current && viewRef.current === 'select') {
-      const fresh = visible.filter((s) => !snoozedRef.current.has(s.subject.id))
-      if (fresh.length > 0) {
+      // 72h rule: only recently-added subjects (isFresh) may interrupt the
+      // teacher on their own. Older eligible subjects never auto-popup —
+      // they stay one click away behind the dashboard "Manage" button
+      // (MANAGE_OPEN_EVENT), which passes { manual: true }.
+      const unseen = visible.filter((s) => !snoozedRef.current.has(s.subject.id))
+      const promptable = unseen.filter((s) => s.isFresh)
+      if (promptable.length > 0) {
         setPillVisible(false)
         setView('select')
         setIsModalOpen(true)
-      } else if (args?.manual) {
-        setPillVisible(true)
+      } else {
+        // Stale-only or all-snoozed: stay silent. Manual opens are handled
+        // by the caller (dashboard Manage button opens the dialog itself).
+        setPillVisible(false)
       }
     }
     return visible
@@ -304,13 +311,15 @@ export function NewTeachingSubjectsManager() {
   const handleClearSelection = () => setSelections({})
 
   // "Not Now" — snooze for this session only. Subjects stay pending.
+  // The reminder pill only returns while fresh (72h) subjects remain unseen.
   const handleNotNow = () => {
     const ids = subjectsRef.current.map((s) => s.subject.id)
     const next = new Set([...snoozedRef.current, ...ids])
     snoozedRef.current = next
     if (teacherId) writeStoredIds(snoozeKey(teacherId), next)
     setIsModalOpen(false)
-    setPillVisible(true)
+    const freshRemain = subjectsRef.current.some((s) => s.isFresh && !next.has(s.subject.id))
+    setPillVisible(freshRemain)
   }
 
   const handleSnoozeFromPill = () => {
@@ -343,10 +352,12 @@ export function NewTeachingSubjectsManager() {
       setPillVisible(false)
       return
     }
-    const fresh = remaining.filter((s) => !snoozedRef.current.has(s.subject.id))
+    const fresh = remaining.filter((s) => s.isFresh && !snoozedRef.current.has(s.subject.id))
     if (fresh.length === 0) {
       setIsModalOpen(false)
-      setPillVisible(true)
+      // Reminder pill only while fresh subjects are still unseen (snoozed);
+      // stale leftovers never nag — Manage reopens them on demand.
+      setPillVisible(remaining.some((s) => s.isFresh))
     }
   }
 
@@ -361,7 +372,10 @@ export function NewTeachingSubjectsManager() {
     handleNotNow()
   }
 
-  const showPill = mounted && pillVisible && subjects.length > 0 && !isModalOpen
+  // Pill + auto-prompt only ever concern fresh (72h) subjects. pillVisible
+  // is only set while fresh subjects are unseen, so no ref reads needed here.
+  const freshUnseenCount = subjects.filter((s) => s.isFresh).length
+  const showPill = mounted && pillVisible && freshUnseenCount > 0 && !isModalOpen
 
   return (
     <>
@@ -386,7 +400,7 @@ export function NewTeachingSubjectsManager() {
       )}
 
       {mounted && showPill && (
-        <PendingTeachingSubjectsPill count={subjects.length} onReview={openModalFromPill} onSnooze={handleSnoozeFromPill} />
+        <PendingTeachingSubjectsPill count={freshUnseenCount} onReview={openModalFromPill} onSnooze={handleSnoozeFromPill} />
       )}
     </>
   )
@@ -524,6 +538,10 @@ function TeachingSelectView({
   const classesSelected = selectedClassCount(selections, subjects)
   const hasSelection = classesSelected > 0
   const allSelected = subjects.length > 0 && subjects.every((s) => isSubjectFullySelected(selections, s))
+  // Same dialog serves two entries: the 72h auto-prompt (fresh subjects) and
+  // the on-demand Manage list (may be older eligible subjects) — title says
+  // which one the teacher is looking at.
+  const hasFresh = subjects.some((s) => s.isFresh)
 
   return (
     <>
@@ -555,12 +573,14 @@ function TeachingSelectView({
               ))}
             </div>
             <h2 id="peak-teaching-subjects-title" className="mt-0.5 text-xl font-black leading-tight" style={{ color: 'var(--text)' }}>
-              New Subjects Available
+              {hasFresh ? 'New Subjects Available' : 'Teaching Subjects'}
             </h2>
           </div>
         </div>
         <p className="relative mt-3 text-sm leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-          New subjects were added to your curriculum. Pick the subjects and classes you&apos;d like to teach to update your teaching profile.
+          {hasFresh
+            ? 'New subjects were added to your curriculum in the last few days. Pick the subjects and classes you\u2019d like to teach to update your teaching profile.'
+            : 'These subjects are eligible for your classes. Pick any you\u2019d like to add to your teaching profile.'}
         </p>
       </div>
 

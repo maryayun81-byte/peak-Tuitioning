@@ -74,18 +74,18 @@ export async function fetchTeacherSubjectContext(
     curriculumIds.length
       ? admin
           .from('subjects')
-          .select('id, name, code, category, class_id, curriculum_id')
+          .select('id, name, code, category, class_id, curriculum_id, created_at')
           .in('curriculum_id', curriculumIds)
       : Promise.resolve({ data: [] as any[], error: null }),
     classIds.length
       ? admin
           .from('class_subjects')
-          .select('subject:subjects(id, name, code, category, class_id, curriculum_id)')
+          .select('subject:subjects(id, name, code, category, class_id, curriculum_id, created_at)')
           .in('class_id', classIds)
       : Promise.resolve({ data: [] as any[], error: null }),
     admin
       .from('teacher_assignments')
-      .select('subject:subjects(id, name, code, category, class_id, curriculum_id)')
+      .select('subject:subjects(id, name, code, category, class_id, curriculum_id, created_at)')
       .in('teacher_id', teacherIds),
   ])
 

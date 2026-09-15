@@ -16,7 +16,12 @@ import './globals.css'
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://www.peakcampus.co.ke'),
-  title: "Peak Performance Tutoring Kenya | KCSE & CBC Tuition Centre",
+  title: {
+    default: "Peak Performance Tutoring Kenya | KCSE & CBC Tuition Centre",
+    // Pages without their own title inherit "… | Peak Performance Tutoring",
+    // so every indexed URL carries a unique, branded title (sitelinks fuel).
+    template: '%s | Peak Performance Tutoring',
+  },
   description:
     "Peak Performance Tutoring is a diagnostic, tiered tutoring system for Kenyan 8-4-4 and CBC learners, built around targeted intervention, active recall, and visible progress.",
   applicationName: 'Peak Performance Tutoring',
