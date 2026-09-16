@@ -61,6 +61,7 @@ export function useRealtimeNotifications() {
           (n) => !n.read && (priorityTypes.includes(n.type) || n.data?.spotlight === true)
         )
         if (latestUnreadPriority) {
+           console.info('[Notifications] Surfacing unread spotlight/priority:', latestUnreadPriority.id, latestUnreadPriority.type, latestUnreadPriority.data?.kind || '')
            useNotificationStore.getState().setActivePriorityNotification(latestUnreadPriority)
         }
       }
@@ -100,6 +101,7 @@ export function useRealtimeNotifications() {
           // renders from it.
           const adminTypes = ['broadcast', 'alert', 'info', 'warning']
           if (adminTypes.includes(newNotif.type) || newNotif.data?.spotlight === true) {
+             console.info('[Notifications] Live spotlight/priority arrived:', newNotif.id, newNotif.type, newNotif.data?.kind || '')
              useNotificationStore.getState().setActivePriorityNotification({
                 id: newNotif.id,
                 user_id: actorUserId,

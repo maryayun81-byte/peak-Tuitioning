@@ -11,10 +11,34 @@ function urlBase64ToUint8Array(base64String: string) {
   return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)))
 }
 
+// QC: the prompt used to reappear on EVERY visit — `dismissed` was
+// session-memory only and the first-click permission trap re-armed on every
+// remount. Dismissals now persist (7-day snooze); the click trap only arms
+// when the user hasn't already answered.
+const SNOOZE_KEY = 'peak-push-prompt-snoozed-v1'
+const SNOOZE_MS = 7 * 24 * 60 * 60 * 1000
+
+function isSnoozed(): boolean {
+  if (typeof window === 'undefined') return true
+  try {
+    const raw = window.localStorage.getItem(SNOOZE_KEY)
+    if (!raw) return false
+    return Number(raw) > Date.now()
+  } catch {
+    return false
+  }
+}
+
+function snoozePrompt() {
+  try {
+    window.localStorage.setItem(SNOOZE_KEY, String(Date.now() + SNOOZE_MS))
+  } catch { /* storage blocked — in-memory dismissed state still applies */ }
+}
+
 export function PushNotificationSetup() {
   const { profile } = useAuthStore()
   const [status, setStatus] = useState<'loading' | 'granted' | 'denied' | 'prompt'>('loading')
-  const [dismissed, setDismissed] = useState(false)
+  const [dismissed, setDismissed] = useState(() => isSnoozed())
   const [registering, setRegistering] = useState(false)
 
   const saveSubscription = useCallback(async (subscription: PushSubscription) => {
@@ -85,7 +109,7 @@ export function PushNotificationSetup() {
   const clickPromptedRef = useRef(false)
 
   useEffect(() => {
-    if (status !== 'prompt' || clickPromptedRef.current) return
+    if (status !== 'prompt' || dismissed || clickPromptedRef.current) return
     clickPromptedRef.current = true
     const handler = () => {
       if (Notification.permission === 'default') {
@@ -94,6 +118,10 @@ export function PushNotificationSetup() {
             navigator.serviceWorker.getRegistration('/peak-push-sw.js').then(reg => {
               if (reg) subscribe(reg)
             })
+          } else {
+            // Answered (denied/dismissed) — snooze instead of re-trapping.
+            snoozePrompt()
+            setDismissed(true)
           }
         })
       }
@@ -101,7 +129,12 @@ export function PushNotificationSetup() {
     }
     document.addEventListener('click', handler, { once: true, capture: true })
     return () => document.removeEventListener('click', handler, true)
-  }, [status, subscribe])
+  }, [status, dismissed, subscribe])
+
+  const handleDismiss = useCallback(() => {
+    snoozePrompt()
+    setDismissed(true)
+  }, [])
 
   const handleEnable = useCallback(async () => {
     const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
@@ -123,7 +156,7 @@ export function PushNotificationSetup() {
       <div className="rounded-2xl shadow-2xl border p-4 backdrop-blur-xl"
         style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}>
         <button
-          onClick={() => setDismissed(true)}
+          onClick={handleDismiss}
           className="absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center hover:bg-[var(--input)] transition-colors"
           style={{ color: 'var(--text-muted)' }}
         >
@@ -148,7 +181,7 @@ export function PushNotificationSetup() {
                 {registering ? 'Enabling...' : 'Enable notifications'}
               </button>
               <button
-                onClick={() => setDismissed(true)}
+                onClick={handleDismiss}
                 className="px-3 py-1.5 rounded-xl text-[11px] font-medium transition-all hover:scale-105"
                 style={{ color: 'var(--text-muted)' }}
               >

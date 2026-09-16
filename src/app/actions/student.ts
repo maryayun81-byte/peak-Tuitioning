@@ -473,10 +473,12 @@ export async function getStudentAssignmentBoard(input: {
   if (assignmentError) throw assignmentError
 
   const assignmentIds = (assignments || []).map((assignment: any) => assignment.id)
+  // Speed: the board only needs status/marks per submission — never the full
+  // worksheet_answers blob (annotation JSON can be hundreds of KB per row).
   const { data: submissions, error: submissionsError } = assignmentIds.length
     ? await admin
         .from('submissions')
-        .select('id, assignment_id, student_id, status, marks, submitted_at, worksheet_answers')
+        .select('id, assignment_id, student_id, status, marks, submitted_at')
         .eq('student_id', student.id)
         .in('assignment_id', assignmentIds)
     : { data: [], error: null }

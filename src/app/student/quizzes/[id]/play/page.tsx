@@ -16,6 +16,8 @@ import toast from 'react-hot-toast'
 import { gradeQuiz, GradingQuestion } from '@/lib/quiz/grading'
 import { LatexRenderer } from '@/components/ui/LatexRenderer'
 import { clearPageDataCache } from '@/hooks/usePageData'
+import { submitWithRetry } from '@/lib/submitReliability'
+import { SubmitOverlay } from '@/components/student/SubmitOverlay'
 
 export default function QuizPlayer() {
   const { id } = useParams()
@@ -33,6 +35,12 @@ export default function QuizPlayer() {
   const [isFinished, setIsFinished] = useState(false)
   const [score, setScore] = useState(0)
   const [results, setResults] = useState<any>(null)
+  // Submit-journey overlay + failure state (draft stays intact throughout).
+  const [saving, setSaving] = useState(false)
+  const [submitStage, setSubmitStage] = useState(0)
+  const [submitDone, setSubmitDone] = useState(false)
+  const [saveFailed, setSaveFailed] = useState(false)
+  const [retryInfo, setRetryInfo] = useState({ attempt: 1, maxAttempts: 4, waitingOffline: false })
 
   useEffect(() => {
     loadQuiz()
@@ -83,18 +91,18 @@ export default function QuizPlayer() {
     if (timeLeft > 0 && !isFinished) {
       const timer = setInterval(() => setTimeLeft(t => t - 1), 1000)
       return () => clearInterval(timer)
-    } else if (timeLeft === 0 && quiz && !isFinished) {
+    } else if (timeLeft === 0 && quiz && !isFinished && !saveFailed) {
       finishQuiz()
     }
   }, [timeLeft, isFinished])
 
   const selectAnswer = (questionId: string, answer: string) => {
-    if (isFinished) return
+    if (isFinished || saving) return
     setAnswers({ ...answers, [questionId]: answer })
   }
 
   const selectMultiAnswer = (questionId: string, answer: string) => {
-    if (isFinished) return
+    if (isFinished || saving) return
     const current = (answers[questionId] as unknown as string[]) || [];
     const updated = current.includes(answer)
       ? current.filter(a => a !== answer)
@@ -103,70 +111,88 @@ export default function QuizPlayer() {
   }
 
   const finishQuiz = async () => {
-    if (isFinished) return
-    setIsFinished(true)
-    
+    if (isFinished || saving) return
+    setSaveFailed(false)
+    setSaving(true)
+    setSubmitStage(0)
+    setSubmitDone(false)
+    setRetryInfo({ attempt: 1, maxAttempts: 4, waitingOffline: false })
+
     // Use Grading Engine
     const { percentage, totalScore, details } = gradeQuiz(quiz.questions as GradingQuestion[], answers)
-    
+
     setScore(percentage)
-    
+
     const passed = percentage >= (quiz.pass_mark_percentage || 70)
     const resStatus = passed ? 'pass' : 'fail'
 
-    // Save to DB
-    const { data: attempt, error } = await supabase.from('quiz_attempts').insert({
-      quiz_id: id as string,
-      student_id: (student as any)?.id || student?.id, 
-      score: totalScore,
-      total_marks: quiz.total_marks || 0,
-      percentage: percentage,
-      answers: answers,
-      status: 'submitted',
-      result: resStatus,
-      grading_details: details,
-      completed_at: new Date().toISOString()
-    }).select().single()
-
-    if (error) {
-      console.error(error)
-      toast.error('Failed to save results')
-    } else {
-      setResults(attempt)
-      
-      // Award XP
-      try {
-        const baseXP = 30 // Attempt XP
-        const bonusXP = percentage >= 80 ? 50 : 0 // Bonus XP for mastering
-        const totalXPToAdd = baseXP + bonusXP
-        
-        const currentXP = student?.xp || 0
-        const newXP = currentXP + totalXPToAdd
-        
-        const { error: xpError } = await supabase
-          .from('students')
-          .update({ 
-            xp: newXP,
-            last_active_at: new Date().toISOString().split('T')[0]
-          })
-          .eq('id', student?.id)
-        
-        if (!xpError) {
-          const { setStudent } = useAuthStore.getState()
-          setStudent({ ...student as any, xp: newXP })
-          toast.success(`+${totalXPToAdd} XP! (${baseXP} attempt ${bonusXP > 0 ? '+ 50 bonus' : ''})`)
-        }
-      } catch (err) {
-        console.error('XP Awarding Error', err)
-      }
-
-      toast.success('Quiz Submitted!')
-      
-      // Cleanup draft
-      localStorage.removeItem(`quiz_draft_${id}_${student?.id}`)
-      
-      clearPageDataCache()
+    // Save to DB — retries + offline wait. Draft + answers stay intact, so a
+    // failure only ever needs a re-tap (never lost work).
+    let attempt: any = null
+    try {
+      attempt = await submitWithRetry(async () => {
+        const { data, error } = await supabase.from('quiz_attempts').insert({
+          quiz_id: id as string,
+          student_id: (student as any)?.id || student?.id,
+          score: totalScore,
+          total_marks: quiz.total_marks || 0,
+          percentage: percentage,
+          answers: answers,
+          status: 'submitted',
+          result: resStatus,
+          grading_details: details,
+          completed_at: new Date().toISOString()
+        }).select().single()
+        if (error) throw error
+        return data
+      }, {
+        retries: 3,
+        onState: (s) => setRetryInfo({ attempt: s.attempt, maxAttempts: s.maxAttempts, waitingOffline: s.waitingOffline }),
+      })
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to save results. Your answers are safe — tap Retry.', { duration: 6000 })
+      setSaveFailed(true)
+      setSaving(false)
+      return
     }
+
+    setSubmitStage(1)
+    setResults(attempt)
+
+    // Award XP
+    try {
+      const baseXP = 30 // Attempt XP
+      const bonusXP = percentage >= 80 ? 50 : 0 // Bonus XP for mastering
+      const totalXPToAdd = baseXP + bonusXP
+
+      const currentXP = student?.xp || 0
+      const newXP = currentXP + totalXPToAdd
+
+      const { error: xpError } = await supabase
+        .from('students')
+        .update({
+          xp: newXP,
+          last_active_at: new Date().toISOString().split('T')[0]
+        })
+        .eq('id', student?.id)
+
+      if (!xpError) {
+        const { setStudent } = useAuthStore.getState()
+        setStudent({ ...student as any, xp: newXP })
+        toast.success(`+${totalXPToAdd} XP! (${baseXP} attempt ${bonusXP > 0 ? '+ 50 bonus' : ''})`)
+      }
+    } catch (err) {
+      console.error('XP Awarding Error', err)
+    }
+
+    // Cleanup draft — only now that the attempt is safely stored.
+    localStorage.removeItem(`quiz_draft_${id}_${student?.id}`)
+
+    clearPageDataCache()
+    setIsFinished(true)
+    setSubmitDone(true)
+    await new Promise((r) => setTimeout(r, 650))
+    setSaving(false)
   }
 
   // Auto-Save Effect
@@ -254,6 +280,16 @@ export default function QuizPlayer() {
 
   return (
     <div className="h-screen flex flex-col bg-[var(--bg)] overflow-hidden">
+      {saveFailed && (
+        <div className="mx-4 mt-4 p-4 rounded-2xl border-2 flex items-center gap-3" style={{ background: 'rgba(239,68,68,0.06)', borderColor: '#EF4444' }}>
+          <AlertTriangle size={20} className="text-rose-500 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-black" style={{ color: 'var(--text)' }}>Couldn&apos;t save your results</p>
+            <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>Your answers are safe as a draft. Check your connection and retry.</p>
+          </div>
+          <Button size="sm" onClick={() => finishQuiz()}>Retry</Button>
+        </div>
+      )}
       {/* Quiz Header */}
       <header className="h-20 px-6 border-b border-[var(--card-border)] bg-[var(--card)] flex items-center justify-between">
          <div className="flex items-center gap-4">
@@ -395,6 +431,17 @@ export default function QuizPlayer() {
             )}
          </div>
       </main>
+
+      {/* Submit journey overlay — staged rail driven by real steps */}
+      <SubmitOverlay
+        open={saving}
+        stages={['Saving your results', 'Awarding XP']}
+        stageIndex={submitStage}
+        done={submitDone}
+        attempt={retryInfo.attempt}
+        maxAttempts={retryInfo.maxAttempts}
+        waitingOffline={retryInfo.waitingOffline}
+      />
     </div>
   )
 }

@@ -22,6 +22,8 @@ import type { WorksheetBlock, WorksheetAnswers, Student } from '@/types/database
 import Link from 'next/link'
 import { FileUploadZone } from '@/components/worksheet/FileUploadZone'
 import { attachmentKindOf, attachmentLabelOf } from '@/lib/attachmentView'
+import { submitWithRetry } from '@/lib/submitReliability'
+import { SubmitOverlay } from '@/components/student/SubmitOverlay'
 import { clearPageDataCache } from '@/hooks/usePageData'
 import { spotlightData } from '@/lib/spotlight'
 
@@ -56,6 +58,10 @@ export default function StudentWorksheetSolver() {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  // Submit-journey overlay state (driven by real awaited steps, never timers).
+  const [submitStage, setSubmitStage] = useState(0)
+  const [submitDone, setSubmitDone] = useState(false)
+  const [retryInfo, setRetryInfo] = useState({ attempt: 1, maxAttempts: 4, waitingOffline: false })
   const [resultMode, setResultMode] = useState(false)
   const [returnedSub, setReturnedSub] = useState<any>(null)
   const [pageImages, setPageImages] = useState<string[]>([])
@@ -77,6 +83,40 @@ export default function StudentWorksheetSolver() {
   const [isDirty, setIsDirty] = useState(false)
   const addPageInputRef = useRef<HTMLInputElement>(null)
   const [addingPage, setAddingPage] = useState(false)
+
+  // Bulk upload queue — each picked photo becomes a row with its own
+  // animated progress bar. Works identically for multi-select galleries
+  // and repeated single picks (older phones that ignore `multiple`).
+  interface UploadQueueItem {
+    key: string
+    file: File
+    preview: string
+    label: string
+    progress: number
+    status: 'uploading' | 'done' | 'error'
+    error?: string
+  }
+  const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([])
+  const queueSeqRef = useRef(0)
+  const patchQueueItem = (key: string, patch: Partial<UploadQueueItem>) =>
+    setUploadQueue((prev) => prev.map((item) => (item.key === key ? { ...item, ...patch } : item)))
+  const dropQueueItem = (key: string) =>
+    setUploadQueue((prev) => {
+      const item = prev.find((i) => i.key === key)
+      if (item) { try { URL.revokeObjectURL(item.preview) } catch {} }
+      return prev.filter((i) => i.key !== key)
+    })
+  const appendWorkbookPhoto = (url: string) => {
+    setAnswers((prev: any) => {
+      const current: string[] = Array.isArray(prev.__workbook_photos__) ? prev.__workbook_photos__ : []
+      if (current.length >= 8 || current.includes(url)) return prev
+      const updated = [...current, url].slice(0, 8)
+      const next = { ...prev, __workbook_photos__: updated }
+      if (!prev.__workbook_photo__) next.__workbook_photo__ = updated[0]
+      return next
+    })
+    setIsDirty(true)
+  }
 
   useEffect(() => { loadAssignment() }, [assignmentId])
 
@@ -203,17 +243,112 @@ export default function StudentWorksheetSolver() {
     setIsDirty(true)
   }
 
-  // Uploads a file directly to Supabase storage and returns its public URL
-  const uploadFileToStorage = async (file: File): Promise<string | null> => {
+  // Uploads a file directly to Supabase storage and returns its public URL.
+  // onProgress drives the animated queue bars: real byte events when the
+  // client reports them, plus a synthetic crawl so the bar never stalls on
+  // slow networks (same pattern as FileUploadZone).
+  const uploadFileToStorage = async (
+    file: File,
+    onProgress?: (pct: number) => void
+  ): Promise<string | null> => {
     const supabaseClient = getSupabaseBrowserClient()
     const ext = file.name.split('.').pop() || 'jpg'
     const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
-    const { data, error } = await supabaseClient.storage
-      .from('assignment-uploads')
-      .upload(filename, file, { contentType: file.type, upsert: false })
-    if (error) { toast.error('Upload failed: ' + error.message); return null }
-    const { data: urlData } = supabaseClient.storage.from('assignment-uploads').getPublicUrl(data.path)
-    return urlData.publicUrl
+
+    let crawl: NodeJS.Timeout | null = null
+    let crawlPct = 5
+    if (onProgress) {
+      onProgress(5)
+      crawl = setInterval(() => {
+        crawlPct = Math.min(90, crawlPct + (crawlPct < 30 ? 3 : 1))
+        onProgress(crawlPct)
+      }, 400)
+    }
+    const stopCrawl = () => { if (crawl) { clearInterval(crawl); crawl = null } }
+
+    try {
+      const { data, error } = await supabaseClient.storage
+        .from('assignment-uploads')
+        .upload(filename, file, {
+          contentType: file.type,
+          upsert: false,
+          onUploadProgress: onProgress
+            ? (evt: any) => {
+                if (evt?.total > 0) {
+                  stopCrawl()
+                  onProgress(Math.max(5, Math.min(99, Math.round((evt.loaded / evt.total) * 100))))
+                }
+              }
+            : undefined,
+        } as any)
+      stopCrawl()
+      if (error) { toast.error('Upload failed: ' + error.message); return null }
+      onProgress?.(100)
+      const { data: urlData } = supabaseClient.storage.from('assignment-uploads').getPublicUrl(data.path)
+      return urlData.publicUrl
+    } catch {
+      stopCrawl()
+      return null
+    }
+  }
+
+  // Bulk uploader: turns picked files into queue rows, uploads sequentially
+  // (kind to slow networks), appends successes to the workbook pages.
+  const queueBulkUpload = async (files: File[]) => {
+    const images = files.filter((f) => f.type.startsWith('image/'))
+    if (images.length === 0) return
+    const room = 8 - workbookPhotos.length
+    const batch = images.slice(0, Math.max(room, 0))
+    if (batch.length === 0) {
+      toast.error('You already have 8 pages — remove one to add more.')
+      return
+    }
+    if (images.length > batch.length) {
+      toast(`Only ${batch.length} more fit (8-page limit).`, { icon: 'ℹ️' })
+    }
+    const baseIndex = workbookPhotos.length
+    const items: UploadQueueItem[] = batch.map((file, i) => ({
+      key: `q-${Date.now()}-${queueSeqRef.current++}`,
+      file,
+      preview: URL.createObjectURL(file),
+      label: `Page ${baseIndex + i + 1}`,
+      progress: 0,
+      status: 'uploading' as const,
+    }))
+    setUploadQueue((prev) => [...prev, ...items])
+    setAddingPage(true)
+    let succeeded = 0
+    try {
+      for (const item of items) {
+        const url = await uploadFileToStorage(item.file, (pct) => patchQueueItem(item.key, { progress: pct }))
+        if (url) {
+          succeeded += 1
+          patchQueueItem(item.key, { progress: 100, status: 'done' })
+          appendWorkbookPhoto(url)
+          setTimeout(() => dropQueueItem(item.key), 900)
+        } else {
+          patchQueueItem(item.key, { status: 'error', error: 'Upload failed — tap retry' })
+        }
+      }
+    } finally {
+      setAddingPage(false)
+    }
+    if (succeeded > 0) {
+      toast.success(`${succeeded} page${succeeded > 1 ? 's' : ''} added!`)
+    }
+  }
+
+  const retryQueueItem = async (key: string, file: File) => {
+    patchQueueItem(key, { status: 'uploading', progress: 5, error: undefined })
+    const url = await uploadFileToStorage(file, (pct) => patchQueueItem(key, { progress: pct }))
+    if (url) {
+      patchQueueItem(key, { progress: 100, status: 'done' })
+      appendWorkbookPhoto(url)
+      toast.success('Page added!')
+      setTimeout(() => dropQueueItem(key), 900)
+    } else {
+      patchQueueItem(key, { status: 'error', error: 'Upload failed — tap retry' })
+    }
   }
 
   const handleSubmit = async () => {
@@ -230,9 +365,12 @@ export default function StudentWorksheetSolver() {
 
     setSubmitting(true)
     setConfirmOpen(false)
+    setSubmitStage(0)
+    setSubmitDone(false)
+    setRetryInfo({ attempt: 1, maxAttempts: 4, waitingOffline: false })
     await saveLocally(answers)
 
-    // Auto-grade MCQ/TF/MultiSelect
+    // Auto-grade MCQ/TF/MultiSelect (instant local beat on the rail)
     let totalMarks = 0
     let autoMarks = 0
     const questionMarks: Record<string, number> = {}
@@ -252,18 +390,33 @@ export default function StudentWorksheetSolver() {
         } else questionMarks[block.id] = 0
       }
     }
+    setSubmitStage(1)
 
-    const { error } = await supabase.from('submissions').upsert({
-      assignment_id: assignmentId,
-      student_id: student?.id,
-      status: 'submitted',
-      submitted_at: new Date().toISOString(),
-      worksheet_answers: answers,
-      question_marks: questionMarks,
-      marks: autoMarks,
-    }, { onConflict: 'assignment_id,student_id' })
+    // The store itself retries (3 retries + offline wait). Draft is already
+    // safe in state + IndexedDB, so a failure here only ever needs a re-tap.
+    try {
+      await submitWithRetry(async () => {
+        const { error } = await supabase.from('submissions').upsert({
+          assignment_id: assignmentId,
+          student_id: student?.id,
+          status: 'submitted',
+          submitted_at: new Date().toISOString(),
+          worksheet_answers: answers,
+          question_marks: questionMarks,
+          marks: autoMarks,
+        }, { onConflict: 'assignment_id,student_id' })
+        if (error) throw error
+      }, {
+        retries: 3,
+        onState: (s) => setRetryInfo({ attempt: s.attempt, maxAttempts: s.maxAttempts, waitingOffline: s.waitingOffline }),
+      })
+    } catch (e: any) {
+      toast.error(e?.message || 'Submission failed. Your work is saved as a draft — please try again.', { duration: 6000 })
+      setSubmitting(false)
+      return
+    }
 
-    if (error) { toast.error('Submission failed: ' + error.message); setSubmitting(false); return }
+    setSubmitStage(2)
 
     // From here the submission is safely stored. Everything below is
     // best-effort side effects (notifications, XP, push) — none of it may
@@ -312,6 +465,7 @@ export default function StudentWorksheetSolver() {
     // Award Completion XP (+20 XP) - Only if first time submitting.
     // `wasFirstSubmit` was captured before the flip above, so one successful
     // submit earns the bonus exactly once even if the student resubmits.
+    setSubmitStage(3)
     if (wasFirstSubmit) {
       try {
         const { data: updatedStudent } = await supabase
@@ -353,6 +507,9 @@ export default function StudentWorksheetSolver() {
     }
 
     clearPageDataCache()
+    // Let the arrival state land before navigating away.
+    setSubmitDone(true)
+    await new Promise((r) => setTimeout(r, 650))
     setSubmitting(false)
     router.push('/student/assignments')
   }
@@ -618,7 +775,86 @@ export default function StudentWorksheetSolver() {
                       </div>
                    )}
 
-                  {/* Uploaded photos grid */}
+                   {/* Upload queue — beautiful animated per-photo progress.
+                       Shows while photos fly up; done rows melt away into
+                       the grid below, errors stay with a retry button. */}
+                   {uploadQueue.length > 0 && (
+                      <div className="space-y-2">
+                         {uploadQueue.map((item) => (
+                            <motion.div
+                               key={item.key}
+                               layout
+                               initial={{ opacity: 0, y: 8 }}
+                               animate={{ opacity: 1, y: 0 }}
+                               exit={{ opacity: 0, scale: 0.96 }}
+                               className="flex items-center gap-3 p-2.5 rounded-2xl border"
+                               style={{
+                                  background: 'var(--card)',
+                                  borderColor: item.status === 'error' ? '#EF4444' : 'var(--card-border)',
+                               }}
+                            >
+                               <div className="relative w-11 h-14 rounded-xl overflow-hidden shrink-0" style={{ background: 'var(--input)' }}>
+                                  <img src={item.preview} alt={item.label} className="w-full h-full object-cover" />
+                                  {item.status === 'uploading' && (
+                                     <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.25)' }}>
+                                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                     </div>
+                                  )}
+                               </div>
+                               <div className="flex-1 min-w-0">
+                                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                                     <span className="text-xs font-black truncate" style={{ color: 'var(--text)' }}>
+                                        {item.label}
+                                     </span>
+                                     <span className="text-[10px] font-black tabular-nums shrink-0" style={{ color: item.status === 'error' ? '#EF4444' : item.status === 'done' ? '#10B981' : 'var(--primary)' }}>
+                                        {item.status === 'done' ? '✓ Done' : item.status === 'error' ? 'Failed' : `${Math.round(item.progress)}%`}
+                                     </span>
+                                  </div>
+                                  <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--input)' }}>
+                                     <motion.div
+                                        className="h-full rounded-full"
+                                        style={{
+                                           background: item.status === 'error'
+                                              ? '#EF4444'
+                                              : item.status === 'done'
+                                                 ? '#10B981'
+                                                 : 'linear-gradient(90deg, var(--primary), #22D3EE)',
+                                        }}
+                                        initial={false}
+                                        animate={{ width: `${item.status === 'done' ? 100 : Math.max(item.progress, 4)}%` }}
+                                        transition={{ ease: 'easeOut', duration: 0.25 }}
+                                     />
+                                  </div>
+                                  {item.status === 'error' && (
+                                     <p className="text-[10px] mt-1 font-semibold" style={{ color: '#EF4444' }}>{item.error}</p>
+                                  )}
+                               </div>
+                               {item.status === 'error' ? (
+                                  <div className="flex flex-col gap-1 shrink-0">
+                                     <button
+                                        onClick={() => retryQueueItem(item.key, item.file)}
+                                        className="px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider text-white"
+                                        style={{ background: 'var(--primary)' }}
+                                     >
+                                        Retry
+                                     </button>
+                                     <button
+                                        onClick={() => dropQueueItem(item.key)}
+                                        className="px-3 py-1 text-[10px] font-bold"
+                                        style={{ color: 'var(--text-muted)' }}
+                                     >
+                                        Dismiss
+                                     </button>
+                                  </div>
+                               ) : item.status === 'done' ? (
+                                  <CheckCircle2 size={20} className="shrink-0" style={{ color: '#10B981' }} />
+                               ) : null}
+                            </motion.div>
+                         ))}
+                      </div>
+                   )}
+
+                   {/* Uploaded photos grid */}
                   {workbookPhotos.length > 0 && (
                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                         {workbookPhotos.map((url, idx) => (
@@ -680,8 +916,11 @@ export default function StudentWorksheetSolver() {
                      </div>
                   )}
 
-                  {/* Initial upload zone when no photos yet */}
-                  {workbookPhotos.length === 0 && (
+                  {/* Initial upload: single shot first, plus a bulk path that
+                      works on every phone (gallery multi-select where
+                      supported, repeated picks where not). */}
+                  {workbookPhotos.length === 0 && uploadQueue.length === 0 && (
+                     <>
                      <FileUploadZone
                         value={null}
                         onChange={url => {
@@ -693,10 +932,20 @@ export default function StudentWorksheetSolver() {
                         bucket="assignment-uploads"
                         captureCamera={true}
                      />
+                     <button
+                        onClick={() => addPageInputRef.current?.click()}
+                        className="w-full mt-3 py-3.5 rounded-2xl text-xs font-black uppercase tracking-widest border-2 border-dashed transition-all hover:opacity-80 flex items-center justify-center gap-2 min-h-[52px]"
+                        style={{ borderColor: 'var(--primary)', color: 'var(--primary)' }}
+                     >
+                        <Plus size={16} /> Or select many pages at once
+                     </button>
+                     </>
                   )}
 
                   {/* Hidden native file input — `multiple` so students can
-                      select a whole run of pages in one go (bulk upload). */}
+                      select a whole run of pages in one go (bulk upload).
+                      Older phones that ignore `multiple` simply send one at
+                      a time; the queue handles both identically. */}
                   <input
                      ref={addPageInputRef}
                      type="file"
@@ -704,38 +953,10 @@ export default function StudentWorksheetSolver() {
                      multiple
                      className="hidden"
                      onChange={async e => {
-                        const files = Array.from(e.target.files || []).filter(f => f.type.startsWith('image/'))
+                        const files = Array.from(e.target.files || [])
                         // Reset so the same files can be re-selected if needed
                         e.target.value = ''
-                        if (files.length === 0) return
-                        const room = 8 - workbookPhotos.length
-                        const batch = files.slice(0, Math.max(room, 0))
-                        if (batch.length === 0) {
-                           toast.error('You already have 8 pages — remove one to add more.')
-                           return
-                        }
-                        if (files.length > batch.length) {
-                           toast(`Only ${batch.length} more fit (8-page limit).`, { icon: 'ℹ️' })
-                        }
-                        setAddingPage(true)
-                        const uploaded: string[] = []
-                        try {
-                           for (let i = 0; i < batch.length; i++) {
-                              if (batch.length > 1) toast.loading(`Uploading page ${workbookPhotos.length + uploaded.length + 1} of ${workbookPhotos.length + batch.length}…`, { id: 'bulk-pages' })
-                              const url = await uploadFileToStorage(batch[i])
-                              if (url) uploaded.push(url)
-                              else toast.error(`One photo failed (${batch[i].name}). The rest continued.`)
-                           }
-                        } finally {
-                           toast.dismiss('bulk-pages')
-                        }
-                        if (uploaded.length > 0) {
-                           const updated = [...workbookPhotos, ...uploaded].slice(0, 8)
-                           updateAnswer('__workbook_photos__', updated)
-                           if (workbookPhotos.length === 0) updateAnswer('__workbook_photo__', updated[0])
-                           toast.success(`${uploaded.length} page${uploaded.length > 1 ? 's' : ''} added!`)
-                        }
-                        setAddingPage(false)
+                        await queueBulkUpload(files)
                      }}
                   />
 
@@ -1079,9 +1300,20 @@ export default function StudentWorksheetSolver() {
              >
                {isWorkbook ? '📓 Submit Workbook' : 'Confirm Submit'}
              </Button>
-          </div>
-        </div>
-      </Modal>
-    </div>
-  )
-}
+           </div>
+         </div>
+       </Modal>
+
+       {/* Submit journey overlay — staged rail driven by real steps */}
+       <SubmitOverlay
+         open={submitting}
+         stages={['Saving your work', 'Checking quick questions', 'Notifying your teacher', 'Awarding XP']}
+         stageIndex={submitStage}
+         done={submitDone}
+         attempt={retryInfo.attempt}
+         maxAttempts={retryInfo.maxAttempts}
+         waitingOffline={retryInfo.waitingOffline}
+       />
+     </div>
+   )
+ }

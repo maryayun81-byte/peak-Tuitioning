@@ -69,6 +69,53 @@ const COLORS: ColorOption[] = [
 ]
 const STROKE_WIDTHS = [1, 2, 3, 4, 5, 6, 8, 10, 15, 20]
 
+/**
+ * Builds a buttery freehand brush. Fabric already renders midpoint-quadratic
+ * curves, so the remaining shakiness is 100% input noise: raw touch points
+ * (finger jitter at 60–120Hz) fed straight into the path.
+ *
+ * - `_addPoint` is wrapped with an exponential stabilizer: each incoming
+ *   point is pulled toward the running trail (t=0.55). High-frequency jitter
+ *   melts away while deliberate direction changes track with no visible lag.
+ *   Real fabric.Point instances are preserved (spread would strip class
+ *   methods the renderer needs). First point of every stroke passes through
+ *   raw so dots and stroke starts land exactly under the finger.
+ * - `decimate` 3px (finger-scale) instead of fabric's 0.4px mouse default.
+ * - Round caps/joins set explicitly (butt caps would notch every segment).
+ */
+function makeButteryBrush(
+  PencilBrushClass: any,
+  PointClass: any,
+  canvas: any,
+  color: string,
+  width: number
+): any {
+  const brush = new PencilBrushClass(canvas)
+  brush.color = color
+  brush.width = width
+  brush.strokeLineCap = 'round'
+  brush.strokeLineJoin = 'round'
+  try { brush.decimate = 3 } catch { /* older fabric — default stands */ }
+
+  const origAddPoint = brush._addPoint.bind(brush)
+  const SMOOTHING = 0.55
+  brush._addPoint = function (pointer: any, ...rest: any[]) {
+    try {
+      const trail = brush._points
+      if (!trail || trail.length === 0 || typeof pointer?.x !== 'number') {
+        return origAddPoint(pointer, ...rest)
+      }
+      const last = trail[trail.length - 1]
+      const x = last.x + (pointer.x - last.x) * SMOOTHING
+      const y = last.y + (pointer.y - last.y) * SMOOTHING
+      return origAddPoint(new PointClass(x, y), ...rest)
+    } catch {
+      return origAddPoint(pointer, ...rest)
+    }
+  }
+  return brush
+}
+
 export function AnnotationCanvas({
   backgroundText, backgroundJson, backgroundImageUrl, initialJson, initialData,
   onSave, readOnly, defaultColor = '#EF4444', height, stickyToolbar = true
@@ -87,6 +134,11 @@ export function AnnotationCanvas({
   const [colorHistory, setColorHistory] = useState<string[]>(['#EF4444', '#3B82F6', '#10B981'])
   const [hexInput, setHexInput] = useState('')
   const [showColorPicker, setShowColorPicker] = useState(false)
+  // Right-click / long-press context menu (delete marks without hunting
+  // for the Delete key or eraser). Position is wrapper-relative.
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; label: string } | null>(null)
+  const ctxTargetRef = useRef<any>(null)
+  const longPressRef = useRef<{ timer: any; x: number; y: number; baseline: number } | null>(null)
   // QC (mobile): the two-row sticky toolbar used to cover ~90px of the photo
   // at all times (a "dark layer" over the work in dark mode). Fine controls
   // start collapsed on phones; the essential tool row always stays.
@@ -157,7 +209,15 @@ export function AnnotationCanvas({
   const fillRef        = useRef(fillMode)
   const opacityRef     = useRef(opacity)
   useEffect(() => { colorRef.current = color }, [color])
-  useEffect(() => { widthRef.current = strokeWidth }, [strokeWidth])
+  useEffect(() => {
+    widthRef.current = strokeWidth
+    // Live-sync width onto the active brush so the slider feels instant —
+    // previously it only applied the next time the pen tool was re-tapped.
+    try {
+      const b = fabricRef.current?.freeDrawingBrush
+      if (b && fabricRef.current?.isDrawingMode) b.width = strokeWidth
+    } catch {}
+  }, [strokeWidth])
   useEffect(() => { fontSizeRef.current = fontSize }, [fontSize])
   useEffect(() => { fillRef.current = fillMode }, [fillMode])
   useEffect(() => { opacityRef.current = opacity }, [opacity])
@@ -192,7 +252,7 @@ export function AnnotationCanvas({
     let touchCleanup: (() => void) | null = null
     const init = async () => {
       if (!canvasRef.current || fabricRef.current) return
-      const { Canvas, Textbox, PencilBrush } = await import('fabric')
+      const { Canvas, Textbox, PencilBrush, Point } = await import('fabric')
       if (cancelled) return
 
       // Defer measurement so the container has its final layout dimensions
@@ -395,7 +455,7 @@ export function AnnotationCanvas({
       }
 
       // ── Event Handlers: Zoom & Pan ─────────────────────────────────────────
-      const { Point } = await import('fabric')
+      // (Point already imported at the top of init.)
       canvas.on('mouse:wheel', (opt: any) => {
         const delta = opt.e.deltaY
         let newZoom = canvas.getZoom()
@@ -490,16 +550,24 @@ export function AnnotationCanvas({
             canvas.selection = false
             lastPosX = opt.e.clientX
             lastPosY = opt.e.clientY
-         } else if (['line', 'circle', 'arrow', 'underline'].includes(activeTool)) {
+          } else if (['line', 'circle', 'arrow', 'underline', 'highlight'].includes(activeTool)) {
             isDrawingShape = true
             const pointer = canvas.getScenePoint(opt.e)
             shapeStart = { x: pointer.x, y: pointer.y }
-            const { Line, Circle: FC, Group, Triangle } = await import('fabric')
+            const { Line, Circle: FC, Group, Triangle, Rect } = await import('fabric')
             const sw = widthRef.current
             const c  = colorRef.current
             const op = opacityRef.current / 100
-            
-            if (activeTool === 'line' || activeTool === 'underline') {
+
+            if (activeTool === 'highlight') {
+               // Drag-to-highlight: grows with the drag, always translucent
+               // like a real marker (never an opaque bar).
+               shapeObj = new Rect({
+                  left: pointer.x, top: pointer.y, width: 4, height: 12,
+                  fill: c, opacity: Math.min(op, 0.35),
+                  selectable: true,
+               })
+            } else if (activeTool === 'line' || activeTool === 'underline') {
                shapeObj = new Line([pointer.x, pointer.y, pointer.x, pointer.y], { stroke: c, strokeWidth: sw, selectable: true, opacity: op })
             } else if (activeTool === 'circle') {
                const fill = fillRef.current === 'fill' ? c + '33' : 'transparent'
@@ -532,8 +600,16 @@ export function AnnotationCanvas({
             canvas.requestRenderAll()
             lastPosX = e.clientX
             lastPosY = e.clientY
-         } else if (isDrawingShape && shapeObj && shapeStart) {
-            if (activeTool === 'line' || activeTool === 'underline') {
+          } else if (isDrawingShape && shapeObj && shapeStart) {
+            if (activeTool === 'highlight') {
+               // Grow in any drag direction; never collapse below a visible band.
+               shapeObj.set({
+                  left: Math.min(shapeStart.x, pointer.x),
+                  top: Math.min(shapeStart.y, pointer.y),
+                  width: Math.max(Math.abs(pointer.x - shapeStart.x), 4),
+                  height: Math.max(Math.abs(pointer.y - shapeStart.y), 10),
+               })
+            } else if (activeTool === 'line' || activeTool === 'underline') {
                shapeObj.set({ x2: pointer.x, y2: pointer.y })
             } else if (activeTool === 'circle') {
                const radius = Math.sqrt(Math.pow(pointer.x - shapeStart.x, 2) + Math.pow(pointer.y - shapeStart.y, 2))
@@ -573,17 +649,11 @@ export function AnnotationCanvas({
         return
       }
 
-      // Default to draw mode
+      // Default to draw mode — stabilized brush (see makeButteryBrush).
+      // Width scales with canvas size so the pen isn't a fat marker on phones.
       canvas.isDrawingMode = true
-      const brush = new PencilBrush(canvas)
-      brush.color = defaultColorRef.current
-      // QC (mobile pen): fabric's default decimate (0.4px) keeps every jitter
-      // point of a finger stroke — curves look shaky and renders crawl on
-      // low-end phones. 2px keeps the shape, drops the noise. Width scales
-      // with canvas size so the pen isn't a fat marker on phones.
-      try { (brush as any).decimate = 2 } catch {}
       const scaledWidth = Math.max(3, Math.round(containerW / 180))
-      brush.width = scaledWidth
+      const brush = makeButteryBrush(PencilBrush, Point, canvas, defaultColorRef.current, scaledWidth)
       setStrokeWidth(scaledWidth)
       canvas.freeDrawingBrush = brush
 
@@ -636,7 +706,7 @@ export function AnnotationCanvas({
   const addObject = useCallback(async (tool: Tool) => {
     const canvas = fabricRef.current
     if (!canvas) return
-    const { IText, Circle: FC, Line, Rect, PencilBrush } = await import('fabric')
+    const { IText, Circle: FC, Line, Rect, PencilBrush, Point } = await import('fabric')
 
     const w  = canvas.width  || 680
     const cx = w / 2
@@ -681,7 +751,11 @@ export function AnnotationCanvas({
          protractor.set('data', { isInstrument: true })
          canvas.add(protractor); canvas.setActiveObject(protractor); break
       }
-      case 'highlight': canvas.add(new Rect({ left: 40, top: cy, width: w - 80, height: 28, fill: c, opacity: op * 0.6, selectable: true })); break
+      case 'highlight':
+        // Highlight is drag-drawn via mouse handlers (see above) — reaching
+        // here would mean a fixed stamp, which is never what teachers want.
+        canvas.isDrawingMode = false
+        break
       case 'text': {
         // Place text at the center of the currently visible scroll area
         const scrollTop = wrapperRef.current?.closest('[data-scroll]')?.scrollTop
@@ -704,10 +778,7 @@ export function AnnotationCanvas({
       case 'cross': canvas.add(new IText('✗', { left: cx - 20, top: cy - 20, fontSize: Math.max(24, sw * 6), fill: '#EF4444', fontWeight: 'bold', selectable: true, opacity: op })); break
       case 'draw': {
         canvas.isDrawingMode = true
-        const b = new PencilBrush(canvas)
-        b.color = c; b.width = sw
-        try { (b as any).decimate = 2 } catch {}
-        canvas.freeDrawingBrush = b
+        canvas.freeDrawingBrush = makeButteryBrush(PencilBrush, Point, canvas, c, sw)
         return
       }
       case 'select':
@@ -721,6 +792,7 @@ export function AnnotationCanvas({
 
   const setTool = (t: Tool) => {
     setActiveTool(t)
+    setCtxMenu(null)
     if (fabricRef.current) fabricRef.current.activeTool = t
     const canvas = fabricRef.current
     if (!canvas) return
@@ -744,6 +816,12 @@ export function AnnotationCanvas({
     }
     const tc = TOOL_CONFIG.find(c => c.tool === t)?.color
     if (tc) setColor(tc)
+    // Drag tools draw on the canvas — never stamp fixed objects for them
+    // (highlight used to drop a full-width bar at a fixed spot).
+    if (['line', 'circle', 'arrow', 'underline', 'highlight'].includes(t)) {
+      canvas.isDrawingMode = false
+      return
+    }
     addObject(t)
   }
 
@@ -774,12 +852,125 @@ export function AnnotationCanvas({
     save(canvas)
   }
 
+  // ── Context menu: right-click (desktop) / long-press (touch) → delete ──
+  const describeTarget = (t: any): string => {
+    if (!t) return 'mark'
+    if (t.type === 'i-text' || t.type === 'textbox') {
+      return t.text === '✓' || t.text === '✗' ? 'mark' : 'comment'
+    }
+    return 'mark'
+  }
+
+  const openCtxMenuAt = useCallback((clientX: number, clientY: number) => {
+    const canvas = fabricRef.current
+    const wrap = wrapperRef.current
+    if (!canvas || !wrap || readOnly) return false
+    let target: any = null
+    try {
+      // Plain coordinate bag is enough — fabric only reads clientX/clientY.
+      target = canvas.findTarget({ clientX, clientY, target: canvasRef.current, type: 'contextmenu' } as any)
+    } catch { target = null }
+    if (!target || target.data?.background) {
+      setCtxMenu(null)
+      ctxTargetRef.current = null
+      return false
+    }
+    ctxTargetRef.current = target
+    const r = wrap.getBoundingClientRect()
+    setCtxMenu({
+      x: Math.max(4, Math.min(clientX - r.left, r.width - 164)),
+      y: Math.max(4, Math.min(clientY - r.top, r.height - 120)),
+      label: describeTarget(target),
+    })
+    return true
+  }, [readOnly])
+
+  const deleteCtxTarget = useCallback(() => {
+    const canvas = fabricRef.current
+    const target = ctxTargetRef.current
+    if (!canvas || !target) { setCtxMenu(null); return }
+    canvas.remove(target)
+    canvas.discardActiveObject()
+    canvas.requestRenderAll()
+    save(canvas)
+    ctxTargetRef.current = null
+    setCtxMenu(null)
+  }, [save])
+
+  // Escape closes the menu.
+  useEffect(() => {
+    if (!ctxMenu) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setCtxMenu(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [ctxMenu])
+
+  const cancelLongPress = useCallback(() => {
+    if (longPressRef.current) {
+      clearTimeout(longPressRef.current.timer)
+      longPressRef.current = null
+    }
+  }, [])
+
   return (
     <div
       ref={wrapperRef}
-      className="flex flex-col bg-white"
+      className="flex flex-col bg-white relative"
       // height prop → contained modal usage. No height → page scrolls past the canvas.
       style={height ? { height: height + 52, overflow: 'hidden' } : {}}
+      onContextMenu={(e) => {
+        // Desktop right-click on a mark → delete menu (background clicks dismiss).
+        e.preventDefault()
+        openCtxMenuAt(e.clientX, e.clientY)
+      }}
+      onTouchStart={(e) => {
+        // Touch long-press (550ms, single finger, no drift) → same menu.
+        // Armed on empty canvas only in Select mode (a pen stroke must NEVER
+        // be interrupted), but anytime directly on an existing mark.
+        if (readOnly || e.touches.length !== 1 || longPressRef.current) return
+        const t = e.touches[0]
+        if (activeTool !== 'select') {
+          let onMark = false
+          try {
+            const c = fabricRef.current
+            if (c) {
+              const hit = c.findTarget({ clientX: t.clientX, clientY: t.clientY, target: canvasRef.current, type: 'touchstart' } as any)
+              onMark = !!(hit && !hit.data?.background)
+            }
+          } catch { onMark = false }
+          if (!onMark) return
+        }
+        const baseline = fabricRef.current ? fabricRef.current.getObjects().length : 0
+        longPressRef.current = {
+          timer: setTimeout(() => {
+            longPressRef.current = null
+            const prevTool = ((fabricRef.current as any)?.activeTool as Tool) || 'draw'
+            // Stop inking + select, so the press leaves no dot behind…
+            setTool('select')
+            try {
+              const c = fabricRef.current
+              if (c) {
+                const objs = c.getObjects()
+                while (objs.length > baseline) c.remove(objs[objs.length - 1])
+                c.requestRenderAll()
+              }
+            } catch {}
+            // …then offer the menu, restoring the tool if empty space was pressed.
+            if (!openCtxMenuAt(t.clientX, t.clientY)) setTool(prevTool)
+          }, 550),
+          x: t.clientX,
+          y: t.clientY,
+          baseline,
+        }
+      }}
+      onTouchMove={(e) => {
+        const lp = longPressRef.current
+        if (lp && e.touches[0] && Math.hypot(e.touches[0].clientX - lp.x, e.touches[0].clientY - lp.y) > 12) {
+          cancelLongPress()
+        }
+      }}
+      onTouchEnd={cancelLongPress}
+      onTouchCancel={cancelLongPress}
     >
       {!readOnly && (
         <div
@@ -1082,6 +1273,32 @@ export function AnnotationCanvas({
       <div style={{ touchAction: readOnly ? 'auto' : 'pan-y' }}>
         <canvas ref={canvasRef} style={{ display: 'block', width: '100%' }} />
       </div>
+
+      {/* Context menu: right-click / long-press → delete this mark */}
+      {ctxMenu && (
+        <>
+          <div
+            className="fixed inset-0 z-[60]"
+            onClick={() => setCtxMenu(null)}
+            onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null) }}
+          />
+          <div
+            className="absolute z-[61] min-w-[160px] rounded-2xl border shadow-2xl p-1.5"
+            style={{ left: ctxMenu.x, top: ctxMenu.y, background: 'var(--card)', borderColor: 'var(--card-border)' }}
+          >
+            <div className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+              Delete this {ctxMenu.label}?
+            </div>
+            <button
+              onClick={deleteCtxTarget}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs font-black text-white transition-transform active:scale-95"
+              style={{ background: '#EF4444' }}
+            >
+              <Trash2 size={14} /> Delete
+            </button>
+          </div>
+        </>
+      )}
     </div>
   )
 }

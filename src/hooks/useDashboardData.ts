@@ -252,11 +252,12 @@ export function useStudentAssignments(params: {
       const { data: assignments, count, error: aError } = await query
       if (aError) return { data: null, error: aError }
 
-      // 3. Fetch submissions for these assignments (selective fields)
+      // 3. Fetch submissions for these assignments (status/marks only —
+      // never the worksheet_answers blob in a list query)
       const assignmentIds = assignments?.map(a => a.id) || []
       const { data: subDataList, error: sError } = await supabase
         .from('submissions')
-        .select('id, assignment_id, student_id, status, marks, submitted_at, worksheet_answers')
+        .select('id, assignment_id, student_id, status, marks, submitted_at')
         .eq('student_id', studentId)
         .in('assignment_id', assignmentIds)
 

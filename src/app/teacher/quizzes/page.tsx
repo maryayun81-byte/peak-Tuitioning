@@ -3,10 +3,10 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { 
-  Plus, Search, Award, Clock, 
+import {
+  Plus, Search, Award, Clock,
   Users, Trash2, Edit, Play,
-  ChevronRight, BrainCircuit, Timer
+  ChevronRight, BrainCircuit, Timer, Sparkles
 } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Card, Badge, StatCard } from '@/components/ui/Card'
@@ -19,6 +19,7 @@ import Link from 'next/link'
 import toast from 'react-hot-toast'
 import { usePageData, clearPageDataCache } from '@/hooks/usePageData'
 import { useTeacherIdentity } from '@/hooks/useTeacherIdentity'
+import { GuidedAICreate } from '@/components/teacher/GuidedAICreate'
 
 export default function TeacherQuizzes() {
   const supabase = getSupabaseBrowserClient()
@@ -26,6 +27,7 @@ export default function TeacherQuizzes() {
   
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
+  const [aiOpen, setAiOpen] = useState(false)
 
   const { data: qData, status, refetch } = usePageData({
     cacheKey: ['teacher-quizzes', teacherIds.join('|') || 'anon'],
@@ -70,10 +72,20 @@ export default function TeacherQuizzes() {
             <h1 className="text-2xl font-black" style={{ color: 'var(--text)' }}>Interactive Quizzes</h1>
             <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>Create and manage gamified assessments</p>
          </div>
-         <Link href="/teacher/quizzes/new">
+         <div className="flex items-center gap-3">
+          <button
+            onClick={() => setAiOpen(true)}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest text-white transition-all hover:scale-[1.02]"
+            style={{ background: 'linear-gradient(135deg, #8B5CF6, #6366F1)' }}
+          >
+            <Sparkles size={16} /> Ask AI
+          </button>
+          <Link href="/teacher/quizzes/new">
             <Button><Plus size={16} className="mr-2" /> Create Quiz</Button>
-         </Link>
-      </div>
+          </Link>
+         </div>
+       </div>
+       <GuidedAICreate intent="quiz" open={aiOpen} onClose={() => setAiOpen(false)} />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
          <StatCard title="Active Quizzes" value={quizzes.length} icon={<BrainCircuit size={20} />} />
@@ -128,15 +140,24 @@ export default function TeacherQuizzes() {
                 </Card>
              </motion.div>
            ))}
-           {filtered.length === 0 && (
-             <div className="col-span-full py-20 text-center space-y-4">
-                <div className="w-16 h-16 bg-[var(--input)] rounded-full flex items-center justify-center mx-auto">
-                   <Plus size={32} className="text-muted opacity-20" />
-                </div>
-                <p className="text-sm" style={{ color: 'var(--text-muted)' }}>No quizzes found. Create your first gamified assessment!</p>
-                <Link href="/teacher/quizzes/new"><Button size="sm">Create Quiz</Button></Link>
-             </div>
-           )}
+            {filtered.length === 0 && (
+              <div className="col-span-full py-20 text-center space-y-4">
+                 <div className="w-16 h-16 bg-[var(--input)] rounded-full flex items-center justify-center mx-auto">
+                    <Plus size={32} className="text-muted opacity-20" />
+                 </div>
+                 <p className="text-sm" style={{ color: 'var(--text-muted)' }}>No quizzes found. Create your first gamified assessment!</p>
+                 <div className="flex items-center justify-center gap-3">
+                    <button
+                      onClick={() => setAiOpen(true)}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest text-white transition-all hover:scale-[1.02]"
+                      style={{ background: 'linear-gradient(135deg, #8B5CF6, #6366F1)' }}
+                    >
+                      <Sparkles size={14} /> Ask AI
+                    </button>
+                    <Link href="/teacher/quizzes/new"><Button size="sm">Create Quiz</Button></Link>
+                 </div>
+              </div>
+            )}
         </div>
       )}
     </div>

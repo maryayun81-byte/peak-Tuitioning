@@ -17,6 +17,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { WorksheetPreview } from '@/components/worksheet/WorksheetPreview'
 import { QuestionBlock, createBlock } from '@/components/worksheet/QuestionBlock'
 import { QuestionTypeSheet } from '@/components/worksheet/QuestionTypeSheet'
+import { QuestionBankDrawer } from '@/components/teacher/QuestionBankDrawer'
 import { FileUploadZone } from '@/components/worksheet/FileUploadZone'
 import toast from 'react-hot-toast'
 import type { WorksheetBlock, QuestionType } from '@/types/database'
@@ -57,6 +58,7 @@ export default function EditWorksheetPage() {
   // UI state
   const [loading, setLoading] = useState(true)
   const [typeSheetOpen, setTypeSheetOpen] = useState(false)
+  const [bankOpen, setBankOpen] = useState(false)
   const [previewOpen, setPreviewOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [showPreviewPanel, setShowPreviewPanel] = useState(true)
@@ -516,7 +518,18 @@ export default function EditWorksheetPage() {
                 <h2 className="text-xs font-black uppercase tracking-widest text-muted">
                   {isWorkbook ? 'Reference Questions (optional — read-only for students)' : `Questions (${blocks.length})`}
                 </h2>
-                <Badge variant="primary">{totalMarks} Marks</Badge>
+                <div className="flex items-center gap-2">
+                  <Badge variant="primary">{totalMarks} Marks</Badge>
+                  <button
+                    type="button"
+                    onClick={() => setBankOpen(true)}
+                    className="text-xs font-black px-2 py-1 rounded-lg transition-all hover:opacity-80"
+                    style={{ background: 'var(--primary-dim)', color: 'var(--primary)' }}
+                    title="Reuse a question you wrote before"
+                  >
+                    📚 Bank
+                  </button>
+                </div>
               </div>
 
               <Reorder.Group axis="y" values={blocks} onReorder={setBlocks} className="space-y-3">
@@ -553,6 +566,12 @@ export default function EditWorksheetPage() {
       </div>
 
        <QuestionTypeSheet isOpen={typeSheetOpen} onClose={() => setTypeSheetOpen(false)} onSelect={addBlock} />
+       <QuestionBankDrawer
+         isOpen={bankOpen}
+         onClose={() => setBankOpen(false)}
+         teacherId={teacher?.id}
+         onAdd={(block) => setBlocks(prev => [...prev, block])}
+       />
     </div>
   )
 }

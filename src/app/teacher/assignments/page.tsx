@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { Plus, Search, FileText, Clock, Users, ChevronRight, MoreVertical, Trash2, Edit, ExternalLink, ClipboardCheck } from 'lucide-react'
+import { Plus, Search, FileText, Clock, Users, ChevronRight, MoreVertical, Trash2, Edit, ExternalLink, ClipboardCheck, Sparkles, Copy, Send } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Card, Badge, StatCard } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -20,6 +20,8 @@ import { usePageData, clearPageDataCache } from '@/hooks/usePageData'
 import { PageStates } from '@/components/ui/PageStates'
 import { ShimmerSkeleton } from '@/components/ui/ShimmerSkeleton'
 import { useTeacherIdentity } from '@/hooks/useTeacherIdentity'
+import { GuidedAICreate } from '@/components/teacher/GuidedAICreate'
+import { spotlightData } from '@/lib/spotlight'
 
 export default function TeacherAssignments() {
   const supabase = getSupabaseBrowserClient()
@@ -91,6 +93,7 @@ export default function TeacherAssignments() {
 
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
+  const [aiOpen, setAiOpen] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const pageSize = 6
   
@@ -98,6 +101,8 @@ export default function TeacherAssignments() {
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [showDeleteAll, setShowDeleteAll] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null)
+  const [publishingAll, setPublishingAll] = useState(false)
   const queryClient = useQueryClient()
 
   if (status === 'loading' && !assignmentsData) {
@@ -131,6 +136,96 @@ export default function TeacherAssignments() {
     else { toast.success('All assignments deleted'); clearPageDataCache(); refetch(); }
   }
 
+  // Duplicate: last term's work, reborn as a fresh draft in one tap.
+  // Submissions never copy — the clone starts clean for a new class.
+  const handleDuplicate = async (source: any) => {
+    if (!source || duplicatingId) return
+    setDuplicatingId(source.id)
+    try {
+      const { id, created_at, updated_at, class: _c, subject: _s, ...rest } = source
+      const { data, error } = await supabase.from('assignments').insert({
+        ...rest,
+        title: `${source.title} (Copy)`,
+        status: 'draft',
+        due_date: null,
+      }).select('id').single()
+      if (error) throw error
+      toast.success('Duplicated as a draft — edit and publish when ready.')
+      clearPageDataCache()
+      refetch()
+    } catch (e: any) {
+      toast.error('Duplicate failed: ' + (e.message || 'please try again'))
+    } finally {
+      setDuplicatingId(null)
+    }
+  }
+
+  // Publish all drafts at once — with the same student alerts a single
+  // publish sends, so nothing goes out silently. Per-assignment try/catch:
+  // one bad notify never stops the batch.
+  const handlePublishAllDrafts = async () => {
+    const drafts = assignments.filter((a: any) => a.status === 'draft')
+    if (drafts.length === 0 || publishingAll) return
+    setPublishingAll(true)
+    let published = 0
+    try {
+      for (const a of drafts) {
+        try {
+          const { error } = await supabase.from('assignments').update({ status: 'published' }).eq('id', a.id)
+          if (error) throw error
+          published += 1
+
+          const subjectName = a.subject?.name || 'your class'
+          const blocks = Array.isArray(a.worksheet) ? a.worksheet : []
+          const format = a.is_workbook ? 'Physical workbook' : a.attachment_url ? 'Document' : `Worksheet · ${blocks.length} question${blocks.length === 1 ? '' : 's'}`
+          let targetUserIds: string[] = []
+          if (a.audience === 'selected_students' && (a.selected_student_ids || []).length > 0) {
+            const { data } = await supabase.from('students').select('user_id').in('id', a.selected_student_ids)
+            targetUserIds = (data || []).map((s: any) => s.user_id).filter(Boolean)
+          } else if (a.class_id) {
+            const { data } = await supabase.from('students').select('user_id').eq('class_id', a.class_id)
+            targetUserIds = (data || []).map((s: any) => s.user_id).filter(Boolean)
+          }
+          if (targetUserIds.length > 0) {
+            await supabase.from('notifications').insert(targetUserIds.map((uid: string) => ({
+              user_id: uid,
+              type: 'new_assignment',
+              title: 'New Assignment Posted',
+              body: `A new assignment "${a.title}" has been posted in ${subjectName}.`,
+              related_id: a.id,
+              data: {
+                assignment_id: a.id,
+                subject_id: a.subject_id,
+                ...spotlightData('assignment_published', `/student/assignments/${a.id}`, {
+                  title: a.title,
+                  subject: subjectName,
+                  due: a.due_date ? new Date(a.due_date).toLocaleDateString('en-KE', { day: 'numeric', month: 'short' }) : 'No due date',
+                  marks: `${a.total_marks || 0} marks`,
+                  format,
+                }),
+              }
+            })))
+            const { sendPushNotification } = await import('@/app/actions/push')
+            await sendPushNotification(targetUserIds, {
+              title: 'New Assignment Posted',
+              body: `A new assignment "${a.title}" has been posted in ${subjectName}.`,
+              href: `/student/assignments/${a.id}`,
+            })
+          }
+        } catch (oneErr) {
+          console.warn('[PublishAll] Skipped one assignment:', oneErr)
+        }
+      }
+      clearPageDataCache()
+      refetch()
+      toast.success(published === drafts.length
+        ? `🎉 ${published} assignment${published === 1 ? '' : 's'} published — students notified!`
+        : `Published ${published} of ${drafts.length} (see console for skips).`)
+    } finally {
+      setPublishingAll(false)
+    }
+  }
+
   const filtered = assignments.filter(a => {
     const q = search.toLowerCase()
     const matchesSearch = a.title.toLowerCase().includes(q) || a.class?.name.toLowerCase().includes(q)
@@ -152,7 +247,18 @@ export default function TeacherAssignments() {
              </h1>
              <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>Manage classroom tasks and evaluate submissions</p>
           </div>
-         <div className="flex flex-col sm:flex-row sm:items-center gap-3 w-full sm:w-auto">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 w-full sm:w-auto">
+            {assignments.filter((a: any) => a.status === 'draft').length > 0 && (
+               <Button
+                 variant="secondary"
+                 size="sm"
+                 className="w-full sm:w-auto order-2 sm:order-1"
+                 onClick={handlePublishAllDrafts}
+                 isLoading={publishingAll}
+               >
+                 <Send size={16} className="mr-2" /> Publish {assignments.filter((a: any) => a.status === 'draft').length} Draft{assignments.filter((a: any) => a.status === 'draft').length === 1 ? '' : 's'}
+               </Button>
+            )}
             {assignments.length > 0 && (
                <Button 
                 variant="outline" 
@@ -166,8 +272,16 @@ export default function TeacherAssignments() {
             <Link href="/teacher/assignments/new" className="w-full sm:w-auto order-1 sm:order-2">
                <Button className="w-full sm:w-auto"><Plus size={16} className="mr-2" /> Create Assignment</Button>
             </Link>
-         </div>
-      </div>
+            <button
+              onClick={() => setAiOpen(true)}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest text-white transition-all hover:scale-[1.02] w-full sm:w-auto order-1 sm:order-2"
+              style={{ background: 'linear-gradient(135deg, #8B5CF6, #6366F1)' }}
+            >
+               <Sparkles size={16} /> Ask AI
+            </button>
+          </div>
+       </div>
+       <GuidedAICreate intent="assignment" open={aiOpen} onClose={() => setAiOpen(false)} />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
          <StatCard title="Total Issued" value={assignments.length} icon={<FileText size={20} />} />
@@ -199,8 +313,16 @@ export default function TeacherAssignments() {
                           <FileText size={20} />
                         </div>
                         <div className="flex gap-1">
-                          <button onClick={() => setDeleteId(a.id)} className="p-2 rounded-lg text-danger hover:bg-danger-light opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"><Trash2 size={14} /></button>
-                          <Link href={`/teacher/assignments/${a.id}/edit`} className="p-2 rounded-lg text-muted hover:bg-input opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"><Edit size={14} /></Link>
+                          <button onClick={() => setDeleteId(a.id)} className="p-2 rounded-lg text-danger hover:bg-danger-light opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity" title="Delete"><Trash2 size={14} /></button>
+                          <button
+                            onClick={() => handleDuplicate(a)}
+                            disabled={duplicatingId === a.id}
+                            className="p-2 rounded-lg text-muted hover:bg-input opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity disabled:opacity-40"
+                            title="Duplicate as draft"
+                          >
+                            <Copy size={14} />
+                          </button>
+                          <Link href={`/teacher/assignments/${a.id}/edit`} className="p-2 rounded-lg text-muted hover:bg-input opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity" title="Edit"><Edit size={14} /></Link>
                         </div>
                     </div>
 

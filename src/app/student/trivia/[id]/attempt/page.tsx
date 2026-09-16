@@ -15,6 +15,8 @@ import { Button } from '@/components/ui/Button'
 import { useAuthStore } from '@/stores/authStore'
 import toast from 'react-hot-toast'
 import { clearPageDataCache } from '@/hooks/usePageData'
+import { submitWithRetry } from '@/lib/submitReliability'
+import { SubmitOverlay } from '@/components/student/SubmitOverlay'
 
 interface Question {
   id: string
@@ -62,6 +64,10 @@ export default function StudentTriviaAttemptPage() {
   const [timings, setTimings] = useState<Record<string, { time_taken_s: number; timed_out: boolean }>>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isAutoSubmitting, setIsAutoSubmitting] = useState(false)
+  // Submit-journey overlay state (draft stays intact throughout).
+  const [submitStage, setSubmitStage] = useState(0)
+  const [submitDone, setSubmitDone] = useState(false)
+  const [retryInfo, setRetryInfo] = useState({ attempt: 1, maxAttempts: 4, waitingOffline: false })
   
   // Combos & Streaks
   const [streak, setStreak] = useState(0)
@@ -399,6 +405,9 @@ export default function StudentTriviaAttemptPage() {
     if (isSubmitting) return
     setIsSubmitting(true)
     if (auto) setIsAutoSubmitting(true)
+    setSubmitStage(0)
+    setSubmitDone(false)
+    setRetryInfo({ attempt: 1, maxAttempts: 4, waitingOffline: false })
 
     // Halt all audio immediately
     bgMusicRef.current?.pause()
@@ -443,20 +452,33 @@ export default function StudentTriviaAttemptPage() {
       max_streak: maxStreak
     }
 
-    const { error } = await supabase.from('trivia_submissions').insert(payload)
-    
-    if (error) {
-      toast.error('Sync failure. Contact Academy Board.')
+    // The store retries (3 retries + offline wait). Draft + answers stay
+    // intact, so a failure only ever needs a re-tap — never lost work.
+    try {
+      await submitWithRetry(async () => {
+        const { error } = await supabase.from('trivia_submissions').insert(payload)
+        if (error) throw error
+      }, {
+        retries: 3,
+        onState: (s) => setRetryInfo({ attempt: s.attempt, maxAttempts: s.maxAttempts, waitingOffline: s.waitingOffline }),
+      })
+    } catch (e: any) {
+      toast.error(e?.message || 'Sync failed. Your answers are safe — tap Submit to try again.', { duration: 6000 })
       setIsSubmitting(false)
-    } else {
-      if (!auto) toast.success('Assignment Complete!')
-      
-      // Cleanup Draft
-      localStorage.removeItem(`trivia_draft_${sessionId}_${student?.id}`)
-      
-      clearPageDataCache()
-      router.push(`/student/trivia/${sessionId}/results`)
+      setIsAutoSubmitting(false)
+      return
     }
+
+    setSubmitStage(1)
+    if (!auto) toast.success('Assignment Complete!')
+
+    // Cleanup Draft — only now that the submission is safely stored.
+    localStorage.removeItem(`trivia_draft_${sessionId}_${student?.id}`)
+
+    clearPageDataCache()
+    setSubmitDone(true)
+    await new Promise((r) => setTimeout(r, 650))
+    router.push(`/student/trivia/${sessionId}/results`)
   }, [sessionId, myGroupId, questions, answers, timings, activeQ, questionStartTime, isSubmitting, maxStreak, supabase, router, goldQIdx])
 
   // Auto-Save Effect
@@ -860,6 +882,17 @@ export default function StudentTriviaAttemptPage() {
             </button>
          ))}
       </div>
+
+      {/* Submit journey overlay — staged rail driven by real steps */}
+      <SubmitOverlay
+        open={isSubmitting}
+        stages={['Syncing your answers', 'Locking in results']}
+        stageIndex={submitStage}
+        done={submitDone}
+        attempt={retryInfo.attempt}
+        maxAttempts={retryInfo.maxAttempts}
+        waitingOffline={retryInfo.waitingOffline}
+      />
 
     </div>
   )

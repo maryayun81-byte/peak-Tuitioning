@@ -3,10 +3,10 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { 
-  ArrowLeft, CheckCircle2, Clock, 
-  AlertCircle, Search, Filter, 
-  User, Mail, ArrowRight,
+import {
+  ArrowLeft, CheckCircle2, Clock,
+  AlertCircle, Search, Filter,
+  User, Mail, ArrowRight, Bell,
   BarChart3, Users, FileText
 } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
@@ -30,6 +30,51 @@ export default function AssignmentProgressPage() {
   const [classStatus, setClassStatus] = useState<any[]>([])
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
+  const [nudging, setNudging] = useState(false)
+  // Nudge: ping every student who hasn't submitted (plain inbox + push —
+  // deliberately NOT a spotlight modal; reminders shouldn't interrupt).
+  const handleNudgeMissing = async () => {
+    const missing = classStatus.filter(
+      (s: any) => s.status === 'missing' || s.status === 'not_started'
+    )
+    if (missing.length === 0 || nudging) return
+    setNudging(true)
+    try {
+      const { data: rows } = await supabase
+        .from('students')
+        .select('id, user_id, full_name')
+        .in('id', missing.map((s: any) => s.id))
+      const targets = (rows || []).filter((r: any) => r.user_id)
+      if (targets.length === 0) {
+        toast.error('No reachable students found.')
+        return
+      }
+      const due = assignment?.due_date
+        ? new Date(assignment.due_date).toLocaleDateString('en-KE', { day: 'numeric', month: 'short' })
+        : null
+      await supabase.from('notifications').insert(targets.map((t: any) => ({
+        user_id: t.user_id,
+        type: 'nudge',
+        title: '⏰ Reminder: work still missing',
+        body: `Your teacher is waiting on "${assignment?.title}"${due ? ` (due ${due})` : ''}. Submit it to earn your XP.`,
+        data: { assignment_id: assignmentId },
+      })))
+      const { sendPushNotification } = await import('@/app/actions/push')
+      await sendPushNotification(
+        targets.map((t: any) => t.user_id),
+        {
+          title: '⏰ Reminder: work still missing',
+          body: `"${assignment?.title}" is waiting for your submission.`,
+          href: `/student/assignments/${assignmentId}`,
+        }
+      )
+      toast.success(`Nudged ${targets.length} student${targets.length === 1 ? '' : 's'}!`)
+    } catch (e: any) {
+      toast.error('Nudge failed: ' + (e.message || 'please try again'))
+    } finally {
+      setNudging(false)
+    }
+  }
 
   useEffect(() => {
     if (assignmentId) loadProgressData()
@@ -282,6 +327,11 @@ export default function AssignmentProgressPage() {
             <Button variant="ghost" onClick={loadProgressData}>
                Refresh
             </Button>
+            {stats.missing > 0 && (
+              <Button variant="primary" onClick={handleNudgeMissing} isLoading={nudging}>
+                 <Bell size={14} className="mr-2" /> Nudge {stats.missing} Missing
+              </Button>
+            )}
          </div>
       </div>
 

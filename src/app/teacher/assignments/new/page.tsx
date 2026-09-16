@@ -16,6 +16,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { WorksheetPreview } from '@/components/worksheet/WorksheetPreview'
 import { QuestionBlock, createBlock } from '@/components/worksheet/QuestionBlock'
 import { QuestionTypeSheet } from '@/components/worksheet/QuestionTypeSheet'
+import { QuestionBankDrawer } from '@/components/teacher/QuestionBankDrawer'
 import { FileUploadZone } from '@/components/worksheet/FileUploadZone'
 import toast from 'react-hot-toast'
 import type { WorksheetBlock, QuestionType } from '@/types/database'
@@ -63,6 +64,7 @@ export default function NewWorksheetPage() {
 
   // UI state
   const [typeSheetOpen, setTypeSheetOpen] = useState(false)
+  const [bankOpen, setBankOpen] = useState(false)
   const [previewOpen, setPreviewOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [showPreviewPanel, setShowPreviewPanel] = useState(true)
@@ -122,8 +124,9 @@ export default function NewWorksheetPage() {
       if (parsedData.subject_id) setSubjectId(parsedData.subject_id)
       if (parsedData.due_date) setDueDate(parsedData.due_date.slice(0, 16))
       if (parsedData.questions) {
+        const allowedTypes = ['long_answer', 'short_answer', 'math'] as const
         setBlocks(parsedData.questions.map((q: any) => ({
-          ...createBlock(q.type === 'long_answer' ? 'long_answer' : 'short_answer' as any),
+          ...createBlock((allowedTypes as readonly string[]).includes(q.type) ? q.type as any : 'short_answer'),
           question: q.question,
           marks: q.marks || 5,
           lines: q.lines || 3
@@ -867,6 +870,15 @@ export default function NewWorksheetPage() {
                   Shuffle
                 </button>
                 )}
+                <button
+                  type="button"
+                  onClick={() => setBankOpen(true)}
+                  className="text-xs font-black px-2 py-1 rounded-lg transition-all hover:opacity-80"
+                  style={{ background: 'var(--primary-dim)', color: 'var(--primary)' }}
+                  title="Reuse a question you wrote before"
+                >
+                  📚 Bank
+                </button>
               </div>
             </div>
 
@@ -951,6 +963,14 @@ export default function NewWorksheetPage() {
         isOpen={typeSheetOpen}
         onClose={() => setTypeSheetOpen(false)}
         onSelect={addBlock}
+      />
+
+      {/* Question Bank — reuse past questions */}
+      <QuestionBankDrawer
+        isOpen={bankOpen}
+        onClose={() => setBankOpen(false)}
+        teacherId={teacher?.id}
+        onAdd={(block) => setBlocks(prev => [...prev, block])}
       />
 
       {/* Full-screen preview modal (mobile) */}
