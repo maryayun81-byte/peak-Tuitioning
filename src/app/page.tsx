@@ -7,6 +7,7 @@ import { ProgrammeDiscovery } from '../components/homepage/ProgrammeDiscovery'
 import { ProgrammesAndFees } from '../components/homepage/ProgrammesAndFees'
 import { EvidenceWall } from '../components/homepage/EvidenceWall'
 import { TestimonialSystem } from '../components/homepage/TestimonialSystem'
+import { TeachersCarousel } from '../components/homepage/TeachersCarousel'
 import { CampusSection } from '../components/homepage/CampusSection'
 import { GalleryCarousel } from '../components/homepage/GalleryCarousel'
 import { UpcomingEvents } from '../components/homepage/UpcomingEvents'
@@ -78,6 +79,7 @@ export default function HomePage() {
       <ProgrammesAndFees />
       <EvidenceWall />
       <TestimonialSystem />
+      <TeachersCarousel />
       <GalleryCarousel />
       <UpcomingEvents />
       <CampusSection />

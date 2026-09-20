@@ -169,6 +169,17 @@ export default function MarkSubmissionPage() {
                     {q.question_type === 'mcq' && q.correct_answer ? <LatexRenderer text={q.correct_answer} /> : 
                      q.correct_answer ? q.correct_answer : 'Teacher review required.'}
                   </p>
+                  {Array.isArray(q.marking_rubric) && q.marking_rubric.length > 0 && (
+                    <div className="mt-3 space-y-1.5 border-t border-[var(--card-border)] pt-3">
+                      {q.marking_rubric.map((r: any, ri: number) => (
+                        <div key={ri} className="flex items-start gap-2 text-sm">
+                          <span className="w-5 h-5 rounded-md bg-amber-500/15 text-amber-600 flex items-center justify-center text-[10px] font-black shrink-0 mt-0.5">{r.type || '•'}</span>
+                          <span className="flex-1">{r.step}</span>
+                          <span className="font-black text-xs whitespace-nowrap">+{r.marks}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <div className="mt-8 space-y-4">
@@ -184,12 +195,33 @@ export default function MarkSubmissionPage() {
                     <span className="text-muted font-bold">/ {q.marks}</span>
                   </div>
                   
-                  <Textarea 
+                  <Textarea
                     placeholder="Feedback comments for the student..."
                     value={comments[ans.id]}
                     onChange={(e) => setComments(c => ({ ...c, [ans.id]: e.target.value }))}
                     rows={3}
                   />
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      'Excellent — full marks deserved.',
+                      'Correct method, check the final step.',
+                      'Good effort — show all working next time.',
+                      'Answer too brief — explain your reasoning.',
+                      'Off-topic — re-read the question.',
+                      'Strong explanation, well done.',
+                    ].map(chip => (
+                      <button
+                        key={chip}
+                        onClick={() => setComments(c => ({
+                          ...c,
+                          [ans.id]: ((c[ans.id] || '').trim() ? (c[ans.id].trim() + ' ') : '') + chip,
+                        }))}
+                        className="text-[11px] font-bold px-2.5 py-1 rounded-lg border border-[var(--card-border)] bg-[var(--input)] hover:border-indigo-500/50 hover:text-indigo-500 transition-colors"
+                      >
+                        + {chip.length > 34 ? chip.slice(0, 34) + '…' : chip}
+                      </button>
+                    ))}
+                  </div>
                   <Button variant="secondary" size="sm" onClick={() => handleSaveQuestion(ans.id, ans.teacher_annotations)}>
                     Save Score
                   </Button>
@@ -211,7 +243,7 @@ export default function MarkSubmissionPage() {
                   <div className={`p-4 rounded-2xl border-2 ${isCorrectMcq ? 'border-emerald-500 bg-emerald-500/5' : 'border-rose-500 bg-rose-500/5'}`}>
                     <LatexRenderer text={ans.student_answer?.selected || 'No answer selected'} />
                   </div>
-                ) : (q.question_type === 'short_answer' || q.question_type === 'essay') ? (
+                ) : (q.question_type === 'short_answer' || q.question_type === 'long_answer' || q.question_type === 'essay') ? (
                   <div className="p-6 bg-[var(--card)] rounded-3xl border border-[var(--card-border)] whitespace-pre-wrap text-lg">
                     {ans.student_answer?.text || 'No text provided'}
                   </div>

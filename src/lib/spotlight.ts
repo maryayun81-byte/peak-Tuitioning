@@ -15,6 +15,7 @@ export type SpotlightKind =
   | 'timetable_published'
   | 'assignment_returned'
   | 'submission_received'
+  | 'scripts_ready'
 
 export interface SpotlightPayload {
   spotlight: true

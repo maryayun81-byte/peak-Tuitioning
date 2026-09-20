@@ -3,12 +3,13 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
-import { Plus, Trash2, Edit, ClipboardList, Calendar, CheckCircle, AlertCircle } from 'lucide-react'
+import { Plus, Trash2, Edit, ClipboardList, Calendar, CheckCircle, AlertCircle, Camera } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
 import { Card, Badge } from '@/components/ui/Card'
 import { Modal } from '@/components/ui/Modal'
+import { ExamScriptIntakeModal } from '@/components/admin/ExamScriptIntakeModal'
 import { SkeletonList } from '@/components/ui/Skeleton'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
@@ -21,10 +22,19 @@ const schema = z.object({
   name: z.string().min(1),
   start_date: z.string().min(1),
   end_date: z.string().min(1),
-  tuition_event_id: z.string().uuid(),
+  scope: z.enum(['tuition', 'homeschool']).default('tuition'),
+  tuition_event_id: z.string().optional().or(z.literal('')),
+  enrollment_id: z.string().optional().or(z.literal('')),
   curriculum_id: z.string().uuid().nullable().optional().or(z.literal('')),
   target_class_ids: z.array(z.string().uuid()).default([]),
   status: z.enum(['upcoming', 'active', 'finalized', 'closed', 'cancelled', 'ended', 'generated', 'published']).default('upcoming'),
+}).superRefine((data, ctx) => {
+  if (data.scope === 'tuition' && !data.tuition_event_id) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['tuition_event_id'], message: 'Pick a tuition event.' })
+  }
+  if (data.scope === 'homeschool' && !data.enrollment_id) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['enrollment_id'], message: 'Pick a homeschool learner.' })
+  }
 })
 type FormData = z.infer<typeof schema>
 
@@ -34,38 +44,46 @@ export default function AdminExamEvents() {
   const [tuitionEvents, setTuitionEvents] = useState<TuitionEvent[]>([])
   const [curriculums, setCurriculums] = useState<Curriculum[]>([])
   const [classes, setClasses] = useState<Class[]>([])
+  const [enrollments, setEnrollments] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [addOpen, setAddOpen] = useState(false)
   const [editing, setEditing] = useState<ExamEvent | null>(null)
+  // Script intake: photograph physical scripts → teacher marks remotely.
+  const [intakeExam, setIntakeExam] = useState<ExamEvent | null>(null)
 
-  const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<FormData>({ 
+  const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: {
       name: '',
       start_date: '',
       end_date: '',
+      scope: 'tuition',
       tuition_event_id: '',
+      enrollment_id: '',
       curriculum_id: '',
       target_class_ids: [],
       status: 'upcoming'
     }
   })
+  const scope = watch('scope')
 
   useEffect(() => { load() }, [])
 
   const load = async () => {
     setLoading(true)
     try {
-      const [eRes, tRes, cRes, clRes] = await Promise.all([
-        supabase.from('exam_events').select('*, tuition_event:tuition_events(name), curriculum:curriculums(name)').order('start_date', { ascending: false }),
+      const [eRes, tRes, cRes, clRes, enrRes] = await Promise.all([
+        supabase.from('exam_events').select('*, tuition_event:tuition_events(name), curriculum:curriculums(name), enrollment:homeschool_enrollments(id, student:students(full_name))').order('start_date', { ascending: false }),
         supabase.from('tuition_events').select('*').order('start_date', { ascending: false }),
         supabase.from('curriculums').select('*').order('name'),
         supabase.from('classes').select('*').order('level'),
+        supabase.from('homeschool_enrollments').select('id, grade_level, academic_year, status, student:students(id, full_name)').order('created_at', { ascending: false }),
       ])
       setExams(eRes.data ?? [])
       setTuitionEvents(tRes.data ?? [])
       setCurriculums(cRes.data ?? [])
       setClasses(clRes.data ?? [])
+      setEnrollments(enrRes.data ?? [])
     } catch (e) {
       console.error('Failed to load exam events:', e)
       toast.error('Failed to load data.')
@@ -77,6 +95,15 @@ export default function AdminExamEvents() {
   const onSubmit = async (data: FormData) => {
     const cleanData: any = { ...data }
     if (!cleanData.curriculum_id) delete cleanData.curriculum_id;
+    if (cleanData.scope === 'homeschool') {
+      // Homeschool events target one enrollment, not a tuition event.
+      delete cleanData.tuition_event_id
+      if (!cleanData.enrollment_id) delete cleanData.enrollment_id
+    } else {
+      // Tuition events target a tuition event, not an enrollment.
+      delete cleanData.enrollment_id
+      if (!cleanData.tuition_event_id) delete cleanData.tuition_event_id
+    }
 
     const { error } = editing
       ? await supabase.from('exam_events').update(cleanData).eq('id', editing.id)
@@ -166,7 +193,11 @@ export default function AdminExamEvents() {
                         {formatDate(e.start_date, 'short')} — {formatDate(e.end_date, 'short')}
                       </div>
                     </td>
-                    <td className="px-5 py-3" style={{ color: 'var(--text-muted)' }}>{(e as any).tuition_event?.name}</td>
+                    <td className="px-5 py-3" style={{ color: 'var(--text-muted)' }}>
+                      {(e as any).scope === 'homeschool'
+                        ? `🏠 ${(() => { const s: any = (e as any).enrollment?.student; const st = Array.isArray(s) ? s[0] : s; return st?.full_name || 'Homeschool' })()}`
+                        : ((e as any).tuition_event?.name || '—')}
+                    </td>
                     <td className="px-5 py-3" style={{ color: 'var(--text-muted)' }}>{(e as any).curriculum?.name}</td>
                     <td className="px-5 py-3">
                       <select
@@ -191,6 +222,17 @@ export default function AdminExamEvents() {
                     </td>
                     <td className="px-5 py-3">
                       <div className="flex gap-2">
+                        <Link href={`/admin/exam-events/${e.id}`}>
+                          <Button size="sm">Open</Button>
+                        </Link>
+                        <button
+                          onClick={() => setIntakeExam(e)}
+                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-black text-white transition-all hover:opacity-85"
+                          style={{ background: 'var(--primary)' }}
+                          title="Photograph scripts and hand to a teacher for remote marking"
+                        >
+                          <Camera size={13} /> Scripts
+                        </button>
                         {e.status === 'active' ? (
                           <Button size="sm" variant="warning" onClick={() => updateStatus(e, 'finalized')}>
                             Finalize Exam (Marking)
@@ -206,16 +248,18 @@ export default function AdminExamEvents() {
                             </Button>
                           </Link>
                         )}
-                        <button onClick={() => { 
-                          setEditing(e); 
-                          setValue('name', e.name); 
+                        <button onClick={() => {
+                          setEditing(e);
+                          setValue('name', e.name);
                           setValue('start_date', e.start_date || '');
                           setValue('end_date', e.end_date || '');
-                          setValue('tuition_event_id', e.tuition_event_id); 
-                          setValue('curriculum_id', e.curriculum_id); 
+                          setValue('scope', (e as any).scope === 'homeschool' ? 'homeschool' : 'tuition');
+                          setValue('tuition_event_id', (e as any).tuition_event_id || '');
+                          setValue('enrollment_id', (e as any).enrollment_id || '');
+                          setValue('curriculum_id', e.curriculum_id);
                           setValue('target_class_ids', e.target_class_ids || []);
-                          setValue('status', e.status); 
-                          setAddOpen(true) 
+                          setValue('status', e.status);
+                          setAddOpen(true)
                         }} className="p-1.5 rounded-lg" style={{ background: 'var(--input)', color: 'var(--text-muted)' }}>
                           <Edit size={14} />
                         </button>
@@ -240,10 +284,24 @@ export default function AdminExamEvents() {
             <Input label="Start Date" type="date" error={errors.start_date?.message} {...register('start_date')} required />
             <Input label="End Date" type="date" error={errors.end_date?.message} {...register('end_date')} required />
           </div>
-          <Select label="Tuition Event" error={errors.tuition_event_id?.message} {...register('tuition_event_id')}>
-            <option value="">Select tuition event</option>
-            {tuitionEvents.map(te => <option key={te.id} value={te.id}>{te.name}</option>)}
+          <Select label="Applies To" error={errors.scope?.message} {...register('scope')}>
+            <option value="tuition">Tuition center event</option>
+            <option value="homeschool">Homeschool learner (CAT / End Term)</option>
           </Select>
+          {scope === 'tuition' ? (
+            <Select label="Tuition Event" error={errors.tuition_event_id?.message} {...register('tuition_event_id')}>
+              <option value="">Select tuition event</option>
+              {tuitionEvents.map(te => <option key={te.id} value={te.id}>{te.name}</option>)}
+            </Select>
+          ) : (
+            <Select label="Homeschool Learner" error={errors.enrollment_id?.message} {...register('enrollment_id')}>
+              <option value="">Select learner</option>
+              {enrollments.map((en: any) => {
+                const st: any = Array.isArray(en.student) ? en.student[0] : en.student
+                return <option key={en.id} value={en.id}>{st?.full_name || 'Learner'} — {en.grade_level || ''} {en.academic_year || ''}</option>
+              })}
+            </Select>
+          )}
           <Select label="Curriculum" error={errors.curriculum_id?.message} {...register('curriculum_id')}>
             <option value="">All Curriculums</option>
             {curriculums.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -291,6 +349,12 @@ export default function AdminExamEvents() {
           </div>
         </form>
       </Modal>
+
+      <ExamScriptIntakeModal
+        exam={intakeExam}
+        isOpen={!!intakeExam}
+        onClose={() => setIntakeExam(null)}
+      />
     </div>
   )
 }

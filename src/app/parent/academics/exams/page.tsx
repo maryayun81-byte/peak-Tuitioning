@@ -36,15 +36,19 @@ export default function ExamAnalyticsPage() {
     if (!selectedStudent?.id) return
     setLoading(true)
     try {
+      // Only published results are visible to parents. Teacher drafts,
+      // unverified marks and unpublished papers stay hidden until admin
+      // verifies + publishes the exam event.
       const { data, error } = await supabase
         .from('exam_marks')
         .select(`
           *,
           subject:subjects(name),
-          exam_event:exam_events(name, exam_date),
+          exam_event:exam_events(name, start_date, end_date, status),
           teacher:teachers(full_name)
         `)
         .eq('student_id', selectedStudent.id)
+        .eq('result_status', 'published')
         .order('created_at', { ascending: false })
 
       if (error) throw error
@@ -199,7 +203,7 @@ export default function ExamAnalyticsPage() {
                                  </div>
                                  <div className="flex items-center gap-6">
                                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2">
-                                       <Calendar size={12} className="text-indigo-400" /> {m.exam_event?.exam_date ? formatDate(m.exam_event.exam_date, 'long') : 'N/A'}
+                                       <Calendar size={12} className="text-indigo-400" /> {(m.exam_event?.start_date || (m as any).exam_event?.exam_date) ? formatDate(m.exam_event?.start_date || (m as any).exam_event?.exam_date, 'long') : 'N/A'}
                                     </p>
                                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2">
                                        <Award size={12} className="text-emerald-400" /> Score: <span className="text-slate-900 font-black">{m.marks}%</span>

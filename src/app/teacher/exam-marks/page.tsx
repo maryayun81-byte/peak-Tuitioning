@@ -69,6 +69,11 @@ export default function TeacherExamMarks() {
   const [students, setStudents] = useState<Student[]>([])
   const [marksData, setMarksData] = useState<Record<string, { marks: string; remarks: string; progress: string; grade?: string; grading_system_id?: string; id?: string }>>({})
   const [initialMarksData, setInitialMarksData] = useState<Record<string, any>>({})
+  // Paper total comes from the admin-configured exam subject (NOT 100 by
+  // default). Grading always runs on percentage = raw/total*100 because all
+  // grading_scales are 0–100 percentage bands.
+  const [paperTotal, setPaperTotal] = useState(100)
+  const [eventEnrollmentId, setEventEnrollmentId] = useState<string | null>(null)
 
   // Compute curriculum for the selected class to feed the hook
   const selectedClassOption = useMemo(() => 
@@ -119,18 +124,32 @@ export default function TeacherExamMarks() {
 
       setActiveTuitionEvent(tuitionData ?? null)
 
-      if (!tuitionData) {
-        setLoading(false)
-        return
+      // 2. Get exam events open for marking: finalized tuition events +
+      // finalized homeschool events for enrollments assigned to this teacher.
+      // Homeschool CATs / end-terms must appear here even with no active
+      // tuition event.
+      const [tuitionEventsRes, hsAssignRes] = await Promise.all([
+        tuitionData
+          ? supabase
+              .from('exam_events')
+              .select('id, name, start_date, end_date, tuition_event_id, status')
+              .eq('tuition_event_id', tuitionData.id)
+              .in('status', ['finalized'])
+              .order('start_date', { ascending: false })
+          : Promise.resolve({ data: [] as any[] }),
+        supabase.from('homeschool_teacher_assignments').select('enrollment_id').in('teacher_id', teacherIds),
+      ])
+      let eventsData: any[] = tuitionEventsRes.data ?? []
+      const enrollmentIds = Array.from(new Set(((hsAssignRes as any).data || []).map((r: any) => r.enrollment_id).filter(Boolean)))
+      if (enrollmentIds.length > 0) {
+        const { data: hsEvents } = await supabase
+          .from('exam_events')
+          .select('id, name, start_date, end_date, tuition_event_id, enrollment_id, status')
+          .in('enrollment_id', enrollmentIds)
+          .in('status', ['finalized'])
+          .order('start_date', { ascending: false })
+        eventsData = [...(hsEvents || []), ...eventsData]
       }
-
-      // 2. Get exam events for this tuition event that are finalized (open for marking)
-      const { data: eventsData } = await supabase
-        .from('exam_events')
-        .select('id, name, start_date, end_date, tuition_event_id, status')
-        .eq('tuition_event_id', tuitionData.id)
-        .in('status', ['finalized'])
-        .order('start_date', { ascending: false })
 
       setExamEvents(eventsData ?? [])
 
@@ -164,7 +183,42 @@ export default function TeacherExamMarks() {
           .filter((o, i, arr) =>
             arr.findIndex(x => x.class_id === o.class_id && x.subject_id === o.subject_id) === i
           )
-        setClassSubjectOptions(options)
+        // Homeschool assignments: resolve each enrollment's learner class so
+        // single-learner CATs appear alongside tuition classes.
+        if (enrollmentIds.length > 0) {
+          try {
+            const { data: hsTa } = await supabase
+              .from('homeschool_teacher_assignments')
+              .select('subject_id, enrollment_id, subject:subjects(id, name)')
+              .in('teacher_id', teacherIds)
+              .in('enrollment_id', enrollmentIds)
+            const { data: enrStudents } = await supabase
+              .from('homeschool_enrollments')
+              .select('id, student:students(id, class_id, class:classes(id, name, curriculum_id))')
+              .in('id', enrollmentIds)
+            const classByEnrollment: Record<string, any> = {}
+            for (const e of (enrStudents || []) as any[]) {
+              const s: any = Array.isArray(e.student) ? e.student[0] : e.student
+              if (s?.class_id) classByEnrollment[e.id] = s.class || { id: s.class_id, name: 'Homeschool' }
+            }
+            for (const t of (hsTa || []) as any[]) {
+              const cls = classByEnrollment[t.enrollment_id]
+              if (!cls || !t.subject) continue
+              options.push({
+                class_id: cls.id,
+                subject_id: t.subject_id,
+                class_name: `${cls.name || 'Homeschool'} (HS)`,
+                subject_name: t.subject?.name ?? 'Unknown',
+                curriculum_id: cls.curriculum_id ?? '',
+              })
+            }
+          } catch { /* homeschool options best-effort */ }
+        }
+        setClassSubjectOptions(
+          options.filter((o, i, arr) =>
+            arr.findIndex(x => x.class_id === o.class_id && x.subject_id === o.subject_id) === i
+          )
+        )
       }
     } catch (e) {
       console.error('Failed to load base data', e)
@@ -212,12 +266,37 @@ export default function TeacherExamMarks() {
     setStudentsLoading(true)
     setPage(1)
     try {
+      // Event context: paper total (admin-configured per subject) + whether
+      // this is a single-learner homeschool event.
+      const [{ data: eventRow }, { data: subjectRow }] = await Promise.all([
+        supabase.from('exam_events').select('id, enrollment_id').eq('id', selectedExamEventId).maybeSingle(),
+        supabase.from('exam_event_subjects').select('total_marks').eq('exam_event_id', selectedExamEventId).eq('subject_id', selectedSubjectId).maybeSingle(),
+      ])
+      const total = Number((subjectRow as any)?.total_marks) || 100
+      setPaperTotal(total)
+      const enrollmentId = (eventRow as any)?.enrollment_id || null
+      setEventEnrollmentId(enrollmentId)
+
+      // Roster: a homeschool event examines ONLY its enrolled learner(s) —
+      // never the whole class they happen to sit in.
+      let studentQuery = supabase
+        .from('students')
+        .select('id, full_name, admission_number')
+        .order('full_name')
+      if (enrollmentId) {
+        const { data: enr } = await supabase
+          .from('homeschool_enrollments')
+          .select('student_id')
+          .eq('id', enrollmentId)
+          .maybeSingle()
+        const sid = (enr as any)?.student_id
+        studentQuery = sid ? studentQuery.eq('id', sid) : studentQuery.eq('id', '__none__')
+      } else {
+        studentQuery = studentQuery.eq('class_id', selectedClassId)
+      }
+
       const [studentsRes, marksRes] = await Promise.all([
-        supabase
-          .from('students')
-          .select('id, full_name, admission_number')
-          .eq('class_id', selectedClassId)
-          .order('full_name'),
+        studentQuery,
         supabase
           .from('exam_marks')
           .select('id, student_id, marks, teacher_remark')
@@ -254,12 +333,13 @@ export default function TeacherExamMarks() {
     setMarksData(prev => {
       const current = prev[studentId] || { marks: '', remarks: '', progress: '' }
       const updated = { ...current, [field]: value }
-      
-      // Real-time grade calculation
+
+      // Real-time grade from PERCENTAGE (raw/total*100) — scales are 0–100 bands.
       if (field === 'marks') {
         const numMarks = parseFloat(value)
-        if (!isNaN(numMarks)) {
-          const result = calculateGrade(numMarks)
+        if (!isNaN(numMarks) && paperTotal > 0) {
+          const pct = (numMarks / paperTotal) * 100
+          const result = calculateGrade(Math.round(pct * 100) / 100)
           if (result) {
             updated.grade = result.grade
             updated.grading_system_id = result.systemId
@@ -270,31 +350,46 @@ export default function TeacherExamMarks() {
           updated.grade = ''
         }
       }
-      
+
       return { ...prev, [studentId]: updated }
     })
   }
 
   const handleReviewMarks = () => {
+    // Guard: raw marks can never exceed the paper total.
+    const over = students.filter(s => {
+      const v = parseFloat(marksData[s.id]?.marks || '')
+      return !isNaN(v) && v > paperTotal
+    })
+    if (over.length > 0) {
+      toast.error(`${over.length} mark(s) exceed the paper total of ${paperTotal}. Fix them first.`)
+      return
+    }
+
     const upserts = students
       .map(s => {
         const data = marksData[s.id]
         const initial = initialMarksData[s.id]
-        
+
         const hasMarks = data?.marks && data.marks.trim() !== ''
         const hasProgress = data?.progress && data.progress.trim() !== ''
-        
+
         if (!hasMarks && !hasProgress) return null
 
         // Dirty Check: Skip if the data is identical to what was loaded from DB
-        const isModified = !initial || 
-          data.marks !== initial.marks || 
-          data.progress !== initial.progress || 
+        const isModified = !initial ||
+          data.marks !== initial.marks ||
+          data.progress !== initial.progress ||
           data.remarks !== initial.remarks ||
           data.grade !== initial.grade
 
         if (!isModified) return null
-        
+
+        const raw = hasMarks ? parseFloat(data.marks) : -1
+        const percentage = hasMarks && paperTotal > 0
+          ? Math.round((raw / paperTotal) * 10000) / 100
+          : null
+
         return {
           ...(data.id ? { id: data.id } : {}),
           student_id: s.id,
@@ -303,7 +398,9 @@ export default function TeacherExamMarks() {
           class_id: selectedClassId,
           exam_event_id: selectedExamEventId,
           teacher_id: teacher!.id,
-          marks: hasMarks ? parseFloat(data.marks) : -1,
+          marks: raw,
+          max_marks: paperTotal,
+          percentage,
           progress_summary: hasProgress ? data.progress : null,
           grade: data.grade || null,
           grading_system_id: data.grading_system_id || null,
@@ -324,7 +421,13 @@ export default function TeacherExamMarks() {
   const handleConfirmSave = async () => {
     setSaving(true)
     try {
-      const dbUpserts = pendingUpserts.map(({ student_name, ...rest }) => rest)
+      const dbUpserts = pendingUpserts.map(({ student_name, ...rest }) => ({
+        ...rest,
+        // Teacher-recorded marks are final as far as the teacher is concerned:
+        // 'marked' feeds verify → reports → publish. (Default would be
+        // 'submitted', which the pipeline ignores.)
+        result_status: 'marked',
+      }))
       const { error } = await supabase
         .from('exam_marks')
         .upsert(dbUpserts, { onConflict: 'student_id,subject_id,exam_event_id' })
@@ -476,9 +579,15 @@ export default function TeacherExamMarks() {
               onChange={e => { setSearch(e.target.value); setPage(1) }}
               className="w-full md:w-80"
             />
-            <Button onClick={handleReviewMarks} isLoading={saving}>
-              <Save size={16} className="mr-1.5" /> Review & Save
-            </Button>
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-black px-3 py-1.5 rounded-xl" style={{ background: 'var(--input)', color: 'var(--text)' }}>
+                Paper total: {paperTotal}
+                {eventEnrollmentId ? ' · 🏠 single learner' : ''}
+              </span>
+              <Button onClick={handleReviewMarks} isLoading={saving}>
+                <Save size={16} className="mr-1.5" /> Review & Save
+              </Button>
+            </div>
           </div>
 
           {studentsLoading ? (
@@ -489,7 +598,7 @@ export default function TeacherExamMarks() {
                 <table className="w-full text-sm">
                    <thead>
                     <tr style={{ background: 'var(--input)', borderBottom: '1px solid var(--card-border)' }}>
-                      {['Student', 'Admission No.', 'Marks', 'Grade / Progress', 'Remarks (optional)'].map(h => (
+                      {['Student', 'Admission No.', `Marks / ${paperTotal}`, '% · Grade', 'Remarks (optional)'].map(h => (
                         <th key={h} className="text-left px-5 py-3 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>{h}</th>
                       ))}
                     </tr>
@@ -519,16 +628,21 @@ export default function TeacherExamMarks() {
                           </td>
                           <td className="px-5 py-3 text-xs" style={{ color: 'var(--text-muted)' }}>{s.admission_number}</td>
                           <td className="px-5 py-3 relative">
-                            <Input
-                              type="number"
-                              min="0"
-                              step="0.5"
-                              max="100"
-                              placeholder="—"
-                              className="h-9 w-24 text-center font-bold"
-                              value={data.marks}
-                              onChange={e => handleMarkChange(s.id, 'marks', e.target.value)}
-                            />
+                            <div className="flex items-center gap-2">
+                              <Input
+                                type="number"
+                                min="0"
+                                step="0.5"
+                                max={paperTotal}
+                                placeholder="—"
+                                className="h-9 w-24 text-center font-bold"
+                                value={data.marks}
+                                onChange={e => handleMarkChange(s.id, 'marks', e.target.value)}
+                              />
+                              <span className="text-xs font-bold whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>
+                                / {paperTotal}
+                              </span>
+                            </div>
                             {data.id && (
                               <div className="absolute top-2 right-4 text-[9px] font-black text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded uppercase pointer-events-none whitespace-nowrap hidden sm:block">
                                 Saved
@@ -537,6 +651,11 @@ export default function TeacherExamMarks() {
                           </td>
                           <td className="px-5 py-3">
                              <div className="flex flex-col gap-2">
+                               {hasMarks && !isNaN(parseFloat(data.marks)) && (
+                                 <span className="text-xs font-black">
+                                   {Math.round((parseFloat(data.marks) / paperTotal) * 10000) / 100}%
+                                 </span>
+                               )}
                                {data.grade && (
                                  <Badge variant="primary" className="font-black text-sm h-8 min-w-[32px] justify-center">
                                    {data.grade}
@@ -601,22 +720,24 @@ export default function TeacherExamMarks() {
       {/* Review Modal */}
       <Modal isOpen={previewOpen} onClose={() => setPreviewOpen(false)} title="Review Marks Before Saving" size="lg">
          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">You are about to submit the following marks. Please perform a final check to ensure accuracy before confirming.</p>
+            <p className="text-sm text-muted-foreground">Paper total is {paperTotal}. Grades come from percentage (raw ÷ {paperTotal} × 100). Please perform a final check before confirming.</p>
             <div className="max-h-[60vh] overflow-y-auto border border-[var(--card-border)] rounded-xl">
                <table className="w-full text-sm text-left">
                    <thead className="bg-[var(--input)] sticky top-0 z-10 shadow-sm">
                      <tr>
-                        <th className="px-4 py-3 font-semibold text-xs tracking-wider uppercase text-muted-foreground">Student</th>
-                        <th className="px-4 py-3 font-semibold text-xs tracking-wider uppercase text-muted-foreground">Mark</th>
-                        <th className="px-4 py-3 font-semibold text-xs tracking-wider uppercase text-muted-foreground">Grade</th>
+                         <th className="px-4 py-3 font-semibold text-xs tracking-wider uppercase text-muted-foreground">Student</th>
+                         <th className="px-4 py-3 font-semibold text-xs tracking-wider uppercase text-muted-foreground">Mark</th>
+                         <th className="px-4 py-3 font-semibold text-xs tracking-wider uppercase text-muted-foreground">%</th>
+                         <th className="px-4 py-3 font-semibold text-xs tracking-wider uppercase text-muted-foreground">Grade</th>
                         <th className="px-4 py-3 font-semibold text-xs tracking-wider uppercase text-muted-foreground text-center">Status</th>
                      </tr>
                   </thead>
                   <tbody className="divide-y divide-[var(--card-border)]">
                       {pendingUpserts.map(u => (
                         <tr key={u.student_id} className={u.id ? "bg-amber-50" : ""}>
-                           <td className="px-4 py-3 font-medium">{u.student_name}</td>
-                           <td className="px-4 py-3 font-black text-primary">{u.marks}</td>
+                            <td className="px-4 py-3 font-medium">{u.student_name}</td>
+                            <td className="px-4 py-3 font-black text-primary">{u.marks} / {u.max_marks}</td>
+                            <td className="px-4 py-3 font-bold">{u.percentage != null ? `${u.percentage}%` : '—'}</td>
                            <td className="px-4 py-3">
                               <Badge variant="primary" className="font-bold">{u.grade || '—'}</Badge>
                            </td>

@@ -32,6 +32,7 @@ export default function SubjectMarkingPage() {
   const [students, setStudents] = useState<any[]>([])
   const [marks, setMarks] = useState<Record<string, { marks: number | string; remark: string }>>({})
   const [search, setSearch] = useState('')
+  const [paperTotal, setPaperTotal] = useState(100)
 
   useEffect(() => {
     if (examId && classId && subjectId && teacher) loadData()
@@ -40,7 +41,7 @@ export default function SubjectMarkingPage() {
   const loadData = async () => {
     setLoading(true)
     try {
-      const [exRes, clRes, sbRes, stRes, mkRes] = await Promise.all([
+      const [exRes, clRes, sbRes, stRes, mkRes, evSubRes] = await Promise.all([
         supabase.from('exam_events').select('*').eq('id', examId).single(),
         supabase.from('classes').select('*').eq('id', classId).single(),
         supabase.from('subjects').select('*').eq('id', subjectId).single(),
@@ -51,13 +52,16 @@ export default function SubjectMarkingPage() {
           .select('*')
           .eq('exam_event_id', examId)
           .eq('subject_id', subjectId)
-          .eq('class_id', classId)
+          .eq('class_id', classId),
+        // Admin-configured paper total for percentage math
+        supabase.from('exam_event_subjects').select('total_marks').eq('exam_event_id', examId).eq('subject_id', subjectId).maybeSingle(),
       ])
 
       setExam(exRes.data)
       setCls(clRes.data)
       setSubject(sbRes.data)
       setStudents(stRes.data || [])
+      setPaperTotal(Number((evSubRes.data as any)?.total_marks) || 100)
 
       // Map marks to state
       const marksMap: Record<string, { marks: number | string; remark: string }> = {}
@@ -72,17 +76,30 @@ export default function SubjectMarkingPage() {
 
   const handleSave = async () => {
     if (!teacher) return
+    // Guard: raw marks can never exceed the paper total.
+    const over = Object.entries(marks).filter(([, data]) => Number(data.marks) > paperTotal)
+    if (over.length > 0) {
+      toast.error(`Marks cannot exceed the paper total of ${paperTotal}.`)
+      return
+    }
     setSaving(true)
     try {
-      const toUpsert = Object.entries(marks).map(([studentId, data]) => ({
-        student_id: studentId,
-        exam_event_id: examId,
-        subject_id: subjectId,
-        class_id: classId,
-        teacher_id: teacher.id,
-        marks: Number(data.marks),
-        teacher_remark: data.remark,
-      }))
+      const toUpsert = Object.entries(marks).map(([studentId, data]) => {
+        const raw = Number(data.marks)
+        return {
+          student_id: studentId,
+          exam_event_id: examId,
+          subject_id: subjectId,
+          class_id: classId,
+          teacher_id: teacher.id,
+          marks: raw,
+          max_marks: paperTotal,
+          percentage: Math.round((raw / paperTotal) * 10000) / 100,
+          teacher_remark: data.remark,
+          // Teacher-recorded marks → 'marked' feeds verify → reports → publish.
+          result_status: 'marked',
+        }
+      })
 
       const { error } = await supabase.from('exam_marks').upsert(toUpsert, { onConflict: 'student_id,subject_id,exam_event_id' })
       if (error) throw error

@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/Button'
 import { Avatar } from '@/components/ui/Avatar'
 import { useAuthStore } from '@/stores/authStore'
 import { getStudentYouTubeSuggestions } from '@/app/actions/youtube'
-import { getStudentHomepageFeeds, getStudentNationalExam, claimDailyLoginReward } from '@/app/actions/student'
+import { getStudentHomepageFeeds, claimDailyLoginReward } from '@/app/actions/student'
 import { generateDailyInsights } from '@/app/actions/ai'
 import { getReferralSummary } from '@/app/actions/referrals'
 import { getApprovedCreatorReel } from '@/app/actions/flashcards'
@@ -28,6 +28,7 @@ import { MotivationMessage } from '@/components/seasonal/MotivationMessage'
 import { useSeason, getSeasonTheme, getCurrentSeason, getSeasonOverride, setSeasonOverride, getReducedMotion, setReducedMotion } from '@/lib/seasonal-theme'
 import { LiveLessonsWidget } from '@/components/live/LiveLessonsWidget'
 import HomeschoolDashboardWidget from '@/components/student/HomeschoolDashboardWidget'
+import { ExamTimetableWidget } from '@/components/student/ExamTimetableWidget'
 
 // ── DAILY INSIGHTS COMPONENT ───────────────────────────────────────────────
 function DailyInsightsCard({ insight, isCBC }: { insight: any, isCBC: boolean }) {
@@ -756,51 +757,6 @@ function LegacyEliteScholarHomepage({ student, profile, data }: { student: any, 
 }
 
 // ── EPIC STUDENT HOMEPAGE (CBC / PRIMARY) ──────────────────────────────────
-function NationalExamCountdownCard({ exam }: { exam: any }) {
-  const [now, setNow] = useState(() => Date.now())
-
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(timer)
-  }, [])
-
-  if (!exam?.exam_date) return null
-
-  const target = new Date(`${exam.exam_date}T00:00:00`).getTime()
-  const diff = Math.max(target - now, 0)
-  const days = Math.floor(diff / 86400000)
-  const hours = Math.floor((diff % 86400000) / 3600000)
-  const minutes = Math.floor((diff % 3600000) / 60000)
-  const seconds = Math.floor((diff % 60000) / 1000)
-
-  return (
-    <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
-      <Card className="mb-5 overflow-hidden border border-rose-500/30 bg-gradient-to-br from-rose-500/15 via-[var(--card)] to-orange-500/10 p-4 md:p-5">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-rose-400">🎯 National Exam Countdown</p>
-            <h2 className="mt-1 text-2xl font-black tracking-tight" style={{ color: 'var(--text)' }}>{exam.name}</h2>
-            <p className="mt-1 text-sm font-semibold text-muted">{exam.exam_type} · {new Date(exam.exam_date).toLocaleDateString('en-KE', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
-          </div>
-          <div className="grid grid-cols-4 gap-2 md:min-w-[400px]">
-            {([
-              ['Days', days],
-              ['Hours', hours],
-              ['Mins', minutes],
-              ['Secs', seconds],
-            ] as [string, number][]).map(([label, value]) => (
-              <div key={label} className={`rounded-2xl border border-rose-500/20 bg-black/25 p-3 text-center backdrop-blur-sm ${label === 'Secs' ? 'ring-1 ring-rose-500/30' : ''}`}>
-                <p className="text-2xl font-black text-white md:text-3xl tabular-nums">{String(value).padStart(2, '0')}</p>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-white/50">{label}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </Card>
-    </motion.div>
-  )
-}
-
 function getLocalDailyInsight(isCBC: boolean) {
   return {
     vocabulary: isCBC
@@ -1025,9 +981,9 @@ function PremiumStudentHome({ student, profile, data, isCBC }: { student: any, p
           <MotivationMessage theme={theme} />
         </div>
 
-        {/* ── National Exam Countdown ─────────────────────────── */}
+        {/* ── Exam Timetable ─────────────────────────────────── */}
         <div className="mt-4">
-          <NationalExamCountdownCard exam={data.nationalExam} />
+          <ExamTimetableWidget />
         </div>
 
         {/* ── Live Lessons ─────────────────────────────────────── */}
@@ -1473,7 +1429,7 @@ function EliteScholarHomepage({ student, profile, data }: { student: any, profil
           </div>
         </motion.div>
 
-        <NationalExamCountdownCard exam={data.nationalExam} />
+        <ExamTimetableWidget />
 
         <div className="mb-4 flex items-end justify-between gap-4">
           <div>
@@ -1708,7 +1664,7 @@ function EpicStudentHomepage({ student, profile, data }: { student: any, profile
       </motion.div>
 
       <div className="max-w-6xl mx-auto px-6 space-y-12">
-        <NationalExamCountdownCard exam={data.nationalExam} />
+        <ExamTimetableWidget />
 
         <Card className="overflow-hidden border-0 bg-gradient-to-br from-amber-300 via-orange-300 to-rose-300 p-5 text-slate-950 shadow-2xl">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -1936,17 +1892,6 @@ function EpicStudentHomepage({ student, profile, data }: { student: any, profile
 }
 
 // ── MAIN ROUTER COMPONENT ───────────────────────────────────────────────────
-function inferNationalExamType(curriculumName: string, className: string) {
-  const curriculum = curriculumName.toLowerCase()
-  const klass = className.toLowerCase()
-
-  if (curriculum.includes('8-4') || klass.includes('form 4')) return 'KCSE'
-  if (klass.includes('grade 6') || klass === '6') return 'KJSEA'
-  if (klass.includes('grade 9') || klass === '9') return 'KPSEA'
-
-  return null
-}
-
 export default function StudentHomepageRouter() {
   const { student, profile, setStudent } = useAuthStore()
   const [loading, setLoading] = useState(true)
@@ -1959,7 +1904,6 @@ export default function StudentHomepageRouter() {
     recentQuizzes: any[];
     upcomingSessions: any[];
     dailyInsight: any;
-    nationalExam: any;
     referralSummary: any;
     creatorReel: any[];
     resourceReel: any[];
@@ -1971,7 +1915,6 @@ export default function StudentHomepageRouter() {
     recentQuizzes: [],
     upcomingSessions: [],
     dailyInsight: null,
-    nationalExam: null,
     referralSummary: null,
     creatorReel: [],
     resourceReel: []
@@ -2001,7 +1944,6 @@ export default function StudentHomepageRouter() {
     const supabase = getSupabaseBrowserClient()
     const classId = (student as any).class_id
     const curriculumId = (student as any).curriculum_id
-    const expectedUserId = profile?.id || (student as any).user_id
     const fallbackFeeds = { recentAssignments: [], recentQuizzes: [], upcomingSessions: [] }
     const safeLoad = async <T,>(label: string, loader: Promise<T>, fallback: T): Promise<T> => {
       try {
@@ -2103,7 +2045,6 @@ export default function StudentHomepageRouter() {
         recentQuizzes: feeds.recentQuizzes,
         upcomingSessions: feeds.upcomingSessions,
         dailyInsight: cachedInsight,
-        nationalExam: null,
         referralSummary: null,
         creatorReel: [],
         resourceReel: []
@@ -2124,12 +2065,6 @@ export default function StudentHomepageRouter() {
         .then((creatorReel) => merge({ creatorReel: creatorReel || [] }))
       safeLoad('teacher video reel', loadTeacherVideoReel(), [])
         .then((resourceReel) => merge({ resourceReel: resourceReel || [] }))
-
-      const examType = inferNationalExamType(currName, className)
-      if (examType) {
-        safeLoad('national exam', getStudentNationalExam(student.id, examType, expectedUserId), null)
-          .then((nationalExam) => merge({ nationalExam }))
-      }
 
       if (!cachedInsight) {
         safeLoad('daily insight', generateDailyInsights(currName, className), getLocalDailyInsight(!currName.includes('8-4')))

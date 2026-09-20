@@ -166,14 +166,14 @@ export async function startExamSubmission(examId: string) {
   // Check if already started
   const { data: existing } = await supabase
     .from('exam_submissions')
-    .select('id, status')
+    .select('id, status, start_time')
     .eq('exam_id', examId)
     .eq('student_id', student.id)
     .single()
 
   if (existing) {
     if (existing.status !== 'in_progress') throw new Error('Exam already submitted')
-    return existing.id
+    return { id: existing.id, start_time: existing.start_time }
   }
 
   const { data, error } = await supabase
@@ -183,11 +183,11 @@ export async function startExamSubmission(examId: string) {
       student_id: student.id,
       status: 'in_progress'
     })
-    .select()
+    .select('id, start_time')
     .single()
 
   if (error) throw error
-  return data.id
+  return { id: data.id, start_time: data.start_time }
 }
 
 export async function submitExam(submissionId: string, answers: any[]) {
@@ -214,6 +214,156 @@ export async function submitExam(submissionId: string, answers: any[]) {
         student_answer: answer.student_answer
       }, { onConflict: 'submission_id, question_id' })
   }
+}
+
+export async function getServerTime() {
+  // Server clock for exam timing — immune to student device-clock tampering.
+  // Round-trip adds a small bias in the student's favour; acceptable tolerance.
+  return Date.now()
+}
+
+export async function getStudentExamResult(examId: string) {
+  const supabase = await getSupabase()
+  const { data: user } = await supabase.auth.getUser()
+  if (!user.user) throw new Error('Not authenticated')
+
+  const { data: student } = await supabase
+    .from('students')
+    .select('id, full_name, admission_number, class:classes(name)')
+    .eq('user_id', user.user.id)
+    .single()
+
+  if (!student) throw new Error('Not a student')
+
+  const { data: exam, error: examError } = await supabase
+    .from('exams')
+    .select('*, subject:subjects(name)')
+    .eq('id', examId)
+    .single()
+
+  if (examError) throw examError
+
+  const { data: submission } = await supabase
+    .from('exam_submissions')
+    .select('*')
+    .eq('exam_id', examId)
+    .eq('student_id', student.id)
+    .maybeSingle()
+
+  if (!submission) return { exam, student, submission: null, answers: [] }
+
+  const { data: answers } = await supabase
+    .from('exam_answers')
+    .select('*, question:exam_questions(*)')
+    .eq('submission_id', submission.id)
+
+  const ordered = (answers || []).sort(
+    (a: any, b: any) => (a.question?.order_index ?? 0) - (b.question?.order_index ?? 0)
+  )
+
+  return { exam, student, submission, answers: ordered }
+}
+
+export async function getTeacherOrThrow(supabase: any) {
+  const { data: user } = await supabase.auth.getUser()
+  if (!user.user) throw new Error('Not authenticated')
+  const { data: teacher } = await supabase
+    .from('teachers')
+    .select('id')
+    .eq('user_id', user.user.id)
+    .single()
+  if (!teacher) throw new Error('Not a teacher')
+  return teacher
+}
+
+export async function getExamForEdit(examId: string) {
+  const supabase = await getSupabase()
+  const teacher = await getTeacherOrThrow(supabase)
+  const data = await getExamWithQuestions(examId)
+  if ((data as any).teacher_id !== teacher.id) throw new Error('Not your paper')
+  return data
+}
+
+export async function checkExamLocked(examId: string) {
+  const supabase = await getSupabase()
+  const { count } = await supabase
+    .from('exam_submissions')
+    .select('id', { count: 'exact', head: true })
+    .eq('exam_id', examId)
+  if ((count || 0) > 0) {
+    return { locked: true as const, reason: `${count} student submission(s) exist — paper is frozen to protect marked work.` }
+  }
+  // Live timetable window with zero submissions yet: still frozen mid-window.
+  try {
+    const { data: links } = await supabase
+      .from('exam_event_subjects')
+      .select('id')
+      .eq('exam_id', examId)
+    const ids = ((links || []) as any[]).map(l => l.id)
+    if (ids.length > 0) {
+      const nowIso = new Date().toISOString()
+      const { data: live } = await supabase
+        .from('exam_timetable')
+        .select('id')
+        .in('event_subject_id', ids)
+        .lte('starts_at', nowIso)
+        .gte('ends_at', nowIso)
+        .limit(1)
+      if (live && live.length > 0) {
+        return { locked: true as const, reason: 'A live exam window is open — paper is frozen until it closes.' }
+      }
+    }
+  } catch { /* best-effort */ }
+  return { locked: false as const, reason: '' }
+}
+
+export async function updateExam(examId: string, data: {
+  title: string
+  description?: string
+  subject_id?: string
+  duration_minutes: number
+  pass_mark?: number
+  random_order: boolean
+  status: 'draft' | 'published'
+}) {
+  const supabase = await getSupabase()
+  const teacher = await getTeacherOrThrow(supabase)
+  const lock = await checkExamLocked(examId)
+  if (lock.locked) throw new Error(lock.reason)
+  const { error } = await supabase
+    .from('exams')
+    .update({
+      title: data.title,
+      description: data.description,
+      subject_id: data.subject_id,
+      duration_minutes: data.duration_minutes,
+      pass_mark: data.pass_mark,
+      random_order: data.random_order,
+      status: data.status,
+    })
+    .eq('id', examId)
+    .eq('teacher_id', teacher.id)
+  if (error) throw error
+}
+
+export async function updateExamQuestion(questionId: string, questionData: any) {
+  const supabase = await getSupabase()
+  await getTeacherOrThrow(supabase)
+  const { data, error } = await supabase
+    .from('exam_questions')
+    .update(questionData)
+    .eq('id', questionId)
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function deleteExamQuestion(questionId: string) {
+  const supabase = await getSupabase()
+  await getTeacherOrThrow(supabase)
+  const { error } = await supabase.from('exam_questions').delete().eq('id', questionId)
+  if (error) throw error
 }
 
 export async function getExamSubmissions(examId: string) {

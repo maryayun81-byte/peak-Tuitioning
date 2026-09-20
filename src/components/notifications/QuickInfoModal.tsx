@@ -28,6 +28,7 @@ const KIND_META: Record<SpotlightKind, KindMeta> = {
   timetable_published: { kicker: 'Timetable update', cta: 'View Schedule', Icon: CalendarDays, gradient: 'linear-gradient(135deg, #F59E0B, #F97316)', ring: 'rgba(245,158,11,0.12)' },
   assignment_returned: { kicker: 'Marked work back', cta: 'View Results', Icon: CheckCircle2, gradient: 'linear-gradient(135deg, #10B981, #059669)', ring: 'rgba(16,185,129,0.12)' },
   submission_received: { kicker: 'New submission', cta: 'Mark Now', Icon: Inbox, gradient: 'linear-gradient(135deg, #0EA5E9, #2563EB)', ring: 'rgba(14,165,233,0.12)' },
+  scripts_ready: { kicker: 'Scripts to mark', cta: 'Open Marking', Icon: Inbox, gradient: 'linear-gradient(135deg, #7C3AED, #4F8CFF)', ring: 'rgba(124,58,237,0.12)' },
 }
 
 // Row order + labels per kind. Producers send display-ready strings.
@@ -62,6 +63,11 @@ const KIND_ROWS: Record<SpotlightKind, Array<{ key: string; label: string }>> = 
     { key: 'student', label: 'Student' },
     { key: 'assignment', label: 'Assignment' },
     { key: 'submitted', label: 'Submitted' },
+  ],
+  scripts_ready: [
+    { key: 'exam', label: 'Exam' },
+    { key: 'subject', label: 'Subject' },
+    { key: 'scripts', label: 'Scripts' },
   ],
 }
 

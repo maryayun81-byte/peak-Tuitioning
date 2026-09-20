@@ -229,6 +229,80 @@ export default function WorksheetGraderPage() {
     await supabase.from('assignments').update({ total_marks: t, max_marks: t }).eq('id', assignment.id)
   }
 
+  // Exam bridge: script-marking assignments carry exam_event_id. Every
+  // save/return also records exam_marks (upsert — manual entries in the
+  // exam-marks table and remote marking share the row), graded with the
+  // configured grading system (subject → curriculum fallback, same
+  // hierarchy as useGradingSystem). Best-effort: never blocks the marking
+  // flow itself.
+  const recordExamMark = async () => {
+    try {
+      const examEventId = (assignment as any)?.exam_event_id
+      if (!examEventId || !assignment?.subject_id || !assignment?.class_id || !submission?.student_id) return
+      const total = Number(totalMarks) || 0
+      const awarded = Number(awardedMarks) || 0
+
+      // Paper total: admin-configured exam subject wins (e.g. 60), then the
+      // assignment total, then 100. Percentage = awarded/total*100.
+      let paperTotal = total
+      try {
+        const { data: evSub } = await supabase
+          .from('exam_event_subjects')
+          .select('total_marks')
+          .eq('exam_event_id', examEventId)
+          .eq('subject_id', assignment.subject_id)
+          .maybeSingle()
+        const configured = Number((evSub as any)?.total_marks)
+        if (configured > 0) paperTotal = configured
+      } catch { /* fall back to assignment total */ }
+      if (!(paperTotal > 0)) paperTotal = 100
+      const percentage = Math.round((awarded / paperTotal) * 10000) / 100
+
+      const { data: tRow } = await supabase.from('teachers').select('id').eq('user_id', profile?.id).maybeSingle()
+      const teacherId = (tRow as any)?.id
+      if (!teacherId) return
+
+      let grade: string | null = null
+      const { data: cls } = await supabase.from('classes').select('curriculum_id').eq('id', assignment.class_id).maybeSingle()
+      const curriculumId = (cls as any)?.curriculum_id
+      if (curriculumId) {
+        const { data: systems } = await supabase
+          .from('grading_systems')
+          .select('*, scales:grading_scales(*)')
+          .eq('curriculum_id', curriculumId)
+        const list = (systems || []) as any[]
+        const sys =
+          list.find((s) => s.subject_id === assignment.subject_id && s.class_id === assignment.class_id) ||
+          list.find((s) => s.subject_id === assignment.subject_id && !s.class_id) ||
+          list.find((s) => !s.subject_id && s.class_id === assignment.class_id) ||
+          list.find((s) => !s.subject_id && !s.class_id && s.is_default) ||
+          list[0]
+        if (sys) {
+          const pct = paperTotal > 0 ? (awarded / paperTotal) * 100 : 0
+          const scale = (sys.scales || []).find((s: any) => pct >= s.min_score && pct <= s.max_score)
+          grade = scale?.grade ?? null
+        }
+      }
+
+      await supabase.from('exam_marks').upsert({
+        student_id: submission.student_id,
+        subject_id: assignment.subject_id,
+        class_id: assignment.class_id,
+        exam_event_id: examEventId,
+        teacher_id: teacherId,
+        marks: awarded,
+        max_marks: paperTotal,
+        percentage,
+        grade,
+        // Remote marking completes the teacher's part → 'marked' feeds
+        // verify → reports → publish.
+        result_status: 'marked',
+      }, { onConflict: 'student_id,subject_id,exam_event_id' })
+    } catch (e) {
+      console.warn('[Marking] exam_marks bridge failed (marking itself is saved):', e)
+    }
+  }
+
   const saveProgress = async () => {
     setSaving(true)
     const { error } = await supabase.from('submissions').update({

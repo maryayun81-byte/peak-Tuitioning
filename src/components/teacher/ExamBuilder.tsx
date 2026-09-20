@@ -1,18 +1,21 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import {
-  Plus, Trash2, Save, BookOpen, FileText, ChevronDown, ChevronUp,
-  Image as ImageIcon, Table2, BookMarked, Languages, Music2
+  Plus, Trash2, Save, BookOpen, FileText, ChevronDown, ChevronUp, Eye,
+  Image as ImageIcon, Table2, BookMarked, Languages,   Music2, Copy,
+  ArrowUp, ArrowDown, Check, CheckCircle2, Sparkles, PenLine, ListChecks,
+  ToggleLeft, Calculator, Type, Clock, Award, Layers, AlignLeft
 } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Card, Badge } from '@/components/ui/Card'
-import { createExam, addExamQuestion } from '@/app/actions/exams'
+import { createExam, addExamQuestion, getExamForEdit, updateExam, updateExamQuestion, deleteExamQuestion, checkExamLocked } from '@/app/actions/exams'
 import { LatexRenderer } from '@/components/ui/LatexRenderer'
+import { SchoolLogo } from '@/components/exam/SchoolLogo'
 import type { Subject } from '@/types/database'
 import toast from 'react-hot-toast'
 import { generateId } from '@/lib/utils'
@@ -20,7 +23,7 @@ import { generateQuestionNumber, DEPTH_LABELS } from '@/lib/exam/kcse-numbering'
 import { SET_BOOKS, getSetBookGroups, SET_BOOK_SUBJECTS } from '@/lib/exam/kcse-set-books'
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
-type QuestionType = 'mcq' | 'true_false' | 'short_answer' | 'essay' | 'math_working' | 'fill_in_blank'
+type QuestionType = 'mcq' | 'true_false' | 'short_answer' | 'long_answer' | 'essay' | 'math_working' | 'fill_in_blank'
 
 const PASSAGE_TYPES = [
   // English / General
@@ -97,9 +100,23 @@ const IMAGE_SUBTYPES = [
   'Flowchart', 'Political Cartoon / Katuni', 'Photograph / Picha', 'Other / Nyingine'
 ]
 
+// ─── Question-type personality (icon, colour, one-line joy) ──────────────────
+const TYPE_META: Record<QuestionType, { label: string; hint: string; Icon: any; chip: string; dot: string }> = {
+  short_answer: { label: 'Short Answer', hint: 'Quick recall, one idea', Icon: PenLine, chip: 'bg-sky-500/10 text-sky-500', dot: 'bg-sky-500' },
+  long_answer: { label: 'Long Answer', hint: 'Paragraph response, explained', Icon: AlignLeft, chip: 'bg-cyan-500/10 text-cyan-500', dot: 'bg-cyan-500' },
+  essay: { label: 'Essay / Writing', hint: 'Deep thinking, full template', Icon: FileText, chip: 'bg-rose-500/10 text-rose-500', dot: 'bg-rose-500' },
+  mcq: { label: 'Multiple Choice', hint: 'Auto-marked, instant results', Icon: ListChecks, chip: 'bg-violet-500/10 text-violet-500', dot: 'bg-violet-500' },
+  true_false: { label: 'True / False', hint: 'Fast, auto-marked', Icon: ToggleLeft, chip: 'bg-teal-500/10 text-teal-500', dot: 'bg-teal-500' },
+  math_working: { label: 'Math / Science', hint: 'Canvas working + final answer', Icon: Calculator, chip: 'bg-amber-500/10 text-amber-500', dot: 'bg-amber-500' },
+  fill_in_blank: { label: 'Fill the Gap', hint: 'Precision in one word', Icon: Type, chip: 'bg-emerald-500/10 text-emerald-500', dot: 'bg-emerald-500' },
+}
+
+const DRAFT_KEY = 'exam_builder_draft_v1'
+
 // ─── Interfaces ────────────────────────────────────────────────────────────────
 interface Passage {
   id: string
+  dbId?: string // set when loaded from an existing paper in edit mode
   title: string
   content: string
   passage_type: string
@@ -112,13 +129,22 @@ interface Passage {
   isExpanded: boolean
 }
 
+interface RubricStep {
+  step: string
+  marks: number
+  type: 'M' | 'A' | 'C' | 'B'
+}
+
 interface Question {
   id: string
+  dbId?: string // set when loaded from an existing paper in edit mode
   type: QuestionType
   content: string
   options: string[]
   correct_answer: string
   marks: number
+  rubric: RubricStep[]
+  section: string
   topic_tags: string
   passage_id: string
   depth: number // 0=top, 1=sub, 2=sub-sub etc
@@ -151,13 +177,97 @@ export function ExamBuilder() {
   const [questions, setQuestions] = useState<Question[]>([
     {
       id: generateId(), type: 'short_answer', content: '',
-      options: [], correct_answer: '', marks: 1, topic_tags: '',
+      options: [], correct_answer: '', marks: 1, rubric: [], section: 'Section A', topic_tags: '',
       passage_id: '', depth: 0, parent_id: '',
       functional_writing_type: 'free', word_limit: '', isExpanded: true
     }
   ])
+  const [previewAsStudent, setPreviewAsStudent] = useState(false)
+  // Edit mode: ?edit=<examId> loads a paper for revision. Frozen when live.
+  const [editId, setEditId] = useState<string | null>(null)
+  const [editLoading, setEditLoading] = useState(false)
+  const [lockReason, setLockReason] = useState<string | null>(null)
+  const [deletedIds, setDeletedIds] = useState<string[]>([])
+  const [deletedPassageIds, setDeletedPassageIds] = useState<string[]>([])
+  const previewRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (previewAsStudent) {
+      const t = setTimeout(() => previewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120)
+      return () => clearTimeout(t)
+    }
+  }, [previewAsStudent])
 
   useEffect(() => { loadSubjects() }, [])
+
+  // Edit mode: load an existing paper (?edit=<id>) unless it is live.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const id = params.get('edit')
+    if (!id) return
+    setEditLoading(true)
+    ;(async () => {
+      try {
+        const lock = await checkExamLocked(id)
+        if (lock.locked) {
+          setEditId(id)
+          setLockReason(lock.reason)
+          // Still load for viewing/duplication, but saving stays disabled.
+        } else {
+          setEditId(id)
+        }
+        const data: any = await getExamForEdit(id)
+        setForm({
+          title: data.title || '',
+          description: data.description || '',
+          subject_id: data.subject_id || '',
+          duration_minutes: data.duration_minutes || 60,
+          pass_mark: data.pass_mark ?? 50,
+          random_order: !!data.random_order,
+          language: 'en',
+        })
+        const loadedPassages: Passage[] = (data.passages || []).map((p: any, i: number) => ({
+          id: generateId(), dbId: p.id, title: p.title || '', content: p.content || '',
+          passage_type: p.passage_type || 'prose', set_book_id: p.set_book_id || '',
+          set_book_custom_title: '', image_url: p.image_url || '',
+          image_subtype: p.image_subtype || IMAGE_SUBTYPES[0], allow_search: !!p.allow_search,
+          order_index: i, isExpanded: false,
+        }))
+        setPassages(loadedPassages)
+        const passageDbToLocal: Record<string, string> = {}
+        loadedPassages.forEach(p => { if (p.dbId) passageDbToLocal[p.dbId] = p.id })
+        setQuestions(
+          (data.questions || []).map((q: any) => ({
+            id: generateId(),
+            dbId: q.id,
+            type: q.question_type,
+            content: q.content || '',
+            options: q.options || [],
+            correct_answer: typeof q.correct_answer === 'string' ? q.correct_answer : (q.correct_answer ? JSON.stringify(q.correct_answer) : ''),
+            marks: Number(q.marks) || 1,
+            rubric: Array.isArray(q.marking_rubric) ? q.marking_rubric.map((r: any) => ({
+              step: r.step || '',
+              marks: Number(r.marks) || 0,
+              type: (['M', 'A', 'C', 'B'].includes(r.type) ? r.type : 'M') as RubricStep['type'],
+            })) : [],
+            section: q.section_title || 'Section A',
+            topic_tags: (q.topic_tags || []).join(', '),
+            passage_id: q.passage_id ? (passageDbToLocal[q.passage_id] || '') : '',
+            depth: q.depth || 0,
+            parent_id: '',
+            functional_writing_type: q.functional_writing_type || 'free',
+            word_limit: q.word_limit ? String(q.word_limit) : '',
+            isExpanded: false,
+          }))
+        )
+        try { localStorage.removeItem(DRAFT_KEY) } catch {}
+      } catch (e: any) {
+        toast.error(e.message || 'Could not load paper for editing')
+      } finally {
+        setEditLoading(false)
+      }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const loadSubjects = async () => {
     const { data } = await supabase.from('subjects').select('*').order('name')
@@ -210,6 +320,8 @@ export function ExamBuilder() {
   }
 
   const removePassage = (id: string) => {
+    const target = passages.find(x => x.id === id)
+    if (target?.dbId) setDeletedPassageIds(prev => [...prev, target.dbId as string])
     setPassages(p => p.filter(x => x.id !== id))
     setQuestions(q => q.map(x => x.passage_id === id ? { ...x, passage_id: '' } : x))
   }
@@ -237,23 +349,110 @@ export function ExamBuilder() {
 
   // ─── Question handlers ────────────────────────────────────────────────────
   const addQuestion = (type: QuestionType = 'short_answer', depth = 0) => {
-    setQuestions(prev => [...prev, {
-      id: generateId(), type, content: '',
-      options: type === 'mcq' ? ['', '', '', ''] : [],
-      correct_answer: '', marks: 1, topic_tags: '', passage_id: '',
-      depth, parent_id: '',
-      functional_writing_type: 'free', word_limit: '', isExpanded: true
-    }])
+    setQuestions(prev => {
+      const lastSection = prev.length > 0 ? prev[prev.length - 1].section || 'Section A' : 'Section A'
+      return [...prev, {
+        id: generateId(), type, content: '',
+        options: type === 'mcq' ? ['', '', '', ''] : [],
+        correct_answer: '', marks: 1, rubric: [], section: lastSection, topic_tags: '', passage_id: '',
+        depth, parent_id: '',
+        functional_writing_type: 'free', word_limit: '', isExpanded: true
+      }]
+    })
   }
 
   const removeQuestion = (id: string) => {
     if (questions.length === 1) return toast.error('You need at least one question')
+    const target = questions.find(x => x.id === id)
+    if (target?.dbId) setDeletedIds(prev => [...prev, target.dbId as string])
     setQuestions(q => q.filter(x => x.id !== id))
   }
 
   const updateQuestion = (id: string, field: keyof Question, value: any) => {
     setQuestions(q => q.map(x => x.id === id ? { ...x, [field]: value } : x))
   }
+
+  const duplicateQuestion = (id: string) => {
+    setQuestions(prev => {
+      const idx = prev.findIndex(x => x.id === id)
+      if (idx < 0) return prev
+      const copy = { ...prev[idx], id: generateId(), isExpanded: true }
+      const next = [...prev]
+      next.splice(idx + 1, 0, copy)
+      return next
+    })
+    toast.success('Duplicated — tweak it into a brand-new question!')
+  }
+
+  const moveQuestion = (id: string, dir: -1 | 1) => {
+    setQuestions(prev => {
+      const idx = prev.findIndex(x => x.id === id)
+      const j = idx + dir
+      if (idx < 0 || j < 0 || j >= prev.length) return prev
+      const next = [...prev]
+      const [item] = next.splice(idx, 1)
+      next.splice(j, 0, item)
+      return next
+    })
+  }
+
+  // Question completeness: text present + answer key present (where it applies)
+  const isQuestionReady = (q: Question) => {
+    if (!q.content.trim()) return false
+    if (q.type === 'mcq') {
+      const filled = q.options.filter(o => (o || '').trim())
+      if (filled.length < 2) return false
+      if (!q.correct_answer.trim()) return false
+    }
+    if ((q.type === 'short_answer' || q.type === 'long_answer' || q.type === 'fill_in_blank' || q.type === 'true_false') && !q.correct_answer.trim()) return false
+    return true
+  }
+
+  // Paper progress: setup + questions + keys → 100% feels great to hit
+  const readyCount = questions.filter(isQuestionReady).length
+  const setupScore = (form.title.trim() ? 1 : 0) + (form.subject_id ? 1 : 0) + (form.duration_minutes > 0 ? 1 : 0)
+  const progress = Math.round(
+    ((setupScore / 3) * 0.3 + (questions.length > 0 ? 0.2 : 0) + (questions.length > 0 ? (readyCount / questions.length) * 0.5 : 0)) * 100
+  )
+  const progressMessage =
+    progress >= 100 ? 'Paper ready — publish with pride! 🎓' :
+    progress >= 70 ? 'Almost there — key the remaining answers.' :
+    progress >= 40 ? 'Taking shape nicely — keep going!' :
+    'Every great paper starts with a first question ✨'
+
+  // ─── Draft autosave (browser only, never touches the server) ──────────────
+  const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [draftRestored, setDraftRestored] = useState(false)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY)
+      if (raw) {
+        const d = JSON.parse(raw)
+        if (d?.questions?.length) {
+          setForm(f => ({ ...f, ...(d.form || {}) }))
+          // Backfill fields added after the draft was saved.
+          setQuestions(d.questions.map((q: any) => ({
+            section: 'Section A',
+            rubric: [],
+            ...q,
+          })))
+          if (d.passages?.length) setPassages(d.passages)
+          setDraftRestored(true)
+          toast.success('Recovered your unsaved draft — welcome back!')
+        }
+      }
+    } catch { /* corrupted draft: start fresh */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  useEffect(() => {
+    if (!draftRestored && questions.length <= 1 && !form.title) return
+    if (draftTimer.current) clearTimeout(draftTimer.current)
+    draftTimer.current = setTimeout(() => {
+      try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ form, questions, passages })) } catch {}
+    }, 1200)
+    return () => { if (draftTimer.current) clearTimeout(draftTimer.current) }
+  }, [form, questions, passages, draftRestored])
+  const clearDraft = () => { try { localStorage.removeItem(DRAFT_KEY) } catch {} }
 
   // ─── Save ─────────────────────────────────────────────────────────────────
   const handleSave = async (status: 'draft' | 'published') => {
@@ -265,6 +464,67 @@ export function ExamBuilder() {
 
     setLoading(true)
     try {
+      // Edit mode: update in place (server re-checks the live-lock).
+      if (editId && !lockReason) {
+        await updateExam(editId, { ...form, status })
+        const passageIdMap: Record<string, string> = {}
+        for (const p of passages) {
+          if (p.dbId) passageIdMap[p.id] = p.dbId
+        }
+        // Deleted passages first (unlinks handled by FK nulling via update below).
+        for (const dbId of deletedPassageIds) {
+          await supabase.from('exam_passages').delete().eq('id', dbId)
+        }
+        for (const [i, p] of passages.entries()) {
+          const row = {
+            exam_id: editId,
+            title: p.title || `Passage ${i + 1}`,
+            content: p.content,
+            passage_type: p.passage_type,
+            allow_search: p.allow_search,
+            image_url: p.image_url || null,
+            image_subtype: p.image_subtype || null,
+            set_book_id: p.set_book_id || null,
+            order_index: i,
+          }
+          if (p.dbId) {
+            const { error } = await supabase.from('exam_passages').update(row).eq('id', p.dbId)
+            if (error) throw error
+          } else {
+            const { data: saved, error } = await supabase.from('exam_passages').insert(row).select().single()
+            if (error) throw error
+            passageIdMap[p.id] = saved.id
+          }
+        }
+        for (const dbId of deletedIds) {
+          await deleteExamQuestion(dbId)
+        }
+        for (const [i, q] of questions.entries()) {
+          const row = {
+            question_type: q.type,
+            content: q.content,
+            options: q.type === 'mcq' ? q.options : null,
+            correct_answer: q.correct_answer,
+            marks: q.marks,
+            marking_rubric: q.rubric.filter(r => r.step.trim() || Number(r.marks) > 0),
+            section_title: q.section?.trim() || 'Section A',
+            topic_tags: q.topic_tags.split(',').map(t => t.trim()).filter(Boolean),
+            order_index: i,
+            depth: q.depth,
+            passage_id: q.passage_id ? (passageIdMap[q.passage_id] || null) : null,
+            question_number: getQuestionNumber(q, questions),
+            functional_writing_type: q.type === 'essay' ? q.functional_writing_type : null,
+            word_limit: q.word_limit ? parseInt(q.word_limit) : null,
+          }
+          if (q.dbId) await updateExamQuestion(q.dbId, row)
+          else await addExamQuestion(editId, row)
+        }
+        toast.success(status === 'published' ? '✅ Exam updated and published!' : 'Draft updated!')
+        clearDraft()
+        router.push('/teacher/exam-desk')
+        return
+      }
+
       const exam = await createExam({ ...form, status })
       const passageIdMap: Record<string, string> = {}
 
@@ -294,8 +554,11 @@ export function ExamBuilder() {
           options: q.type === 'mcq' ? q.options : null,
           correct_answer: q.correct_answer,
           marks: q.marks,
+          marking_rubric: q.rubric.filter(r => r.step.trim() || Number(r.marks) > 0),
+          section_title: q.section?.trim() || 'Section A',
           topic_tags: q.topic_tags.split(',').map(t => t.trim()).filter(Boolean),
           order_index: i,
+          depth: q.depth,
           passage_id: q.passage_id ? (passageIdMap[q.passage_id] || null) : null,
           question_number: getQuestionNumber(q, questions),
           functional_writing_type: q.type === 'essay' ? q.functional_writing_type : null,
@@ -304,6 +567,7 @@ export function ExamBuilder() {
       }
 
       toast.success(status === 'published' ? '✅ Exam Published!' : 'Draft saved!')
+      clearDraft()
       router.push('/teacher/exam-desk')
     } catch (e: any) {
       toast.error(e.message || 'Failed to save exam')
@@ -320,6 +584,87 @@ export function ExamBuilder() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-32">
+
+      {/* ─── Paper studio hero ─────────────────────────────────────────── */}
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-indigo-600 via-violet-600 to-fuchsia-500 text-white p-6 md:p-8 shadow-xl">
+        <Sparkles className="absolute -right-6 -top-6 w-40 h-40 opacity-15 rotate-12" aria-hidden />
+        <div className="relative flex flex-col md:flex-row md:items-center gap-6">
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] font-black uppercase tracking-[0.25em] opacity-80">Exam paper studio</p>
+            <h2 className="text-2xl md:text-3xl font-black mt-1 truncate">{form.title || 'Untitled paper'}</h2>
+            <p className="text-sm opacity-85 mt-1">{progressMessage}</p>
+            <div className="flex flex-wrap gap-2 mt-4 text-xs font-bold">
+              <span className="px-3 py-1.5 rounded-xl bg-white/15 backdrop-blur flex items-center gap-1.5">
+                <FileText size={13} /> {questions.length} question{questions.length !== 1 ? 's' : ''}
+              </span>
+              <span className="px-3 py-1.5 rounded-xl bg-white/15 backdrop-blur flex items-center gap-1.5">
+                <Award size={13} /> {totalMarks} marks
+              </span>
+              <span className="px-3 py-1.5 rounded-xl bg-white/15 backdrop-blur flex items-center gap-1.5">
+                <Clock size={13} /> {form.duration_minutes} min
+              </span>
+              <span className="px-3 py-1.5 rounded-xl bg-white/15 backdrop-blur flex items-center gap-1.5">
+                <Check size={13} /> {readyCount}/{questions.length} keyed
+              </span>
+            </div>
+          </div>
+          {/* Progress ring */}
+          <div className="relative w-24 h-24 shrink-0 mx-auto md:mx-0" title={`${progress}% complete`}>
+            <svg viewBox="0 0 100 100" className="w-24 h-24 -rotate-90">
+              <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.25)" strokeWidth="10" />
+              <circle cx="50" cy="50" r="42" fill="none" stroke="#fff" strokeWidth="10" strokeLinecap="round"
+                strokeDasharray={`${2 * Math.PI * 42}`} strokeDashoffset={`${2 * Math.PI * 42 * (1 - progress / 100)}`}
+                className="transition-all duration-700" />
+            </svg>
+            <span className="absolute inset-0 flex items-center justify-center font-black text-lg">{progress}%</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Live-lock banner */}
+      {editLoading && (
+        <Card className="p-4 text-sm text-center" style={{ color: 'var(--text-muted)' }}>Loading paper for editing…</Card>
+      )}
+      {editId && !editLoading && (
+        <div className={`p-4 rounded-2xl border text-sm font-bold ${lockReason ? 'bg-red-500/10 border-red-500/30 text-red-500' : 'bg-indigo-500/10 border-indigo-500/30 text-indigo-500'}`}>
+          {lockReason ? (
+            <>🔒 Live paper — frozen. {lockReason}</>
+          ) : (
+            <>✏️ Editing existing paper. Saving updates it in place.</>
+          )}
+          <button
+            onClick={() => {
+              setEditId(null); setLockReason(null); setDeletedIds([]); setDeletedPassageIds([])
+              setQuestions(qs => qs.map(q => { const { dbId, ...rest } = q as any; return rest as Question }))
+              setPassages(ps => ps.map(p => { const { dbId, ...rest } = p as any; return rest as Passage }))
+              setForm(f => ({ ...f, title: `${f.title} (Copy)` }))
+              toast.success('Detached — saving now creates a brand-new paper.')
+            }}
+            className="ml-3 underline font-black"
+          >
+            Duplicate as new instead
+          </button>
+        </div>
+      )}
+
+      {/* ─── Studio toolbar ────────────────────────────────────────────── */}
+      <div className="sticky top-2 z-20 flex items-center justify-between gap-3 bg-[var(--card)]/95 backdrop-blur p-3 rounded-2xl border border-[var(--card-border)] shadow-lg">
+        <div className="flex p-1 rounded-xl bg-[var(--input)]">
+          <button onClick={() => setPreviewAsStudent(false)}
+            className={`px-4 py-2 rounded-lg text-xs font-black transition-all ${!previewAsStudent ? 'bg-[var(--card)] shadow text-indigo-500' : 'text-muted'}`}>
+            <PenLine size={13} className="inline mr-1.5 -mt-0.5" /> Builder
+          </button>
+          <button onClick={() => setPreviewAsStudent(true)}
+            className={`px-4 py-2 rounded-lg text-xs font-black transition-all ${previewAsStudent ? 'bg-[var(--card)] shadow text-indigo-500' : 'text-muted'}`}>
+            <Eye size={13} className="inline mr-1.5 -mt-0.5" /> Student view
+          </button>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="hidden md:inline text-[11px] font-bold text-muted">Draft autosaves ✓</span>
+          <Button variant="ghost" size="sm" onClick={() => setQuestions(q => q.map(x => ({ ...x, isExpanded: false })))} className="text-muted text-xs hidden sm:inline-flex">Collapse</Button>
+          <Button variant="ghost" size="sm" onClick={() => setQuestions(q => q.map(x => ({ ...x, isExpanded: true })))} className="text-muted text-xs hidden sm:inline-flex">Expand</Button>
+        </div>
+      </div>
 
       {/* ─── Exam Settings ───────────────────────────────────────────────── */}
       <Card className="p-6 space-y-5">
@@ -559,7 +904,7 @@ export function ExamBuilder() {
             <div className="p-2 bg-indigo-500/10 text-indigo-500 rounded-xl"><FileText size={18} /></div>
             <div>
               <h3 className="font-black">Questions / Maswali ({questions.length})</h3>
-              <p className="text-xs text-muted">Auto KCSE numbering: 1 → 1(a) → 1(a)(i) → 1(a)(i)(I)</p>
+              <p className="text-xs text-muted">Auto KCSE numbering: 1 → 1(a) → 1(a)(i) → 1(a)(i)(I) · Group with Section headers</p>
             </div>
           </div>
           <div className="flex gap-2">
@@ -570,43 +915,66 @@ export function ExamBuilder() {
 
         {questions.map((q, index) => {
           const qNum = getQuestionNumber(q, questions)
+          const meta = TYPE_META[q.type]
+          const ready = isQuestionReady(q)
           return (
-            <Card key={q.id} className={`p-5 border-l-4 transition-all ${q.depth === 0 ? 'border-l-indigo-500' : q.depth === 1 ? 'border-l-violet-400 ml-4' : 'border-l-purple-300 ml-8'}`}>
-              <div className="flex items-center justify-between cursor-pointer"
+            <Card key={q.id} className={`p-0 overflow-hidden border-l-4 transition-all ${q.depth === 0 ? 'border-l-indigo-500' : q.depth === 1 ? 'border-l-violet-400 ml-4' : 'border-l-purple-300 ml-8'}`}>
+              {/* Card header: status · number · type · section · marks · actions */}
+              <div className="flex items-center gap-2 md:gap-3 px-4 py-3 cursor-pointer hover:bg-[var(--input)]/50 transition-colors"
                 onClick={e => {
-                  if ((e.target as HTMLElement).tagName.match(/INPUT|TEXTAREA|SELECT|BUTTON/)) return
+                  if ((e.target as HTMLElement).tagName.match(/INPUT|TEXTAREA|SELECT|BUTTON|SVG|PATH/)) return
                   updateQuestion(q.id, 'isExpanded', !q.isExpanded)
                 }}>
-                <div className="flex items-center gap-3 min-w-0">
-                  <Badge className="bg-indigo-500/10 text-indigo-500 font-black shrink-0">{qNum}</Badge>
-                  {q.passage_id && (
-                    <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded shrink-0">
-                      P{passages.findIndex(p => p.id === q.passage_id) + 1}
-                    </span>
-                  )}
-                  {!q.isExpanded && (
-                    <span className="text-sm font-medium text-muted truncate max-w-xs">
-                      {q.content || 'Empty question'}
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className="text-xs font-bold text-muted">{q.marks}m</span>
-                  <Button variant="ghost" size="sm"
+                <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${ready ? 'bg-emerald-500' : 'bg-amber-400'}`}
+                  title={ready ? 'Complete — text + answer key' : 'Needs work — add text / answer key'} />
+                <Badge className="bg-indigo-500/10 text-indigo-500 font-black shrink-0">{qNum}</Badge>
+                <span className={`hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wide shrink-0 ${meta.chip}`}>
+                  <meta.Icon size={11} /> {meta.label}
+                </span>
+                <span className="hidden md:inline text-[10px] font-bold text-muted truncate max-w-[140px] shrink-0">
+                  {q.section || 'Section A'}
+                </span>
+                {!q.isExpanded && (
+                  <span className="text-sm text-muted truncate flex-1 min-w-0">
+                    {q.content || <span className="italic opacity-60">Empty — click to write…</span>}
+                  </span>
+                )}
+                {q.isExpanded && <span className="flex-1" />}
+                <span className="text-xs font-black text-muted bg-[var(--input)] px-2 py-1 rounded-lg shrink-0">{q.marks}m</span>
+                <div className="flex items-center gap-0.5 shrink-0">
+                  <button title="Move up" onClick={e => { e.stopPropagation(); moveQuestion(q.id, -1) }}
+                    disabled={index === 0}
+                    className="p-1.5 rounded-lg text-muted hover:bg-[var(--input)] hover:text-[var(--text)] disabled:opacity-25">
+                    <ArrowUp size={13} />
+                  </button>
+                  <button title="Move down" onClick={e => { e.stopPropagation(); moveQuestion(q.id, 1) }}
+                    disabled={index === questions.length - 1}
+                    className="p-1.5 rounded-lg text-muted hover:bg-[var(--input)] hover:text-[var(--text)] disabled:opacity-25">
+                    <ArrowDown size={13} />
+                  </button>
+                  <button title="Duplicate question" onClick={e => { e.stopPropagation(); duplicateQuestion(q.id) }}
+                    className="p-1.5 rounded-lg text-muted hover:bg-indigo-500/10 hover:text-indigo-500">
+                    <Copy size={13} />
+                  </button>
+                  <button title={q.isExpanded ? 'Collapse' : 'Expand'}
                     onClick={e => { e.stopPropagation(); updateQuestion(q.id, 'isExpanded', !q.isExpanded) }}
-                    className="text-indigo-500">
+                    className="p-1.5 rounded-lg text-indigo-500 hover:bg-indigo-500/10">
                     {q.isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                  </Button>
-                  <Button variant="ghost" size="sm"
-                    onClick={e => { e.stopPropagation(); removeQuestion(q.id) }}
-                    className="text-red-500 hover:bg-red-500/10">
-                    <Trash2 size={14} />
-                  </Button>
+                  </button>
+                  <button title="Delete" onClick={e => { e.stopPropagation(); removeQuestion(q.id) }}
+                    className="p-1.5 rounded-lg text-muted hover:bg-red-500/10 hover:text-red-500">
+                    <Trash2 size={13} />
+                  </button>
                 </div>
               </div>
 
               {q.isExpanded && (
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4 pt-4 mt-3 border-t border-[var(--card-border)]">
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4 px-5 pb-5 pt-4 border-t border-[var(--card-border)]">
+                  {q.passage_id && (
+                    <span className="inline-block text-[10px] font-black uppercase tracking-widest text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded">
+                      Linked: Passage {passages.findIndex(p => p.id === q.passage_id) + 1}
+                    </span>
+                  )}
                   {/* Row 1: type, depth, marks, passage */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <Select label="Question Type / Aina" value={q.type}
@@ -641,6 +1009,16 @@ export function ExamBuilder() {
                         </option>
                       ))}
                     </Select>
+                  </div>
+
+                  {/* Section grouping */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Input label="Section (e.g. Section A — Answer ALL)" placeholder="Section A"
+                      value={q.section}
+                      onChange={e => updateQuestion(q.id, 'section', e.target.value)} />
+                    <p className="text-[11px] text-muted self-end pb-2">
+                      Questions with the same section name are grouped in the student paper with an automatic section total.
+                    </p>
                   </div>
 
                   {/* Essay/writing subtype */}
@@ -721,13 +1099,78 @@ export function ExamBuilder() {
                       onChange={e => updateQuestion(q.id, 'correct_answer', e.target.value)} />
                   )}
 
-                  {/* Short answer key */}
-                  {(q.type === 'short_answer' || q.type === 'fill_in_blank') && (
+                  {/* Short / long answer key */}
+                  {(q.type === 'short_answer' || q.type === 'long_answer' || q.type === 'fill_in_blank') && (
                     <Input label="Expected Answer / Mark Scheme"
                       placeholder="e.g. Mwandishi anaonesha huzuni… / photosynthesis; chloroplast"
                       value={q.correct_answer}
                       onChange={e => updateQuestion(q.id, 'correct_answer', e.target.value)} />
                   )}
+
+                  {/* Marking rubric: step-by-step allocation (M/A/C/B) */}
+                  <div className="space-y-2 p-4 bg-amber-500/5 rounded-2xl border border-amber-500/15">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-black uppercase tracking-widest text-muted">
+                        Marking rubric · {q.rubric.reduce((s, r) => s + (parseFloat(String(r.marks)) || 0), 0)}/{q.marks} allocated
+                      </p>
+                      <button
+                        onClick={() => updateQuestion(q.id, 'rubric', [...q.rubric, { step: '', marks: 1, type: 'M' as const }])}
+                        className="text-[11px] font-black text-amber-600 hover:underline"
+                      >
+                        + Add step
+                      </button>
+                    </div>
+                    {q.rubric.length === 0 && (
+                      <p className="text-[11px] text-muted">Optional — break the {q.marks} mark(s) into awardable steps so marking stays consistent. M = method, A = accuracy, C = communication, B = independent.</p>
+                    )}
+                    {q.rubric.map((r, ri) => (
+                      <div key={ri} className="flex items-center gap-2">
+                        <span className={`w-6 h-6 rounded-md flex items-center justify-center text-[10px] font-black shrink-0 ${
+                          r.type === 'M' ? 'bg-sky-500/15 text-sky-600' : r.type === 'A' ? 'bg-emerald-500/15 text-emerald-600' : r.type === 'C' ? 'bg-violet-500/15 text-violet-600' : 'bg-amber-500/15 text-amber-600'
+                        }`}>{r.type}</span>
+                        <input
+                          value={r.step}
+                          onChange={e => {
+                            const next = [...q.rubric]
+                            next[ri] = { ...next[ri], step: e.target.value }
+                            updateQuestion(q.id, 'rubric', next)
+                          }}
+                          placeholder={`Step ${ri + 1} — what earns the mark?`}
+                          className="flex-1 px-3 py-2 rounded-xl border border-[var(--card-border)] bg-[var(--input)] text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+                        />
+                        <select
+                          value={r.type}
+                          onChange={e => {
+                            const next = [...q.rubric]
+                            next[ri] = { ...next[ri], type: e.target.value as RubricStep['type'] }
+                            updateQuestion(q.id, 'rubric', next)
+                          }}
+                          className="px-2 py-2 rounded-xl border border-[var(--card-border)] bg-[var(--input)] text-xs font-bold"
+                        >
+                          {['M', 'A', 'C', 'B'].map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                        <input
+                          type="number" min={0.5} step={0.5} value={r.marks}
+                          onChange={e => {
+                            const next = [...q.rubric]
+                            next[ri] = { ...next[ri], marks: parseFloat(e.target.value) || 0 }
+                            updateQuestion(q.id, 'rubric', next)
+                          }}
+                          className="w-16 px-2 py-2 rounded-xl border border-[var(--card-border)] bg-[var(--input)] text-sm font-bold text-center"
+                        />
+                        <button
+                          onClick={() => updateQuestion(q.id, 'rubric', q.rubric.filter((_, x) => x !== ri))}
+                          className="p-1.5 rounded-lg text-muted hover:bg-red-500/10 hover:text-red-500"
+                          title="Remove step"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    ))}
+                    {q.rubric.length > 0 && q.rubric.reduce((s, r) => s + (parseFloat(String(r.marks)) || 0), 0) !== Number(q.marks) && (
+                      <p className="text-[11px] font-bold text-amber-600">Steps sum to {q.rubric.reduce((s, r) => s + (parseFloat(String(r.marks)) || 0), 0)} but the question carries {q.marks} — adjust before publishing.</p>
+                    )}
+                  </div>
 
                   {/* Tags */}
                   <Input label="Topic Tags / Mada (comma separated)"
@@ -740,27 +1183,29 @@ export function ExamBuilder() {
           )
         })}
 
-        {/* Add question buttons */}
-        <div className="p-4 bg-[var(--card)] rounded-3xl border border-dashed border-[var(--card-border)] space-y-3">
-          <p className="text-xs font-black uppercase tracking-widest text-muted">Add Question / Ongeza Swali</p>
-          <div className="flex flex-wrap gap-2">
-            {[
-              { type: 'short_answer', label: '+ Short Answer', depth: 0 },
-              { type: 'essay', label: '+ Essay / Insha / Uandishi', depth: 0 },
-              { type: 'mcq', label: '+ MCQ / Chaguo', depth: 0 },
-              { type: 'true_false', label: '+ True / False', depth: 0 },
-              { type: 'math_working', label: '+ Math / Science', depth: 0 },
-              { type: 'fill_in_blank', label: '+ Fill in Blank / Jaza Pengo', depth: 0 },
-            ].map(({ type, label, depth }) => (
-              <Button key={type} variant="ghost" size="sm"
-                onClick={() => addQuestion(type as QuestionType, depth)}
-                className="text-indigo-500 hover:bg-indigo-500/10 border border-indigo-500/20">
-                {label}
-              </Button>
-            ))}
+        {/* Add-question palette: pick a tile, keep the flow */}
+        <div className="p-5 bg-[var(--card)] rounded-3xl border-2 border-dashed border-[var(--card-border)] space-y-4">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-black uppercase tracking-widest text-muted">Add a question — pick its shape</p>
+            <span className="text-[11px] font-bold text-muted hidden sm:inline">Sub-questions auto-number 1 → (a) → (i)</span>
           </div>
-          <div className="flex flex-wrap gap-2 border-t border-[var(--card-border)] pt-3">
-            <p className="w-full text-[10px] font-bold text-muted uppercase">Add Sub-Question (indented):</p>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {(Object.keys(TYPE_META) as QuestionType[]).map(type => {
+              const m = TYPE_META[type]
+              return (
+                <button key={type} onClick={() => addQuestion(type, 0)}
+                  className="group text-left p-4 rounded-2xl border border-[var(--card-border)] bg-[var(--input)]/50 hover:bg-[var(--input)] hover:border-indigo-500/40 hover:-translate-y-0.5 hover:shadow-lg transition-all">
+                  <span className={`inline-flex p-2 rounded-xl ${m.chip}`}>
+                    <m.Icon size={16} />
+                  </span>
+                  <p className="text-sm font-black mt-2">+ {m.label}</p>
+                  <p className="text-[11px] text-muted font-medium">{m.hint}</p>
+                </button>
+              )
+            })}
+          </div>
+          <div className="flex flex-wrap items-center gap-2 border-t border-[var(--card-border)] pt-4">
+            <p className="w-full text-[10px] font-bold text-muted uppercase">Or nest a sub-question under the last one:</p>
             {[1, 2, 3].map(depth => (
               <Button key={depth} variant="ghost" size="sm"
                 onClick={() => addQuestion('short_answer', depth)}
@@ -768,22 +1213,151 @@ export function ExamBuilder() {
                 {['+ (a)(b)(c)', '+ (i)(ii)(iii)', '+ (I)(II)(III)'][depth - 1]} Level {depth + 1}
               </Button>
             ))}
+            <Button variant="ghost" size="sm"
+              onClick={() => {
+                const last = questions[questions.length - 1]
+                if (last) duplicateQuestion(last.id)
+              }}
+              className="text-indigo-500 hover:bg-indigo-500/10 border border-indigo-500/20 text-xs">
+              <Copy size={12} className="mr-1" /> Duplicate last
+            </Button>
           </div>
         </div>
+
+        {/* Section totals (automatic) */}
+        <Card className="p-4">
+          <p className="text-[10px] font-black uppercase tracking-widest text-muted mb-2">Section totals (automatic)</p>
+          <div className="flex flex-wrap gap-2">
+            {Array.from(
+              questions.reduce((m, q) => {
+                const key = (q.section || 'Section A').trim() || 'Section A'
+                m.set(key, (m.get(key) || 0) + (parseFloat(String(q.marks)) || 0))
+                return m
+              }, new Map<string, number>()).entries()
+            ).map(([name, total]) => (
+              <span key={name} className="text-xs font-bold bg-[var(--input)] border border-[var(--card-border)] rounded-lg px-2.5 py-1">
+                {name}: <span className="text-indigo-500 font-black">{total}m</span>
+              </span>
+            ))}
+          </div>
+        </Card>
+
+        {/* ─── Preview: white paper, like the physical exam ─────────────────── */}
+        {previewAsStudent && (
+          <div ref={previewRef} className="scroll-mt-24">
+          <div className="bg-white text-slate-900 rounded-sm shadow-[0_20px_60px_-15px_rgba(0,0,0,0.4)] px-6 py-8 md:px-12 md:py-10 space-y-7 font-serif">
+            {/* Masthead */}
+            <div className="text-center border-double border-b-8 border-slate-800 pb-6">
+              <div className="flex justify-center mb-3"><SchoolLogo size={56} /></div>
+              <p className="text-xs font-bold tracking-[0.35em] text-slate-600 font-sans">PEAK CAMPUS</p>
+              <h3 className="text-2xl md:text-3xl font-bold mt-2">{form.title || 'Untitled Examination'}</h3>
+              <p className="text-sm text-slate-600 mt-2 font-sans">
+                Time Allowed: <strong>{form.duration_minutes} minutes</strong>
+                <span className="mx-2">·</span>
+                Total Marks: <strong>{totalMarks}</strong>
+              </p>
+            </div>
+            {/* Candidate block */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm font-sans">
+              <p className="border-b border-slate-400 pb-1">Name: ______________________</p>
+              <p className="border-b border-slate-400 pb-1">Adm No: ___________________</p>
+              <p className="border-b border-slate-400 pb-1">Date: ______________________</p>
+            </div>
+            {/* Instructions */}
+            <div className="border border-slate-400 rounded p-4 font-sans">
+              <p className="text-xs font-bold uppercase tracking-widest text-slate-500 mb-1">Instructions to candidates</p>
+              <p className="text-sm italic">{form.description || 'Answer ALL questions in the spaces provided.'}</p>
+            </div>
+            {Array.from(
+              questions.reduce((m, q, i) => {
+                const key = (q.section || 'Section A').trim() || 'Section A'
+                if (!m.has(key)) m.set(key, [])
+                m.get(key)!.push({ q, i })
+                return m
+              }, new Map<string, { q: Question; i: number }[]>()).entries()
+            ).map(([name, items]) => {
+              const sectionTotal = items.reduce((s, { q }) => s + (parseFloat(String(q.marks)) || 0), 0)
+              return (
+                <div key={name} className="space-y-5">
+                  <div className="text-center bg-slate-900 text-white px-4 py-2">
+                    <span className="font-bold text-sm tracking-wide font-sans">{name} — {sectionTotal} marks</span>
+                  </div>
+                  {items.map(({ q, i }) => (
+                    <div key={q.id} className={q.depth > 0 ? 'ml-8 border-l-2 border-slate-300 pl-4' : ''}>
+                      <p className="font-bold">
+                        {getQuestionNumber(q, questions)}
+                        <span className="float-right text-sm font-sans">[{q.marks} {Number(q.marks) === 1 ? 'mark' : 'marks'}]</span>
+                      </p>
+                      <p className="mt-1 leading-relaxed whitespace-pre-wrap">{q.content || <span className="text-slate-400 italic font-sans">Empty question</span>}</p>
+                      {q.type === 'mcq' && q.options.length > 0 && (
+                        <div className="mt-2 ml-4 space-y-1 font-sans text-[15px]">
+                          {q.options.map((o, oi) => (
+                            <p key={oi} className="text-slate-800">{['A', 'B', 'C', 'D', 'E'][oi] || oi + 1}. {o || '…'}</p>
+                          ))}
+                        </div>
+                      )}
+                      {(q.type === 'short_answer' || q.type === 'fill_in_blank') && (
+                        <div className="mt-3 space-y-2" aria-hidden>
+                          <div className="border-b border-slate-400 h-6" />
+                          <div className="border-b border-slate-400 h-6" />
+                        </div>
+                      )}
+                      {q.type === 'long_answer' && (
+                        <div className="mt-3 p-3 border border-slate-300 rounded-sm bg-slate-50/50" aria-hidden>
+                          <div className="space-y-2">
+                            {Array.from({ length: 8 }).map((_, li) => (
+                              <div key={li} className="border-b border-slate-300 h-5" />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {(q.type === 'essay' || q.type === 'math_working') && (
+                        <div className="mt-3 p-3 border border-slate-300 rounded-sm bg-slate-50/50" aria-hidden>
+                          <div className="space-y-2">
+                            {Array.from({ length: 12 }).map((_, li) => (
+                              <div key={li} className="border-b border-slate-300 h-5" />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )
+            })}
+            <div className="text-center border-t-2 border-slate-800 pt-4">
+              <p className="font-bold tracking-[0.3em] text-sm">END OF PAPER</p>
+              <p className="text-[11px] text-slate-400 mt-2 font-sans">Preview — exactly the paper the student receives, with live answer areas.</p>
+            </div>
+          </div>
+          </div>
+        )}
       </div>
 
       {/* ─── Bottom bar ──────────────────────────────────────────────────── */}
       <div className="sticky bottom-24 md:bottom-8 bg-[var(--card)] p-4 rounded-3xl border border-[var(--card-border)] shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div className="text-sm font-bold text-muted">
-          {questions.length} swali · {passages.length} kifungu · <span className="text-indigo-500 font-black">{totalMarks} marks</span>
+        <div className="text-sm font-bold text-muted flex items-center gap-3">
+          <div className="relative w-10 h-10">
+            <svg viewBox="0 0 100 100" className="w-10 h-10 -rotate-90">
+              <circle cx="50" cy="50" r="42" fill="none" stroke="var(--input)" strokeWidth="14" />
+              <circle cx="50" cy="50" r="42" fill="none" stroke="#6366f1" strokeWidth="14" strokeLinecap="round"
+                strokeDasharray={`${2 * Math.PI * 42}`} strokeDashoffset={`${2 * Math.PI * 42 * (1 - progress / 100)}`}
+                className="transition-all duration-700" />
+            </svg>
+            <span className="absolute inset-0 flex items-center justify-center text-[9px] font-black">{progress}</span>
+          </div>
+          <span>{questions.length} swali · {passages.length} kifungu · <span className="text-indigo-500 font-black">{totalMarks} marks</span></span>
         </div>
-        <div className="flex items-center gap-3 w-full sm:w-auto">
-          <Button variant="secondary" onClick={() => handleSave('draft')} disabled={loading} className="flex-1 sm:flex-none">
-            Save Draft / Hifadhi
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <Button variant="ghost" onClick={() => setPreviewAsStudent(v => !v)} className="flex-1 sm:flex-none text-indigo-500">
+            <Eye size={16} className="mr-2" /> {previewAsStudent ? 'Back to builder' : 'Preview student view'}
           </Button>
-          <Button variant="primary" onClick={() => handleSave('published')} disabled={loading}
+          <Button variant="secondary" onClick={() => handleSave('draft')} disabled={loading || !!lockReason} className="flex-1 sm:flex-none">
+            {editId && !lockReason ? 'Save changes' : 'Save Draft'}
+          </Button>
+          <Button variant="primary" onClick={() => handleSave('published')} disabled={loading || !!lockReason}
             className="flex-1 sm:flex-none bg-indigo-500 hover:bg-indigo-600 shadow-lg shadow-indigo-500/20">
-            <Save size={16} className="mr-2" /> Publish / Chapisha
+            <Save size={16} className="mr-2" /> {editId && !lockReason ? 'Publish changes 🎓' : 'Publish 🎓'}
           </Button>
         </div>
       </div>

@@ -54,6 +54,13 @@ export default function ManageExamPage() {
             {submissions.length} total submissions
           </p>
         </div>
+        <div className="flex gap-2">
+          <Link href={`/teacher/exam-desk/create?edit=${examId}`}>
+            <Button variant="secondary" size="sm">
+              <FileText size={14} className="mr-1" /> Edit paper
+            </Button>
+          </Link>
+        </div>
       </div>
 
       <div className="space-y-4">
