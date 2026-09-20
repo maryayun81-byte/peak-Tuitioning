@@ -135,7 +135,7 @@ const SHORT_HAIR = [
   'short01', 'short02', 'short03', 'short04', 'short05', 'short06',
   'short07', 'short08', 'short09', 'short10', 'short11', 'short12',
   'short13', 'short14', 'short15', 'short16', 'short17', 'short18', 'short19',
-]
+] as const
 
 function avatarFor(name: string, female = false): string {
   if (female) {
@@ -150,7 +150,7 @@ function avatarFor(name: string, female = false): string {
   return createAvatar(adventurer, {
     seed: name,
     backgroundColor: ['e0e7ff', 'd1fae5', 'fee2e2', 'fef3c7', 'e0f2fe', 'f3e8ff'],
-    hair: SHORT_HAIR,
+    hair: [...SHORT_HAIR],
     hairColor: ['0e0e0e', '2f2f2f', '4a3728'],
     earringsProbability: 0,
   }).toDataUri()
