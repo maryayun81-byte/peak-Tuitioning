@@ -102,18 +102,10 @@ export default function ParentTranscriptsPage() {
   }
 
   const downloadPDF = async (transcript: any) => {
-    // The original code used `activeTranscript` and `transcriptRef`.
-    // The new UI implies direct download from the list, so we need to render the PremiumTranscript temporarily or use a different approach.
-    // For simplicity and to match the diff's intent of passing `t` to `downloadPDF(t)`, we'll assume `activeTranscript` is set for the duration of the download or the PremiumTranscript component can take a prop.
-    // Since the diff removes the `activeTranscript` view, we'll need to adapt.
-    // A common pattern is to render the component off-screen or in a temporary div for `html2canvas`.
-    // For now, I'll keep the `transcriptRef` and `activeTranscript` logic, but the `activeTranscript` would need to be set before calling this.
-    // The diff implies `downloadPDF(t)` is called directly, so `activeTranscript` would need to be `t`.
     setActiveTranscript(transcript); // Temporarily set activeTranscript for the ref to pick up.
 
-    // Wait for the state to update and component to potentially re-render if it relies on activeTranscript
-    // Increased timeout to 800ms to ensure fonts and data are fully painted before capture
-    await new Promise(resolve => setTimeout(resolve, 800)); 
+    // Wait for the state to update and component to re-render (fonts + data painted)
+    await new Promise(resolve => setTimeout(resolve, 800));
 
     if (!transcriptRef.current || !transcript) {
       toast.error('Transcript data not available for PDF generation.');
@@ -122,40 +114,10 @@ export default function ParentTranscriptsPage() {
     setDownloading(true)
     const toastId = toast.loading('Generating PDF…')
     try {
-      const element = transcriptRef.current
-      const canvas = await html2canvas(element, {
-        scale: 4, // Higher scale for even better quality
-        useCORS: true,
-        logging: false,
-        backgroundColor: '#ffffff',
-        windowWidth: 1200,
-        onclone: (doc) => {
-          const el = doc.getElementById('transcript-pdf-target')
-          if (el) {
-            el.style.display = 'block' // Ensure it's rendered for canvas
-            el.style.width = '1200px'
-            el.style.padding = '40px'
-          }
-        },
-      })
-
-      const imgData = canvas.toDataURL('image/png', 1.0)
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true })
-      const pdfWidth = pdf.internal.pageSize.getWidth()
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width
-
-      // Split into pages if content is tall
-      const pageHeight = pdf.internal.pageSize.getHeight()
-      let y = 0
-      while (y < pdfHeight) {
-        if (y > 0) pdf.addPage()
-        pdf.addImage(imgData, 'PNG', 0, -y, pdfWidth, pdfHeight, undefined, 'FAST')
-        y += pageHeight
-      }
-
+      const { downloadTranscriptPdf } = await import('@/lib/transcript-pdf')
       const safeName = (selectedStudent?.full_name || 'Student').replace(/[^a-z0-9]/gi, '_')
       const safeExam = (transcript.exam_event?.name || 'Exam').replace(/[^a-z0-9]/gi, '_')
-      pdf.save(`Transcript_${safeName}_${safeExam}.pdf`)
+      await downloadTranscriptPdf('transcript-pdf-target', `Transcript_${safeName}_${safeExam}.pdf`)
       toast.success('PDF downloaded!', { id: toastId })
     } catch (err) {
       console.error('[PDF Export]', err)

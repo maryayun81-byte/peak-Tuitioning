@@ -1,365 +1,526 @@
 'use client'
 
-import { Transcript } from '@/types/database'
-import { motion } from 'framer-motion'
-import {
-  User,
-  BookOpen,
-  GraduationCap,
-  Layers,
-  Star,
-  ShieldCheck,
-  Calendar,
-  PenTool,
-  FileText
-} from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
+import type { Transcript } from '@/types/database'
 
 interface PremiumTranscriptProps {
   transcript: Transcript
-  student?: any 
+  student?: any
   onReady?: (ready: boolean) => void
+}
+
+const NAVY = '#1D4477'
+const GOLD = '#B08A1E'
+const INK = '#0F172A'
+
+type SubjectRow = {
+  name: string
+  marks: number | null
+  max: number
+  pct: number | null
+  grade: string
+  remark: string
+}
+
+function normalizeSubjects(raw: any[]): SubjectRow[] {
+  return (raw || []).map((r: any) => {
+    const marks = r.marks ?? r.mark ?? null
+    const max = Number(r.max_marks ?? r.max_mark ?? 100) || 100
+    const pct =
+      r.percentage ?? r.percent ?? (marks != null ? Math.round((Number(marks) / max) * 10000) / 100 : null)
+    return {
+      name: r.subject_name ?? r.subject ?? r.name ?? 'Subject',
+      marks: marks != null ? Number(marks) : null,
+      max,
+      pct: pct != null ? Number(pct) : null,
+      grade: r.grade ?? r.progress_summary ?? '—',
+      remark: r.comment ?? r.remark ?? r.teacher_remark ?? '',
+    }
+  })
+}
+
+function avgOf(rows: SubjectRow[]): number | null {
+  const vals = rows.map(r => r.pct).filter((v): v is number => v != null)
+  if (vals.length === 0) return null
+  return Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) / 100
 }
 
 export function PremiumTranscript({ transcript, student: studentContext, onReady }: PremiumTranscriptProps) {
   const supabase = getSupabaseBrowserClient()
-  const [globalConfig, setGlobalConfig] = useState<any>(null)
-  const [readyStates, setReadyStates] = useState({
-    config: false,
-    logo: false,
-    sig: false
-  })
-  const snapshot = (transcript.branding_snapshot as any) || {}
-  const student = studentContext || transcript.student
+  const [config, setConfig] = useState<any>(null)
+  const [configLoaded, setConfigLoaded] = useState(false)
+  const [assetsReady, setAssetsReady] = useState({ logo: false, sig: false, stamp: false })
+  const [history, setHistory] = useState<{ label: string; avg: number; date: string }[]>([])
 
-  // globalConfig is always fresh from DB — it wins over the potentially stale branding_snapshot
-  const DEFAULT_LOGO = "https://res.cloudinary.com/dzt6omwps/image/upload/v1713800000/peak_logo_circular.png"
-  const logoUrl = globalConfig?.logo_url || snapshot.logo_url || DEFAULT_LOGO
-  const sigData = globalConfig?.signature_data || snapshot.signature_data || ''
-  const sigType = globalConfig?.signature_type || snapshot.signature_type || 'draw'
-  const sigFont = globalConfig?.signature_font || snapshot.signature_font || "'Dancing Script', cursive"
-  const directorName = globalConfig?.director_name || snapshot.director_name || "Director General"
-  const showSignature = globalConfig?.apply_transcripts ?? snapshot.apply_transcripts ?? true
+  const student = studentContext || (transcript as any).student
+  const snapshot = ((transcript as any).branding_snapshot as any) || {}
+  const subjects = normalizeSubjects((transcript as any).subject_results || [])
+  const examEvent = (transcript as any).exam_event || {}
+  const avg = avgOf(subjects)
+  const overallGrade = (transcript as any).overall_grade || null
+  const teacherRemark = (transcript as any).remarks || ''
+  const publishedAt = (transcript as any).published_at || (transcript as any).created_at
+
+  // Branding: live admin config wins; logo falls back to /logo.png in public/.
+  const logoUrl = config?.logo_url || snapshot.logo_url || '/logo.png'
+  const schoolName = config?.school_name || snapshot.school_name || 'Peak Performance Tutoring'
+  const directorName = config?.director_name || snapshot.director_name || ''
+  const sigUrl = config?.director_signature_url || config?.signature_url || snapshot.director_signature_url || ''
+  const legacySig = config?.signature_data || snapshot.signature_data || ''
+  const legacySigType = config?.signature_type || snapshot.signature_type || 'draw'
+  const legacySigFont = config?.signature_font || snapshot.signature_font || "'Dancing Script', cursive"
+  const stampUrl = config?.stamp_url || snapshot.stamp_url || ''
+  const watermark = config?.watermark_text || snapshot.watermark_text || ''
+  const footerText = config?.footer_text || snapshot.footer_text || ''
+  const showSig = (config?.apply_transcripts ?? snapshot.apply_transcripts ?? true) !== false
 
   useEffect(() => {
-    supabase.from('transcript_config').select('*').order('updated_at', { ascending: false }).limit(1).maybeSingle().then(({ data, error }) => {
-      if (data) {
-        setGlobalConfig(data)
-        console.log('PremiumTranscript: Branding Loaded:', {
-          logo: !!data.logo_url,
-          sig: !!data.signature_data,
-          type: data.signature_type
-        })
-      }
-      setReadyStates(prev => ({ ...prev, config: true }))
-      if (error) console.warn('PremiumTranscript: could not load config', error.message)
-    })
-  }, [])
+    supabase
+      .from('transcript_config')
+      .select('*')
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) setConfig(data)
+        setConfigLoaded(true)
+      })
+  }, [supabase])
 
-  // Report readiness to parent when all conditions met
+  // Real historical averages for the progress chart — never invented.
+  useEffect(() => {
+    const sid = student?.id
+    if (!sid) return
+    supabase
+      .from('transcripts')
+      .select('id, created_at, subject_results, exam_event:exam_events(name)')
+      .eq('student_id', sid)
+      .order('created_at', { ascending: true })
+      .limit(12)
+      .then(({ data }) => {
+        const pts: { label: string; avg: number; date: string }[] = []
+        for (const t of (data || []) as any[]) {
+          const a = avgOf(normalizeSubjects(t.subject_results || []))
+          if (a == null) continue
+          const ev: any = Array.isArray(t.exam_event) ? t.exam_event[0] : t.exam_event
+          pts.push({
+            label: ev?.name || new Date(t.created_at).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }),
+            avg: a,
+            date: t.created_at,
+          })
+        }
+        setHistory(pts)
+      })
+  }, [student?.id, supabase])
+
   useEffect(() => {
     if (!onReady) return
-    const isLogoReady = readyStates.logo || !logoUrl
-    const isSigReady = readyStates.sig || !sigData || sigType === 'type' || !showSignature
-    
-    if (readyStates.config && isLogoReady && isSigReady) {
-      // Small buffer to ensure browser has rendered
-      const timer = setTimeout(() => onReady(true), 150)
-      return () => clearTimeout(timer)
-    } else {
-      onReady(false)
+    const needSig = showSig && !!(sigUrl || legacySig)
+    const ready =
+      configLoaded &&
+      (assetsReady.logo || !logoUrl) &&
+      (assetsReady.sig || !needSig) &&
+      (assetsReady.stamp || !stampUrl)
+    if (ready) {
+      const t = setTimeout(() => onReady(true), 150)
+      return () => clearTimeout(t)
     }
-  }, [readyStates, logoUrl, sigData, sigType, showSignature, onReady])
+    onReady(false)
+  }, [onReady, configLoaded, assetsReady, logoUrl, sigUrl, legacySig, stampUrl, showSig])
 
-  // Inject Playfair Display for that official premium look
   useEffect(() => {
     const link = document.createElement('link')
-    link.href = 'https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Inter:wght@400;600;800&display=swap'
+    link.href = 'https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Inter:wght@400;600;700;800&display=swap'
     link.rel = 'stylesheet'
     document.head.appendChild(link)
     return () => {
-      try { document.head.removeChild(link) } catch(e) {}
+      try {
+        document.head.removeChild(link)
+      } catch (e) {}
     }
   }, [])
 
-  const NavyIcon = ({ children }: { children: React.ReactNode }) => (
-    <div className="w-8 h-8 rounded-full flex items-center justify-center bg-[#1D4477] text-white shrink-0">
-      {children}
-    </div>
-  )
+  // Profile fields — empties removed, never N/A/undefined.
+  const profile: { label: string; value: string }[] = [
+    student?.full_name ? { label: 'Student Name', value: student.full_name } : null,
+    student?.admission_number ? { label: 'Admission No', value: student.admission_number } : null,
+    (student?.class?.name || (transcript as any)?.class_name)
+      ? { label: 'Class / Grade', value: student?.class?.name || (transcript as any).class_name }
+      : null,
+    (student?.curriculum?.name || (transcript as any)?.curriculum_name)
+      ? { label: 'Curriculum', value: student?.curriculum?.name || (transcript as any).curriculum_name }
+      : null,
+    examEvent?.name ? { label: 'Assessment', value: examEvent.name } : null,
+    examEvent?.start_date
+      ? {
+          label: 'Period',
+          value: `${new Date(examEvent.start_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}${examEvent.end_date ? ` – ${new Date(examEvent.end_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}`,
+        }
+      : null,
+    publishedAt
+      ? { label: 'Date Issued', value: new Date(publishedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) }
+      : null,
+  ].filter(Boolean) as { label: string; value: string }[]
+
+  const withPct = subjects.filter(s => s.pct != null)
+  const strongest = withPct.length > 0 ? withPct.reduce((a, b) => (b.pct! > a.pct! ? b : a)) : null
+  const weakest = withPct.length > 1 ? withPct.reduce((a, b) => (b.pct! < a.pct! ? b : a)) : null
+  const aboveAvg = avg != null ? withPct.filter(s => s.pct! >= avg).sort((a, b) => b.pct! - a.pct!).slice(0, 3) : []
+  const belowAvg = avg != null ? withPct.filter(s => s.pct! < avg).sort((a, b) => a.pct! - b.pct!).slice(0, 3) : []
+  const highest = withPct.length > 0 ? Math.max(...withPct.map(s => s.pct!)) : null
+  const lowest = withPct.length > 0 ? Math.min(...withPct.map(s => s.pct!)) : null
 
   return (
-    <div 
-      className="w-[1000px] mx-auto p-12 relative overflow-hidden transition-all duration-500 shadow-[0_35px_60px_-15px_rgba(0,0,0,0.3)] bg-[#FDFBF7]"
-      style={{ 
-        fontFamily: "'Inter', sans-serif",
-        border: '12px solid #1D4477',
-        outline: '1px solid #7ABA78',
-        outlineOffset: '-6px',
-        minWidth: '1000px'
-      }}
+    <div
+      className="mx-auto bg-white text-slate-900 relative"
+      style={{ width: '210mm', padding: '15mm 16mm', fontFamily: "'Inter', sans-serif", fontSize: '11pt' }}
     >
-      {/* DECORATIVE CORNERS (Optional but adds to luxury) */}
-      <div className="absolute top-4 left-4 w-16 h-16 border-t-2 border-l-2 border-[#7ABA78] opacity-20" />
-      <div className="absolute top-4 right-4 w-16 h-16 border-t-2 border-r-2 border-[#7ABA78] opacity-20" />
-      <div className="absolute bottom-4 left-4 w-16 h-16 border-b-2 border-l-2 border-[#7ABA78] opacity-20" />
-      <div className="absolute bottom-4 right-4 w-16 h-16 border-b-2 border-r-2 border-[#7ABA78] opacity-20" />
-
-      {/* HEADER SECTION */}
-      <div className="flex justify-between items-center mb-12">
-        <div className="flex items-center gap-6">
-          <div className="relative group">
-             <div className="absolute inset-0 bg-[#7ABA78] rounded-full blur-xl opacity-10 group-hover:opacity-20 transition-opacity" />
-             <div className="w-32 h-32 relative flex items-center justify-center">
-                <img 
-                  src={logoUrl} 
-                  alt="Peak Logo" 
-                  crossOrigin="anonymous"
-                  className="w-full h-full object-contain drop-shadow-md"
-                  onLoad={() => setReadyStates(prev => ({ ...prev, logo: true }))}
-                  onError={(e) => { 
-                    (e.target as HTMLImageElement).src = DEFAULT_LOGO
-                    setReadyStates(prev => ({ ...prev, logo: true })) // Mark as ready even on error
-                  }}
-                />
-             </div>
-          </div>
-          <div className="space-y-1">
-              <h1 className="text-4xl font-black tracking-[0.2em] text-[#1D4477] leading-tight" style={{ fontFamily: "'Playfair Display', serif" }}>
-                PEAK
-              </h1>
-              <p className="text-lg font-bold tracking-[0.3em] text-[#1D4477]/90 -mt-1">PERFORMANCE</p>
-             <div className="flex items-center gap-2">
-                <div className="h-[2px] w-12 bg-[#7ABA78]" />
-                <span className="text-xs font-black uppercase tracking-[0.2em] text-[#7ABA78]">TUTORING</span>
-                <div className="h-[2px] w-12 bg-[#7ABA78]" />
-             </div>
-          </div>
+      {/* Watermark */}
+      {watermark && (
+        <div
+          aria-hidden
+          className="absolute inset-0 flex items-center justify-center pointer-events-none select-none"
+          style={{ opacity: 0.045 }}
+        >
+          <span className="font-black text-center leading-tight" style={{ fontSize: '72pt', color: NAVY }}>
+            {watermark}
+          </span>
         </div>
+      )}
 
-        <div className="text-right space-y-2 border-l-2 border-[#1D4477]/10 pl-8">
-           <p className="text-[10px] font-black uppercase tracking-widest text-[#1D4477]/60 leading-none">EMPOWERING STUDENTS.</p>
-           <p className="text-[10px] font-black uppercase tracking-widest text-[#1D4477]/60 leading-none">ELEVATING POTENTIAL.</p>
-           <div className="flex justify-end pt-2">
-              <svg viewBox="0 0 100 20" className="w-24 h-4 text-[#7ABA78]">
-                <path d="M10 10 L45 10 M55 10 L90 10" stroke="currentColor" strokeWidth="1" />
-                <path d="M50 10 L54 6 L50 2 L46 6 Z" fill="none" stroke="currentColor" />
-              </svg>
-           </div>
+      {/* ── HEADER ── */}
+      <div className="flex items-center gap-4 pb-4" style={{ borderBottom: `3px solid ${NAVY}` }}>
+        <img
+          src={logoUrl}
+          alt={`${schoolName} logo`}
+          crossOrigin="anonymous"
+          style={{ width: 64, height: 64, objectFit: 'contain' }}
+          onLoad={() => setAssetsReady(p => ({ ...p, logo: true }))}
+          onError={e => {
+            const img = e.target as HTMLImageElement
+            if (img.src.endsWith('/logo.png')) {
+              img.style.display = 'none'
+            } else {
+              img.src = '/logo.png'
+            }
+            setAssetsReady(p => ({ ...p, logo: true }))
+          }}
+        />
+        <div className="flex-1">
+          <h1 className="font-black tracking-wide" style={{ color: NAVY, fontSize: '17pt', fontFamily: "'Playfair Display', serif" }}>
+            {schoolName}
+          </h1>
+          <p className="font-bold uppercase" style={{ color: NAVY, fontSize: '10pt', letterSpacing: '0.18em' }}>
+            Student Academic Transcript
+          </p>
+          <p className="text-slate-500" style={{ fontSize: '8.5pt' }}>peakcampus.co.ke</p>
+        </div>
+        <div className="text-right" style={{ fontSize: '8.5pt' }}>
+          {examEvent?.name && <p className="font-bold" style={{ color: NAVY }}>{examEvent.name}</p>}
+          {publishedAt && <p className="text-slate-500">{new Date(publishedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</p>}
         </div>
       </div>
 
-      {/* OFFICIAL TRANSCRIPT TITLE */}
-      <div className="text-center mb-16 relative">
-         <div className="absolute inset-0 flex items-center justify-center opacity-[0.03]">
-           <GraduationCap size={200} />
-         </div>
-         <div className="flex items-center justify-center gap-8 mb-2">
-            <div className="h-px flex-1 bg-[#1D4477]/30" />
-            <h2 className="text-5xl font-black text-[#1D4477] uppercase tracking-[0.2em]" style={{ fontFamily: "'Playfair Display', serif" }}>
-              Official Transcript
-            </h2>
-            <div className="h-px flex-1 bg-[#1D4477]/30" />
-         </div>
-         <div className="flex justify-center">
-            <svg viewBox="0 0 200 4" className="w-48 text-[#7ABA78]">
-               <path d="M0 2 L200 2" stroke="currentColor" strokeWidth="0.5" strokeDasharray="4 2" />
-            </svg>
-         </div>
-      </div>
-
-      {/* STUDENT IDENTITY GRID */}
-      <div className="grid grid-cols-2 gap-8 mb-16">
-        {[
-          { label: 'STUDENT NAME', value: student?.full_name || 'STUDENT NAME', icon: <User size={16} /> },
-          { label: 'CLASS', value: student?.class?.name || 'Class Name', icon: <GraduationCap size={16} /> },
-          { label: 'ADMISSION NUMBER', value: student?.admission_number || 'N/A', icon: <FileText size={16} className="rotate-90" /> },
-          { label: 'CURRICULUM', value: student?.curriculum?.name || 'Curriculum', icon: <Layers size={16} /> },
-        ].map((item, idx) => (
-          <div key={idx} className="flex items-center gap-4 bg-white/50 border border-[#1D4477]/5 px-6 py-4 rounded-2xl shadow-sm">
-            <NavyIcon>{item.icon}</NavyIcon>
-            <div className="flex-1">
-              <p className="text-[10px] font-black text-[#1D4477]/40 uppercase tracking-widest mb-1">{item.label}</p>
-              <div className="flex items-baseline gap-2">
-                 <span className="text-sm font-black text-[#1D4477]">:</span>
-                 <p className="text-base font-black text-[#1D4477] uppercase tracking-tight">{item.value}</p>
-              </div>
-              <div className="mt-1 h-px w-full bg-[#1D4477]/10" />
+      {/* ── PROFILE ── */}
+      {profile.length > 0 && (
+        <div className="grid grid-cols-2 gap-x-8 gap-y-2 mt-5">
+          {profile.map(f => (
+            <div key={f.label} className="flex gap-2" style={{ fontSize: '9.5pt' }}>
+              <span className="font-bold uppercase text-slate-500 w-28 shrink-0" style={{ fontSize: '8pt', letterSpacing: '0.08em' }}>
+                {f.label}
+              </span>
+              <span className="font-bold break-words" style={{ color: INK }}>{f.value}</span>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
-      {/* SUBJECT TABLE */}
-      <div className="mb-16 border-2 border-[#1D4477] rounded-3xl overflow-hidden shadow-xl bg-white">
-        <table className="w-full text-left border-collapse">
+      {/* ── SUBJECT TABLE (natural rows only — never padded) ── */}
+      <h2 className="font-black uppercase mt-6 mb-2" style={{ color: NAVY, fontSize: '11pt', letterSpacing: '0.12em' }}>
+        Subject Performance
+      </h2>
+      {subjects.length === 0 ? (
+        <p className="text-slate-500 italic" style={{ fontSize: '10pt' }}>
+          No assessed subjects recorded for this report yet.
+        </p>
+      ) : (
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10pt' }}>
           <thead>
-            <tr className="bg-[#1D4477] text-white text-[11px] font-black uppercase tracking-widest">
-              <th className="px-8 py-5 border-r border-white/10 uppercase italic">Subject</th>
-              <th className="px-8 py-5 border-r border-white/10 text-center w-36 uppercase italic">Marks</th>
-              <th className="px-8 py-5 border-r border-white/10 text-center w-32 uppercase italic">Grade</th>
-              <th className="px-8 py-5 text-center uppercase italic">Comment</th>
+            <tr style={{ background: NAVY, color: '#fff' }}>
+              <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: '8.5pt', letterSpacing: '0.08em' }}>SUBJECT</th>
+              <th style={{ textAlign: 'center', padding: '8px 8px', width: '18%', fontSize: '8.5pt', letterSpacing: '0.08em' }}>MARK</th>
+              <th style={{ textAlign: 'center', padding: '8px 8px', width: '14%', fontSize: '8.5pt', letterSpacing: '0.08em' }}>GRADE</th>
+              <th style={{ textAlign: 'left', padding: '8px 12px', width: '30%', fontSize: '8.5pt', letterSpacing: '0.08em' }}>REMARK</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-[#1D4477]/5">
-            {transcript.subject_results.map((res: any, i: any) => (
-              <tr key={i} className={i % 2 === 1 ? 'bg-[#FDFBF7]' : 'bg-white'}>
-                <td className="px-8 py-4 border-r border-[#1D4477]/5">
-                  <div className="flex items-center gap-4">
-                     <span className="text-[10px] font-black text-[#7ABA78] tabular-nums">{(i+1).toString().padStart(2, '0')}</span>
-                     <span className="font-bold text-sm text-[#1D4477] uppercase">{res.subject_name}</span>
-                  </div>
+          <tbody>
+            {subjects.map((s, i) => (
+              <tr key={i} style={{ background: i % 2 === 1 ? '#F6F8FB' : '#fff', borderBottom: '1px solid #E2E8F0' }}>
+                <td style={{ padding: '8px 12px', fontWeight: 700, overflowWrap: 'anywhere' }}>{s.name}</td>
+                <td style={{ padding: '8px', textAlign: 'center', fontWeight: 800 }}>
+                  {s.marks != null ? `${s.marks}${s.max !== 100 ? ` / ${s.max}` : ''}` : '–'}
                 </td>
-                <td className="px-8 py-4 border-r border-[#1D4477]/5 text-center font-black text-[#1D4477]/60 text-base">
-                  {res.marks === null || res.marks === undefined ? '-' : res.marks}
-                </td>
-                <td className="px-8 py-4 border-r border-[#1D4477]/5 text-center font-black text-[#1D4477] text-sm">
-                  {res.marks === null || res.marks === undefined ? (res.progress_summary || res.grade) : res.grade}
-                </td>
-                <td className="px-8 py-4 text-[#1D4477] font-bold italic text-[11px] max-w-[200px] break-words">
-                  {res.remark || '-'}
-                </td>
-              </tr>
-            ))}
-            {/* Fill empty rows for consistent height if needed */}
-            {[...Array(Math.max(0, 10 - transcript.subject_results.length))].map((_, i) => (
-              <tr key={`empty-${i}`} className={(i + transcript.subject_results.length) % 2 === 1 ? 'bg-[#FDFBF7]' : 'bg-white'}>
-                <td className="px-8 py-4 border-r border-[#1D4477]/5 h-[53px]"></td>
-                <td className="px-8 py-4 border-r border-[#1D4477]/5"></td>
-                <td className="px-8 py-4 border-r border-[#1D4477]/5"></td>
-                <td className="px-8 py-4"></td>
+                <td style={{ padding: '8px', textAlign: 'center', fontWeight: 800, color: NAVY }}>{s.grade}</td>
+                <td style={{ padding: '8px 12px', overflowWrap: 'anywhere', color: '#334155' }}>{s.remark || '–'}</td>
               </tr>
             ))}
           </tbody>
         </table>
-      </div>
+      )}
 
-      {/* OVERALL GRADE SECTION */}
-      <div className="flex gap-8 mb-16">
-        <div className="w-56 h-36 bg-[#1D4477] rounded-[2rem] flex flex-col items-center justify-center text-white relative overflow-hidden shadow-2xl">
-          <div className="absolute top-0 right-0 w-24 h-24 bg-white/5 rounded-full blur-xl translate-x-1/2 -translate-y-1/2" />
-          <p className="text-[11px] font-black uppercase tracking-[0.2em] mb-2 text-[#7ABA78]">OVERALL GRADE</p>
-          <div className="flex items-center gap-1">
-             <div className="h-0.5 w-6 bg-[#7ABA78]" />
-             <span className="text-5xl font-black leading-none" style={{ fontFamily: "'Playfair Display', serif" }}>{transcript.overall_grade}</span>
-             <div className="h-0.5 w-6 bg-[#7ABA78]" />
+      {/* ── SUMMARY ── */}
+      {subjects.length > 0 && avg != null && (
+        <div className="mt-5 flex gap-3" style={{ breakInside: 'avoid' }}>
+          <div className="flex-1 text-center rounded p-3" style={{ background: NAVY, color: '#fff' }}>
+            <p className="uppercase font-bold" style={{ fontSize: '7.5pt', letterSpacing: '0.14em', color: GOLD }}>Average Mark</p>
+            <p className="font-black" style={{ fontSize: '20pt' }}>{avg}%</p>
+          </div>
+          {overallGrade && (
+            <div className="flex-1 text-center rounded p-3 border-2" style={{ borderColor: GOLD }}>
+              <p className="uppercase font-bold text-slate-500" style={{ fontSize: '7.5pt', letterSpacing: '0.14em' }}>Overall Grade</p>
+              <p className="font-black" style={{ fontSize: '20pt', color: NAVY, fontFamily: "'Playfair Display', serif" }}>{overallGrade}</p>
+            </div>
+          )}
+          <div className="flex-1 rounded p-3 flex flex-col justify-center gap-1" style={{ background: '#F6F8FB', fontSize: '9pt' }}>
+            <p><strong>{subjects.length}</strong> subject{subjects.length === 1 ? '' : 's'} taken</p>
+            {highest != null && <p>Highest <strong>{highest}%</strong>{strongest ? ` (${strongest.name})` : ''}</p>}
+            {lowest != null && subjects.length > 1 && <p>Lowest <strong>{lowest}%</strong>{weakest ? ` (${weakest.name})` : ''}</p>}
           </div>
         </div>
+      )}
 
-        <div className="flex-1 bg-white border-2 border-[#7ABA78]/30 rounded-[2rem] p-6 flex flex-col items-center justify-center relative shadow-lg">
-           <div className="absolute left-6 top-1/2 -translate-y-1/2 opacity-20">
-              <svg viewBox="0 0 100 100" className="w-16 h-16 text-[#7ABA78]">
-                <path d="M50 20 L60 40 L85 45 L65 65 L70 90 L50 75 L30 90 L35 65 L15 45 L40 40 Z" fill="currentColor" />
-              </svg>
-           </div>
-           {/* Laurel Wreath */}
-           <div className="w-full flex justify-center items-center gap-12 text-[#7ABA78]">
-              <div className="flex flex-col gap-1 items-end">
-                {[...Array(5)].map((_, i) => (
-                  <div key={i} className="h-0.5 bg-[#7ABA78]" style={{ width: `${10 + (i*8)}px` }} />
-                ))}
-              </div>
-              <div className="w-24 h-24 rounded-full border-4 border-double border-[#7ABA78] flex items-center justify-center">
-                 <Star size={40} className="fill-[#7ABA78]" />
-              </div>
-              <div className="flex flex-col gap-1 items-start">
-                {[...Array(5)].map((_, i) => (
-                  <div key={i} className="h-0.5 bg-[#7ABA78]" style={{ width: `${10 + (i*8)}px` }} />
-                ))}
-              </div>
-           </div>
-        </div>
-      </div>
-
-      {/* DIRECTOR'S REMARKS */}
-      <div className="mb-16">
-         <div className="flex justify-center mb-6">
-            <div className="bg-[#1D4477] px-8 py-2 rounded-full text-white text-[10px] font-black uppercase tracking-[0.3em] shadow-xl border border-[#7ABA78]/50">
-              Director's Remarks
+      {/* ── CHART: bars for 2+, compact card for 1, none for 0 ── */}
+      {withPct.length >= 2 && (
+        <div className="mt-6" style={{ breakInside: 'avoid' }}>
+          <h3 className="font-black uppercase mb-2" style={{ color: NAVY, fontSize: '10pt', letterSpacing: '0.12em' }}>
+            Subject Performance
+          </h3>
+          <div className="flex gap-4">
+            <div className="flex flex-col justify-between text-right text-slate-400 shrink-0 py-1" style={{ fontSize: '7.5pt', height: 150 }}>
+              {[100, 75, 50, 25, 0].map(v => <span key={v}>{v}</span>)}
             </div>
-         </div>
-         <div className="relative p-10 bg-[#F9FBFF] border-2 border-[#1D4477]/20 rounded-[3rem] shadow-[inset_0_4px_12px_rgba(29,68,119,0.05)]">
-            {/* Background lines like a notebook */}
-            <div className="absolute inset-0 p-8 flex flex-col justify-between opacity-[0.05] pointer-events-none">
-               {[...Array(6)].map((_, i) => (
-                 <div key={i} className="h-px w-full bg-[#1D4477]" />
-               ))}
-            </div>
-            <p className="relative z-10 text-[#1D4477] font-bold text-center italic text-xl leading-relaxed font-serif" style={{ fontFamily: "'Playfair Display', serif" }}>
-              &quot;{transcript.remarks || 'Excellent academic standing maintained throughout the focused tuition period. Continued dedication will lead to exceptional results in the final examinations.'}&quot;
-            </p>
-         </div>
-      </div>
-
-      {/* FOOTER / SIGNATURES */}
-      <div className="flex justify-between items-end px-4">
-        {showSignature && (
-          <div className="flex-1 space-y-4">
-            <div className="h-20 flex items-end justify-center border-b-2 border-[#1D4477]">
-               {sigData ? (
-                  sigType === 'type' ? (
-                    <span 
-                      className="text-4xl font-bold text-[#1D4477] mb-2 lowercase"
-                      style={{ fontFamily: sigFont }}
-                    >
-                      {sigData}
-                    </span>
-                  ) : (
-                    <img 
-                      src={sigData}
-                      crossOrigin="anonymous"
-                      alt="Sign" 
-                      className="max-h-16 object-contain brightness-50" 
-                      onLoad={() => setReadyStates(prev => ({ ...prev, sig: true }))}
-                      onError={() => setReadyStates(prev => ({ ...prev, sig: true }))}
+            <div className="flex-1 flex items-end gap-2 border-l border-b border-slate-300 pl-2 pb-1" style={{ height: 150 }}>
+              {withPct.map((s, i) => {
+                const isTop = highest != null && s.pct === highest
+                return (
+                  <div key={i} className="flex-1 flex flex-col items-center justify-end h-full min-w-0">
+                    <span className="font-bold" style={{ fontSize: '8pt', color: NAVY }}>{s.pct}%</span>
+                    <div
+                      className="w-full rounded-t"
+                      style={{ height: `${Math.max(3, (s.pct! / 100) * 118)}px`, background: isTop ? GOLD : NAVY }}
                     />
-                  )
-               ) : (
-                 <span className="text-4xl font-bold text-[#1D4477] opacity-60 mb-2 italic" style={{ fontFamily: "'Dancing Script', cursive" }}>PeakOfficial</span>
-               )}
-            </div>
-            <div className="flex flex-col items-center">
-               <p className="text-[11px] font-black text-[#1D4477] uppercase tracking-widest">
-                 {directorName}
-               </p>
+                    <span className="text-slate-500 text-center leading-tight mt-1" style={{ fontSize: '7pt', overflowWrap: 'anywhere' }}>
+                      {s.name}
+                    </span>
+                  </div>
+                )
+              })}
             </div>
           </div>
+        </div>
+      )}
+      {withPct.length === 1 && (
+        <div className="mt-5 rounded p-4 flex items-center gap-4" style={{ background: '#F6F8FB', borderLeft: `5px solid ${NAVY}`, breakInside: 'avoid' }}>
+          <p className="font-black" style={{ fontSize: '22pt', color: NAVY }}>{withPct[0].name}</p>
+          <div className="ml-auto text-right">
+            <p className="font-black" style={{ fontSize: '20pt' }}>{withPct[0].pct}%</p>
+            <p className="font-bold" style={{ color: NAVY }}>{withPct[0].grade}</p>
+            <p className="text-slate-500" style={{ fontSize: '8.5pt' }}>Current grade</p>
+          </div>
+        </div>
+      )}
+
+      {/* ── PROGRESS OVER TIME (real history only) ── */}
+      {history.length >= 2 && (
+        <div className="mt-6" style={{ breakInside: 'avoid' }}>
+          <h3 className="font-black uppercase mb-2" style={{ color: NAVY, fontSize: '10pt', letterSpacing: '0.12em' }}>
+            Progress Over Time
+          </h3>
+          <ProgressLine points={history} />
+        </div>
+      )}
+
+      {/* ── INSIGHT ── */}
+      {withPct.length >= 1 && (
+        <div className="mt-6" style={{ breakInside: 'avoid' }}>
+          <h3 className="font-black uppercase mb-2" style={{ color: NAVY, fontSize: '10pt', letterSpacing: '0.12em' }}>
+            Performance Insight
+          </h3>
+          <div className="rounded p-4" style={{ background: '#F6F8FB', fontSize: '9.5pt' }}>
+            {withPct.length === 1 ? (
+              <p><strong>{withPct[0].name}</strong> recorded <strong>{withPct[0].marks}{withPct[0].max !== 100 ? `/${withPct[0].max}` : ''} ({withPct[0].pct}%)</strong>, corresponding to grade <strong>{withPct[0].grade}</strong>.</p>
+            ) : (
+              <>
+                {strongest && <p>The strongest performance was recorded in <strong>{strongest.name}</strong> at <strong>{strongest.pct}%</strong>.</p>}
+                {weakest && weakest !== strongest && (
+                  <p className="mt-1"><strong>{weakest.name}</strong> recorded <strong>{weakest.pct}%</strong> and represents the main area for further improvement.</p>
+                )}
+              </>
+            )}
+            {aboveAvg.length > 0 && withPct.length > 1 && (
+              <p className="mt-2"><strong>Strengths:</strong> {aboveAvg.map(s => `${s.name} — ${s.pct}%`).join(' · ')}</p>
+            )}
+            {belowAvg.length > 0 && (
+              <p className="mt-1"><strong>Focus areas:</strong> {belowAvg.map(s => `${s.name} — ${s.pct}%`).join(' · ')}</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── REMARK ── */}
+      <div className="mt-6" style={{ breakInside: 'avoid' }}>
+        <h3 className="font-black uppercase mb-2 text-center" style={{ color: NAVY, fontSize: '10pt', letterSpacing: '0.12em' }}>
+          Academic Remark
+        </h3>
+        <p className="text-center italic leading-relaxed" style={{ fontSize: '10.5pt', fontFamily: "'Playfair Display', serif", color: NAVY }}>
+          &ldquo;{teacherRemark || 'Steady engagement recorded across the assessed areas. Continued practice, targeted revision and regular assessment are recommended.'}&rdquo;
+        </p>
+      </div>
+
+      {/* ── NEXT STEPS ── */}
+      <div className="mt-5" style={{ breakInside: 'avoid' }}>
+        <h3 className="font-black uppercase mb-2" style={{ color: NAVY, fontSize: '10pt', letterSpacing: '0.12em' }}>
+          Recommended Next Steps
+        </h3>
+        <ol className="space-y-1" style={{ fontSize: '9.5pt' }}>
+          <li><strong>01 —</strong> Review topics associated with the lowest marks.</li>
+          <li><strong>02 —</strong> Complete targeted practice questions for focus areas.</li>
+          <li><strong>03 —</strong> Reassess after the recommended revision period.</li>
+        </ol>
+      </div>
+
+      {/* ── SIGNATURES ── */}
+      <div className="mt-7 flex items-end gap-6" style={{ breakInside: 'avoid' }}>
+        <div className="flex-1">
+          {showSig && (sigUrl || legacySig) && (
+            <div className="h-16 flex items-end justify-center border-b" style={{ borderColor: NAVY }}>
+              {sigUrl ? (
+                <img
+                  src={sigUrl}
+                  alt="Director signature"
+                  crossOrigin="anonymous"
+                  style={{ maxHeight: 60, objectFit: 'contain' }}
+                  onLoad={() => setAssetsReady(p => ({ ...p, sig: true }))}
+                  onError={() => setAssetsReady(p => ({ ...p, sig: true }))}
+                />
+              ) : legacySigType === 'type' ? (
+                <span style={{ fontFamily: legacySigFont, fontSize: '22pt', color: NAVY }}>{legacySig}</span>
+              ) : (
+                <img
+                  src={legacySig}
+                  alt="Director signature"
+                  crossOrigin="anonymous"
+                  style={{ maxHeight: 60, objectFit: 'contain' }}
+                  onLoad={() => setAssetsReady(p => ({ ...p, sig: true }))}
+                  onError={() => setAssetsReady(p => ({ ...p, sig: true }))}
+                />
+              )}
+            </div>
+          )}
+          <p className="text-center font-bold uppercase mt-1" style={{ fontSize: '8.5pt', letterSpacing: '0.1em', color: NAVY }}>
+            {directorName || 'Director'}
+          </p>
+        </div>
+        {stampUrl && (
+          <img
+            src={stampUrl}
+            alt="Official stamp"
+            crossOrigin="anonymous"
+            style={{ width: 90, height: 90, objectFit: 'contain', transform: 'rotate(-8deg)', opacity: 0.85 }}
+            onLoad={() => setAssetsReady(p => ({ ...p, stamp: true }))}
+            onError={() => setAssetsReady(p => ({ ...p, stamp: true }))}
+          />
         )}
-
-        <div className="mx-12 mb-6">
-           <div className="w-0.5 h-16 bg-[#7ABA78]/30 relative">
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-[#7ABA78]" />
-           </div>
-        </div>
-
-        <div className="flex-1 space-y-4">
-           <div className="h-20 flex items-end justify-center border-b-2 border-[#1D4477] pb-2">
-              <div className="flex items-center gap-3">
-                 <Calendar size={18} className="text-[#7ABA78]" />
-                 <span className="text-xl font-bold text-[#1D4477] tabular-nums">
-                   {new Date(transcript.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-                 </span>
-              </div>
-           </div>
-           <div className="flex flex-col items-center">
-              <p className="text-[11px] font-black text-[#1D4477] uppercase tracking-widest">Date</p>
-           </div>
+        <div className="flex-1">
+          <div className="h-16 flex items-end justify-center border-b" style={{ borderColor: NAVY }}>
+            <span className="font-bold" style={{ fontSize: '11pt' }}>
+              {publishedAt ? new Date(publishedAt).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''}
+            </span>
+          </div>
+          <p className="text-center font-bold uppercase mt-1" style={{ fontSize: '8.5pt', letterSpacing: '0.1em', color: NAVY }}>Date</p>
         </div>
       </div>
 
-      {/* STRIVE ACHIEVE EXCEL */}
-      <div className="mt-16 flex items-center justify-center gap-8">
-         <div className="w-1.5 h-1.5 rounded-full bg-[#7ABA78]" />
-         <p className="text-xs font-black text-[#1D4477] tracking-[0.8em] uppercase">Strive· Achieve· Excel·</p>
-         <div className="w-1.5 h-1.5 rounded-full bg-[#7ABA78]" />
+      {/* ── FOOTER ── */}
+      <div className="mt-6 pt-3 text-center" style={{ borderTop: `2px solid ${NAVY}` }}>
+        <p className="font-black" style={{ fontSize: '9pt', color: NAVY }}>{schoolName}</p>
+        <p className="text-slate-500" style={{ fontSize: '8pt' }}>
+          Unlocking Every Student&apos;s Potential · peakcampus.co.ke{footerText ? ` · ${footerText}` : ''}
+        </p>
       </div>
+    </div>
+  )
+}
 
-      {/* Branding Snapshot info */}
-      <div className="absolute top-1/2 right-4 -translate-y-1/2 flex flex-col gap-1 opacity-[0.03] select-none pointer-events-none">
-         {[...Array(20)].map((_, i) => (
-           <span key={i} className="text-[8px] font-black whitespace-nowrap">PEAK PERFORMANCE TUTORING • VERIFIED OFFICIAL RECORD</span>
-         ))}
+/** Pure HTML/CSS progress line — sharp in html2canvas captures, no SVG dependency. */
+function ProgressLine({ points }: { points: { label: string; avg: number; date: string }[] }) {
+  const W = 100
+  const H = 100
+  const n = points.length
+  const x = (i: number) => (n === 1 ? W / 2 : 8 + (i / (n - 1)) * (W - 16))
+  const y = (v: number) => H - 8 - (Math.min(100, Math.max(0, v)) / 100) * (H - 20)
+
+  const segs: { left: number; top: number; width: number; angle: number }[] = []
+  for (let i = 0; i < n - 1; i++) {
+    const x1 = x(i)
+    const y1 = y(points[i].avg)
+    const x2 = x(i + 1)
+    const y2 = y(points[i + 1].avg)
+    const dx = x2 - x1
+    const dy = y2 - y1
+    segs.push({
+      left: x1,
+      top: y1,
+      width: Math.sqrt(dx * dx + dy * dy),
+      angle: (Math.atan2(dy, dx) * 180) / Math.PI,
+    })
+  }
+
+  return (
+    <div>
+      <div className="relative border-l border-b border-slate-300" style={{ height: 170 }}>
+        {[100, 75, 50, 25, 0].map(v => (
+          <div key={v} className="absolute w-full border-t border-dashed border-slate-200" style={{ top: `${((H - (v / 100) * (H - 20) - 8) / H) * 170}px` }}>
+            <span className="absolute -top-2 right-1 text-slate-400" style={{ fontSize: '7pt' }}>{v}</span>
+          </div>
+        ))}
+        {segs.map((s, i) => (
+          <div
+            key={i}
+            className="absolute"
+            style={{
+              left: `${s.left}%`,
+              top: `${(s.top / H) * 170}px`,
+              width: `${s.width}%`,
+              height: 2,
+              background: NAVY,
+              transformOrigin: 'left center',
+              transform: `rotate(${s.angle}deg)`,
+            }}
+          />
+        ))}
+        {points.map((p, i) => (
+          <div
+            key={i}
+            className="absolute rounded-full border-2 border-white shadow"
+            title={`${p.label}: ${p.avg}%`}
+            style={{
+              left: `calc(${x(i)}% - 5px)`,
+              top: `${(y(p.avg) / H) * 170 - 5}px`,
+              width: 10,
+              height: 10,
+              background: GOLD,
+            }}
+          />
+        ))}
+      </div>
+      <div className="flex mt-1">
+        {points.map((p, i) => (
+          <span key={i} className="flex-1 text-center text-slate-500 leading-tight" style={{ fontSize: '7.5pt', overflowWrap: 'anywhere' }}>
+            {p.label}
+          </span>
+        ))}
       </div>
     </div>
   )

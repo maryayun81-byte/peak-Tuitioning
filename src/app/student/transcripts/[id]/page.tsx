@@ -3,9 +3,9 @@
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { 
-  ArrowLeft, Download, FileText, Printer, 
-  Award, BookOpen, Star, Info
+import {
+  ArrowLeft, Download, Printer,
+  Star, Info, Eye
 } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Card, Badge, StatCard } from '@/components/ui/Card'
@@ -14,10 +14,9 @@ import { SkeletonList } from '@/components/ui/Skeleton'
 import { useAuthStore } from '@/stores/authStore'
 import { formatDate } from '@/lib/utils'
 import Link from 'next/link'
-import jsPDF from 'jspdf'
-import html2canvas from 'html2canvas'
 import toast from 'react-hot-toast'
 import { PremiumTranscript } from '@/components/admin/PremiumTranscript'
+import { TranscriptSnapshot } from '@/components/transcripts/TranscriptSnapshot'
 
 export default function StudentTranscriptDetailPage() {
   const params = useParams()
@@ -28,6 +27,7 @@ export default function StudentTranscriptDetailPage() {
 
   const [loading, setLoading] = useState(true)
   const [transcript, setTranscript] = useState<any>(null)
+  const [showFull, setShowFull] = useState(false)
 
   useEffect(() => {
     if (transcriptId) loadData()
@@ -74,67 +74,18 @@ export default function StudentTranscriptDetailPage() {
   }
 
   const downloadPDF = async () => {
-    const elementId = 'transcript-render'
-    const element = document.getElementById(elementId)
-    if (!element) return
-
-    const toastId = toast.loading('Brewing luxury PDF...')
+    // The full document must be rendered for capture — expand first if needed.
+    if (!showFull) {
+      setShowFull(true)
+      setTimeout(downloadPDF, 700)
+      return
+    }
+    const toastId = toast.loading('Building premium PDF...')
     try {
-      const canvas = await html2canvas(element, {
-        scale: 4,
-        useCORS: true,
-        logging: false,
-        backgroundColor: '#ffffff',
-        windowWidth: element.scrollWidth,
-        windowHeight: element.scrollHeight,
-        onclone: (clonedDoc) => {
-          const el = clonedDoc.getElementById(elementId)
-          if (el) {
-            el.style.width = '1200px'
-            el.style.padding = '20px'
-            el.style.height = 'auto'
-            el.style.overflow = 'visible'
-            el.style.margin = '0px'
-            el.style.transform = 'none'
-          }
-        }
-      })
-      
-      const imgData = canvas.toDataURL('image/png', 1.0)
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4',
-        compress: true
-      })
-      
-      const pdfWidth = pdf.internal.pageSize.getWidth()
-      const pdfHeight = pdf.internal.pageSize.getHeight()
-
-      const imgWidth = canvas.width
-      const imgHeight = canvas.height
-      const ratio = imgWidth / imgHeight
-
-      let width = pdfWidth
-      let height = pdfWidth / ratio
-
-      if (height > pdfHeight) {
-        height = pdfHeight
-        width = pdfHeight * ratio
-      }
-
-      const xOffset = (pdfWidth - width) / 2
-      const yOffset = (pdfHeight - height) / 2
-      
-      pdf.addImage(imgData, 'PNG', xOffset, yOffset, width, height, undefined, 'FAST')
-      
-      // Sanitize filename: replace spaces and weird characters with underscores
+      const { downloadTranscriptPdf } = await import('@/lib/transcript-pdf')
       const safeName = (transcript?.student?.full_name || 'Student').replace(/[^a-z0-9]/gi, '_')
       const safeTitle = (transcript?.exam_event?.name || 'Report').replace(/[^a-z0-9]/gi, '_')
-      const filename = `Transcript_${safeName}_${safeTitle}.pdf`
-      
-      pdf.save(filename)
-      
+      await downloadTranscriptPdf('transcript-render', `Transcript_${safeName}_${safeTitle}.pdf`)
       toast.success('Delivered!', { id: toastId })
     } catch (err) {
       console.error('PDF error:', err)
@@ -167,11 +118,32 @@ export default function StudentTranscriptDetailPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left Column: Visual Transcript */}
-        <div className="lg:col-span-2">
-           <div id="transcript-render">
-             <PremiumTranscript transcript={transcript} student={student} />
-           </div>
+        {/* Left Column: document snapshot → full on demand */}
+        <div className="lg:col-span-2 space-y-4">
+           {!showFull ? (
+             <button onClick={() => setShowFull(true)} className="block w-full max-w-sm mx-auto text-left group">
+               <div className="transition-transform duration-300 group-hover:-translate-y-1">
+                 <TranscriptSnapshot transcript={transcript} student={transcript.student || student} />
+               </div>
+               <p className="text-center text-xs font-black mt-3 group-hover:text-primary transition-colors" style={{ color: 'var(--primary)' }}>
+                 <Eye size={13} className="inline mr-1" /> Tap to open full document
+               </p>
+             </button>
+           ) : (
+             <>
+               <button
+                 onClick={() => setShowFull(false)}
+                 className="text-xs font-bold text-muted-foreground hover:text-primary transition-colors"
+               >
+                 ← Back to snapshot
+               </button>
+               <div id="transcript-render" className="overflow-x-auto">
+                 <div className="min-w-[640px]">
+                   <PremiumTranscript transcript={transcript} student={student} />
+                 </div>
+               </div>
+             </>
+           )}
         </div>
 
         {/* Right Column: Insights & Quick Actions */}

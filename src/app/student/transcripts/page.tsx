@@ -2,16 +2,14 @@
 
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { 
-  FileText, Download, Eye, Award, 
-  ChevronRight, Calendar, Search, TrendingUp
+import {
+  FileText, Award,
+  Calendar, TrendingUp, Expand
 } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
-import { Card, Badge, StatCard } from '@/components/ui/Card'
-import { Button } from '@/components/ui/Button'
+import { Card, StatCard } from '@/components/ui/Card'
 import { SkeletonList } from '@/components/ui/Skeleton'
 import { useAuthStore } from '@/stores/authStore'
-import { formatDate } from '@/lib/utils'
 import Link from 'next/link'
 import type { Transcript } from '@/types/database'
 
@@ -49,23 +47,23 @@ export default function StudentTranscriptsPage() {
   return (
     <div className="p-6 space-y-6 pb-12">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-black flex items-center gap-2">
-            <Award className="text-primary" /> My Transcripts
-          </h1>
-          <p className="text-sm text-muted-foreground">Access your official academic performance reports.</p>
-        </div>
+      <div>
+        <h1 className="text-2xl font-black flex items-center gap-2">
+          <Award className="text-primary" /> Transcripts
+        </h1>
+        <p className="text-sm text-muted-foreground">Your academic records — tap a document to open it.</p>
+      </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
          <StatCard 
            title="Latest Grade" 
-           value={transcripts[0]?.overall_grade || 'N/A'} 
+            value={transcripts[0]?.overall_grade || '–'}
            icon={<Award size={18} />} 
          />
          <StatCard 
            title="Average Score" 
-           value={transcripts.length > 0 ? `${transcripts[0].average_score?.toFixed(1)}%` : 'N/A'} 
+            value={transcripts.length > 0 && transcripts[0].average_score != null ? `${transcripts[0].average_score?.toFixed(1)}%` : '–'}
            icon={<TrendingUp size={18} />} 
          />
          <StatCard 
@@ -75,36 +73,31 @@ export default function StudentTranscriptsPage() {
          />
       </div>
 
-      <div className="space-y-4">
+      {/* Document library: snapshots, never full pages */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
         {transcripts.length > 0 ? transcripts.map((t, i) => (
-          <motion.div key={t.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.1 }}>
-            <Link href={`/student/transcripts/${t.id}`}>
-              <Card className="p-4 hover:border-primary transition-all cursor-pointer flex items-center justify-between group">
-                <div className="flex items-center gap-4">
-                   <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-[var(--primary-dim)] text-primary">
-                      <FileText size={24} />
-                   </div>
-                   <div>
-                      <h3 className="font-bold text-sm group-hover:text-primary transition-colors">
-                        {(t as any).exam_event?.name || t.title}
-                      </h3>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">
-                        Released: {formatDate(t.published_at || t.created_at)} · Grade: {t.overall_grade}
-                      </p>
-                   </div>
-                </div>
-                <div className="flex items-center gap-4">
-                   <div className="hidden md:block text-right">
-                      <div className="text-xs font-black" style={{ color: 'var(--primary)' }}>{t.average_score?.toFixed(1)}%</div>
-                      <div className="text-[10px] text-muted-foreground">Average</div>
-                   </div>
-                   <ChevronRight size={18} className="text-muted-foreground group-hover:text-primary group-hover:translate-x-1 transition-all" />
-                </div>
-              </Card>
+          <motion.div
+            key={t.id}
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.07 }}
+          >
+            <Link href={`/student/transcripts/${t.id}`} className="group block">
+              <div className="transition-transform duration-300 group-hover:-translate-y-1.5">
+                <TranscriptSnapshot transcript={t} student={student} compact />
+              </div>
+              <div className="flex items-center justify-between mt-2 px-1">
+                <p className="text-xs font-bold truncate">
+                  {(t as any).exam_event?.name || (t as any).title || 'Transcript'}
+                </p>
+                <span className="flex items-center gap-1 text-[11px] font-black shrink-0 ml-2" style={{ color: 'var(--primary)' }}>
+                  <Expand size={12} /> Open
+                </span>
+              </div>
             </Link>
           </motion.div>
         )) : (
-          <Card className="p-20 text-center border-dashed">
+          <Card className="p-20 text-center border-dashed col-span-full">
              <Calendar className="mx-auto mb-3 opacity-10" size={48} />
              <p className="text-sm font-medium text-muted-foreground">Your transcripts will appear here once they are published by the administrator.</p>
           </Card>

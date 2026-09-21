@@ -58,65 +58,12 @@ export default function ParentTranscriptDetailPage() {
   }
 
   const downloadPDF = async () => {
-    const elementId = 'transcript-render'
-    const element = document.getElementById(elementId)
-    if (!element) return
-
-    const toastId = toast.loading('Brewing luxury PDF...')
+    const toastId = toast.loading('Building premium PDF...')
     try {
-      const canvas = await html2canvas(element, {
-        scale: 4,
-        useCORS: true,
-        logging: false,
-        backgroundColor: '#ffffff',
-        windowWidth: element.scrollWidth,
-        windowHeight: element.scrollHeight,
-        onclone: (clonedDoc) => {
-          const el = clonedDoc.getElementById(elementId)
-          if (el) {
-            el.style.width = '1200px'
-            el.style.padding = '20px'
-            el.style.height = 'auto'
-            el.style.overflow = 'visible'
-            el.style.margin = '0px'
-            el.style.transform = 'none'
-          }
-        }
-      })
-      
-      const imgData = canvas.toDataURL('image/png', 1.0)
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4',
-        compress: true
-      })
-      
-      const pdfWidth = pdf.internal.pageSize.getWidth()
-      const pdfHeight = pdf.internal.pageSize.getHeight()
-
-      const imgWidth = canvas.width
-      const imgHeight = canvas.height
-      const ratio = imgWidth / imgHeight
-
-      let width = pdfWidth
-      let height = pdfWidth / ratio
-
-      if (height > pdfHeight) {
-        height = pdfHeight
-        width = pdfHeight * ratio
-      }
-
-      const xOffset = (pdfWidth - width) / 2
-      const yOffset = (pdfHeight - height) / 2
-      
-      pdf.addImage(imgData, 'PNG', xOffset, yOffset, width, height, undefined, 'FAST')
-      
+      const { downloadTranscriptPdf } = await import('@/lib/transcript-pdf')
       const safeName = (transcript?.student?.full_name || 'Student').replace(/[^a-z0-9]/gi, '_')
       const safeTitle = (transcript?.exam_event?.name || 'Report').replace(/[^a-z0-9]/gi, '_')
-      const filename = `Transcript_${safeName}_${safeTitle}.pdf`
-      
-      pdf.save(filename)
+      await downloadTranscriptPdf('transcript-render', `Transcript_${safeName}_${safeTitle}.pdf`)
       toast.success('Delivered!', { id: toastId })
     } catch (err) {
       console.error('PDF error:', err)
