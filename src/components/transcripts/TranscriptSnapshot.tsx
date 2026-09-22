@@ -79,13 +79,23 @@ export function TranscriptSnapshot({
 
       {/* Body */}
       <div className="flex-1 px-[8%] py-[5%] flex flex-col min-h-0">
-        <p className="font-black truncate" style={{ color: NAVY, fontSize: compact ? 12 : 15 }}>
-          {student?.full_name || 'Student'}
-        </p>
-        <p className="text-slate-500 truncate" style={{ fontSize: compact ? 8 : 10 }}>
-          {eventName}
-          {year ? ` · ${year}` : ''}
-        </p>
+        <div className="flex items-center gap-[3%]">
+          <span
+            className="flex items-center justify-center rounded-full font-black text-white shrink-0"
+            style={{ width: compact ? 26 : 34, height: compact ? 26 : 34, fontSize: compact ? 9 : 12, background: `linear-gradient(135deg, ${NAVY} 0%, #3E7CB1 100%)` }}
+          >
+            {(student?.full_name || 'S').split(' ').filter(Boolean).slice(0, 2).map((w: string) => w[0]).join('').toUpperCase()}
+          </span>
+          <div className="min-w-0">
+            <p className="font-black truncate" style={{ color: NAVY, fontSize: compact ? 12 : 15 }}>
+              {student?.full_name || 'Student'}
+            </p>
+            <p className="text-slate-500 truncate" style={{ fontSize: compact ? 8 : 10 }}>
+              {eventName}
+              {year ? ` · ${year}` : ''}
+            </p>
+          </div>
+        </div>
 
         {/* Grade medallion + average */}
         <div className="flex items-center gap-[5%] mt-[5%]">

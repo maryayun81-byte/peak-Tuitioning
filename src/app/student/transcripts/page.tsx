@@ -10,6 +10,7 @@ import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Card, StatCard } from '@/components/ui/Card'
 import { SkeletonList } from '@/components/ui/Skeleton'
 import { useAuthStore } from '@/stores/authStore'
+import { TranscriptSnapshot } from '@/components/transcripts/TranscriptSnapshot'
 import Link from 'next/link'
 import type { Transcript } from '@/types/database'
 

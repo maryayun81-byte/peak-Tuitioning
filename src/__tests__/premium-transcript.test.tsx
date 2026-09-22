@@ -100,6 +100,20 @@ describe('PremiumTranscript layout', () => {
     const logo = container.querySelector('img[alt*="logo"]') as HTMLImageElement
     expect(logo?.getAttribute('src')).toBe('/logo.png')
   })
+
+  it('shows first-record comparison state when no history exists', async () => {
+    render(<PremiumTranscript transcript={makeTranscript([subj('Mathematics', 38, 'C+')])} student={student} />)
+    await waitFor(() => expect(screen.getByText(/First published record/i)).toBeTruthy())
+  })
+
+  it('renders photo fallback initials when no avatar is configured', async () => {
+    const { container } = render(
+      <PremiumTranscript transcript={makeTranscript([subj('Mathematics', 38, 'C+')])} student={student} />
+    )
+    await waitFor(() => expect(screen.getByText('Subject Performance')).toBeTruthy())
+    expect(screen.getByText('TL')).toBeTruthy()
+    expect(container.innerHTML).not.toContain('undefined')
+  })
 })
 
 describe('TranscriptSnapshot library card', () => {

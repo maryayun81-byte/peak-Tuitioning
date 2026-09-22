@@ -51,8 +51,9 @@ export function PremiumTranscript({ transcript, student: studentContext, onReady
   const supabase = getSupabaseBrowserClient()
   const [config, setConfig] = useState<any>(null)
   const [configLoaded, setConfigLoaded] = useState(false)
-  const [assetsReady, setAssetsReady] = useState({ logo: false, sig: false, stamp: false })
-  const [history, setHistory] = useState<{ label: string; avg: number; date: string }[]>([])
+  const [assetsReady, setAssetsReady] = useState({ logo: false, sig: false, stamp: false, photo: false })
+  const [history, setHistory] = useState<{ id: string; label: string; avg: number; date: string; subjects: Record<string, number> }[]>([])
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null)
 
   const student = studentContext || (transcript as any).student
   const snapshot = ((transcript as any).branding_snapshot as any) || {}
@@ -100,20 +101,40 @@ export function PremiumTranscript({ transcript, student: studentContext, onReady
       .order('created_at', { ascending: true })
       .limit(12)
       .then(({ data }) => {
-        const pts: { label: string; avg: number; date: string }[] = []
+        const pts: { id: string; label: string; avg: number; date: string; subjects: Record<string, number> }[] = []
         for (const t of (data || []) as any[]) {
-          const a = avgOf(normalizeSubjects(t.subject_results || []))
+          const rows = normalizeSubjects(t.subject_results || [])
+          const a = avgOf(rows)
           if (a == null) continue
           const ev: any = Array.isArray(t.exam_event) ? t.exam_event[0] : t.exam_event
+          const subjMap: Record<string, number> = {}
+          for (const r of rows) if (r.pct != null) subjMap[r.name.toLowerCase()] = r.pct
           pts.push({
+            id: t.id,
             label: ev?.name || new Date(t.created_at).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }),
             avg: a,
             date: t.created_at,
+            subjects: subjMap,
           })
         }
         setHistory(pts)
       })
   }, [student?.id, supabase])
+
+  // Student photo from profile, with initials fallback handled at render.
+  useEffect(() => {
+    const uid = (student as any)?.user_id
+    if (!uid) return
+    supabase
+      .from('profiles')
+      .select('avatar_url')
+      .eq('id', uid)
+      .maybeSingle()
+      .then(({ data }) => {
+        if ((data as any)?.avatar_url) setPhotoUrl((data as any).avatar_url)
+        setAssetsReady(p => ({ ...p, photo: true }))
+      })
+  }, [supabase, (student as any)?.user_id])
 
   useEffect(() => {
     if (!onReady) return
@@ -172,6 +193,19 @@ export function PremiumTranscript({ transcript, student: studentContext, onReady
   const highest = withPct.length > 0 ? Math.max(...withPct.map(s => s.pct!)) : null
   const lowest = withPct.length > 0 ? Math.min(...withPct.map(s => s.pct!)) : null
 
+  // Comparison vs the previous published assessment (real data only).
+  const historyIdx = history.findIndex(h => h.id === (transcript as any).id)
+  const prevReport = historyIdx > 0 ? history[historyIdx - 1] : null
+  const avgDelta = avg != null && prevReport ? Math.round((avg - prevReport.avg) * 100) / 100 : null
+  const prevSubjects = prevReport?.subjects || {}
+  const initials = (student?.full_name || 'S')
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w: string) => w[0])
+    .join('')
+    .toUpperCase()
+
   return (
     <div
       className="mx-auto bg-white text-slate-900 relative"
@@ -191,51 +225,73 @@ export function PremiumTranscript({ transcript, student: studentContext, onReady
       )}
 
       {/* ── HEADER ── */}
-      <div className="flex items-center gap-4 pb-4" style={{ borderBottom: `3px solid ${NAVY}` }}>
-        <img
-          src={logoUrl}
-          alt={`${schoolName} logo`}
-          crossOrigin="anonymous"
-          style={{ width: 64, height: 64, objectFit: 'contain' }}
-          onLoad={() => setAssetsReady(p => ({ ...p, logo: true }))}
-          onError={e => {
-            const img = e.target as HTMLImageElement
-            if (img.src.endsWith('/logo.png')) {
-              img.style.display = 'none'
-            } else {
-              img.src = '/logo.png'
-            }
-            setAssetsReady(p => ({ ...p, logo: true }))
-          }}
-        />
-        <div className="flex-1">
-          <h1 className="font-black tracking-wide" style={{ color: NAVY, fontSize: '17pt', fontFamily: "'Playfair Display', serif" }}>
-            {schoolName}
-          </h1>
-          <p className="font-bold uppercase" style={{ color: NAVY, fontSize: '10pt', letterSpacing: '0.18em' }}>
-            Student Academic Transcript
-          </p>
-          <p className="text-slate-500" style={{ fontSize: '8.5pt' }}>peakcampus.co.ke</p>
+      <div className="rounded overflow-hidden" style={{ background: NAVY }}>
+        <div className="flex items-center gap-4 px-5 py-4">
+          <img
+            src={logoUrl}
+            alt={`${schoolName} logo`}
+            crossOrigin="anonymous"
+            style={{ width: 60, height: 60, objectFit: 'contain', background: '#fff', borderRadius: '50%', padding: 4, boxShadow: `0 0 0 2px ${GOLD}` }}
+            onLoad={() => setAssetsReady(p => ({ ...p, logo: true }))}
+            onError={e => {
+              const img = e.target as HTMLImageElement
+              if (img.src.endsWith('/logo.png')) {
+                img.style.display = 'none'
+              } else {
+                img.src = '/logo.png'
+              }
+              setAssetsReady(p => ({ ...p, logo: true }))
+            }}
+          />
+          <div className="flex-1 min-w-0">
+            <h1 className="font-black tracking-wide text-white leading-tight" style={{ fontSize: '16pt', fontFamily: "'Playfair Display', serif" }}>
+              {schoolName}
+            </h1>
+            <p className="font-bold uppercase" style={{ color: GOLD, fontSize: '10pt', letterSpacing: '0.2em' }}>
+              Student Academic Transcript
+            </p>
+            <p className="text-white/60" style={{ fontSize: '8pt' }}>peakcampus.co.ke</p>
+          </div>
+          <div className="text-right shrink-0" style={{ fontSize: '8.5pt' }}>
+            {examEvent?.name && <p className="font-bold text-white">{examEvent.name}</p>}
+            {publishedAt && <p className="text-white/60">{new Date(publishedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</p>}
+          </div>
         </div>
-        <div className="text-right" style={{ fontSize: '8.5pt' }}>
-          {examEvent?.name && <p className="font-bold" style={{ color: NAVY }}>{examEvent.name}</p>}
-          {publishedAt && <p className="text-slate-500">{new Date(publishedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</p>}
-        </div>
+        <div style={{ height: 3, background: `linear-gradient(90deg, ${GOLD}, rgba(201,162,39,0))` }} />
       </div>
 
-      {/* ── PROFILE ── */}
-      {profile.length > 0 && (
-        <div className="grid grid-cols-2 gap-x-8 gap-y-2 mt-5">
-          {profile.map(f => (
-            <div key={f.label} className="flex gap-2" style={{ fontSize: '9.5pt' }}>
-              <span className="font-bold uppercase text-slate-500 w-28 shrink-0" style={{ fontSize: '8pt', letterSpacing: '0.08em' }}>
-                {f.label}
-              </span>
-              <span className="font-bold break-words" style={{ color: INK }}>{f.value}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* ── PROFILE (photo + compact fields) ── */}
+      <div className="flex gap-4 mt-5">
+        {photoUrl ? (
+          <img
+            src={photoUrl}
+            alt={student?.full_name || 'Student photo'}
+            crossOrigin="anonymous"
+            style={{ width: 84, height: 96, objectFit: 'cover', borderRadius: 10, border: `2px solid ${GOLD}` }}
+            onLoad={() => setAssetsReady(p => ({ ...p, photo: true }))}
+            onError={() => setAssetsReady(p => ({ ...p, photo: true }))}
+          />
+        ) : (
+          <div
+            className="flex items-center justify-center font-black shrink-0"
+            style={{ width: 84, height: 96, borderRadius: 10, background: NAVY, color: '#fff', fontSize: '22pt', fontFamily: "'Playfair Display', serif", border: `2px solid ${GOLD}` }}
+          >
+            {initials}
+          </div>
+        )}
+        {profile.length > 0 && (
+          <div className="flex-1 grid grid-cols-2 gap-x-6 gap-y-2 content-start">
+            {profile.map(f => (
+              <div key={f.label} className="flex gap-2 min-w-0" style={{ fontSize: '9.5pt' }}>
+                <span className="font-bold uppercase text-slate-500 w-24 shrink-0" style={{ fontSize: '8pt', letterSpacing: '0.08em' }}>
+                  {f.label}
+                </span>
+                <span className="font-bold break-words" style={{ color: INK }}>{f.value}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* ── SUBJECT TABLE (natural rows only — never padded) ── */}
       <h2 className="font-black uppercase mt-6 mb-2" style={{ color: NAVY, fontSize: '11pt', letterSpacing: '0.12em' }}>
@@ -261,6 +317,18 @@ export function PremiumTranscript({ transcript, student: studentContext, onReady
                 <td style={{ padding: '8px 12px', fontWeight: 700, overflowWrap: 'anywhere' }}>{s.name}</td>
                 <td style={{ padding: '8px', textAlign: 'center', fontWeight: 800 }}>
                   {s.marks != null ? `${s.marks}${s.max !== 100 ? ` / ${s.max}` : ''}` : '–'}
+                  {s.pct != null && prevSubjects[s.name.toLowerCase()] != null && (
+                    <span
+                      style={{
+                        display: 'block',
+                        fontSize: '7.5pt',
+                        color: s.pct - prevSubjects[s.name.toLowerCase()] > 0 ? '#15803D' : s.pct - prevSubjects[s.name.toLowerCase()] < 0 ? '#B91C1C' : '#64748B',
+                      }}
+                    >
+                      {s.pct - prevSubjects[s.name.toLowerCase()] > 0 ? '▲' : s.pct - prevSubjects[s.name.toLowerCase()] < 0 ? '▼' : '•'}
+                      {Math.abs(Math.round((s.pct - prevSubjects[s.name.toLowerCase()]) * 100) / 100)}
+                    </span>
+                  )}
                 </td>
                 <td style={{ padding: '8px', textAlign: 'center', fontWeight: 800, color: NAVY }}>{s.grade}</td>
                 <td style={{ padding: '8px 12px', overflowWrap: 'anywhere', color: '#334155' }}>{s.remark || '–'}</td>
@@ -291,7 +359,32 @@ export function PremiumTranscript({ transcript, student: studentContext, onReady
         </div>
       )}
 
-      {/* ── CHART: bars for 2+, compact card for 1, none for 0 ── */}
+      {/* ── COMPARISON vs previous assessment (real data only) ── */}
+      {subjects.length > 0 && avg != null && (
+        <div className="mt-4 rounded p-3 flex items-center gap-3" style={{ background: '#F6F8FB', borderLeft: `5px solid ${GOLD}`, breakInside: 'avoid' }}>
+          {prevReport && avgDelta != null ? (
+            <>
+              <span
+                className="font-black rounded-full text-white flex items-center justify-center shrink-0"
+                style={{ width: 40, height: 40, fontSize: '14pt', background: avgDelta > 0 ? '#15803D' : avgDelta < 0 ? '#B91C1C' : '#64748B' }}
+              >
+                {avgDelta > 0 ? '▲' : avgDelta < 0 ? '▼' : '•'}
+              </span>
+              <p style={{ fontSize: '9.5pt' }}>
+                <strong>{avg}%</strong> vs <strong>{prevReport.avg}%</strong> in {prevReport.label} —{' '}
+                <strong style={{ color: avgDelta > 0 ? '#15803D' : avgDelta < 0 ? '#B91C1C' : INK }}>
+                  {avgDelta > 0 ? `up ${avgDelta}` : avgDelta < 0 ? `down ${Math.abs(avgDelta)}` : 'no change'} points
+                </strong>
+              </p>
+            </>
+          ) : (
+            <p style={{ fontSize: '9.5pt' }} className="text-slate-600">
+              <strong>First published record.</strong> Progress tracking against future assessments begins here.
+            </p>
+          )}
+        </div>
+      )}
+      {/* ── CHART: bars for 2+, ring card for 1, none for 0 ── */}
       {withPct.length >= 2 && (
         <div className="mt-6" style={{ breakInside: 'avoid' }}>
           <h3 className="font-black uppercase mb-2" style={{ color: NAVY, fontSize: '10pt', letterSpacing: '0.12em' }}>

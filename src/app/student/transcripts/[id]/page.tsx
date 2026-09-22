@@ -150,11 +150,14 @@ export default function StudentTranscriptDetailPage() {
         <div className="space-y-6">
            <Card className="p-6">
              <h3 className="font-bold flex items-center gap-2 mb-4"><Star className="text-primary" /> Quick Summary</h3>
-             <div className="space-y-4">
+              <div className="space-y-4">
                 <div className="flex justify-between">
                    <span className="text-xs text-muted-foreground">Highest Mark</span>
                    <span className="font-bold text-sm">
-                      {Math.max(...transcript.subject_results.map((r: any) => r.marks))}%
+                      {(() => {
+                        const vals = (transcript.subject_results || []).map((r: any) => Number(r.marks)).filter((v: number) => !isNaN(v))
+                        return vals.length > 0 ? `${Math.max(...vals)}%` : '–'
+                      })()}
                    </span>
                 </div>
                 <div className="flex justify-between">
