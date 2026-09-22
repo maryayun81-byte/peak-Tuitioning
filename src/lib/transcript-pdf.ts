@@ -40,6 +40,15 @@ export async function downloadTranscriptPdf(elementId: string, filename: string)
 
   const pagePx = Math.floor(canvas.width * (pdfHeight / pdfWidth))
   const totalPages = Math.max(1, Math.ceil(canvas.height / pagePx))
+
+  // Single-page documents fill the entire A4 sheet exactly — no trailing
+  // whitespace. Longer documents paginate naturally at full width.
+  if (totalPages === 1) {
+    pdf.addImage(canvas.toDataURL('image/png', 1.0), 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST')
+    pdf.save(filename)
+    return
+  }
+
   for (let page = 0; page < totalPages; page++) {
     const srcY = page * pagePx
     const sliceH = Math.min(pagePx, canvas.height - srcY)

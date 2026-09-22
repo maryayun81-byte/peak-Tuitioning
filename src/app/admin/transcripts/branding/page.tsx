@@ -29,23 +29,77 @@ export default function TranscriptBrandingPage() {
 
   useEffect(() => { loadConfig() }, [])
 
+  const [uploading, setUploading] = useState<string | null>(null)
+
   const loadConfig = async () => {
     setLoading(true)
-    const { data } = await supabase.from('transcript_config').select('*').single()
+    const { data } = await supabase
+      .from('transcript_config')
+      .select('*')
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
     if (data) setConfig(data)
     setLoading(false)
   }
 
   const handleSave = async () => {
     setSaving(true)
+    // Singleton: reuse the existing row id so saves update instead of piling rows.
+    const { data: existing } = await supabase
+      .from('transcript_config')
+      .select('id')
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
     const { error } = await supabase
       .from('transcript_config')
-      .upsert({ ...config, updated_at: new Date().toISOString() })
-    
+      .upsert({ ...(existing?.id ? { id: existing.id } : {}), ...config, updated_at: new Date().toISOString() })
+
     if (error) toast.error('Failed to save configuration')
-    else toast.success('Branding updated!')
+    else toast.success('Branding updated! Transcripts pick it up immediately.')
     setSaving(false)
   }
+
+  const uploadAsset = async (field: 'logo_url' | 'stamp_url' | 'director_signature_url', file: File) => {
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please choose an image file.')
+      return
+    }
+    setUploading(field)
+    try {
+      const ext = file.name.split('.').pop() || 'png'
+      const path = `${field}/${Date.now()}.${ext}`
+      const { error } = await supabase.storage.from('branding').upload(path, file, {
+        contentType: file.type,
+        upsert: true,
+      })
+      if (error) throw error
+      const { data } = supabase.storage.from('branding').getPublicUrl(path)
+      setConfig((c: any) => ({ ...c, [field]: data.publicUrl }))
+      toast.success('Uploaded — remember to Save Changes.')
+    } catch (e: any) {
+      toast.error('Upload failed: ' + (e.message || 'please try again'))
+    } finally {
+      setUploading(null)
+    }
+  }
+
+  const assetPicker = (field: 'logo_url' | 'stamp_url' | 'director_signature_url', accept = 'image/*') => (
+    <label className={`inline-flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-bold cursor-pointer border border-[var(--card-border)] hover:border-primary transition-colors ${uploading === field ? 'opacity-50 pointer-events-none' : ''}`}>
+      <Upload size={14} /> {uploading === field ? '…' : 'Upload'}
+      <input
+        type="file"
+        accept={accept}
+        className="hidden"
+        onChange={e => {
+          const f = e.target.files?.[0]
+          e.target.value = ''
+          if (f) uploadAsset(field, f)
+        }}
+      />
+    </label>
+  )
 
   if (loading) return <div className="p-6 text-center opacity-50">Loading branding settings...</div>
 
@@ -94,35 +148,47 @@ export default function TranscriptBrandingPage() {
                <div>
                   <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground block mb-2">School Logo URL</label>
                   <div className="flex gap-2">
-                    <Input 
-                      placeholder="https://..." 
-                      value={config.logo_url || ''} 
-                      onChange={e => setConfig({ ...config, logo_url: e.target.value })} 
+                    <Input
+                      placeholder="https://..."
+                      value={config.logo_url || ''}
+                      onChange={e => setConfig({ ...config, logo_url: e.target.value })}
                     />
-                    <Button variant="secondary" size="sm"><Upload size={14} /></Button>
+                    {assetPicker('logo_url')}
                   </div>
+                  {config.logo_url && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={config.logo_url} alt="Logo preview" className="mt-2 h-14 object-contain" />
+                  )}
                </div>
                <div>
                   <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground block mb-2">Stamp / Seal URL</label>
                   <div className="flex gap-2">
-                    <Input 
-                      placeholder="https://..." 
-                      value={config.stamp_url || ''} 
-                      onChange={e => setConfig({ ...config, stamp_url: e.target.value })} 
+                    <Input
+                      placeholder="https://..."
+                      value={config.stamp_url || ''}
+                      onChange={e => setConfig({ ...config, stamp_url: e.target.value })}
                     />
-                    <Button variant="secondary" size="sm"><Upload size={14} /></Button>
+                    {assetPicker('stamp_url')}
                   </div>
+                  {config.stamp_url && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={config.stamp_url} alt="Stamp preview" className="mt-2 h-14 object-contain" />
+                  )}
                </div>
                <div>
                   <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground block mb-2">Director Signature URL</label>
                   <div className="flex gap-2">
-                    <Input 
-                      placeholder="https://..." 
-                      value={config.director_signature_url || ''} 
-                      onChange={e => setConfig({ ...config, director_signature_url: e.target.value })} 
+                    <Input
+                      placeholder="https://..."
+                      value={config.director_signature_url || ''}
+                      onChange={e => setConfig({ ...config, director_signature_url: e.target.value })}
                     />
-                    <Button variant="secondary" size="sm"><Upload size={14} /></Button>
+                    {assetPicker('director_signature_url')}
                   </div>
+                  {config.director_signature_url && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={config.director_signature_url} alt="Signature preview" className="mt-2 h-14 object-contain" />
+                  )}
                </div>
             </div>
          </Card>

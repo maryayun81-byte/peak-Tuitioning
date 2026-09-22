@@ -60,7 +60,7 @@ describe('PremiumTranscript layout', () => {
     // One-subject wording: no "across 1 subject(s)"
     expect(container.innerHTML).not.toContain('subject(s)')
     // Compact indicator instead of a giant chart
-    expect(screen.getByText('Current grade')).toBeTruthy()
+    expect(screen.getByText('Current performance')).toBeTruthy()
   })
 
   it('grows naturally: 8 subjects = 8 rows, bar chart present', async () => {
@@ -112,7 +112,7 @@ describe('TranscriptSnapshot library card', () => {
     expect(card.style.aspectRatio).toBe('210 / 297')
     expect(screen.getByText('B+')).toBeTruthy()
     // Only top 4 + overflow line — lowest subjects cut (Math 40%, Eng 45%)
-    expect(screen.getByText('+2 more subjects')).toBeTruthy()
+    expect(screen.getByText(/\+2 more subjects? inside/)).toBeTruthy()
     expect(screen.queryByText('Math')).toBeNull()
     expect(screen.getByText('His')).toBeTruthy()
   })

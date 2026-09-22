@@ -42,6 +42,18 @@ export default function StudentTranscriptsPage() {
     }
   }
 
+  // Average always computed from the subject rows — some generator paths
+  // never stored average_score, which rendered as "undefined%".
+  const latestAvg = (() => {
+    const rows = ((transcripts[0] as any)?.subject_results || []) as any[]
+    const vals = rows
+      .map(r => r.percentage ?? r.percent ?? (r.marks != null ? (Number(r.marks) / (Number(r.max_marks ?? r.max_mark ?? 100) || 100)) * 100 : null))
+      .filter((v): v is number => v != null && !isNaN(Number(v)))
+      .map(Number)
+    if (vals.length === 0) return null
+    return Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10
+  })()
+
   if (loading) return <div className="p-6"><SkeletonList count={3} /></div>
 
   return (
@@ -61,11 +73,11 @@ export default function StudentTranscriptsPage() {
             value={transcripts[0]?.overall_grade || '–'}
            icon={<Award size={18} />} 
          />
-         <StatCard 
-           title="Average Score" 
-            value={transcripts.length > 0 && transcripts[0].average_score != null ? `${transcripts[0].average_score?.toFixed(1)}%` : '–'}
-           icon={<TrendingUp size={18} />} 
-         />
+          <StatCard
+            title="Average Score"
+            value={latestAvg != null ? `${latestAvg}%` : '–'}
+            icon={<TrendingUp size={18} />}
+          />
          <StatCard 
            title="Reports Available" 
            value={transcripts.length} 

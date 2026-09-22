@@ -25,12 +25,13 @@ type SubjectRow = {
 
 function normalizeSubjects(raw: any[]): SubjectRow[] {
   return (raw || []).map((r: any) => {
-    const marks = r.marks ?? r.mark ?? null
-    const max = Number(r.max_marks ?? r.max_mark ?? 100) || 100
+    const marks = r.marks ?? r.mark ?? r.score ?? null
+    const max = Number(r.max_marks ?? r.max_mark ?? r.max ?? 100) || 100
+    const pctRaw = r.percentage ?? r.percent ?? null
     const pct =
-      r.percentage ?? r.percent ?? (marks != null ? Math.round((Number(marks) / max) * 10000) / 100 : null)
+      pctRaw ?? (marks != null ? Math.round((Number(marks) / max) * 10000) / 100 : null)
     return {
-      name: r.subject_name ?? r.subject ?? r.name ?? 'Subject',
+      name: r.subject_name ?? r.subject ?? r.subjectName ?? r.name ?? 'Subject',
       marks: marks != null ? Number(marks) : null,
       max,
       pct: pct != null ? Number(pct) : null,
@@ -321,12 +322,14 @@ export function PremiumTranscript({ transcript, student: studentContext, onReady
         </div>
       )}
       {withPct.length === 1 && (
-        <div className="mt-5 rounded p-4 flex items-center gap-4" style={{ background: '#F6F8FB', borderLeft: `5px solid ${NAVY}`, breakInside: 'avoid' }}>
-          <p className="font-black" style={{ fontSize: '22pt', color: NAVY }}>{withPct[0].name}</p>
-          <div className="ml-auto text-right">
-            <p className="font-black" style={{ fontSize: '20pt' }}>{withPct[0].pct}%</p>
-            <p className="font-bold" style={{ color: NAVY }}>{withPct[0].grade}</p>
-            <p className="text-slate-500" style={{ fontSize: '8.5pt' }}>Current grade</p>
+        <div className="mt-5 rounded p-4 flex items-center gap-5" style={{ background: '#F6F8FB', borderLeft: `5px solid ${NAVY}`, breakInside: 'avoid' }}>
+          <SingleSubjectRing pct={withPct[0].pct!} grade={withPct[0].grade} />
+          <div>
+            <p className="font-black" style={{ fontSize: '16pt', color: NAVY }}>{withPct[0].name}</p>
+            <p className="font-bold" style={{ fontSize: '12pt' }}>
+              {withPct[0].marks}{withPct[0].max !== 100 ? `/${withPct[0].max}` : ''} · {withPct[0].pct}% · {withPct[0].grade}
+            </p>
+            <p className="text-slate-500" style={{ fontSize: '8.5pt' }}>Current performance</p>
           </div>
         </div>
       )}
@@ -448,6 +451,29 @@ export function PremiumTranscript({ transcript, student: studentContext, onReady
         <p className="text-slate-500" style={{ fontSize: '8pt' }}>
           Unlocking Every Student&apos;s Potential · peakcampus.co.ke{footerText ? ` · ${footerText}` : ''}
         </p>
+      </div>
+    </div>
+  )
+}
+
+/** Pure HTML/CSS progress ring for single-subject reports — html2canvas-safe. */
+function SingleSubjectRing({ pct, grade }: { pct: number; grade: string }) {
+  const R = 44
+  const C = 2 * Math.PI * R
+  const frac = Math.min(100, Math.max(0, pct)) / 100
+  // Ring approximated with conic-gradient (rasterized sharply at capture scale).
+  return (
+    <div
+      className="rounded-full flex items-center justify-center shrink-0"
+      style={{
+        width: 110,
+        height: 110,
+        background: `conic-gradient(${NAVY} ${frac * 360}deg, #E2E8F0 0deg)`,
+      }}
+    >
+      <div className="rounded-full bg-white flex flex-col items-center justify-center" style={{ width: 86, height: 86 }}>
+        <span className="font-black leading-none" style={{ fontSize: '18pt', color: NAVY }}>{pct}%</span>
+        <span className="font-bold" style={{ fontSize: '9pt', color: GOLD }}>{grade}</span>
       </div>
     </div>
   )
