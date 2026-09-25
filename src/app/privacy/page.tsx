@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Privacy Policy | Peak Campus Kenya',
+  title: { absolute: 'Privacy Policy | Peak Campus' },
   description: 'How Peak Campus collects, uses and protects student and parent data, including ads measurement.',
   alternates: { canonical: '/privacy' },
 }

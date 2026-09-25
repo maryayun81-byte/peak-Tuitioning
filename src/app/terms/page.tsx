@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Terms of Service | Peak Campus Kenya',
+  title: { absolute: 'Terms of Service | Peak Campus' },
   description: 'Terms for using Peak Campus tuition, homeschooling and portals.',
   alternates: { canonical: '/terms' },
 }

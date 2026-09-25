@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Cookie Policy | Peak Campus Kenya',
+  title: { absolute: 'Cookie Policy | Peak Campus' },
   description: 'Which cookies Peak Campus uses: essential, preferences and (with consent) ads measurement.',
   alternates: { canonical: '/cookies' },
 }

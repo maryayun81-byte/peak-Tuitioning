@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { PublicPortalMenu } from '@/components/ui/PublicPortalMenu'
+import { breadcrumbJsonLd } from '@/lib/seo/breadcrumbs'
 import {
   ArrowRight,
   Beaker,
@@ -16,7 +17,7 @@ import {
 } from 'lucide-react'
 
 export const metadata: Metadata = {
-  title: 'Tuition Centre Nairobi | Peak Performance KCSE & CBC Tutoring',
+  title: { absolute: 'Tuition Centre Nairobi | Peak Performance Tutoring' },
   description:
     'Visit Peak Performance Tutoring, a Nairobi tuition centre for KCSE revision, CBC support, diagnostics, small-group learning and holiday programmes.',
   alternates: {
@@ -28,9 +29,37 @@ export const metadata: Metadata = {
       'A focused Nairobi academic hub for KCSE and CBC learners who need structure, calm, accountability and visible progress.',
     url: 'https://www.peakcampus.co.ke/tuition-center-nairobi',
     siteName: 'Peak Performance Tutoring',
-    images: [{ url: '/logo.png', width: 800, height: 600, alt: 'Peak Performance Nairobi tuition centre' }],
+    images: [{ url: '/logo.png', width: 1024, height: 1024, alt: 'Peak Performance Nairobi tuition centre' }],
   },
 }
+
+// Organization/NAP lives in the root layout; this is only page-specific schema.
+const pageJsonLd = breadcrumbJsonLd([
+  { name: 'Tuition Centre Nairobi', path: '/tuition-center-nairobi' },
+])
+
+const relatedProgrammes = [
+  {
+    label: 'KCSE & CBC Tutoring',
+    href: '/kcse-and-cbc-tutoring-kenya',
+    desc: 'Term-time programmes for Form 3–4 and CBC Grades 6–10.',
+  },
+  {
+    label: 'Holiday Tuition in Kenya',
+    href: '/holiday-tuition-kenya',
+    desc: 'April, August and December revision blocks.',
+  },
+  {
+    label: 'About Peak Performance Tutoring',
+    href: '/about',
+    desc: 'The diagnostic method behind the centre.',
+  },
+  {
+    label: 'Contact Peak Performance Tutoring',
+    href: '/contact',
+    desc: 'Call 0798971625 or get directions to the Kinoo hub.',
+  },
+]
 
 const facilities = [
   { name: 'Focused study rooms', desc: 'Quiet, supervised zones for deep work and guided revision.', icon: ShieldCheck },
@@ -48,6 +77,10 @@ const visitSteps = [
 export default function NairobiCenterPage() {
   return (
     <main className="min-h-screen bg-[#f6f3ed] text-slate-950">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(pageJsonLd) }}
+      />
       <section className="relative overflow-hidden bg-slate-950 text-white">
         <img src="/media__1776963140335.jpg" alt="Peak Performance Nairobi tuition centre" className="absolute inset-0 h-full w-full object-cover" />
         <div className="absolute inset-0 bg-slate-950/72" />
@@ -78,6 +111,16 @@ export default function NairobiCenterPage() {
                 View programmes
               </Link>
             </div>
+            {/* Crawlable contact mechanism — never hidden behind an image or
+                JS-only modal, so Google can associate the NAP with this URL. */}
+            <p className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-white/70">
+              <a href="tel:+254798971625" className="font-bold text-emerald-300 hover:text-emerald-200">
+                <Phone className="mr-1.5 inline h-4 w-4" /> +254 798 971 625
+              </a>
+              <Link href="/contact" className="font-bold text-emerald-300 hover:text-emerald-200">
+                Get directions &amp; opening hours
+              </Link>
+            </p>
           </div>
           <div className="self-end rounded-lg border border-white/15 bg-white/10 p-6 backdrop-blur-md">
             <div className="flex items-center gap-3 text-emerald-200">
@@ -164,6 +207,32 @@ export default function NairobiCenterPage() {
           <Link href="/auth/register" className="inline-flex items-center justify-center gap-2 rounded-full bg-slate-950 px-6 py-3 text-sm font-black uppercase tracking-[0.16em] text-white transition hover:bg-emerald-800">
             Book diagnostic <ArrowRight size={17} />
           </Link>
+        </div>
+      </section>
+
+      <section className="border-t border-slate-200 bg-white px-4 py-14 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-7xl">
+          <p className="text-xs font-black uppercase tracking-[0.22em] text-[#145da0]">Related programmes</p>
+          <h2 className="mt-4 text-3xl font-black tracking-tight text-[#073159] sm:text-4xl">
+            See what runs at the hub.
+          </h2>
+          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {relatedProgrammes.map(({ label, href, desc }) => (
+              <Link
+                key={href}
+                href={href}
+                className="group flex flex-col justify-between rounded-lg border border-slate-200 bg-[#f8f6f1] p-5 transition hover:border-[#145da0]/40 hover:bg-white"
+              >
+                <div>
+                  <h3 className="text-lg font-black tracking-tight text-[#073159]">{label}</h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">{desc}</p>
+                </div>
+                <span className="mt-4 inline-flex items-center gap-2 text-xs font-black uppercase tracking-[0.14em] text-[#145da0]">
+                  View programme <ArrowRight size={14} />
+                </span>
+              </Link>
+            ))}
+          </div>
         </div>
       </section>
     </main>

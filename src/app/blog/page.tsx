@@ -5,7 +5,7 @@ import { PublicPortalMenu } from '@/components/ui/PublicPortalMenu'
 import { getPublicBlogPosts } from '@/app/actions/blog'
 
 export const metadata: Metadata = {
-  title: 'Peak Performance Blog | KCSE, CBC & Holiday Tuition Insights',
+  title: { absolute: 'Peak Performance Blog | KCSE & CBC Insights' },
   description: 'Read Peak Performance Tutoring insights for KCSE revision, CBC learning, holiday tuition, study strategy and parent decision-making in Kenya.',
   alternates: { canonical: '/blog' },
 }

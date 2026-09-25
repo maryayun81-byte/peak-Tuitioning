@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import { PeakNavigation } from '../components/homepage/PeakNavigation'
 import { InquiryModal } from "../components/homepage/InquiryModal"
 import { PeakHero } from '../components/homepage/PeakHero'
@@ -13,48 +14,30 @@ import { GalleryCarousel } from '../components/homepage/GalleryCarousel'
 import { UpcomingEvents } from '../components/homepage/UpcomingEvents'
 import { BlogHighlights } from '../components/homepage/BlogHighlights'
 import { FAQSection } from '../components/homepage/FAQSection'
+import { HOMEPAGE_FAQS } from '@/lib/seo/homepage-faqs'
 import { PeakFooter } from '../components/homepage/PeakFooter'
 import { PeakEasterEggs } from '../components/homepage/PeakEasterEggs'
 import { LearningRoute } from '../components/peak/LearningRoute'
 
-// Brand-entity structured data: this is what teaches Google that
-// peakcampus.co.ke IS "Peak Performance Tutoring" (knowledge panel +
-// sitelinks eligibility). Facts mirror the public footer/contact details.
-const ORGANIZATION_JSON_LD = {
+// Self-referencing canonical for the homepage only. The root layout no longer
+// declares a canonical so that child pages are not forced to inherit "/".
+export const metadata: Metadata = {
+  alternates: { canonical: '/' },
+}
+
+// Organization + WebSite identity lives in the root layout (one copy, every
+// page). Here we only add schema unique to this page: the FAQ block below.
+const HOMEPAGE_JSON_LD = {
   '@context': 'https://schema.org',
-  '@graph': [
-    {
-      '@type': 'EducationalOrganization',
-      '@id': 'https://www.peakcampus.co.ke/#organization',
-      name: 'Peak Performance Tutoring',
-      alternateName: 'Peak Campus',
-      url: 'https://www.peakcampus.co.ke/',
-      logo: 'https://www.peakcampus.co.ke/logo.png',
-      description:
-        'Diagnostic, tiered tutoring for Kenyan 8-4-4 and CBC learners — KCSE revision, holiday tuition and parent-visible progress.',
-      address: {
-        '@type': 'PostalAddress',
-        streetAddress: 'St Ignatius, Kinoo',
-        addressLocality: 'Nairobi',
-        addressCountry: 'KE',
-      },
-      contactPoint: {
-        '@type': 'ContactPoint',
-        email: 'info@peakcampus.co.ke',
-        telephone: '+254 798 971 625',
-        contactType: 'admissions',
-        areaServed: 'KE',
-      },
+  '@type': 'FAQPage',
+  mainEntity: HOMEPAGE_FAQS.map((item) => ({
+    '@type': 'Question',
+    name: item.q,
+    acceptedAnswer: {
+      '@type': 'Answer',
+      text: item.a,
     },
-    {
-      '@type': 'WebSite',
-      '@id': 'https://www.peakcampus.co.ke/#website',
-      url: 'https://www.peakcampus.co.ke/',
-      name: 'Peak Performance Tutoring',
-      publisher: { '@id': 'https://www.peakcampus.co.ke/#organization' },
-      inLanguage: 'en-KE',
-    },
-  ],
+  })),
 }
 
 export default function HomePage() {
@@ -62,7 +45,7 @@ export default function HomePage() {
     <main className="premium-landing overflow-x-hidden">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(ORGANIZATION_JSON_LD) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(HOMEPAGE_JSON_LD) }}
       />
       <InquiryModal />
       <PeakNavigation />

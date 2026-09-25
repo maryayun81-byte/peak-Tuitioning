@@ -14,9 +14,10 @@ import {
   TimerReset,
 } from 'lucide-react'
 import { PublicPortalMenu } from '@/components/ui/PublicPortalMenu'
+import { breadcrumbJsonLd } from '@/lib/seo/breadcrumbs'
 
 export const metadata: Metadata = {
-  title: 'Holiday Tuition Kenya | KCSE & CBC Revision Programmes',
+  title: { absolute: 'Holiday Tuition Kenya | Peak Performance Tutoring' },
   description:
     'Register for Peak Performance holiday tuition in Kenya for KCSE, CBC, KPSEA and KJSEA learners. Diagnostic revision, small groups, focused practice and parent-visible progress.',
   alternates: {
@@ -89,8 +90,9 @@ const pageJsonLd = {
         'Holiday tuition and revision programmes for KCSE and CBC learners in Kenya.',
       provider: {
         '@type': 'EducationalOrganization',
+        '@id': 'https://www.peakcampus.co.ke/#organization',
         name: 'Peak Performance Tutoring',
-        url: 'https://www.peakcampus.co.ke',
+        url: 'https://www.peakcampus.co.ke/',
       },
       educationalLevel: ['KCSE', 'CBC', 'KPSEA', 'KJSEA'],
       areaServed: 'Kenya',
@@ -106,8 +108,34 @@ const pageJsonLd = {
         },
       })),
     },
+    breadcrumbJsonLd([{ name: 'Holiday Tuition Kenya', path: '/holiday-tuition-kenya' }]),
   ],
 }
+
+// Crawlable cross-links. Descriptive anchors only — these are what let Google
+// move between programme pages and pick up sitelink candidates.
+const relatedProgrammes = [
+  {
+    label: 'KCSE & CBC Tutoring',
+    href: '/kcse-and-cbc-tutoring-kenya',
+    desc: 'Term-time tutoring for Form 3–4 and CBC Grades 6–10.',
+  },
+  {
+    label: 'Tuition Centre in Nairobi',
+    href: '/tuition-center-nairobi',
+    desc: 'Visit the Kinoo learning hub for diagnostics and placement.',
+  },
+  {
+    label: 'About Peak Performance Tutoring',
+    href: '/about',
+    desc: 'The diagnostic method, grouping model and teaching principles.',
+  },
+  {
+    label: 'Contact Peak Performance Tutoring',
+    href: '/contact',
+    desc: 'Call 0798971625, WhatsApp, or get directions to Kinoo.',
+  },
+]
 
 export default function HolidayTuitionKenyaPage() {
   return (
@@ -220,6 +248,32 @@ export default function HolidayTuitionKenyaPage() {
                 <h2 className="text-lg font-black tracking-tight">{item.q}</h2>
                 <p className="mt-3 text-sm leading-7 text-white/68">{item.a}</p>
               </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="border-t border-slate-200 bg-white px-4 py-14 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-7xl">
+          <p className="text-xs font-black uppercase tracking-[0.22em] text-[#145da0]">Related programmes</p>
+          <h2 className="mt-4 text-3xl font-black tracking-tight text-[#073159] sm:text-4xl">
+            Plan the rest of the school year.
+          </h2>
+          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {relatedProgrammes.map(({ label, href, desc }) => (
+              <Link
+                key={href}
+                href={href}
+                className="group flex flex-col justify-between rounded-lg border border-slate-200 bg-[#f8f6f1] p-5 transition hover:border-[#145da0]/40 hover:bg-white"
+              >
+                <div>
+                  <h3 className="text-lg font-black tracking-tight text-[#073159]">{label}</h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">{desc}</p>
+                </div>
+                <span className="mt-4 inline-flex items-center gap-2 text-xs font-black uppercase tracking-[0.14em] text-[#145da0]">
+                  View programme <ArrowRight size={14} />
+                </span>
+              </Link>
             ))}
           </div>
         </div>

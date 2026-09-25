@@ -3,7 +3,9 @@ import Link from 'next/link'
 import { PublicPortalMenu } from '@/components/ui/PublicPortalMenu'
 
 export const metadata: Metadata = {
-  title: 'About Peak Performance Tutoring Kenya | Diagnostic KCSE & CBC Support',
+  // `absolute` bypasses the root "%s | Peak Performance Tutoring" template,
+  // which was appending the brand twice (96-char titles got truncated in SERPs).
+  title: { absolute: 'About Peak Performance Tutoring | Kenya' },
   description:
     'Learn how Peak Performance Tutoring supports Kenyan KCSE and CBC learners through diagnostic placement, ability-matched groups, and visible progress.',
   alternates: { canonical: '/about' },
@@ -171,18 +173,21 @@ export default function AboutPage() {
               </p>
 
               <div className="grid grid-cols-2 gap-3">
-                <a
-                  href="/8-4-4-tutoring-kenya"
+                {/* These previously pointed at /8-4-4-tutoring-kenya and
+                    /cbc-tutoring-kenya — routes that do not exist and returned
+                    live 404s. Both curriculums are served by one real page. */}
+                <Link
+                  href="/kcse-and-cbc-tutoring-kenya"
                   className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2.5 text-sm font-black uppercase tracking-wider text-white hover:bg-peak-green transition-colors"
                 >
-                  8-4-4 Programme
-                </a>
-                <a
-                  href="/cbc-tutoring-kenya"
+                  8-4-4 &amp; CBC Programme
+                </Link>
+                <Link
+                  href="/holiday-tuition-kenya"
                   className="inline-flex items-center gap-2 rounded-full border border-slate-300 px-4 py-2.5 text-sm font-black uppercase tracking-wider text-slate-700 hover:border-peak-green hover:text-peak-green transition-all"
                 >
-                  CBC Programme
-                </a>
+                  Holiday Tuition
+                </Link>
               </div>
             </div>
 

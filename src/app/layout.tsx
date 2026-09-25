@@ -50,9 +50,11 @@ export const metadata: Metadata = {
       { url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
     ],
   },
-  alternates: {
-    canonical: '/',
-  },
+  // NOTE: no root-level `alternates.canonical`. In the App Router a layout's
+  // metadata is inherited by every descendant page that does not override it,
+  // so a root canonical of "/" made /auth/*, /test-connection, /export/render
+  // and every portal route declare themselves to be the homepage.
+  // Each indexable page now declares its own self-referencing canonical.
   openGraph: {
     title: "Peak Performance Tutoring Kenya | KCSE & CBC Tuition Centre",
     description: "Diagnostic-first KCSE and CBC tutoring for Kenyan learners, with tiered groups, guided practice, active recall, and parent-visible progress.",
@@ -63,8 +65,8 @@ export const metadata: Metadata = {
     images: [
       {
         url: 'https://www.peakcampus.co.ke/logo.png',
-        width: 1200,
-        height: 630,
+        width: 1024,
+        height: 1024,
         alt: 'Peak Performance Tutoring — Peak Campus Kenya',
       },
     ],
@@ -88,6 +90,11 @@ export const viewport: Viewport = {
   maximumScale: 1,
 }
 
+// Single site-wide brand-entity graph. Rendered once per page from the root
+// layout so every URL teaches Google the same facts. The homepage previously
+// emitted a second graph reusing the same @id, which is duplicate schema —
+// that copy has been removed in favour of this one.
+// NAP below mirrors the visible footer/contact details exactly.
 const structuredData = {
   '@context': 'https://schema.org',
   '@graph': [
@@ -96,21 +103,41 @@ const structuredData = {
       '@id': 'https://www.peakcampus.co.ke/#organization',
       name: 'Peak Performance Tutoring',
       alternateName: 'Peak Campus',
-      url: 'https://www.peakcampus.co.ke',
-      logo: 'https://www.peakcampus.co.ke/icon-512.png',
+      url: 'https://www.peakcampus.co.ke/',
+      logo: {
+        '@type': 'ImageObject',
+        url: 'https://www.peakcampus.co.ke/logo.png',
+        width: 1024,
+        height: 1024,
+      },
       description:
-        'Diagnostic KCSE and CBC tutoring for Kenyan learners, with targeted intervention, active recall, and visible progress.',
-      areaServed: 'Kenya',
+        'Diagnostic, tiered tutoring for Kenyan 8-4-4 and CBC learners — KCSE revision, CBC support, holiday tuition, private and home tuition in Nairobi.',
+      telephone: '+254798971625',
+      email: 'info@peakcampus.co.ke',
+      address: {
+        '@type': 'PostalAddress',
+        streetAddress: 'St Ignatius Christian School, Kinoo',
+        addressLocality: 'Nairobi',
+        addressCountry: 'KE',
+      },
+      contactPoint: {
+        '@type': 'ContactPoint',
+        telephone: '+254798971625',
+        email: 'info@peakcampus.co.ke',
+        contactType: 'admissions',
+        areaServed: 'KE',
+        availableLanguage: ['en', 'sw'],
+      },
+      areaServed: { '@type': 'Country', name: 'Kenya' },
     },
     {
       '@type': 'WebSite',
       '@id': 'https://www.peakcampus.co.ke/#website',
       name: 'Peak Performance Tutoring',
       alternateName: 'Peak Campus',
-      url: 'https://www.peakcampus.co.ke',
-      publisher: {
-        '@id': 'https://www.peakcampus.co.ke/#organization',
-      },
+      url: 'https://www.peakcampus.co.ke/',
+      inLanguage: 'en-KE',
+      publisher: { '@id': 'https://www.peakcampus.co.ke/#organization' },
     },
   ],
 }

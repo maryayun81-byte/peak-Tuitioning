@@ -15,9 +15,44 @@ import {
 } from 'lucide-react'
 import { PremiumCarousel } from '@/components/ui/PremiumCarousel'
 import { PublicPortalMenu } from '@/components/ui/PublicPortalMenu'
+import { breadcrumbJsonLd } from '@/lib/seo/breadcrumbs'
+
+// Page-specific schema. Organization identity is emitted site-wide by the
+// root layout; this file only describes what is unique to this URL.
+const pageJsonLd = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    breadcrumbJsonLd([
+      { name: 'KCSE & CBC Tutoring', path: '/kcse-and-cbc-tutoring-kenya' },
+    ]),
+  ],
+}
+
+const relatedProgrammes = [
+  {
+    label: 'Holiday Tuition in Kenya',
+    href: '/holiday-tuition-kenya',
+    desc: 'April, August and December revision blocks for both curriculums.',
+  },
+  {
+    label: 'Tuition Centre in Nairobi',
+    href: '/tuition-center-nairobi',
+    desc: 'The Kinoo hub where diagnostics, grouping and placement happen.',
+  },
+  {
+    label: 'About Peak Performance Tutoring',
+    href: '/about',
+    desc: 'How the diagnostic-first teaching model actually works.',
+  },
+  {
+    label: 'Contact Peak Performance Tutoring',
+    href: '/contact',
+    desc: 'Call 0798971625 or WhatsApp to place a learner.',
+  },
+]
 
 export const metadata: Metadata = {
-  title: 'KCSE & CBC Tutoring Kenya | Peak Performance Tutoring',
+  title: { absolute: 'KCSE & CBC Tutoring Kenya | Peak Performance Tutoring' },
   description:
     'KCSE and CBC tutoring in Kenya for Form 3, Form 4 and Grades 6-10. Diagnostic support, small groups, practical CBC tasks and exam-focused KCSE revision.',
   alternates: {
@@ -112,6 +147,10 @@ const sessionFlow = [
 export default function ProgrammesPage() {
   return (
     <main className="min-h-screen bg-[#f6f3ed] text-slate-950">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(pageJsonLd) }}
+      />
       <section className="relative overflow-hidden bg-slate-950 text-white">
         <img src="/media__1776963140037.jpg" alt="Peak Performance programme session" className="absolute inset-0 h-full w-full object-cover" />
         <div className="absolute inset-0 bg-slate-950/72" />
@@ -313,6 +352,32 @@ export default function ProgrammesPage() {
           <Link href="/auth/register" className="inline-flex items-center justify-center gap-2 rounded-full bg-slate-950 px-6 py-3 text-sm font-black uppercase tracking-[0.16em] text-white transition hover:bg-emerald-800">
             Enroll now <ArrowRight size={17} />
           </Link>
+        </div>
+      </section>
+
+      <section className="border-t border-slate-200 bg-white px-4 py-14 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-7xl">
+          <p className="text-xs font-black uppercase tracking-[0.22em] text-[#145da0]">Related programmes</p>
+          <h2 className="mt-4 text-3xl font-black tracking-tight text-[#073159] sm:text-4xl">
+            Choose the next step for this learner.
+          </h2>
+          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {relatedProgrammes.map(({ label, href, desc }) => (
+              <Link
+                key={href}
+                href={href}
+                className="group flex flex-col justify-between rounded-lg border border-slate-200 bg-[#f8f6f1] p-5 transition hover:border-[#145da0]/40 hover:bg-white"
+              >
+                <div>
+                  <h3 className="text-lg font-black tracking-tight text-[#073159]">{label}</h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">{desc}</p>
+                </div>
+                <span className="mt-4 inline-flex items-center gap-2 text-xs font-black uppercase tracking-[0.14em] text-[#145da0]">
+                  View programme <ArrowRight size={14} />
+                </span>
+              </Link>
+            ))}
+          </div>
         </div>
       </section>
     </main>

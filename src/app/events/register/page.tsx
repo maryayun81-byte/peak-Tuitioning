@@ -326,9 +326,11 @@ export default function EventRegistrationPage() {
     })
   }
 
-  if (loading) {
-    return <div className="flex min-h-screen items-center justify-center bg-slate-950 text-white"><Loader2 className="h-8 w-8 animate-spin" /></div>
-  }
+  // NOTE: this route used to early-return a bare spinner while `loading` was
+  // true. Because `loading` starts as `true`, the server-rendered HTML that
+  // crawlers receive contained no <h1> and no content at all. The banner below
+  // is now always rendered so the page ships real markup; only the form body
+  // is gated behind the data fetch.
 
   return (
     <div className="min-h-screen bg-[#f4f8fb] text-[#073159] font-dm-sans">
@@ -351,7 +353,7 @@ export default function EventRegistrationPage() {
               <Sparkles size={14} /> Academic Intake Registration
             </div>
             <h1 className="text-3xl md:text-5xl font-black leading-tight drop-shadow-md px-4">
-              {selectedEventName || 'Choose a programme'}
+              {selectedEventName || 'Event & Holiday Registration'}
             </h1>
             <p className="mt-5 text-sm md:text-base text-white/75 max-w-2xl mx-auto leading-relaxed">
               A premium learner profile for teachers: curriculum, class, recent performance, and exactly where support is needed.
@@ -380,7 +382,12 @@ export default function EventRegistrationPage() {
         </div>
       </div>
 
-      {/* Main Form Area */}
+      {loading ? (
+        <div className="flex min-h-[50vh] items-center justify-center text-[#073159]">
+          <Loader2 className="h-8 w-8 animate-spin" />
+        </div>
+      ) : (
+      // Main Form Area
       <main className="relative -mt-16 mx-auto max-w-3xl px-4 pb-24 z-10">
         <form onSubmit={submit} className="rounded-[2rem] bg-white p-6 md:p-10 shadow-[0_30px_80px_rgba(7,49,89,0.08)] border border-[#145da0]/5">
           
@@ -755,6 +762,7 @@ export default function EventRegistrationPage() {
           </div>
         </form>
       </main>
+      )}
 
       {completedRegistration && createdCredentials.length === 0 && (
         <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[#073159]/80 px-3 py-5 backdrop-blur-md sm:px-4">

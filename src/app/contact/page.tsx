@@ -1,17 +1,17 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { PublicPortalMenu } from '@/components/ui/PublicPortalMenu'
+import { breadcrumbJsonLd } from '@/lib/seo/breadcrumbs'
 import { ContactForm } from './ContactForm'
 
 const phoneNumber = '0798971625'
-const internationalPhone = '+254798971625'
 const whatsappUrl = 'https://wa.me/254798971625?text=Hello%20Peak%20Performance%20Tutoring%2C%20I%20would%20like%20to%20ask%20about%20KCSE%20or%20CBC%20tuition.'
 const mapQuery = encodeURIComponent('St Ignatius Christian School Kinoo')
 const mapEmbedUrl = 'https://www.openstreetmap.org/export/embed.html?bbox=36.6810%2C-1.2580%2C36.7050%2C-1.2420&layer=mapnik&marker=-1.2500%2C36.6930'
 const directionsUrl = `https://www.google.com/maps/search/?api=1&query=${mapQuery}`
 
 export const metadata: Metadata = {
-  title: 'Contact Peak Performance Tutoring Kenya | Kinoo KCSE & CBC Tuition',
+  title: { absolute: 'Contact Peak Performance Tutoring | Kinoo, Nairobi' },
   description:
     'Contact Peak Performance Tutoring at St Ignatius Christian School Kinoo. Call or WhatsApp 0798971625 for KCSE revision, CBC support, Nairobi and Kinoo holiday tuition.',
   alternates: { canonical: '/contact' },
@@ -24,23 +24,12 @@ export const metadata: Metadata = {
   },
 }
 
-const structuredData = {
-  '@context': 'https://schema.org',
-  '@type': 'EducationalOrganization',
-  name: 'Peak Performance Tutoring',
-  alternateName: 'Peak Campus',
-  url: 'https://www.peakcampus.co.ke',
-  logo: 'https://www.peakcampus.co.ke/icon-512.png',
-  telephone: internationalPhone,
-  address: {
-    '@type': 'PostalAddress',
-    streetAddress: 'St Ignatius Christian School, Kinoo',
-    addressLocality: 'Kinoo',
-    addressRegion: 'Kiambu',
-    addressCountry: 'KE',
-  },
-  areaServed: ['Kinoo', 'Nairobi', 'Kiambu', 'Kenya'],
-}
+// The Organization/NAP graph is emitted once for the whole site by the root
+// layout (src/app/layout.tsx). This page previously declared its own
+// EducationalOrganization with a *different* address (Kinoo/Kiambu vs
+// Nairobi), which gave Google two conflicting business records. Removed in
+// favour of the single canonical graph; only page-specific schema remains.
+const structuredData = breadcrumbJsonLd([{ name: 'Contact', path: '/contact' }])
 
 export default function ContactPage() {
   return (
@@ -381,7 +370,7 @@ export default function ContactPage() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <img src="/logo.png" alt="Peak" className="w-5 h-5 rounded object-contain" />
-            <span className="text-xs text-slate-500">Peak Performance Tutoring · Est. 2022</span>
+            <span className="text-xs text-slate-500">Peak Performance Tutoring · Est. 2023</span>
           </div>
           <div className="flex items-center gap-4 text-xs text-slate-400">
             <Link href="/" className="hover:text-peak-green transition-colors">Home</Link>

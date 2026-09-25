@@ -148,9 +148,9 @@ export function PeakFooter() {
             <div>
               <div className="peak-label text-slate-500 mb-3">CONTACT</div>
               <div className="space-y-2">
-                <div className="text-xs text-slate-500">St Ignatius, Kinoo, Nairobi, Kenya</div>
-                <div className="text-xs text-slate-500">info@peakcampus.co.ke</div>
-                <div className="text-xs text-slate-500">+254 798 971 625</div>
+                <div className="text-xs text-slate-500">St Ignatius Christian School, Kinoo, Nairobi, Kenya</div>
+                <a href="mailto:info@peakcampus.co.ke" className="block text-xs text-slate-500 hover:text-peak-green transition-colors">info@peakcampus.co.ke</a>
+                <a href="tel:+254798971625" className="block text-xs text-slate-500 hover:text-peak-green transition-colors">+254 798 971 625</a>
               </div>
             </div>
 
@@ -192,7 +192,7 @@ export function PeakFooter() {
           {/* Bottom bar */}
           <div className="pt-8 border-t border-slate-200/30 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="text-[10px] text-slate-500 peak-mono">
-              © 2026 PEAK CAMPUS. ALL RIGHTS RESERVED.
+              © 2026 PEAK PERFORMANCE TUTORING. ALL RIGHTS RESERVED.
             </div>
             <div className="flex items-center gap-1 text-[10px] text-slate-500">
               <span>BUILT WITH</span>

@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 
 export const metadata: Metadata = {
-  title: 'Thank you | Peak Campus Kenya',
+  title: { absolute: 'Thank you | Peak Performance Tutoring' },
   description: 'Your inquiry was received. We respond within 24 hours.',
   alternates: { canonical: '/thank-you' },
   robots: { index: false, follow: false },

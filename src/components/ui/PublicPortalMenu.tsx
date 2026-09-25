@@ -9,7 +9,11 @@ const publicLinks = [
   {
     label: 'Who We Are',
     desc: 'Peak philosophy, tiers and teaching model',
-    href: '/#who-we-are',
+    // Was `/#who-we-are`, an anchor that exists nowhere on the homepage, so
+    // this link silently landed users (and crawlers) at the top of the page.
+    // `/about` is the real page for this intent and was previously reachable
+    // only from the footer.
+    href: '/about',
     icon: Home,
   },
   {
